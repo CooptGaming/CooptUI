@@ -1,0 +1,26 @@
+| ================================================= |
+| Log Item - Log item to history file              |
+| ================================================= |
+| Usage: /call LogItem "loot" "ItemName" "Value" "Reason"
+|        /call LogItem "sell" "ItemName" "Value" "Reason"
+| ================================================= |
+
+Sub LogItem(string action, string itemName, int itemValue, string reason)
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs
+    /declare logFile string local
+    
+    /if (${action.Equal[loot]}) {
+        /varset logFile ${logPath}/loot_history.log
+    } else /if (${action.Equal[sell]}) {
+        /varset logFile ${logPath}/sell_history.log
+    } else {
+        /return
+    }
+    
+    | Create log entry
+    /declare timestamp string local ${Time.Date} ${Time.Time12}
+    /declare logEntry string local [${timestamp}] ${String.Upper[${action}]}: ${itemName} (Value: ${itemValue}, Reason: ${reason})
+    
+    | Append to log file
+    /writefile ${logFile} ${logEntry}
+/return

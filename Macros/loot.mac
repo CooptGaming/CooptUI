@@ -1,0 +1,1195 @@
+| ================================================= |
+| Loot Macro v4.0                                   |
+| Features: Modular Config Files, Hierarchical    |
+|           Filters, Optional Sorting, Lore Check   |
+| ================================================= |
+| Usage:                                            |
+|   /macro loot          - Run auto-loot            |
+|   /macro loot load     - Reload config           |
+|   /macro loot help     - Show this help message   |
+| ================================================= |
+| Config Files: loot_config/ directory              |
+| ================================================= |
+Sub Main
+
+| ------------------------------------------------- |
+| PARSE ARGUMENTS                                   |
+| ------------------------------------------------- |
+/declare doLoad bool outer FALSE
+/declare doHelp bool outer FALSE
+/declare arg1 string local ${Param0}
+/declare configPath string outer ${MacroQuest.Path}/Macros/loot_config
+/declare sharedConfigPath string outer ${MacroQuest.Path}/Macros/shared_config
+
+| Check for command arguments
+/if (${arg1.Equal[help]}) /varset doHelp TRUE
+/if (${arg1.Equal[load]}) /varset doLoad TRUE
+
+| Handle help command
+/if (${doHelp}) {
+    /call ShowHelp
+    /return
+}
+
+| ------------------------------------------------- |
+| RUNTIME VARIABLES                                 |
+| ------------------------------------------------- |
+/declare Alert int outer 1
+/declare loottotal int outer 0
+/declare lootslot int outer 0
+/declare lootName string outer
+/declare lootType string outer
+/declare isStackable bool outer
+/declare shouldLoot bool outer
+/declare skipItem bool outer
+/declare itemValue int outer
+/declare itemTribute int outer
+/declare isLore bool outer
+/declare hasLoreItem bool outer
+
+| ------------------------------------------------- |
+| PERFORMANCE OPTIMIZATION                          |
+| ------------------------------------------------- |
+| Lore item cache (session-based, reduces FindItem calls)
+| Format: pipe-delimited string (e.g. "|ItemName1|ItemName2|")
+/declare loreItemCache string outer |
+
+| ------------------------------------------------- |
+| CONFIGURATION VARIABLES                           |
+| ------------------------------------------------- |
+| Always Loot Lists
+/declare alwaysLootExact string outer
+/declare alwaysLootContains string outer
+/declare alwaysLootTypes string outer
+
+| Skip Lists
+/declare skipExact string outer
+/declare skipContains string outer
+/declare skipTypes string outer
+
+| Value Settings
+/declare minLootValue int outer
+/declare minLootValueStack int outer
+/declare tributeOverride int outer
+
+| Flag Settings
+/declare lootClickies bool outer
+/declare lootQuest bool outer
+/declare lootCollectible bool outer
+/declare lootHeirloom bool outer
+/declare lootAttuneable bool outer
+/declare lootAugSlots bool outer
+/declare alwaysLootEpic bool outer
+
+| Epic Items (when alwaysLootEpic - chunked to avoid buffer overflow, do NOT merge)
+| When epic_classes.ini has any class=TRUE, only those classes' lists are loaded; else full epic_items_exact.ini
+/declare epicExact string outer
+/declare epicExact2 string outer
+/declare epicExact3 string outer
+/declare epicExact4 string outer
+/declare epicChunkIdx int outer 1
+
+| Sorting Settings
+/declare enableSorting bool outer
+/declare enableWeightSort bool outer
+/declare minWeight int outer
+
+| Loop Safety Settings
+/declare maxLoopIterations int outer 1000
+/declare loopIterationCount int outer 0
+
+| Movement Settings
+/declare maxMoveDelay int outer 100
+
+| ------------------------------------------------- |
+| LOAD CONFIGURATION                                |
+| ------------------------------------------------- |
+/call LoadConfig FALSE
+
+| Handle load command (verbose mode)
+/if (${doLoad}) {
+    /call LoadConfig TRUE
+    /echo Configuration reloaded.
+    /return
+}
+
+| ------------------------------------------------- |
+| START LOOTING                                     |
+| ------------------------------------------------- |
+/hidecorpse looted
+/echo ==========================================
+/echo Loot Macro v4.0 Started
+/echo ==========================================
+/echo Config: Min Value=${minLootValue}, Min Stack=${minLootValueStack}
+/echo Config: Tribute Override=${tributeOverride}
+/if (${enableSorting} && ${enableWeightSort}) {
+    /echo Config: Weight Sorting Enabled (threshold: ${minWeight})
+} else {
+    /echo Config: Sorting Disabled
+}
+:mainlootloop
+    
+    | --- Loop safety check ---
+    /varcalc loopIterationCount ${loopIterationCount}+1
+    /if (${loopIterationCount} >= ${maxLoopIterations}) {
+        /echo ==========================================
+        /echo WARNING: Main loop iteration limit reached (${maxLoopIterations})
+        /echo This prevents infinite loops from targeting/approach failures
+        /echo Ending macro safely
+        /echo ==========================================
+        /call FinishLooting
+        /return
+    }
+    
+    | --- Check for free inventory ---
+    /if (!${Me.FreeInventory}) {
+        /echo Your Inventory is full!!
+        /end
+    }
+    
+    | --- Check for nearby corpses ---
+    /if (${SpawnCount[npccorpse radius 25 noalert 1]} == 0) {
+        /call FinishLooting
+        /return
+    }
+    
+    | --- Target and approach corpse ---
+    /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+    /delay 1
+    /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
+    
+    /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
+    
+    | --- Approach corpse with movement retry logic ---
+    /call ApproachCorpse
+    
+    | --- Verify we're close enough to loot ---
+    /if (${Target.Distance} > 20) {
+        /echo Warning: Too far from corpse (${Target.Distance} units) - skipping
+        /goto :mainlootloop
+    }
+    
+    | --- Clear cursor before looting ---
+    /if (${Cursor.ID}) {
+        /autoinventory
+        /delay 5 !${Cursor.ID}
+    }
+    
+    | --- Open loot window ---
+    /loot
+    /doevents
+    /delay 10 ${Window[LootWnd].Open}
+
+    | --- Verify loot window is open ---
+    /if (!${Window[LootWnd].Open}) {
+        /echo Warning: Loot window failed to open - retrying
+        /delay 2
+        /goto :mainlootloop
+    }
+    
+    | --- Small delay to ensure items are loaded ---
+    /delay 2
+
+    | --- Count items on corpse ---
+    /varset loottotal ${Corpse.Items} 
+    /if (${loottotal} <= 0) { 
+        /call CloseLootWindow
+        /goto :mainlootloop 
+    } 
+    
+    | --- Process each item on corpse ---
+    /for lootslot 1 to ${loottotal}
+        | Verify loot window is still open before each item
+        /if (!${Window[LootWnd].Open}) {
+            /echo Warning: Loot window closed unexpectedly
+            /goto :mainlootloop
+        }
+        /if (${Corpse.Item[${lootslot}].ID}) /call EvaluateItem ${lootslot}
+    /next lootslot
+    
+    | --- Clear any item left on cursor ---
+    /if (${Cursor.ID}) {
+        /autoinventory
+        /delay 5 !${Cursor.ID}
+    }
+    
+    | --- Close loot window ---
+    /call CloseLootWindow
+    
+    /goto :mainlootloop
+    
+/return
+
+| ================================================= |
+| EvaluateItem - Hierarchical loot decision         |
+| ================================================= |
+sub EvaluateItem(int slot)
+    | --- Cache item properties into variables ---
+    /varset lootName ${Corpse.Item[${slot}].Name}
+    /varset lootType ${Corpse.Item[${slot}].Type}
+    /varset itemValue ${Corpse.Item[${slot}].Value}
+    /varset itemTribute ${Corpse.Item[${slot}].Tribute}
+    /varset isStackable ${If[${Corpse.Item[${slot}].StackSize}>1,TRUE,FALSE]}
+    /varset isLore ${Corpse.Item[${slot}].Lore}
+    /varset shouldLoot FALSE
+    /varset skipItem FALSE
+
+    | =========================================== |
+    | PRIORITY 0: LORE CHECK (CRITICAL)          |
+    | =========================================== |
+    | Check if we already have this lore item (inventory OR bank)
+    | CRITICAL: Attempting to loot duplicate lore item closes loot window
+    | PERFORMANCE: Cache lore items to avoid repeated FindItem scans
+    /if (${isLore}) {
+        /declare foundItemID int local 0
+        /declare cacheKey string local |${lootName}|
+        
+        | Check cache first (fast string search)
+        /if (${loreItemCache.Find[${cacheKey}]}) {
+            /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /return
+        }
+        
+        | Cache miss - perform actual FindItem scan
+        /varset foundItemID ${FindItem[=${lootName}].ID}
+        
+        /if (${foundItemID} > 0) {
+            | Add to cache for future checks this session
+            /varset loreItemCache ${loreItemCache}${cacheKey}
+            /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
+            /return
+        }
+    }
+
+    /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
+    
+    | =========================================== |
+    | PRIORITY 0.5: EPIC ITEMS (always loot)     |
+    | =========================================== |
+    | EPIC quest items are always looted (even if in skip list). Check each chunk separately to avoid buffer overflow.
+    /if (${alwaysLootEpic}) {
+        /if (${epicExact.Length} > 0) {
+            /call CheckFilterList "${epicExact}" "${lootName}" FALSE TRUE
+            /if (${shouldLoot}) /goto :LootEpicItem
+        }
+        /if (${epicExact2.Length} > 0) {
+            /call CheckFilterList "${epicExact2}" "${lootName}" FALSE TRUE
+            /if (${shouldLoot}) /goto :LootEpicItem
+        }
+        /if (${epicExact3.Length} > 0) {
+            /call CheckFilterList "${epicExact3}" "${lootName}" FALSE TRUE
+            /if (${shouldLoot}) /goto :LootEpicItem
+        }
+        /if (${epicExact4.Length} > 0) {
+            /call CheckFilterList "${epicExact4}" "${lootName}" FALSE TRUE
+            /if (${shouldLoot}) /goto :LootEpicItem
+        }
+    }
+    /goto :AfterEpicCheck
+:LootEpicItem
+    /echo LOOTING (Epic quest item): ${lootName}
+    /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item"
+    /call LootItemWithSound ${slot}
+    /return
+:AfterEpicCheck
+    
+    | =========================================== |
+    | PRIORITY 1: SKIP LISTS (HIGHEST PRIORITY)  |
+    | =========================================== |
+    | Check skip lists - if item matches, skip it
+    /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE
+    /if (${skipItem}) {
+        /echo SKIPPING (skip exact): ${lootName}
+        /return
+    }
+    
+    /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE
+    /if (${skipItem}) {
+        /echo SKIPPING (skip keyword): ${lootName}
+        /return
+    }
+    
+    /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE
+    /if (${skipItem}) {
+        /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
+        /return
+    }
+    
+    | =========================================== |
+    | PRIORITY 2: TRIBUTE OVERRIDE                |
+    | =========================================== |
+    /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
+        /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
+        /call LogItem "loot" "${lootName}" ${itemValue} "tribute override"
+        /call LootItemWithSound ${slot}
+        /return
+    }
+    
+    | =========================================== |
+    | PRIORITY 3: Always Loot - Exact Names       |
+    | =========================================== |
+    /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE
+    /if (${shouldLoot}) {
+        /echo LOOTING (always loot exact): ${lootName}
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact"
+        /call LootItemWithSound ${slot}
+        /return
+    }
+    
+    | =========================================== |
+    | PRIORITY 4: Always Loot - Contains         |
+    | =========================================== |
+    /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE
+    /if (${shouldLoot}) {
+        /echo LOOTING (always loot keyword): ${lootName}
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword"
+        /call LootItemWithSound ${slot}
+        /return
+    }
+    
+    | =========================================== |
+    | PRIORITY 5: Always Loot - Item Types        |
+    | =========================================== |
+    /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE
+    /if (${shouldLoot}) {
+        /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot type"
+        /call LootItemWithSound ${slot}
+        /return
+    }
+    
+    | =========================================== |
+    | PRIORITY 6: Value Checks                    |
+    | =========================================== |
+    /if (${isStackable} && ${itemValue} >= ${minLootValueStack}) /varset shouldLoot TRUE
+    /if (!${isStackable} && ${itemValue} >= ${minLootValue}) /varset shouldLoot TRUE
+    
+    | =========================================== |
+    | PRIORITY 7: Flag Checks                     |
+    | =========================================== |
+    | Clicky check (wearable items only; EffectType 1/4/5 = Click Inv/Worn, exclude Proc/Worn/Focus)
+    /if (${lootClickies} && ${Corpse.Item[${slot}].WornSlots} && ${Corpse.Item[${slot}].Clicky.Spell.ID}) {
+        /if (${Corpse.Item[${slot}].Clicky.EffectType}==1 || ${Corpse.Item[${slot}].Clicky.EffectType}==4 || ${Corpse.Item[${slot}].Clicky.EffectType}==5) /varset shouldLoot TRUE
+    }
+    
+    | Quest flag check
+    /if (${lootQuest} && ${Corpse.Item[${slot}].Quest}) /varset shouldLoot TRUE
+    
+    | Collectible flag check
+    /if (${lootCollectible} && ${Corpse.Item[${slot}].Collectible}) /varset shouldLoot TRUE
+    
+    | Heirloom flag check
+    /if (${lootHeirloom} && ${Corpse.Item[${slot}].Heirloom}) /varset shouldLoot TRUE
+    
+    | Attuneable flag check
+    /if (${lootAttuneable} && ${Corpse.Item[${slot}].Attuneable}) /varset shouldLoot TRUE
+    
+    | Augment slots check
+    /if (${lootAugSlots}) {
+        /if (${Corpse.Item[${slot}].AugSlot1} || ${Corpse.Item[${slot}].AugSlot2} || ${Corpse.Item[${slot}].AugSlot3} || ${Corpse.Item[${slot}].AugSlot4} || ${Corpse.Item[${slot}].AugSlot5}) {
+            /varset shouldLoot TRUE
+        }
+    }
+    
+    | --- Loot if any condition passed ---
+    /if (${shouldLoot}) {
+        /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
+        /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check"
+        /call LootItemWithSound ${slot}
+    } else {
+        /echo Skipping (no criteria met): ${lootName}
+    }
+    
+/return
+
+| ================================================= |
+| CheckFilterList - Generic filter checker          |
+| ================================================= |
+sub CheckFilterList(string filterList, string matchValue, bool isSkipList, bool isExactMatch)
+    /declare term string local
+    /declare i int local 1
+    /declare tokenCount int local
+    /declare matched bool local FALSE
+
+    | Reset flags
+    /if (${isSkipList}) {
+        /varset skipItem FALSE
+    } else {
+        /varset shouldLoot FALSE
+    }
+    
+    /if (${filterList.Length} < 1) /return
+
+    | Number of tokens = number of delimiters + 1
+    /varset tokenCount ${Math.Calc[${filterList.Count[/]}+1]}
+
+    | Parse terms separated by "/"
+    /while (${i} <= ${tokenCount}) {
+        /varset term ${filterList.Token[${i},/]}
+        /if (${term.Length} > 0) {
+            /varset matched FALSE
+            
+            /if (${isExactMatch}) {
+                /if (${matchValue.Equal[${term}]}) /varset matched TRUE
+            } else {
+                /if (${matchValue.Find[${term}]}) /varset matched TRUE
+            }
+            
+            /if (${matched}) {
+                /if (${isSkipList}) {
+                    /varset skipItem TRUE
+                } else {
+                    /varset shouldLoot TRUE
+                }
+                /return
+            }
+        }
+        /varset i ${Math.Calc[${i}+1]}
+    }
+/return
+
+| ================================================= |
+| AddToEpicChunks - Append a list to epic chunks (used when loading by class; avoids buffer overflow)
+| ================================================= |
+sub AddToEpicChunks(string list)
+    /if (${list.Length} == 0) /return
+    /if (${epicChunkIdx} == 1) {
+        /if (${epicExact.Length} > 0 && ${Math.Calc[${epicExact.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 2
+        /if (${epicChunkIdx} == 1) {
+            /if (${epicExact.Length} > 0) /varset epicExact ${epicExact}/${list}
+            /else /varset epicExact ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 2) {
+        /if (${epicExact2.Length} > 0 && ${Math.Calc[${epicExact2.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 3
+        /if (${epicChunkIdx} == 2) {
+            /if (${epicExact2.Length} > 0) /varset epicExact2 ${epicExact2}/${list}
+            /else /varset epicExact2 ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 3) {
+        /if (${epicExact3.Length} > 0 && ${Math.Calc[${epicExact3.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 4
+        /if (${epicChunkIdx} == 3) {
+            /if (${epicExact3.Length} > 0) /varset epicExact3 ${epicExact3}/${list}
+            /else /varset epicExact3 ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 4) {
+        /if (${epicExact4.Length} > 0 && ${Math.Calc[${epicExact4.Length}+1+${list.Length}]} > 2040) /return
+        /if (${epicExact4.Length} > 0) /varset epicExact4 ${epicExact4}/${list}
+        /else /varset epicExact4 ${list}
+    }
+/return
+
+| ================================================= |
+| LootItem - Pick up item from corpse               |
+| ================================================= |
+sub LootItem(int slot)
+    /declare lootAttempts int local 0
+    /declare maxAttempts int local 5
+    /declare itemName string local
+    
+    | --- Safety check: ensure item still exists ---
+    /if (!${Corpse.Item[${slot}].ID}) /return
+    
+    | --- Store item name for verification ---
+    /varset itemName ${Corpse.Item[${slot}].Name}
+
+:WaitLootItem
+    /varset lootAttempts ${Math.Calc[${lootAttempts}+1]}
+    
+    | --- Check if we've tried too many times ---
+    /if (${lootAttempts} > ${maxAttempts}) {
+        /echo Warning: Failed to loot "${itemName}" after ${maxAttempts} tries - skipping
+        /return
+    }
+    
+    | --- Attempt to loot the item ---
+    /ctrl /itemnotify loot${slot} rightmouseup
+    /delay 5 !${Corpse.Item[${slot}].ID}
+    
+    | --- Handle confirmation dialog if it appears ---
+    /if (${Window[ConfirmationDialogBox].Open}) {
+        /notify ConfirmationDialogBox CD_Yes_Button leftmouseup
+        /delay 3
+    }
+    
+    | --- Handle item on cursor (put in inventory) ---
+    /if (${Cursor.ID}) {
+        /autoinventory
+        /delay 5 !${Cursor.ID}
+    }
+    
+    | --- Retry if item is still on corpse ---
+    /if (${Corpse.Item[${slot}].ID}) /goto :WaitLootItem
+/return
+
+| ================================================= |
+| LootItemWithSound - Loot with sound notification  |
+| ================================================= |
+sub LootItemWithSound(int slot)
+    | --- Check for special items and play sound effect ---
+    /if (${lootName.Find[Legendary]} || ${lootName.Find[Mythical]} || ${lootName.Find[Script]}) {
+        /beep
+        /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
+    }
+
+    | --- Now loot the item ---
+    /call LootItem ${slot}
+/return
+
+| ================================================= |
+| CloseLootWindow                                   |
+| ================================================= |
+sub CloseLootWindow
+    /declare closeAttempts int local 0
+:TryClose
+    /varset closeAttempts ${Math.Calc[${closeAttempts}+1]}
+    /if (${closeAttempts} > 10) {
+        /echo Warning: Could not close loot window after 10 attempts
+        /return
+    }
+    /notify LootWnd DoneButton leftmouseup
+    /delay 3 !${Window[LootWnd].Open}
+    /if (${Window[LootWnd].Open}) /goto :TryClose
+/return
+
+| ================================================= |
+| FinishLooting                                     |
+| ================================================= |
+sub FinishLooting
+    /echo ==========================================
+    /echo ${Time} Done Looting
+    /if (${enableSorting} && ${enableWeightSort}) {
+        /echo Sorting inventory by weight...
+        /call SortInventoryByWeight
+    } else {
+        /echo Inventory sorting disabled.
+    }
+    /echo ==========================================
+    
+    /if (${Me.Grouped}) /g Done Looting
+    /if (${Alert}) /squelch /alert clear ${Alert}
+/return
+
+| ================================================= |
+| LoadConfig - Load from modular INI config files  |
+| ================================================= |
+sub LoadConfig(bool verbose)
+    /if (${verbose}) /echo Loading configuration from loot_config/ and shared_config/ directories...
+    
+    | Load Shared Valuable Items FIRST (higher priority)
+    /declare sharedExactFile string local ${sharedConfigPath}/valuable_exact.ini
+    /declare sharedContainsFile string local ${sharedConfigPath}/valuable_contains.ini
+    /declare sharedTypesFile string local ${sharedConfigPath}/valuable_types.ini
+    
+    /declare sharedExact string local
+    /declare sharedContains string local
+    /declare sharedTypes string local
+    
+    /if (${Ini[${sharedExactFile},Items,exact].Length}) {
+        /varset sharedExact ${Ini[${sharedExactFile},Items,exact]}
+    }
+    
+    /if (${Ini[${sharedContainsFile},Items,contains].Length}) {
+        /varset sharedContains ${Ini[${sharedContainsFile},Items,contains]}
+    }
+    
+    /if (${Ini[${sharedTypesFile},Items,types].Length}) {
+        /varset sharedTypes ${Ini[${sharedTypesFile},Items,types]}
+    }
+    
+    | Load Macro-Specific Always Loot Lists (merged with shared)
+    /declare exactFile string local ${configPath}/loot_always_exact.ini
+    /declare containsFile string local ${configPath}/loot_always_contains.ini
+    /declare typesFile string local ${configPath}/loot_always_types.ini
+    
+    /declare macroExact string local
+    /declare macroContains string local
+    /declare macroTypes string local
+    
+    /if (${Ini[${exactFile},Items,exact].Length}) {
+        /varset macroExact ${Ini[${exactFile},Items,exact]}
+    }
+    
+    /if (${Ini[${containsFile},Items,contains].Length}) {
+        /varset macroContains ${Ini[${containsFile},Items,contains]}
+    }
+    
+    /if (${Ini[${typesFile},Items,types].Length}) {
+        /varset macroTypes ${Ini[${typesFile},Items,types]}
+    }
+    
+    | Merge shared + macro-specific (shared items first, then macro-specific)
+    /if (${sharedExact.Length} > 0 && ${macroExact.Length} > 0) {
+        /varset alwaysLootExact ${sharedExact}/${macroExact}
+    } else /if (${sharedExact.Length} > 0) {
+        /varset alwaysLootExact ${sharedExact}
+    } else /if (${macroExact.Length} > 0) {
+        /varset alwaysLootExact ${macroExact}
+    } else {
+        /varset alwaysLootExact
+    }
+    
+    /if (${sharedContains.Length} > 0 && ${macroContains.Length} > 0) {
+        /varset alwaysLootContains ${sharedContains}/${macroContains}
+    } else /if (${sharedContains.Length} > 0) {
+        /varset alwaysLootContains ${sharedContains}
+    } else /if (${macroContains.Length} > 0) {
+        /varset alwaysLootContains ${macroContains}
+    } else {
+        /varset alwaysLootContains
+    }
+    
+    /if (${sharedTypes.Length} > 0 && ${macroTypes.Length} > 0) {
+        /varset alwaysLootTypes ${sharedTypes}/${macroTypes}
+    } else /if (${sharedTypes.Length} > 0) {
+        /varset alwaysLootTypes ${sharedTypes}
+    } else /if (${macroTypes.Length} > 0) {
+        /varset alwaysLootTypes ${macroTypes}
+    } else {
+        /varset alwaysLootTypes
+    }
+    
+    | Load Skip Lists (INI files)
+    /declare skipExactFile string local ${configPath}/loot_skip_exact.ini
+    /declare skipContainsFile string local ${configPath}/loot_skip_contains.ini
+    /declare skipTypesFile string local ${configPath}/loot_skip_types.ini
+    
+    /if (${Ini[${skipExactFile},Items,exact].Length}) {
+        /varset skipExact ${Ini[${skipExactFile},Items,exact]}
+    } else {
+        /varset skipExact
+    }
+    
+    /if (${Ini[${skipContainsFile},Items,contains].Length}) {
+        /varset skipContains ${Ini[${skipContainsFile},Items,contains]}
+    } else {
+        /varset skipContains
+    }
+    
+    /if (${Ini[${skipTypesFile},Items,types].Length}) {
+        /varset skipTypes ${Ini[${skipTypesFile},Items,types]}
+    } else {
+        /varset skipTypes
+    }
+    
+    | Load Value Settings
+    /declare valueFile string local ${configPath}/loot_value.ini
+    /if (${Ini[${valueFile},Settings,minLootValue].Length}) {
+        /varset minLootValue ${Ini[${valueFile},Settings,minLootValue]}
+    } else {
+        /varset minLootValue 999
+    }
+    
+    /if (${Ini[${valueFile},Settings,minLootValueStack].Length}) {
+        /varset minLootValueStack ${Ini[${valueFile},Settings,minLootValueStack]}
+    } else {
+        /varset minLootValueStack 200
+    }
+    
+    /if (${Ini[${valueFile},Settings,tributeOverride].Length}) {
+        /varset tributeOverride ${Ini[${valueFile},Settings,tributeOverride]}
+    } else {
+        /varset tributeOverride 1000
+    }
+    
+    | Load Flag Settings
+    /declare flagsFile string local ${configPath}/loot_flags.ini
+    /if (${Ini[${flagsFile},Settings,lootClickies].Length}) {
+        /varset lootClickies ${Ini[${flagsFile},Settings,lootClickies]}
+    } else {
+        /varset lootClickies TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,lootQuest].Length}) {
+        /varset lootQuest ${Ini[${flagsFile},Settings,lootQuest]}
+    } else {
+        /varset lootQuest FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,lootCollectible].Length}) {
+        /varset lootCollectible ${Ini[${flagsFile},Settings,lootCollectible]}
+    } else {
+        /varset lootCollectible FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,lootHeirloom].Length}) {
+        /varset lootHeirloom ${Ini[${flagsFile},Settings,lootHeirloom]}
+    } else {
+        /varset lootHeirloom FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,lootAttuneable].Length}) {
+        /varset lootAttuneable ${Ini[${flagsFile},Settings,lootAttuneable]}
+    } else {
+        /varset lootAttuneable FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,lootAugSlots].Length}) {
+        /varset lootAugSlots ${Ini[${flagsFile},Settings,lootAugSlots]}
+    } else {
+        /varset lootAugSlots FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,alwaysLootEpic].Length}) {
+        /varset alwaysLootEpic ${Ini[${flagsFile},Settings,alwaysLootEpic]}
+    } else {
+        /varset alwaysLootEpic TRUE
+    }
+    
+    | Load Epic Items (chunked - do NOT merge). Respect epic_classes.ini: if any class=TRUE, only those classes; else full list.
+    /declare epicExactFile string local ${sharedConfigPath}/epic_items_exact.ini
+    /declare epicClassesFile string local ${sharedConfigPath}/epic_classes.ini
+    /varset epicExact
+    /varset epicExact2
+    /varset epicExact3
+    /varset epicExact4
+    /if (${alwaysLootEpic}) {
+        | Check if any class is selected in settings (epic_classes.ini)
+        /declare anyEpicClass int local 0
+        /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${anyEpicClass}) {
+            | Load only selected classes' epic lists (chunked to avoid buffer overflow)
+            /varset epicChunkIdx 1
+            /declare epicList string local
+            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+        } else {
+            | No class selected - skip epic check (do not load any epic list)
+        }
+    }
+    
+    | Load Sorting Settings
+    /declare sortingFile string local ${configPath}/loot_sorting.ini
+    /if (${Ini[${sortingFile},Settings,enableSorting].Length}) {
+        /varset enableSorting ${Ini[${sortingFile},Settings,enableSorting]}
+    } else {
+        /varset enableSorting FALSE
+    }
+    
+    /if (${Ini[${sortingFile},Settings,enableWeightSort].Length}) {
+        /varset enableWeightSort ${Ini[${sortingFile},Settings,enableWeightSort]}
+    } else {
+        /varset enableWeightSort FALSE
+    }
+    
+    /if (${Ini[${sortingFile},Settings,minWeight].Length}) {
+        /varset minWeight ${Ini[${sortingFile},Settings,minWeight]}
+    } else {
+        /varset minWeight 40
+    }
+    
+    | Load Movement Settings
+    /if (${Ini[${sortingFile},Settings,maxMoveDelay].Length}) {
+        /varset maxMoveDelay ${Ini[${sortingFile},Settings,maxMoveDelay]}
+    } else {
+        /varset maxMoveDelay 100
+    }
+    
+    | Load Loop Safety Settings
+    /declare flagsFile string local ${configPath}/loot_flags.ini
+    /if (${Ini[${flagsFile},Settings,maxLoopIterations].Length}) {
+        /varset maxLoopIterations ${Ini[${flagsFile},Settings,maxLoopIterations]}
+    } else {
+        /varset maxLoopIterations 1000
+    }
+    
+    | Convert string values to proper types
+    /varset minLootValue ${Int[${minLootValue}]}
+    /varset minLootValueStack ${Int[${minLootValueStack}]}
+    /varset tributeOverride ${Int[${tributeOverride}]}
+    /varset minWeight ${Int[${minWeight}]}
+    /varset maxLoopIterations ${Int[${maxLoopIterations}]}
+    /varset maxMoveDelay ${Int[${maxMoveDelay}]}
+    
+    | Convert boolean strings to bool
+    /varset lootClickies ${Bool[${lootClickies}]}
+    /varset lootQuest ${Bool[${lootQuest}]}
+    /varset lootCollectible ${Bool[${lootCollectible}]}
+    /varset lootHeirloom ${Bool[${lootHeirloom}]}
+    /varset lootAttuneable ${Bool[${lootAttuneable}]}
+    /varset lootAugSlots ${Bool[${lootAugSlots}]}
+    /varset alwaysLootEpic ${Bool[${alwaysLootEpic}]}
+    /varset enableSorting ${Bool[${enableSorting}]}
+    /varset enableWeightSort ${Bool[${enableWeightSort}]}
+    
+    /if (${verbose}) {
+        /echo Configuration loaded!
+        /if (${sharedExact.Length} > 0 || ${sharedContains.Length} > 0 || ${sharedTypes.Length} > 0) {
+            /echo Shared Valuable Items: Loaded
+        }
+        /if (${alwaysLootExact.Length}) {
+            /echo Always Loot Exact: ${alwaysLootExact.Count[/]} items (shared + macro-specific)
+        } else {
+            /echo Always Loot Exact: 0 items
+        }
+        /if (${alwaysLootContains.Length}) {
+            /echo Always Loot Contains: ${alwaysLootContains.Count[/]} keywords (shared + macro-specific)
+        } else {
+            /echo Always Loot Contains: 0 keywords
+        }
+        /if (${alwaysLootTypes.Length}) {
+            /echo Always Loot Types: ${alwaysLootTypes.Count[/]} types (shared + macro-specific)
+        } else {
+            /echo Always Loot Types: 0 types
+        }
+        /if (${skipExact.Length}) {
+            /echo Skip Exact: ${skipExact.Count[/]} items
+        } else {
+            /echo Skip Exact: 0 items
+        }
+        /if (${skipContains.Length}) {
+            /echo Skip Contains: ${skipContains.Count[/]} keywords
+        } else {
+            /echo Skip Contains: 0 keywords
+        }
+        /if (${skipTypes.Length}) {
+            /echo Skip Types: ${skipTypes.Count[/]} types
+        } else {
+            /echo Skip Types: 0 types
+        }
+    }
+/return
+
+
+| ================================================= |
+| ShowHelp - Display usage information              |
+| ================================================= |
+sub ShowHelp
+    /echo ==========================================
+    /echo Loot Macro v4.0 - Help
+    /echo ==========================================
+    /echo Usage:
+    /echo   /macro loot          - Run auto-loot
+    /echo   /macro loot load     - Reload config
+    /echo   /macro loot help     - Show this help
+    /echo ==========================================
+    /echo Config Files: loot_config/ directory
+    /echo ==========================================
+    /echo Filter Priority (highest to lowest):
+    /echo   1. Lore duplicate check (skip)
+    /echo   2. Skip lists (exact, contains, types)
+    /echo   3. Tribute override (loot if high)
+    /echo   4. Always loot exact names
+    /echo   5. Always loot keywords
+    /echo   6. Always loot types
+    /echo   7. Value checks
+    /echo   8. Flag checks (clickies, quest, etc.)
+    /echo ==========================================
+/return
+
+| ================================================= |
+| SortInventoryByWeight                             |
+| ================================================= |
+sub SortInventoryByWeight
+    | Only sort if enabled
+    /if (!${enableSorting} || !${enableWeightSort}) /return
+    
+    /declare bagNum int local
+    /declare slotNum int local
+    /declare bagSize int local
+    /declare itemWeight int local
+    /declare targetPack int local
+    /declare targetSlot int local
+    
+    /for bagNum 1 to 10
+        /if (${Me.Inventory[pack${bagNum}].Container}) {
+            /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+            
+            /for slotNum 1 to ${bagSize}
+                /if (${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) {
+                    /varset itemWeight ${Me.Inventory[pack${bagNum}].Item[${slotNum}].Weight}
+                    
+                    /if (${itemWeight} > ${minWeight}) {
+                        /if (${bagNum} > 5) {
+                            /call FindFirstBagSlot
+                            /varset targetPack ${Macro.Return.Arg[1,,]}
+                            /varset targetSlot ${Macro.Return.Arg[2,,]}
+                            /if (${targetPack} > 0 && ${targetPack} < ${bagNum}) /call MoveItem ${bagNum} ${slotNum} ${targetPack} ${targetSlot}
+                        }
+                    } else {
+                        /if (${bagNum} < 6) {
+                            /call FindLastBagSlot
+                            /varset targetPack ${Macro.Return.Arg[1,,]}
+                            /varset targetSlot ${Macro.Return.Arg[2,,]}
+                            /if (${targetPack} > 0 && ${targetPack} > ${bagNum}) /call MoveItem ${bagNum} ${slotNum} ${targetPack} ${targetSlot}
+                        }
+                    }
+                }
+            /next slotNum
+        }
+    /next bagNum
+/return
+
+| ================================================= |
+| MoveItem                                          |
+| ================================================= |
+sub MoveItem(int srcPack, int srcSlot, int destPack, int destSlot)
+    /itemnotify in pack${srcPack} ${srcSlot} leftmouseup
+    /delay 5 ${Cursor.ID}
+    
+    /if (!${Cursor.ID}) /return
+    
+    /itemnotify in pack${destPack} ${destSlot} leftmouseup
+    /delay 5 !${Cursor.ID}
+    
+    /if (${Cursor.ID}) {
+        /itemnotify in pack${srcPack} ${srcSlot} leftmouseup
+        /delay 5 !${Cursor.ID}
+    }
+/return
+
+| ================================================= |
+| FindFirstBagSlot                                  |
+| ================================================= |
+sub FindFirstBagSlot
+    /declare bagNum int local
+    /declare slotNum int local
+    /declare bagSize int local
+    
+    /for bagNum 1 to 10
+        /if (${Me.Inventory[pack${bagNum}].Container}) {
+            /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+            /for slotNum 1 to ${bagSize}
+                /if (!${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) /return ${bagNum},${slotNum}
+            /next slotNum
+        }
+    /next bagNum
+    
+    /return 0,0
+
+| ================================================= |
+| FindLastBagSlot                                   |
+| ================================================= |
+sub FindLastBagSlot
+    /declare bagNum int local
+    /declare slotNum int local
+    /declare bagSize int local
+    
+    /for bagNum 10 downto 1
+        /if (${Me.Inventory[pack${bagNum}].Container}) {
+            /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+            /for slotNum ${bagSize} downto 1
+                /if (!${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) /return ${bagNum},${slotNum}
+            /next slotNum
+        }
+    /next bagNum
+    
+    /return 0,0
+
+| ================================================= |
+| ApproachCorpse - Move closer to corpse if needed |
+| ================================================= |
+sub ApproachCorpse
+    /declare maxApproachDistance int local 50
+    /declare maxRetries int local 3
+    /declare retryCount int local 0
+    /declare approachDistance int local 15
+    /declare moveDistance int local 5
+    /declare moveDelay int local 0
+    
+    | Check if we need to approach
+    /if (${Target.Distance} <= ${approachDistance}) {
+        | Already close enough, just face it
+        /face fast
+        /delay 1
+        /return
+    }
+    
+    | If corpse is too far, try to approach
+    /if (${Target.Distance} > ${maxApproachDistance}) {
+        /echo Warning: Corpse too far (${Target.Distance} units, max: ${maxApproachDistance}) - skipping
+        /return
+    }
+    
+    | Try to approach the corpse
+:ApproachLoop
+    /varset retryCount ${Math.Calc[${retryCount}+1]}
+    
+    /if (${retryCount} > ${maxRetries}) {
+        /echo Warning: Failed to approach corpse after ${maxRetries} attempts - skipping
+        /return
+    }
+    
+    | Face the corpse
+    /face fast
+    /delay 1
+    
+    | Check current distance
+    /if (${Target.Distance} <= ${approachDistance}) {
+        | Close enough now
+        /return
+    }
+    
+    | Move closer using stick
+    /echo Approaching corpse (${Target.Distance} units away, attempt ${retryCount}/${maxRetries})...
+    /stick ${approachDistance}
+    /delay 15 ${Target.Distance}<=${approachDistance}
+    
+    | If still too far, try manual movement
+    /if (${Target.Distance} > ${approachDistance}) {
+        | Stop stick
+        /stick off
+        /delay 1
+        
+        | Face corpse again
+        /face fast
+        /delay 1
+        
+        | Move forward manually for a short distance
+        /keypress up hold
+        /varset moveDelay ${Math.Calc[${Target.Distance}*10]}
+        /if (${moveDelay} > ${maxMoveDelay}) /varset moveDelay ${maxMoveDelay}
+        /delay ${moveDelay}
+        /keypress up
+        /delay 1
+        
+        | Check if we got closer
+        /if (${Target.Distance} > ${approachDistance}) {
+            /echo Still too far (${Target.Distance} units) - retrying...
+            /goto :ApproachLoop
+        }
+    }
+    
+    | Stop any movement
+    /stick off
+    /keypress up
+    /delay 1
+    
+    | Final face check
+    /face fast
+    /delay 1
+/return
+
+| ================================================= |
+| LogItem - Log item to history file              |
+| ================================================= |
+| Usage: /call LogItem "loot" "ItemName" "Value" "Reason"
+| ================================================= |
+sub LogItem(string action, string itemName, int itemValue, string reason)
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    /declare logFile string local
+    /declare logTimestamp string local
+    /declare logEntry string local
+    
+    /if (${action.Equal[loot]}) {
+        /varset logFile ${logPath}/loot_history.log
+    } else {
+        /return
+    }
+    
+    | Ensure the item_management directory exists
+    | Try to create a temporary file in the directory to force directory creation
+    /declare tempDirFile string local ${logPath}/.dir_check
+    /if (!${File[${tempDirFile}].Exists}) {
+        /declare dirHandle int local ${File[${tempDirFile}].Open[write]}
+        /if (${dirHandle}) {
+            /call ${File[${tempDirFile}].Close}
+            | Delete the temp file
+            /delete ${tempDirFile}
+        }
+    } else {
+        | Directory exists, clean up temp file if it's still there
+        /if (${File[${tempDirFile}].Exists}) /delete ${tempDirFile}
+    }
+    
+    | Create log entry
+    /varset logTimestamp ${Time.Date} ${Time.Time12}
+    /varset logEntry [${logTimestamp}] ${String.Upper[${action}]}: ${itemName} (Value: ${itemValue}, Reason: ${reason})
+    
+    | Write to log file - create file first if it doesn't exist
+    /if (!${File[${logFile}].Exists}) {
+        | Create empty file by writing empty string
+        /declare tempHandle int local ${File[${logFile}].Open[write]}
+        /if (${tempHandle}) {
+            /call ${File[${logFile}].Close}
+        }
+    }
+    
+    | Now append the log entry
+    /declare fileHandle int local ${File[${logFile}].Open[append]}
+    /if (${fileHandle}) {
+        /call ${File[${logFile}].Write[${logEntry}]}
+        /call ${File[${logFile}].Write[
+]}
+        /call ${File[${logFile}].Close}
+    }
+/return

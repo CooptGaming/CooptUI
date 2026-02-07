@@ -1,0 +1,1023 @@
+| ================================================= |
+| Sell Macro v3.0                                   |
+| Intelligent Vendor Selling with Safety Filters    |
+| ================================================= |
+| Usage:                                            |
+|   /macro sell          - Preview items to sell    |
+|   /macro sell confirm  - Actually sell items      |
+|   /macro sell verbose  - Detailed categorization  |
+|   /macro sell load     - Reload config from INI   |
+|   /macro sell help     - Show this help message   |
+| ================================================= |
+| Config Files: sell_config/ directory             |
+| ================================================= |
+| Logic: SELL everything UNLESS a KEEP rule matches |
+| ================================================= |
+Sub Main
+
+| ------------------------------------------------- |
+| PARSE ARGUMENTS                                   |
+| ------------------------------------------------- |
+/declare doConfirm bool outer FALSE
+/declare verboseMode bool outer FALSE
+/declare doLoad bool outer FALSE
+/declare doHelp bool outer FALSE
+/declare arg1 string local ${Param0}
+/declare arg2 string local ${Param1}
+/declare configPath string outer ${MacroQuest.Path}/Macros/sell_config
+/declare sharedConfigPath string outer ${MacroQuest.Path}/Macros/shared_config
+
+| Check for command arguments
+/if (${arg1.Equal[help]}) /varset doHelp TRUE
+/if (${arg1.Equal[load]}) /varset doLoad TRUE
+/if (${arg1.Equal[confirm]} || ${arg2.Equal[confirm]}) /varset doConfirm TRUE
+/if (${arg1.Equal[verbose]} || ${arg2.Equal[verbose]}) /varset verboseMode TRUE
+
+| Handle help command
+/if (${doHelp}) {
+    /call ShowHelp
+    /return
+}
+
+| ------------------------------------------------- |
+| RUNTIME VARIABLES                                 |
+| ------------------------------------------------- |
+/declare bagNum int outer
+/declare slotNum int outer
+/declare bagSize int outer
+/declare itemCount int outer 0
+/declare sellCount int outer 0
+/declare totalToSell int outer 0
+/declare soldCount int outer 0
+/declare failedCount int outer 0
+/declare totalValue int outer 0
+/declare itemName string outer
+/declare itemType string outer
+/declare itemValue int outer
+/declare stackCount int outer
+/declare shouldSell bool outer
+/declare shouldKeep bool outer
+/declare matchedTerm string outer
+/declare countOnly bool outer FALSE
+
+| ------------------------------------------------- |
+| CONFIGURATION VARIABLES                           |
+| ------------------------------------------------- |
+| Keep Lists (never sell)
+/declare keepExact string outer
+/declare keepContains string outer
+/declare keepTypes string outer
+
+| Always Sell Lists (always sell) - chunked to avoid 2048 var limit
+/declare alwaysSellExact string outer
+/declare alwaysSellExact2 string outer
+/declare alwaysSellExact3 string outer
+/declare alwaysSellContains string outer
+/declare alwaysSellContains2 string outer
+/declare alwaysSellContains3 string outer
+
+| Protected Types (never sell) - chunked to avoid 2048 var limit
+/declare protectedTypes string outer
+/declare protectedTypes2 string outer
+/declare protectedTypes3 string outer
+
+| Epic Items (when protectEpic) - chunked to avoid 2048 var limit
+/declare epicExact string outer
+/declare epicExact2 string outer
+/declare epicExact3 string outer
+/declare epicExact4 string outer
+
+| Protection Flags
+/declare protectNoDrop bool outer
+/declare protectNoTrade bool outer
+/declare protectLore bool outer
+/declare protectQuest bool outer
+/declare protectCollectible bool outer
+/declare protectHeirloom bool outer
+/declare protectAttuneable bool outer
+/declare protectAugSlots bool outer
+/declare protectEpic bool outer
+
+| Value Settings
+/declare minSellValue int outer
+/declare minSellValueStack int outer
+/declare maxKeepValue int outer
+/declare tributeKeepOverride int outer
+
+| Lag handling: wait time (ticks) and retries for sell operations
+/declare sellWaitTicks int outer 30
+/declare sellRetries int outer 4
+/declare sellMaxTimeoutSeconds int outer 60
+
+| ------------------------------------------------- |
+| LOAD CONFIGURATION                                |
+| ------------------------------------------------- |
+/call LoadConfig FALSE
+
+| ------------------------------------------------- |
+| SELL CACHE (ItemUI: only sell items in list)     |
+| ------------------------------------------------- |
+/declare sellCachePath string outer ${configPath}/sell_cache.ini
+/declare sellCacheCount int outer ${Ini[${sellCachePath},Count,count,0]}
+/declare useSellCache bool outer FALSE
+/if (${sellCacheCount} > 0) /varset useSellCache TRUE
+
+| Handle load command (verbose mode)
+/if (${doLoad}) {
+    /call LoadConfig TRUE
+    /echo Configuration reloaded.
+    /return
+}
+
+| ------------------------------------------------- |
+| VERIFY MERCHANT WINDOW                            |
+| ------------------------------------------------- |
+/if (!${Window[MerchantWnd].Open}) {
+    /echo ==========================================
+    /echo ERROR: Merchant window is not open!
+    /echo Please target a vendor and open the merchant window first.
+    /echo ==========================================
+    /return
+}
+
+| ------------------------------------------------- |
+| HEADER OUTPUT                                     |
+| ------------------------------------------------- |
+/echo ==========================================
+/echo Sell Macro v3.0
+/echo ==========================================
+/if (${useSellCache}) {
+    /echo Using ItemUI sell cache (${sellCacheCount} items to sell)
+} else {
+    /echo Using legacy config (no sell_cache.ini - run ItemUI to use cache)
+}
+/if (${doConfirm}) {
+    /echo Mode: SELLING ITEMS
+} else {
+    /echo Mode: PREVIEW ONLY (use 'confirm' to sell)
+}
+/if (${verboseMode}) {
+    /echo Verbose: ON - Showing all item decisions
+}
+/echo ==========================================
+
+| ------------------------------------------------- |
+| INIT PROGRESS/FAILED FILES (confirm mode)         |
+| ------------------------------------------------- |
+/if (${doConfirm}) {
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    | Check if ItemUI pre-populated total (from sell view) - skip count pass if so
+    /declare preTotal int local ${Ini[${logPath}/sell_progress.ini,Progress,total,0]}
+    /if (${preTotal} > 0) {
+        /varset totalToSell ${preTotal}
+        /ini "${logPath}/sell_progress.ini" Progress current 0
+        /ini "${logPath}/sell_progress.ini" Progress remaining ${preTotal}
+    } else {
+        /ini "${logPath}/sell_progress.ini" Progress total 0
+        /ini "${logPath}/sell_progress.ini" Progress current 0
+        /ini "${logPath}/sell_progress.ini" Progress remaining 0
+    }
+    /ini "${logPath}/sell_failed.ini" Failed count 0
+}
+
+| ------------------------------------------------- |
+| SCAN ALL INVENTORY                                |
+| ------------------------------------------------- |
+| When doConfirm: single pass sells (total from ItemUI or count pass below)
+/if (${doConfirm}) {
+    /declare didCountPass bool local FALSE
+    | If totalToSell not pre-set by ItemUI, do count pass first
+    /if (${totalToSell} < 1) {
+        /varset didCountPass TRUE
+        /varset countOnly TRUE
+        /for bagNum 1 to 10
+            /if (${Me.Inventory[pack${bagNum}].Container}) {
+                /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+                /for slotNum 1 to ${bagSize}
+                    /if (${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) {
+                        /varcalc itemCount ${itemCount}+1
+                        /call EvaluateItem ${bagNum} ${slotNum}
+                    }
+                /next slotNum
+            }
+        /next bagNum
+        /varset countOnly FALSE
+        /call WriteProgress
+    }
+    | Sell pass: actually sell each item (itemCount only when we skipped count pass)
+    /for bagNum 1 to 10
+        /if (${Me.Inventory[pack${bagNum}].Container}) {
+            /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+            /for slotNum 1 to ${bagSize}
+                /if (${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) {
+                    /if (!${didCountPass}) /varcalc itemCount ${itemCount}+1
+                    /call EvaluateItem ${bagNum} ${slotNum}
+                }
+            /next slotNum
+        }
+    /next bagNum
+} else {
+    | Preview mode: single pass counts and evaluates (no selling)
+    /for bagNum 1 to 10
+        /if (${Me.Inventory[pack${bagNum}].Container}) {
+            /varset bagSize ${Me.Inventory[pack${bagNum}].Container}
+            /for slotNum 1 to ${bagSize}
+                /if (${Me.Inventory[pack${bagNum}].Item[${slotNum}].ID}) {
+                    /varcalc itemCount ${itemCount}+1
+                    /call EvaluateItem ${bagNum} ${slotNum}
+                }
+            /next slotNum
+        }
+    /next bagNum
+}
+
+| ------------------------------------------------- |
+| SUMMARY OUTPUT                                    |
+| ------------------------------------------------- |
+/if (${doConfirm}) {
+    /echo ==========================================
+    /echo SUMMARY: Scanned ${itemCount} items, sold ${sellCount}
+    /if (${failedCount} > 0) /echo   (${failedCount} failed)
+    /echo ==========================================
+} else {
+    /echo ==========================================
+    /echo SUMMARY: Scanned ${itemCount} items, selling ${sellCount}
+    /echo ==========================================
+}
+
+/if (!${doConfirm} && ${sellCount} > 0) {
+    /echo To actually sell these items, run: /macro sell confirm
+    /echo For detailed output: /macro sell verbose
+}
+
+/if (${doConfirm} && ${sellCount} > 0) {
+    /echo Sale complete!
+}
+
+| Reset progress file so next run (direct or from ItemUI) starts fresh
+/if (${doConfirm}) {
+    /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress total 0
+    /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress current 0
+    /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress remaining 0
+}
+
+/return
+
+| ================================================= |
+| EvaluateItem - Determine if item should be sold   |
+| Logic: SELL unless a KEEP criteria is matched     |
+| ================================================= |
+sub EvaluateItem(int bag, int slot)
+    | Cache item properties
+    /varset itemName ${Me.Inventory[pack${bag}].Item[${slot}].Name}
+    /varset itemType ${Me.Inventory[pack${bag}].Item[${slot}].Type}
+    /varset stackCount ${Me.Inventory[pack${bag}].Item[${slot}].Stack}
+    /if (${stackCount} < 1) /varset stackCount 1
+    /declare isStackable bool local FALSE
+    /if (${Me.Inventory[pack${bag}].Item[${slot}].StackSize} > 1) /varset isStackable TRUE
+    /varset itemValue ${Me.Inventory[pack${bag}].Item[${slot}].Value}
+    /varcalc itemValue ${itemValue}*${stackCount}
+    /varset shouldSell FALSE
+    /varset shouldKeep FALSE
+    /varset matchedTerm
+    
+    | =========================================== |
+    | SELL CACHE (ItemUI): only sell if in list  |
+    | =========================================== |
+    /if (${useSellCache}) {
+        /declare i int local 1
+        /for i 1 to ${sellCacheCount}
+            /if (${itemName.Equal[${Ini[${sellCachePath},Items,${i}]}]}) {
+                /varset shouldSell TRUE
+                /if (${countOnly}) {
+                    /call CountSellItem
+                } else {
+                    /call ProcessSellItem ${bag} ${slot} "Sell Cache"
+                }
+                /return
+            }
+        /next i
+        | Not in sell list - do not sell
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 0: UNSELLABLE FLAGS (legacy mode)    |
+    | =========================================== |
+    
+    /if (${protectNoDrop} && ${Me.Inventory[pack${bag}].Item[${slot}].NoDrop}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - NoDrop
+        /return
+    }
+    
+    /if (${protectNoTrade} && ${Me.Inventory[pack${bag}].Item[${slot}].NoTrade}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - NoTrade
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 1: EXACT NAME FILTERS                |
+    | =========================================== |
+    
+    | Epic protection disabled for now - TODO: implement better solution
+    | /if (${protectEpic}) {
+    |     /if (${epicExact.Length} > 0) {
+    |         /call CheckFilterList "${epicExact}" "${itemName}" TRUE TRUE
+    |         /if (${shouldKeep}) {
+    |             /if (${verboseMode}) /echo [KEEP] ${itemName} - Epic Item
+    |             /return
+    |         }
+    |     }
+    |     ... additional epic checks commented out ...
+    | }
+    
+    | Check keep (never sell) exact first - highest priority
+    /call CheckFilterList "${keepExact}" "${itemName}" TRUE TRUE
+    /if (${shouldKeep}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Keep Exact: ${matchedTerm}
+        /return
+    }
+    
+    | Check always sell exact - can override keep keyword matches
+    /call CheckFilterList "${alwaysSellExact}" "${itemName}" FALSE TRUE
+    /if (${shouldSell}) {
+        /if (${countOnly}) {
+            /call CountSellItem
+        } else {
+            /call ProcessSellItem ${bag} ${slot} "Always Sell Exact: ${matchedTerm}"
+        }
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 2: CONTAINS WORD FILTERS             |
+    | =========================================== |
+    
+    | Check keep (never sell) keywords first
+    /call CheckFilterList "${keepContains}" "${itemName}" TRUE FALSE
+    /if (${shouldKeep}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Keep Keyword: ${matchedTerm}
+        /return
+    }
+    
+    | Check always sell keywords - can override keep keyword matches (chunked to avoid 2048 limit)
+    | (Useful if an item matches a keep keyword but you want to sell it anyway)
+    /call CheckFilterList "${alwaysSellContains}" "${itemName}" FALSE FALSE
+    /if (!${shouldSell}) /call CheckFilterList "${alwaysSellContains2}" "${itemName}" FALSE FALSE
+    /if (!${shouldSell}) /call CheckFilterList "${alwaysSellContains3}" "${itemName}" FALSE FALSE
+    /if (${shouldSell}) {
+        /if (${countOnly}) {
+            /call CountSellItem
+        } else {
+            /call ProcessSellItem ${bag} ${slot} "Always Sell Keyword: ${matchedTerm}"
+        }
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 3: PROTECTED ITEM TYPES              |
+    | =========================================== |
+    
+    | Check keep types (from keep_types.ini)
+    /call CheckFilterList "${keepTypes}" "${itemType}" TRUE TRUE
+    /if (${shouldKeep}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Keep Type: ${itemType}
+        /return
+    }
+    
+    | Check protected types (from protected_types.ini) - chunked to avoid 2048 limit
+    /call CheckFilterList "${protectedTypes}" "${itemType}" TRUE TRUE
+    /if (!${shouldKeep}) /call CheckFilterList "${protectedTypes2}" "${itemType}" TRUE TRUE
+    /if (!${shouldKeep}) /call CheckFilterList "${protectedTypes3}" "${itemType}" TRUE TRUE
+    /if (${shouldKeep}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Protected Type: ${itemType}
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 4: PROTECTED ITEM FLAGS              |
+    | =========================================== |
+    
+    /if (${protectLore} && ${Me.Inventory[pack${bag}].Item[${slot}].Lore}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Lore
+        /return
+    }
+    
+    /if (${protectQuest} && ${Me.Inventory[pack${bag}].Item[${slot}].Quest}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Quest
+        /return
+    }
+    
+    /if (${protectCollectible} && ${Me.Inventory[pack${bag}].Item[${slot}].Collectible}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Collectible
+        /return
+    }
+    
+    /if (${protectHeirloom} && ${Me.Inventory[pack${bag}].Item[${slot}].Heirloom}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Heirloom
+        /return
+    }
+    
+    /if (${protectAttuneable} && ${Me.Inventory[pack${bag}].Item[${slot}].Attuneable}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Attuneable
+        /return
+    }
+    
+    /if (${protectAugSlots} && ${Me.Inventory[pack${bag}].Item[${slot}].AugSlot1}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - Has Aug Slots
+        /return
+    }
+    
+    | =========================================== |
+    | LEVEL 5: VALUE CHECKS                      |
+    | =========================================== |
+    
+    | Check max keep value (always keep high-value items)
+    /if (${maxKeepValue} > 0 && ${itemValue} >= ${maxKeepValue}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - High Value: ${itemValue} >= ${maxKeepValue}
+        /return
+    }
+    
+    | Check tribute keep override
+    /declare itemTribute int local ${Me.Inventory[pack${bag}].Item[${slot}].Tribute}
+    /if (${tributeKeepOverride} > 0 && ${itemTribute} >= ${tributeKeepOverride}) {
+        /if (${verboseMode}) /echo [KEEP] ${itemName} - High Tribute: ${itemTribute} >= ${tributeKeepOverride}
+        /return
+    }
+    
+    | Check minimum sell value (don't sell items below threshold)
+    /if (${isStackable}) {
+        /if (${itemValue} < ${minSellValueStack}) {
+            /if (${verboseMode}) /echo [KEEP] ${itemName} - Below sell threshold (stackable): ${itemValue} < ${minSellValueStack}
+            /return
+        }
+    } else {
+        /if (${itemValue} < ${minSellValue}) {
+            /if (${verboseMode}) /echo [KEEP] ${itemName} - Below sell threshold: ${itemValue} < ${minSellValue}
+            /return
+        }
+    }
+    
+    | =========================================== |
+    | NO KEEP CRITERIA MET - SELL THE ITEM       |
+    | =========================================== |
+    /if (${countOnly}) {
+        /call CountSellItem
+    } else {
+        /call ProcessSellItem ${bag} ${slot} "No keep criteria matched"
+    }
+/return
+
+| ================================================= |
+| CountSellItem - Count item for progress bar total |
+| ================================================= |
+sub CountSellItem
+    /varcalc totalToSell ${totalToSell}+1
+/return
+
+| ================================================= |
+| CheckFilterList - Generic filter checker          |
+| ================================================= |
+sub CheckFilterList(string filterList, string matchValue, bool isKeepList, bool isExactMatch)
+    /declare term string local
+    /declare i int local 1
+    /declare tokenCount int local
+    /declare matched bool local FALSE
+
+    | Reset flags
+    /if (${isKeepList}) {
+        /varset shouldKeep FALSE
+    } else {
+        /varset shouldSell FALSE
+    }
+    /varset matchedTerm
+    
+    /if (${filterList.Length} < 1) /return
+
+    | Number of tokens = number of delimiters + 1
+    /varset tokenCount ${Math.Calc[${filterList.Count[/]}+1]}
+
+    | Parse terms separated by "/"
+    /while (${i} <= ${tokenCount}) {
+        /varset term ${filterList.Token[${i},/]}
+        /if (${term.Length} > 0) {
+            /varset matched FALSE
+            
+            /if (${isExactMatch}) {
+                /if (${matchValue.Equal[${term}]}) /varset matched TRUE
+            } else {
+                /if (${matchValue.Find[${term}]}) /varset matched TRUE
+            }
+            
+            /if (${matched}) {
+                /varset matchedTerm ${term}
+                /if (${isKeepList}) {
+                    /varset shouldKeep TRUE
+                } else {
+                    /varset shouldSell TRUE
+                }
+                /return
+            }
+        }
+        /varset i ${Math.Calc[${i}+1]}
+    }
+/return
+
+| ================================================= |
+| ProcessSellItem - Handle the actual selling       |
+| ================================================= |
+sub ProcessSellItem(int bag, int slot, string reason)
+    /varcalc sellCount ${sellCount}+1
+    /varcalc totalValue ${totalValue}+${itemValue}
+    
+    | Log the sale
+    /call LogItem "sell" "${itemName}" ${itemValue} "${reason}"
+    
+    /if (${doConfirm}) {
+        | totalToSell already set by count pass; only update soldCount and WriteProgress after each sell
+        /echo [SELLING] ${itemName} x${stackCount} - ${reason}
+        
+        | Select the item
+        /itemnotify in pack${bag} ${slot} leftmouseup
+        | Wait for UI to respond (lag: give time for item selection)
+        /delay 3
+        
+        | Execute sell and retry on lag - sellWaitTicks per attempt, up to sellRetries retries
+        | ADDED: Overall timeout check (max elapsed time regardless of retry count)
+        /declare attempt int local 0
+        /declare sold bool local FALSE
+        /declare sellStartTimer timer local
+        /varset sellStartTimer ${sellMaxTimeoutSeconds}s
+        :SellRetry
+        /varcalc attempt ${attempt}+1
+        
+        | Check overall timeout
+        /if (!${sellStartTimer.Value}) {
+            /echo [TIMEOUT] ${itemName} - sell operation timed out after ${sellMaxTimeoutSeconds}s
+            /varcalc sellCount ${sellCount}-1
+            /varcalc totalValue ${totalValue}-${itemValue}
+            /varcalc failedCount ${failedCount}+1
+            /call LogFailedItem "${itemName}"
+            /return
+        }
+        
+        | On retry, re-pick item (may have been dropped back by failed attempt)
+        /if (${attempt} > 1) {
+            /itemnotify in pack${bag} ${slot} leftmouseup
+            /delay 3
+        }
+        /notify MerchantWnd MW_Sell_Button leftmouseup
+        | For stackables, wait for QuantityWnd before clicking Accept (handles lag)
+        /if (${stackCount} > 1) /delay 6 ${Window[QuantityWnd].Open}
+        /notify QuantityWnd QTYW_Accept_Button leftmouseup
+        /delay ${sellWaitTicks} !${Me.Inventory[pack${bag}].Item[${slot}].ID}
+        /if (!${Me.Inventory[pack${bag}].Item[${slot}].ID}) /varset sold TRUE
+        /if (!${sold} && ${attempt} <= ${sellRetries}) {
+            /delay 3
+            /goto :SellRetry
+        }
+        
+        | If still failed after retries, report and adjust counts
+        /if (${Me.Inventory[pack${bag}].Item[${slot}].ID}) {
+            /echo [FAILED] ${itemName} - item still in inventory
+            /varcalc sellCount ${sellCount}-1
+            /varcalc totalValue ${totalValue}-${itemValue}
+            /varcalc failedCount ${failedCount}+1
+            /call LogFailedItem "${itemName}"
+        } else {
+            /varcalc soldCount ${soldCount}+1
+        }
+        /call WriteProgress
+    } else {
+        /echo [SELL] ${itemName} x${stackCount} - ${reason}
+    }
+/return
+
+| ================================================= |
+| ShowHelp - Display usage information              |
+| ================================================= |
+sub ShowHelp
+    /echo ==========================================
+    /echo Sell Macro v3.0 - Help
+    /echo ==========================================
+    /echo
+    /echo COMMANDS:
+    /echo   /macro sell          - Preview items (safe)
+    /echo   /macro sell confirm  - Actually sell items
+    /echo   /macro sell verbose  - Show all decisions
+    /echo   /macro sell load     - Reload config
+    /echo   /macro sell help     - Show this help
+    /echo
+    /echo HOW IT WORKS:
+    /echo   Items SELL by default unless a KEEP rule matches
+    /echo   "Always Sell" lists can override "Keep Keywords" matches
+    /echo
+    /echo DECISION ORDER (checked top to bottom):
+    /echo   1. NoDrop/NoTrade flags = KEEP
+    /echo   2. Keep exact names = KEEP
+    /echo   3. Always sell exact names = SELL (overrides keep keywords)
+    /echo   4. Keep keywords = KEEP
+    /echo   5. Always sell keywords = SELL (overrides keep keywords)
+    /echo   6. Protected item types = KEEP
+    /echo   7. Protected flags (Lore, Quest, etc) = KEEP
+    /echo   8. Everything else = SELL
+    /echo
+    /echo CONFIG FILES: sell_config/ directory
+    /echo ==========================================
+/return
+
+| ================================================= |
+| LoadConfig - Load from modular INI config files  |
+| ================================================= |
+sub LoadConfig(bool verbose)
+    /if (${verbose}) /echo Loading configuration from sell_config/ and shared_config/ directories...
+    
+    | Load protectEpic early (set to FALSE - epic protection disabled for now)
+    /declare flagsFile string local ${configPath}/sell_flags.ini
+    /varset protectEpic FALSE
+    
+    | Epic protection DISABLED - do not load epic items
+    | TODO: Implement better solution for epic item protection
+    /varset epicExact
+    /varset epicExact2
+    /varset epicExact3
+    /varset epicExact4
+    
+    | Load Shared Valuable Items FIRST (higher priority)
+    /declare sharedExactFile string local ${sharedConfigPath}/valuable_exact.ini
+    /declare sharedContainsFile string local ${sharedConfigPath}/valuable_contains.ini
+    /declare sharedTypesFile string local ${sharedConfigPath}/valuable_types.ini
+    
+    /declare sharedExact string local
+    /declare sharedContains string local
+    /declare sharedTypes string local
+    
+    /if (${Ini[${sharedExactFile},Items,exact].Length}) {
+        /varset sharedExact ${Ini[${sharedExactFile},Items,exact]}
+    }
+    
+    /if (${Ini[${sharedContainsFile},Items,contains].Length}) {
+        /varset sharedContains ${Ini[${sharedContainsFile},Items,contains]}
+    }
+    
+    /if (${Ini[${sharedTypesFile},Items,types].Length}) {
+        /varset sharedTypes ${Ini[${sharedTypesFile},Items,types]}
+    }
+    
+    | Epic protection disabled - do not load from INI file (causes buffer overflow)
+    | /if (${Ini[${epicExactFile},Items,exact].Length}) {
+    |     /varset epicExact ${Ini[${epicExactFile},Items,exact]}
+    | }
+    | /if (${Ini[${epicExactFile},Items,exact2].Length}) {
+    |     /varset epicExact2 ${Ini[${epicExactFile},Items,exact2]}
+    | }
+    | /if (${Ini[${epicExactFile},Items,exact3].Length}) {
+    |     /varset epicExact3 ${Ini[${epicExactFile},Items,exact3]}
+    | }
+    | /if (${Ini[${epicExactFile},Items,exact4].Length}) {
+    |     /varset epicExact4 ${Ini[${epicExactFile},Items,exact4]}
+    | }
+    
+    | Load Macro-Specific Keep Lists (merged with shared)
+    /declare keepExactFile string local ${configPath}/sell_keep_exact.ini
+    /declare keepContainsFile string local ${configPath}/sell_keep_contains.ini
+    /declare keepTypesFile string local ${configPath}/sell_keep_types.ini
+    
+    /declare macroExact string local
+    /declare macroContains string local
+    /declare macroTypes string local
+    
+    /if (${Ini[${keepExactFile},Items,exact].Length}) {
+        /varset macroExact ${Ini[${keepExactFile},Items,exact]}
+    }
+    
+    /if (${Ini[${keepContainsFile},Items,contains].Length}) {
+        /varset macroContains ${Ini[${keepContainsFile},Items,contains]}
+    }
+    
+    /if (${Ini[${keepTypesFile},Items,types].Length}) {
+        /varset macroTypes ${Ini[${keepTypesFile},Items,types]}
+    }
+    
+    | Merge epic (when protectEpic) + shared + macro-specific
+    | CRITICAL: Do NOT concatenate epic chunks - keep them in keepExact only, check separately
+    /declare mergedExact string local
+    /if (${sharedExact.Length} > 0) {
+        /varset mergedExact ${sharedExact}
+    }
+    /if (${mergedExact.Length} > 0 && ${macroExact.Length} > 0) {
+        /varset keepExact ${mergedExact}/${macroExact}
+    } else /if (${mergedExact.Length} > 0) {
+        /varset keepExact ${mergedExact}
+    } else /if (${macroExact.Length} > 0) {
+        /varset keepExact ${macroExact}
+    } else {
+        /varset keepExact
+    }
+    
+    | Add epic items separately to avoid buffer overflow
+    | Epic items are checked in EvaluateItem with separate epicExact variables
+    /if (${protectEpic}) {
+        | Keep epic chunks separate - do not merge into single variable
+        | They will be checked individually in the evaluation logic
+    }
+    
+    /if (${sharedContains.Length} > 0 && ${macroContains.Length} > 0) {
+        /varset keepContains ${sharedContains}/${macroContains}
+    } else /if (${sharedContains.Length} > 0) {
+        /varset keepContains ${sharedContains}
+    } else /if (${macroContains.Length} > 0) {
+        /varset keepContains ${macroContains}
+    } else {
+        /varset keepContains
+    }
+    
+    /if (${sharedTypes.Length} > 0 && ${macroTypes.Length} > 0) {
+        /varset keepTypes ${sharedTypes}/${macroTypes}
+    } else /if (${sharedTypes.Length} > 0) {
+        /varset keepTypes ${sharedTypes}
+    } else /if (${macroTypes.Length} > 0) {
+        /varset keepTypes ${macroTypes}
+    } else {
+        /varset keepTypes
+    }
+    
+    | Load Always Sell Lists (INI files) - chunked keys exact, exact2, exact3 avoid 2048 limit
+    /declare alwaysSellExactFile string local ${configPath}/sell_always_sell_exact.ini
+    /declare alwaysSellContainsFile string local ${configPath}/sell_always_sell_contains.ini
+    
+    /if (${Ini[${alwaysSellExactFile},Items,exact].Length}) {
+        /varset alwaysSellExact ${Ini[${alwaysSellExactFile},Items,exact]}
+    } else {
+        /varset alwaysSellExact
+    }
+    /if (${Ini[${alwaysSellExactFile},Items,exact2].Length}) {
+        /varset alwaysSellExact2 ${Ini[${alwaysSellExactFile},Items,exact2]}
+    } else {
+        /varset alwaysSellExact2
+    }
+    /if (${Ini[${alwaysSellExactFile},Items,exact3].Length}) {
+        /varset alwaysSellExact3 ${Ini[${alwaysSellExactFile},Items,exact3]}
+    } else {
+        /varset alwaysSellExact3
+    }
+    
+    /if (${Ini[${alwaysSellContainsFile},Items,contains].Length}) {
+        /varset alwaysSellContains ${Ini[${alwaysSellContainsFile},Items,contains]}
+    } else {
+        /varset alwaysSellContains
+    }
+    /if (${Ini[${alwaysSellContainsFile},Items,contains2].Length}) {
+        /varset alwaysSellContains2 ${Ini[${alwaysSellContainsFile},Items,contains2]}
+    } else {
+        /varset alwaysSellContains2
+    }
+    /if (${Ini[${alwaysSellContainsFile},Items,contains3].Length}) {
+        /varset alwaysSellContains3 ${Ini[${alwaysSellContainsFile},Items,contains3]}
+    } else {
+        /varset alwaysSellContains3
+    }
+    
+    | Load Protected Types - chunked keys types, types2, types3 avoid 2048 limit
+    /declare protectedTypesFile string local ${configPath}/sell_protected_types.ini
+    /if (${Ini[${protectedTypesFile},Items,types].Length}) {
+        /varset protectedTypes ${Ini[${protectedTypesFile},Items,types]}
+    } else {
+        /varset protectedTypes
+    }
+    /if (${Ini[${protectedTypesFile},Items,types2].Length}) {
+        /varset protectedTypes2 ${Ini[${protectedTypesFile},Items,types2]}
+    } else {
+        /varset protectedTypes2
+    }
+    /if (${Ini[${protectedTypesFile},Items,types3].Length}) {
+        /varset protectedTypes3 ${Ini[${protectedTypesFile},Items,types3]}
+    } else {
+        /varset protectedTypes3
+    }
+    
+    | Load Value Settings
+    /declare valueFile string local ${configPath}/sell_value.ini
+    /if (${Ini[${valueFile},Settings,minSellValue].Length}) {
+        /varset minSellValue ${Ini[${valueFile},Settings,minSellValue]}
+    } else {
+        /varset minSellValue 50
+    }
+    
+    /if (${Ini[${valueFile},Settings,minSellValueStack].Length}) {
+        /varset minSellValueStack ${Ini[${valueFile},Settings,minSellValueStack]}
+    } else {
+        /varset minSellValueStack 10
+    }
+    
+    /if (${Ini[${valueFile},Settings,maxKeepValue].Length}) {
+        /varset maxKeepValue ${Ini[${valueFile},Settings,maxKeepValue]}
+    } else {
+        /varset maxKeepValue 10000
+    }
+    
+    /if (${Ini[${valueFile},Settings,tributeKeepOverride].Length}) {
+        /varset tributeKeepOverride ${Ini[${valueFile},Settings,tributeKeepOverride]}
+    } else {
+        /varset tributeKeepOverride 1000
+    }
+    
+    /if (${Ini[${valueFile},Settings,sellWaitTicks].Length}) {
+        /varset sellWaitTicks ${Ini[${valueFile},Settings,sellWaitTicks]}
+    } else {
+        /varset sellWaitTicks 30
+    }
+    
+    /if (${Ini[${valueFile},Settings,sellRetries].Length}) {
+        /varset sellRetries ${Ini[${valueFile},Settings,sellRetries]}
+    } else {
+        /varset sellRetries 4
+    }
+    
+    /if (${Ini[${valueFile},Settings,sellMaxTimeoutSeconds].Length}) {
+        /varset sellMaxTimeoutSeconds ${Ini[${valueFile},Settings,sellMaxTimeoutSeconds]}
+    } else {
+        /varset sellMaxTimeoutSeconds 60
+    }
+    
+    | Load Protection Flags (flagsFile already declared above)
+    /if (${Ini[${flagsFile},Settings,protectNoDrop].Length}) {
+        /varset protectNoDrop ${Ini[${flagsFile},Settings,protectNoDrop]}
+    } else {
+        /varset protectNoDrop TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectNoTrade].Length}) {
+        /varset protectNoTrade ${Ini[${flagsFile},Settings,protectNoTrade]}
+    } else {
+        /varset protectNoTrade TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectLore].Length}) {
+        /varset protectLore ${Ini[${flagsFile},Settings,protectLore]}
+    } else {
+        /varset protectLore TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectQuest].Length}) {
+        /varset protectQuest ${Ini[${flagsFile},Settings,protectQuest]}
+    } else {
+        /varset protectQuest TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectCollectible].Length}) {
+        /varset protectCollectible ${Ini[${flagsFile},Settings,protectCollectible]}
+    } else {
+        /varset protectCollectible TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectHeirloom].Length}) {
+        /varset protectHeirloom ${Ini[${flagsFile},Settings,protectHeirloom]}
+    } else {
+        /varset protectHeirloom TRUE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectAttuneable].Length}) {
+        /varset protectAttuneable ${Ini[${flagsFile},Settings,protectAttuneable]}
+    } else {
+        /varset protectAttuneable FALSE
+    }
+    
+    /if (${Ini[${flagsFile},Settings,protectAugSlots].Length}) {
+        /varset protectAugSlots ${Ini[${flagsFile},Settings,protectAugSlots]}
+    } else {
+        /varset protectAugSlots FALSE
+    }
+    
+    | Epic protection disabled - do not load from INI
+    | /if (${Ini[${flagsFile},Settings,protectEpic].Length}) {
+    |     /varset protectEpic ${Ini[${flagsFile},Settings,protectEpic]}
+    | } else {
+    |     /varset protectEpic TRUE
+    | }
+    
+    | Convert string values to proper types
+    /varset minSellValue ${Int[${minSellValue}]}
+    /varset minSellValueStack ${Int[${minSellValueStack}]}
+    /varset maxKeepValue ${Int[${maxKeepValue}]}
+    /varset tributeKeepOverride ${Int[${tributeKeepOverride}]}
+    
+    | Convert boolean strings to bool
+    /varset protectNoDrop ${Bool[${protectNoDrop}]}
+    /varset protectNoTrade ${Bool[${protectNoTrade}]}
+    /varset protectLore ${Bool[${protectLore}]}
+    /varset protectQuest ${Bool[${protectQuest}]}
+    /varset protectCollectible ${Bool[${protectCollectible}]}
+    /varset protectHeirloom ${Bool[${protectHeirloom}]}
+    /varset protectAttuneable ${Bool[${protectAttuneable}]}
+    /varset protectAugSlots ${Bool[${protectAugSlots}]}
+    /varset protectEpic ${Bool[${protectEpic}]}
+    
+    /if (${verbose}) {
+        /echo Configuration loaded!
+        /if (${sharedExact.Length} > 0 || ${sharedContains.Length} > 0 || ${sharedTypes.Length} > 0) {
+            /echo Shared Valuable Items: Loaded
+        }
+        /if (${keepExact.Length}) {
+            /echo Keep Exact: ${keepExact.Count[/]} items (shared + macro-specific)
+        } else {
+            /echo Keep Exact: 0 items
+        }
+        /if (${keepContains.Length}) {
+            /echo Keep Contains: ${keepContains.Count[/]} keywords (shared + macro-specific)
+        } else {
+            /echo Keep Contains: 0 keywords
+        }
+        /if (${keepTypes.Length}) {
+            /echo Keep Types: ${keepTypes.Count[/]} types (shared + macro-specific)
+        } else {
+            /echo Keep Types: 0 types
+        }
+        /declare aseCount int local 0
+        /if (${alwaysSellExact.Length}) /varcalc aseCount ${aseCount}+${alwaysSellExact.Count[/]}+1
+        /if (${alwaysSellExact2.Length}) /varcalc aseCount ${aseCount}+${alwaysSellExact2.Count[/]}+1
+        /if (${alwaysSellExact3.Length}) /varcalc aseCount ${aseCount}+${alwaysSellExact3.Count[/]}+1
+        /echo Always Sell Exact: ${aseCount} items
+        /declare ascCount int local 0
+        /if (${alwaysSellContains.Length}) /varcalc ascCount ${ascCount}+${alwaysSellContains.Count[/]}+1
+        /if (${alwaysSellContains2.Length}) /varcalc ascCount ${ascCount}+${alwaysSellContains2.Count[/]}+1
+        /if (${alwaysSellContains3.Length}) /varcalc ascCount ${ascCount}+${alwaysSellContains3.Count[/]}+1
+        /echo Always Sell Contains: ${ascCount} keywords
+        /echo Value Settings: minSell=${minSellValue}, minSellStack=${minSellValueStack}, maxKeep=${maxKeepValue}, tributeKeep=${tributeKeepOverride}
+    }
+/return
+
+| ================================================= |
+| WriteProgress - Write sell progress to INI for UI |
+| ================================================= |
+sub WriteProgress
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    /declare remaining int local ${Math.Calc[${totalToSell}-${soldCount}]}
+    /ini "${logPath}/sell_progress.ini" Progress total ${totalToSell}
+    /ini "${logPath}/sell_progress.ini" Progress current ${soldCount}
+    /ini "${logPath}/sell_progress.ini" Progress remaining ${remaining}
+/return
+
+| ================================================= |
+| LogFailedItem - Add failed item to sell_failed.ini |
+| ================================================= |
+sub LogFailedItem(string itemName)
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    /ini "${logPath}/sell_failed.ini" Failed count ${failedCount}
+    /ini "${logPath}/sell_failed.ini" Failed item${failedCount} "${itemName}"
+/return
+
+| ================================================= |
+| LogItem - Log item to history file              |
+| ================================================= |
+| Usage: /call LogItem "sell" "ItemName" "Value" "Reason"
+| ================================================= |
+sub LogItem(string action, string itemName, int itemValue, string reason)
+    /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    /declare logFile string local
+    /declare logTimestamp string local
+    /declare logEntry string local
+    
+    /if (${action.Equal[sell]}) {
+        /varset logFile ${logPath}/sell_history.log
+    } else {
+        /return
+    }
+    
+    | Ensure the item_management directory exists
+    | Try to create a temporary file in the directory to force directory creation
+    /declare tempDirFile string local ${logPath}/.dir_check
+    /if (!${File[${tempDirFile}].Exists}) {
+        /declare dirHandle int local ${File[${tempDirFile}].Open[write]}
+        /if (${dirHandle}) {
+            /call ${File[${tempDirFile}].Close}
+            | Delete the temp file
+            /delete ${tempDirFile}
+        }
+    } else {
+        | Directory exists, clean up temp file if it's still there
+        /if (${File[${tempDirFile}].Exists}) /delete ${tempDirFile}
+    }
+    
+    | Create log entry
+    /varset logTimestamp ${Time.Date} ${Time.Time12}
+    /varset logEntry [${logTimestamp}] ${String.Upper[${action}]}: ${itemName} (Value: ${itemValue}, Reason: ${reason})
+    
+    | Write to log file - create file first if it doesn't exist
+    /if (!${File[${logFile}].Exists}) {
+        | Create empty file by writing empty string
+        /declare tempHandle int local ${File[${logFile}].Open[write]}
+        /if (${tempHandle}) {
+            /call ${File[${logFile}].Close}
+        }
+    }
+    
+    | Now append the log entry
+    /declare fileHandle int local ${File[${logFile}].Open[append]}
+    /if (${fileHandle}) {
+        /call ${File[${logFile}].Write[${logEntry}]}
+        /call ${File[${logFile}].Write[
+]}
+        /call ${File[${logFile}].Close}
+    }
+/return

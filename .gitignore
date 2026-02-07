@@ -1,0 +1,52 @@
+# ========== Project-only: push only what we work on, not the whole MQ2 instance ==========
+# Tracks: lua/itemui, lua/scripttracker, lua/mq/ItemUtils.lua, Macros (sell/loot + config templates),
+#        resources (ItemUI UI files), docs, epic_quests, README, .cursor.
+# Ignores: config/, plugins/, modules/, mono/, Logs/, Backup/, Utilities/, binaries, etc.
+
+# --- Root: ignore everything, then un-ignore only project paths ---
+/*
+!.gitignore
+!.cursor/
+!README.md
+!archive_backups.ps1
+!docs/
+!epic_quests/
+!lua/
+!Macros/
+!resources/
+
+# --- lua: only itemui, scripttracker, and mq/ItemUtils.lua ---
+lua/*
+!lua/itemui/
+!lua/scripttracker/
+!lua/mq/
+lua/mq/*
+!lua/mq/ItemUtils.lua
+
+# --- Macros: only sell.mac, loot.mac, shared_config, sell_config (templates), loot_config ---
+Macros/*
+!Macros/sell.mac
+!Macros/loot.mac
+!Macros/shared_config/
+!Macros/sell_config/
+!Macros/loot_config/
+
+# Per-character and runtime data (never version)
+Macros/sell_config/Chars/
+Macros/sell_config/sell_cache.ini
+Macros/bank_data/
+Macros/logs/
+
+# --- resources: only ItemUI-related UI files ---
+resources/*
+!resources/UIFiles/
+resources/UIFiles/*
+!resources/UIFiles/Default/
+resources/UIFiles/Default/*
+!resources/UIFiles/Default/EQUI.xml
+!resources/UIFiles/Default/MQUI_ItemColorAnimation.xml
+!resources/UIFiles/Default/ItemColorBG.tga
+
+# --- Always ignore (backups, logs, root clutter) ---
+Backup/
+Logs/

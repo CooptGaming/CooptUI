@@ -1,0 +1,164 @@
+| ================================================= |
+| Config Validation Macro                          |
+| Validates all configuration files and detects    |
+| conflicts between keep and sell lists            |
+| ================================================= |
+| Usage: /macro validate_config                    |
+| ================================================= |
+
+Sub Main
+    /echo ==========================================
+    /echo Configuration Validation
+    /echo ==========================================
+    
+    /declare sharedPath string local ${MacroQuest.Path}/Macros/shared_config
+    /declare lootPath string local ${MacroQuest.Path}/Macros/loot_config
+    /declare sellPath string local ${MacroQuest.Path}/Macros/sell_config
+    
+    /declare errors int local 0
+    /declare warnings int local 0
+    
+    | Validate shared configs
+    /echo Checking shared_config/...
+    /call ValidateFile "${sharedPath}/valuable_exact.ini" "Items" "exact"
+    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
+    
+    /call ValidateFile "${sharedPath}/valuable_contains.ini" "Items" "contains"
+    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
+    
+    /call ValidateFile "${sharedPath}/valuable_types.ini" "Items" "types"
+    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
+    
+    | Validate loot configs
+    /echo Checking loot_config/...
+    /call ValidateFile "${lootPath}/loot_always_exact.ini" "Items" "exact"
+    /call ValidateFile "${lootPath}/loot_always_contains.ini" "Items" "contains"
+    /call ValidateFile "${lootPath}/loot_always_types.ini" "Items" "types"
+    /call ValidateFile "${lootPath}/loot_value.ini" "Settings" "minLootValue"
+    /call ValidateFile "${lootPath}/loot_flags.ini" "Settings" "lootClickies"
+    
+    | Validate sell configs
+    /echo Checking sell_config/...
+    /call ValidateFile "${sellPath}/sell_keep_exact.ini" "Items" "exact"
+    /call ValidateFile "${sellPath}/sell_always_sell_exact.ini" "Items" "exact"
+    /call ValidateFile "${sellPath}/sell_value.ini" "Settings" "minSellValue"
+    /call ValidateFile "${sellPath}/sell_flags.ini" "Settings" "protectNoDrop"
+    
+    | Check for conflicts
+    /echo Checking for conflicts...
+    /call CheckConflicts
+    
+    /echo ==========================================
+    /if (${errors} > 0) {
+        /echo Validation complete with ${errors} errors
+    } else {
+        /echo Validation complete - No errors found!
+    }
+    /echo ==========================================
+/return
+
+| Validate a config file exists and has required section/key
+sub ValidateFile(string filePath, string section, string key)
+    /if (!${Ini[${filePath},${section},${key}].Length}) {
+        /if (${File[${filePath}].Exists}) {
+            /echo [WARNING] ${filePath}: Missing key '${key}' in section '${section}'
+        } else {
+            /echo [WARNING] ${filePath}: File does not exist (using defaults)
+        }
+        /return 1
+    }
+    /return 0
+/return
+
+| Check for conflicts between keep and sell lists
+sub CheckConflicts
+    /declare sharedPath string local ${MacroQuest.Path}/Macros/shared_config
+    /declare sellPath string local ${MacroQuest.Path}/Macros/sell_config
+    
+    /declare keepExact string local
+    /declare sellExact string local
+    
+    | Load keep exact (shared + sell-specific)
+    /declare sharedKeep string local
+    /if (${Ini[${sharedPath}/valuable_exact.ini,Items,exact].Length}) {
+        /varset sharedKeep ${Ini[${sharedPath}/valuable_exact.ini,Items,exact]}
+    }
+    
+    /declare sellKeep string local
+    /if (${Ini[${sellPath}/sell_keep_exact.ini,Items,exact].Length}) {
+        /varset sellKeep ${Ini[${sellPath}/sell_keep_exact.ini,Items,exact]}
+    }
+    
+    /if (${sharedKeep.Length} > 0 && ${sellKeep.Length} > 0) {
+        /varset keepExact ${sharedKeep}/${sellKeep}
+    } else /if (${sharedKeep.Length} > 0) {
+        /varset keepExact ${sharedKeep}
+    } else /if (${sellKeep.Length} > 0) {
+        /varset keepExact ${sellKeep}
+    }
+    
+    | Load always sell exact (chunked: exact, exact2, exact3 to avoid 2048 limit)
+    /declare sellExact2 string local
+    /declare sellExact3 string local
+    /if (${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact].Length}) {
+        /varset sellExact ${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact]}
+    }
+    /if (${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact2].Length}) {
+        /varset sellExact2 ${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact2]}
+    }
+    /if (${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact3].Length}) {
+        /varset sellExact3 ${Ini[${sellPath}/sell_always_sell_exact.ini,Items,exact3]}
+    }
+    
+    | Check for conflicts (check each keep item against all sell chunks)
+    /if (${keepExact.Length} > 0) {
+        /declare i int local 1
+        /declare keepCount int local ${Math.Calc[${keepExact.Count[/]}+1]}
+        
+        /while (${i} <= ${keepCount}) {
+            /declare keepItem string local ${keepExact.Token[${i},/]}
+            /if (${keepItem.Length} > 0) {
+                /declare foundConflict bool local FALSE
+                | Check sellExact
+                /if (${sellExact.Length} > 0) {
+                    /declare j int local 1
+                    /declare sellCount int local ${Math.Calc[${sellExact.Count[/]}+1]}
+                    /while (${j} <= ${sellCount}) {
+                        /declare sellItem string local ${sellExact.Token[${j},/]}
+                        /if (${sellItem.Length} > 0 && ${keepItem.Equal[${sellItem}]}) /varset foundConflict TRUE
+                        /varcalc j ${j}+1
+                    }
+                }
+                | Check sellExact2
+                /if (!${foundConflict} && ${sellExact2.Length} > 0) {
+                    /declare j2 int local 1
+                    /declare sellCount2 int local ${Math.Calc[${sellExact2.Count[/]}+1]}
+                    /while (${j2} <= ${sellCount2}) {
+                        /declare sellItem2 string local ${sellExact2.Token[${j2},/]}
+                        /if (${sellItem2.Length} > 0 && ${keepItem.Equal[${sellItem2}]}) /varset foundConflict TRUE
+                        /varcalc j2 ${j2}+1
+                    }
+                }
+                | Check sellExact3
+                /if (!${foundConflict} && ${sellExact3.Length} > 0) {
+                    /declare j3 int local 1
+                    /declare sellCount3 int local ${Math.Calc[${sellExact3.Count[/]}+1]}
+                    /while (${j3} <= ${sellCount3}) {
+                        /declare sellItem3 string local ${sellExact3.Token[${j3},/]}
+                        /if (${sellItem3.Length} > 0 && ${keepItem.Equal[${sellItem3}]}) /varset foundConflict TRUE
+                        /varcalc j3 ${j3}+1
+                    }
+                }
+                /if (${foundConflict}) {
+                    /echo [CONFLICT] "${keepItem}" is in both Keep and Always Sell lists!
+                    /varcalc warnings ${warnings}+1
+                }
+            }
+            /varcalc i ${i}+1
+        }
+    }
+    
+    /if (${warnings} == 0) {
+        /echo No conflicts found between Keep and Always Sell lists
+    }
+/return
