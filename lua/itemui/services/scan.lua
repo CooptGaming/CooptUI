@@ -284,33 +284,55 @@ function M.ensureBankCacheFromStorage()
     end
 end
 
--- Sell items: write sell-status fields directly onto inventory items (no deep copy)
--- Safety: these fields are harmless on inventory items — scanInventory() replaces items
--- with new objects, and inventory view has its own Status column via getSellStatusForItem
+-- Sell items: lightweight copy of inventory items with sell-status fields attached
+-- Uses flat copy (single-depth table) to avoid shared-reference issues between
+-- sellItems and inventoryItems (shared refs caused doubling when both arrays
+-- pointed to the same objects during concurrent scan/render cycles).
+--
+-- Atomic swap pattern: builds the new list into a local temp table first, then
+-- replaces sellItems contents in one non-yielding block at the end. This prevents
+-- reentrancy issues where MQ Lua yields to the ImGui render callback mid-loop,
+-- render sees sellItems=0 (after clear), triggers a second scanSellItems, and the
+-- first scan's continued appends double the list.
+local scanSellItemsRunning = false
+
 function M.scanSellItems()
+    -- Reentrancy guard: if already scanning, bail out
+    if scanSellItemsRunning then return end
+    scanSellItemsRunning = true
+
     env.invalidateSortCache("sell")
     env.loadSellConfigCache()
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
-    for i = #sellItems, 1, -1 do sellItems[i] = nil end
     local isInKeepList, isKeptByContains, isKeptByType = env.isInKeepList, env.isKeptByContains, env.isKeptByType
     local isInJunkList, isProtectedType, willItemBeSold = env.isInJunkList, env.isProtectedType, env.willItemBeSold
     -- Reuse cached stored-inv-by-name (2s TTL) instead of full disk read per scan
     local storedByName = env.getStoredInvByName and env.getStoredInvByName() or {}
+    -- Build into a local temp table (not visible to render callback)
+    local newItems = {}
     for _, item in ipairs(inventoryItems) do
-        item.inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
-        item.inJunk = isInJunkList(item.name)
-        item.isProtected = isProtectedType(item.type)
+        -- Flat copy: all item fields are scalar (no nested tables), so shallow copy is sufficient
+        local dup = {}
+        for k, v in pairs(item) do dup[k] = v end
+        dup.inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
+        dup.inJunk = isInJunkList(item.name)
+        dup.isProtected = isProtectedType(item.type)
         -- Apply stored filter overrides (equivalent to mergeFilterStatus)
         local stored = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
         if stored then
-            if stored.inKeep ~= nil then item.inKeep = stored.inKeep end
-            if stored.inJunk ~= nil then item.inJunk = stored.inJunk end
+            if stored.inKeep ~= nil then dup.inKeep = stored.inKeep end
+            if stored.inJunk ~= nil then dup.inJunk = stored.inJunk end
         end
-        local ws, reason = willItemBeSold(item)
-        item.willSell, item.sellReason = ws, reason
-        sellItems[#sellItems + 1] = item
+        local ws, reason = willItemBeSold(dup)
+        dup.willSell, dup.sellReason = ws, reason
+        newItems[#newItems + 1] = dup
     end
+    -- Atomic swap: clear and repopulate in one non-yielding block
+    for i = #sellItems, 1, -1 do sellItems[i] = nil end
+    for i, v in ipairs(newItems) do sellItems[i] = v end
+
+    scanSellItemsRunning = false
 end
 
 function M.loadSnapshotsFromDisk()
