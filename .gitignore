@@ -1,7 +1,7 @@
 # ========== Project-only: push only what we work on, not the whole MQ2 instance ==========
 # Tracks: lua/itemui, lua/scripttracker, lua/mq/ItemUtils.lua, Macros (sell/loot + config templates),
-#        resources (ItemUI UI files), docs, epic_quests, README, .cursor.
-# Ignores: config/, plugins/, modules/, mono/, Logs/, Backup/, Utilities/, binaries, etc.
+#        resources (ItemUI UI files), epic_quests, README, .cursor (except .cursor/agents).
+# Ignores: config/, plugins/, docs/, .cursor/agents, archive_backups.ps1, etc.
 
 # --- Root: ignore everything, then un-ignore only project paths ---
 /*
@@ -10,13 +10,16 @@
 !.github/
 !README.md
 !DEPLOY.md
-!archive_backups.ps1
-!docs/
+!CHANGELOG.md
 !epic_quests/
 !scripts/
 !lua/
 !Macros/
 !resources/
+
+# --- Ignore these project paths (do not track or push) ---
+.cursor/agents/
+docs/
 
 # --- lua: only itemui, scripttracker, and mq/ItemUtils.lua ---
 lua/*
