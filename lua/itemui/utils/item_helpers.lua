@@ -1,0 +1,265 @@
+--[[
+    ItemUI - Item Helper Utilities
+    Status messages, currency formatting, spell caching, item building.
+    Part of CoopUI — EverQuest EMU Companion
+--]]
+
+local mq = require('mq')
+local Cache = require('itemui.core.cache')
+
+local M = {}
+local deps  -- set by init()
+
+function M.init(d)
+    deps = d
+end
+
+-- ============================================================================
+-- Lazy-loaded stat fields: deferred from scan to first tooltip/summary access.
+-- First access to any stat field triggers batch-loading ALL stats via TLO.
+-- ============================================================================
+
+--- Mapping: Lua field name → TLO accessor name
+local STAT_TLO_MAP = {
+    -- Primary stats
+    ac = 'AC', hp = 'HP', mana = 'Mana', endurance = 'Endurance',
+    str = 'STR', sta = 'STA', agi = 'AGI', dex = 'DEX',
+    int = 'INT', wis = 'WIS', cha = 'CHA',
+    -- Combat stats
+    attack = 'Attack', accuracy = 'Accuracy', avoidance = 'Avoidance',
+    shielding = 'Shielding', haste = 'Haste',
+    damage = 'Damage', itemDelay = 'Delay',
+    dmgBonus = 'DMGBonus', dmgBonusType = 'DMGBonusType',
+    spellDamage = 'SpellDamage', strikeThrough = 'StrikeThrough',
+    damageShield = 'DamShield', combatEffects = 'CombatEffects',
+    dotShielding = 'DoTShielding', hpRegen = 'HPRegen',
+    manaRegen = 'ManaRegen', enduranceRegen = 'EnduranceRegen',
+    spellShield = 'SpellShield', damageShieldMitigation = 'DamageShieldMitigation',
+    stunResist = 'StunResist', clairvoyance = 'Clairvoyance', healAmount = 'HealAmount',
+    -- Heroic stats
+    heroicSTR = 'HeroicSTR', heroicSTA = 'HeroicSTA', heroicAGI = 'HeroicAGI',
+    heroicDEX = 'HeroicDEX', heroicINT = 'HeroicINT', heroicWIS = 'HeroicWIS',
+    heroicCHA = 'HeroicCHA',
+    -- Resistances (base)
+    svMagic = 'svMagic', svFire = 'svFire', svCold = 'svCold',
+    svPoison = 'svPoison', svDisease = 'svDisease', svCorruption = 'svCorruption',
+    -- Resistances (heroic)
+    heroicSvMagic = 'HeroicSvMagic', heroicSvFire = 'HeroicSvFire',
+    heroicSvCold = 'HeroicSvCold', heroicSvDisease = 'HeroicSvDisease',
+    heroicSvPoison = 'HeroicSvPoison', heroicSvCorruption = 'HeroicSvCorruption',
+    -- Item info (tooltip-only)
+    charges = 'Charges', range = 'Range',
+    skillModValue = 'SkillModValue', skillModMax = 'SkillModMax',
+    baneDMG = 'BaneDMG', baneDMGType = 'BaneDMGType',
+    deity = 'Deity', luck = 'Luck', purity = 'Purity',
+}
+
+--- Ordered list of all stat field names (for batch iteration)
+local STAT_FIELDS = {}
+for field, _ in pairs(STAT_TLO_MAP) do STAT_FIELDS[#STAT_FIELDS + 1] = field end
+
+--- Fast lookup: is this key a lazy stat field?
+local STAT_FIELDS_SET = {}
+for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
+
+--- String-type stat fields (default to "" not 0)
+local STAT_STRING_FIELDS = { deity = true, baneDMGType = true, dmgBonusType = true }
+
+--- Set in-UI status (Keep/Junk, moves, sell). Safe: trims, coerces to string, truncates.
+function M.setStatusMessage(msg)
+    if msg == nil then return end
+    msg = (type(msg) == "string" and msg:match("^%s*(.-)%s*$")) or tostring(msg)
+    if msg == "" then return end
+    if #msg > deps.C.STATUS_MSG_MAX_LEN then
+        msg = msg:sub(1, deps.C.STATUS_MSG_MAX_LEN - 3) .. "..."
+    end
+    deps.uiState.statusMessage = msg
+    deps.uiState.statusMessageTime = mq.gettime()
+end
+
+--- Format copper value to readable currency string
+function M.formatCurrency(copper)
+    if not copper or copper == 0 then return "0c" end
+    copper = math.floor(copper)
+
+    local plat = math.floor(copper / 1000)
+    local gold = math.floor((copper % 1000) / 100)
+    local silver = math.floor((copper % 100) / 10)
+    local c = copper % 10
+
+    local parts = {}
+    if plat > 0 then table.insert(parts, string.format("%dp", plat)) end
+    if gold > 0 then table.insert(parts, string.format("%dg", gold)) end
+    if silver > 0 then table.insert(parts, string.format("%ds", silver)) end
+    if c > 0 or #parts == 0 then table.insert(parts, string.format("%dc", c)) end
+
+    return table.concat(parts, " ")
+end
+
+function M.getSpellName(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:name:' .. id
+    local name = Cache.get(cacheKey)
+    if name ~= nil then return name end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    name = s and s.Name and s.Name() or "Unknown"
+    Cache.set(cacheKey, name, { tier = 'L2' })
+    return name
+end
+
+function M.getSpellDescription(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:desc:' .. id
+    local desc = Cache.get(cacheKey)
+    if desc ~= nil then return desc end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    desc = s and s.Description and s.Description() or ""
+    Cache.set(cacheKey, desc, { tier = 'L2' })
+    return desc
+end
+
+--- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
+function M.getItemStatsSummary(item)
+    if not item then return "" end
+    local parts = {}
+    if (item.ac or 0) ~= 0 then parts[#parts + 1] = string.format("%d AC", item.ac) end
+    if (item.hp or 0) ~= 0 then parts[#parts + 1] = string.format("%d HP", item.hp) end
+    if (item.mana or 0) ~= 0 then parts[#parts + 1] = string.format("%d Mana", item.mana) end
+    if (item.endurance or 0) ~= 0 then parts[#parts + 1] = string.format("%d End", item.endurance) end
+    local function addStat(abbr, val) if (val or 0) ~= 0 then parts[#parts + 1] = string.format("%d %s", val, abbr) end end
+    addStat("STR", item.str); addStat("STA", item.sta); addStat("AGI", item.agi); addStat("DEX", item.dex)
+    addStat("INT", item.int); addStat("WIS", item.wis); addStat("CHA", item.cha)
+    if (item.attack or 0) ~= 0 then parts[#parts + 1] = string.format("%d Atk", item.attack) end
+    if (item.accuracy or 0) ~= 0 then parts[#parts + 1] = string.format("%d Acc", item.accuracy) end
+    if (item.avoidance or 0) ~= 0 then parts[#parts + 1] = string.format("%d Avoid", item.avoidance) end
+    if (item.shielding or 0) ~= 0 then parts[#parts + 1] = string.format("%d Shield", item.shielding) end
+    if (item.haste or 0) ~= 0 then parts[#parts + 1] = string.format("%d Haste", item.haste) end
+    if (item.spellDamage or 0) ~= 0 then parts[#parts + 1] = string.format("%d SD", item.spellDamage) end
+    if (item.strikeThrough or 0) ~= 0 then parts[#parts + 1] = string.format("%d ST", item.strikeThrough) end
+    if (item.damageShield or 0) ~= 0 then parts[#parts + 1] = string.format("%d DS", item.damageShield) end
+    if (item.combatEffects or 0) ~= 0 then parts[#parts + 1] = string.format("%d CE", item.combatEffects) end
+    if (item.hpRegen or 0) ~= 0 then parts[#parts + 1] = string.format("%d HP Regen", item.hpRegen) end
+    if (item.manaRegen or 0) ~= 0 then parts[#parts + 1] = string.format("%d Mana Regen", item.manaRegen) end
+    addStat("HSTR", item.heroicSTR); addStat("HSTA", item.heroicSTA); addStat("HAGI", item.heroicAGI)
+    addStat("HDEX", item.heroicDEX); addStat("HINT", item.heroicINT); addStat("HWIS", item.heroicWIS); addStat("HCHA", item.heroicCHA)
+    if (item.svMagic or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvM", item.svMagic) end
+    if (item.svFire or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvF", item.svFire) end
+    if (item.svCold or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvC", item.svCold) end
+    if (item.svPoison or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvP", item.svPoison) end
+    if (item.svDisease or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvD", item.svDisease) end
+    if (item.svCorruption or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvCorr", item.svCorruption) end
+    return table.concat(parts, ", ")
+end
+
+--- Lazy spell ID fetch: defers 5 TLO calls per item from scan to first display.
+function M.getItemSpellId(item, prop)
+    if not item or not prop then return 0 end
+    local key = prop:lower()
+    if item[key] ~= nil then return item[key] or 0 end
+    local pack = mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (item.bag or 0))
+    if not pack then item[key] = 0; return 0 end
+    local slotItem = pack.Item and pack.Item(item.slot or 0)
+    if not slotItem then item[key] = 0; return 0 end
+    local spellObj = slotItem[prop]
+    if not spellObj then item[key] = 0; return 0 end
+    local id = 0
+    if spellObj.SpellID then id = spellObj.SpellID() or 0 end
+    if (not id or id == 0) and spellObj.Spell and spellObj.Spell.ID then id = spellObj.Spell.ID() or 0 end
+    item[key] = (id and id > 0) and id or 0
+    return item[key]
+end
+
+--- TimerReady cache: TTL 1.5s (cooldowns in seconds; reduces TLO calls ~33%)
+function M.getTimerReady(bag, slot)
+    if not bag or not slot then return 0 end
+    local key = bag .. "_" .. slot
+    local now = mq.gettime()
+    local entry = deps.perfCache.timerReadyCache[key]
+    if entry and (now - entry.at) < deps.C.TIMER_READY_CACHE_TTL_MS then
+        return entry.ready or 0
+    end
+    local Me = mq.TLO and mq.TLO.Me
+    local pack = Me and Me.Inventory and Me.Inventory("pack" .. bag)
+    local itemTLO = pack and pack.Item and pack.Item(slot)
+    local ready = (itemTLO and itemTLO.TimerReady and itemTLO.TimerReady()) or 0
+    deps.perfCache.timerReadyCache[key] = { ready = ready, at = now }
+    return ready
+end
+
+--- Extract core item properties from MQ item TLO (per iteminfo.mac).
+--- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
+--- This reduces scan from ~76 to ~30 TLO calls per item; stats load on first tooltip hover.
+function M.buildItemFromMQ(item, bag, slot)
+    if not item or not item.ID or not item.ID() or item.ID() == 0 then return nil end
+    local iv = item.Value and item.Value() or 0
+    local ss = item.Stack and item.Stack() or 1
+    if ss < 1 then ss = 1 end
+    local stackSizeMax = item.StackSize and item.StackSize() or ss
+    local base = {
+        bag = bag, slot = slot,
+        name = item.Name and item.Name() or "",
+        id = item.ID and item.ID() or 0,
+        value = iv, totalValue = iv * ss, stackSize = ss, stackSizeMax = stackSizeMax,
+        type = item.Type and item.Type() or "",
+        weight = item.Weight and item.Weight() or 0,
+        icon = item.Icon and item.Icon() or 0,
+        tribute = item.Tribute and item.Tribute() or 0,
+        size = item.Size and item.Size() or 0,
+        sizeCapacity = item.SizeCapacity and item.SizeCapacity() or 0,
+        container = item.Container and item.Container() or 0,
+        nodrop = item.NoDrop and item.NoDrop() or false,
+        notrade = item.NoTrade and item.NoTrade() or false,
+        norent = item.NoRent and item.NoRent() or false,
+        lore = item.Lore and item.Lore() or false,
+        magic = item.Magic and item.Magic() or false,
+        attuneable = item.Attuneable and item.Attuneable() or false,
+        heirloom = item.Heirloom and item.Heirloom() or false,
+        prestige = item.Prestige and item.Prestige() or false,
+        collectible = item.Collectible and item.Collectible() or false,
+        quest = item.Quest and item.Quest() or false,
+        tradeskills = item.Tradeskills and item.Tradeskills() or false,
+        class = item.Class and item.Class() or "",
+        race = item.Race and item.Race() or "",
+        wornSlots = item.WornSlots and item.WornSlots() or "",
+        requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
+        recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
+        augSlots = (item.AugSlot1 and item.AugSlot1() and 1 or 0) + (item.AugSlot2 and item.AugSlot2() and 1 or 0) +
+                   (item.AugSlot3 and item.AugSlot3() and 1 or 0) + (item.AugSlot4 and item.AugSlot4() and 1 or 0) +
+                   (item.AugSlot5 and item.AugSlot5() and 1 or 0),
+        instrumentType = item.InstrumentType and item.InstrumentType() or "",
+        instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
+    }
+    -- Lazy-load stat fields: first access to any stat triggers batch TLO fetch for all stats
+    setmetatable(base, { __index = function(t, k)
+        if not STAT_FIELDS_SET[k] then return nil end
+        -- Batch-load all stat fields from TLO (Me/Inventory can be nil during zone/load)
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. bag)
+        local it = pack and pack.Item and pack.Item(slot)
+        if it and it.ID and it.ID() ~= 0 then
+            for _, field in ipairs(STAT_FIELDS) do
+                local tloName = STAT_TLO_MAP[field]
+                local accessor = it[tloName]
+                if accessor then
+                    local val = accessor()
+                    if STAT_STRING_FIELDS[field] then
+                        rawset(t, field, val or "")
+                    else
+                        rawset(t, field, val or 0)
+                    end
+                else
+                    rawset(t, field, STAT_STRING_FIELDS[field] and "" or 0)
+                end
+            end
+        else
+            -- Item no longer in slot (moved/sold); set all to defaults
+            for _, field in ipairs(STAT_FIELDS) do
+                rawset(t, field, STAT_STRING_FIELDS[field] and "" or 0)
+            end
+        end
+        return rawget(t, k)
+    end })
+    return base
+end
+
+return M
