@@ -34,6 +34,9 @@ Macros/*
 # Per-character and runtime data (never version)
 Macros/sell_config/Chars/
 Macros/sell_config/sell_cache.ini
+Macros/sell_config/itemui_layout.ini
+Macros/sell_config/itemui_filter_presets.ini
+Macros/sell_config/itemui_last_filters.ini
 Macros/bank_data/
 Macros/logs/
 
