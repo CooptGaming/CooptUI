@@ -52,7 +52,32 @@ local pinned = false
 local scriptCounts = {}  -- key = "Lost:normal", "Lost:enhanced", etc.; value = count
 local totalAA = 0
 local lastScanTime = 0
-local RESCAN_INTERVAL_MS = 1500  -- When pinned, rescan every 1.5s to update as scripts are looted
+-- Trigger-based refresh when pinned: no fixed timer; rescan only when inventory changes
+local lastFingerprint = ""       -- lightweight inventory signature
+local lastFingerprintCheck = 0  -- last time we checked fingerprint (ms)
+local FINGERPRINT_CHECK_MS = 300  -- when pinned, check for inventory change every 300ms
+
+-- ============================================================================
+-- Fingerprint (lightweight inventory change detection)
+-- ============================================================================
+
+--- Build a cheap signature of inventory that changes when items are added/removed.
+--- Used when pinned to trigger a full scan only when something actually changed.
+local function buildInventoryFingerprint()
+    local parts = {}
+    for bagNum = 1, 10 do
+        local pack = mq.TLO.Me.Inventory("pack" .. bagNum)
+        local count = 0
+        if pack and pack.Container() then
+            for slotNum = 1, pack.Container() do
+                local item = pack.Item(slotNum)
+                if item and item.ID() and item.ID() > 0 then count = count + 1 end
+            end
+        end
+        parts[#parts + 1] = string.format("b%d:%d", bagNum, count)
+    end
+    return table.concat(parts, "|")
+end
 
 -- ============================================================================
 -- Scanning
@@ -103,6 +128,7 @@ local function scanScripts()
     end
 
     lastScanTime = mq.gettime()
+    lastFingerprint = buildInventoryFingerprint()
 end
 
 -- ============================================================================
@@ -112,11 +138,15 @@ end
 local function renderUI()
     if not shouldDraw then return end
 
-    -- When pinned, periodically rescan to update counts as scripts are looted
+    -- When pinned, rescan only when inventory actually changes (trigger-based, no fixed timer)
     if pinned then
         local now = mq.gettime()
-        if now - lastScanTime >= RESCAN_INTERVAL_MS then
-            scanScripts()
+        if now - lastFingerprintCheck >= FINGERPRINT_CHECK_MS then
+            lastFingerprintCheck = now
+            local currentFp = buildInventoryFingerprint()
+            if currentFp ~= lastFingerprint then
+                scanScripts()
+            end
         end
     end
 
@@ -164,7 +194,7 @@ local function renderUI()
     ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 2, 2)
     pinned = ImGui.Checkbox("PIN", pinned)
     ImGui.PopStyleVar(1)
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When pinned, window cannot be closed or moved"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When pinned, window cannot be closed or moved; counts refresh when inventory changes (e.g. item looted)"); ImGui.EndTooltip() end
 
     -- Scripts label and table (Planar + Lost combined by rarity)
     ImGui.Text("Scripts")
@@ -241,6 +271,14 @@ local function main()
 
     mq.bind('/scripttracker', handleCommand)
     mq.imgui.init('ScriptTracker', renderUI)
+
+    -- Trigger: refresh when game reports item added to inventory (loot, trade, etc.)
+    mq.event('ScriptTrackerInventory', '#*#added to your inventory#*#', function()
+        scanScripts()
+    end)
+    mq.event('ScriptTrackerLoot', '#*#You have looted#*#', function()
+        scanScripts()
+    end)
 
     while not mq.TLO.Me.Name() do
         mq.delay(1000)
