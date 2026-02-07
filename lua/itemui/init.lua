@@ -3,7 +3,7 @@
     Purpose: Unified Inventory / Bank / Sell / Loot Interface
     Part of CoopUI — EverQuest EMU Companion
     Author: Perky's Crew
-    Version: 1.0.0-rc1
+    Version: see coopui.version (ITEMUI)
     Dependencies: mq2lua, ImGui
 
     - Inventory: one area that switches view by context:
@@ -15,7 +15,7 @@
     - Layout setup: /itemui setup or click Setup. Resize the window for Inventory, Sell, and Inv+Bank
       then click the matching Save button. Sizes are stored in Macros/sell_config/itemui_layout.ini.
       Column widths are saved automatically when you resize them.
-    Uses same config paths as SellUI for keep/junk lists.
+    Uses Macros/sell_config/ for keep/junk/sell config lists.
 
     Usage: /lua run itemui
     Toggle: /itemui   Setup: /itemui setup
@@ -28,14 +28,17 @@
 
 local mq = require('mq')
 require('ImGui')
+local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
-local ItemUtils = require('mq.ItemUtils')
+-- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
+local Cache = require('itemui.core.cache')
 
--- Phase 2: Core infrastructure (state/events/cache unused; sort cache lives in perfCache)
+-- Components
+local CharacterStats = require('itemui.components.character_stats')
 
 -- Phase 3: Filter system modules
 local filterService = require('itemui.services.filter_service')
@@ -45,6 +48,8 @@ local filtersComponent = require('itemui.components.filters')
 -- Phase 5: Macro integration service
 local macroBridge = require('itemui.services.macro_bridge')
 local scanService = require('itemui.services.scan')
+local sellStatusService = require('itemui.services.sell_status')
+local itemOps = require('itemui.services.item_ops')
 
 -- Phase 5: View modules
 local InventoryView = require('itemui.views.inventory')
@@ -60,10 +65,13 @@ local theme = require('itemui.utils.theme')
 local columns = require('itemui.utils.columns')
 local columnConfig = require('itemui.utils.column_config')
 local sortUtils = require('itemui.utils.sort')
+local windowState = require('itemui.utils.window_state')
+local itemHelpers = require('itemui.utils.item_helpers')
+local icons = require('itemui.utils.icons')
 
 -- Constants (consolidated for Lua 200-local limit)
 local C = {
-    VERSION = "1.0.0-rc1",
+    VERSION = CoopVersion.ITEMUI,
     MAX_BANK_SLOTS = 24,
     MAX_INVENTORY_BAGS = 10,
     LAYOUT_INI = "itemui_layout.ini",
@@ -75,7 +83,6 @@ local C = {
     STATUS_MSG_MAX_LEN = 72,
     PERSIST_SAVE_INTERVAL_MS = 60000,
     FOOTER_HEIGHT = 52,
-    SPELL_CACHE_MAX = 128,
     TIMER_READY_CACHE_TTL_MS = 1500,
     LAYOUT_SAVE_DEBOUNCE_MS = 600,
     LOOT_PENDING_SCAN_DELAY_MS = 2500,   -- Delay before background scan after loot macro finish
@@ -239,169 +246,23 @@ local scanState = {
 -- Deferred scan flags - for instant UI open (load snapshot first, scan after UI shown)
 local deferredScanNeeded = { inventory = false, bank = false, sell = false }
 
---- Set in-UI status (Keep/Junk, moves, sell). Safe: trims, coerces to string, truncates.
-local function setStatusMessage(msg)
-    if msg == nil then return end
-    msg = (type(msg) == "string" and msg:match("^%s*(.-)%s*$")) or tostring(msg)
-    if msg == "" then return end
-    if #msg > C.STATUS_MSG_MAX_LEN then
-        msg = msg:sub(1, C.STATUS_MSG_MAX_LEN - 3) .. "..."
-    end
-    uiState.statusMessage = msg
-    uiState.statusMessageTime = mq.gettime()
-end
-
---- Phase 6.1: Format copper value to readable currency string
-local function formatCurrency(copper)
-    if not copper or copper == 0 then return "0c" end
-    copper = math.floor(copper)
-    
-    local plat = math.floor(copper / 1000)
-    local gold = math.floor((copper % 1000) / 100)
-    local silver = math.floor((copper % 100) / 10)
-    local c = copper % 10
-    
-    local parts = {}
-    if plat > 0 then table.insert(parts, string.format("%dp", plat)) end
-    if gold > 0 then table.insert(parts, string.format("%dg", gold)) end
-    if silver > 0 then table.insert(parts, string.format("%ds", silver)) end
-    if c > 0 or #parts == 0 then table.insert(parts, string.format("%dc", c)) end
-    
-    return table.concat(parts, " ")
-end
-
--- Spell/spellConfig caches (in perfCache to reduce local count)
+-- Item helpers: init and local aliases (delegated to utils/item_helpers.lua)
 perfCache.sellConfigCache = nil
-perfCache.spellNameCache = {}
-perfCache.spellDescCache = {}
-local function getSpellName(id)
-    if not id or id <= 0 then return nil end
-    local name = perfCache.spellNameCache[id]
-    if name ~= nil then return name end
-    local s = mq.TLO.Spell(id)
-    name = s and s.Name and s.Name() or "Unknown"
-    if #perfCache.spellNameCache >= C.SPELL_CACHE_MAX then
-        local first = next(perfCache.spellNameCache)
-        if first then perfCache.spellNameCache[first] = nil end
-    end
-    perfCache.spellNameCache[id] = name
-    return name
-end
+itemHelpers.init({ C = C, uiState = uiState, perfCache = perfCache })
+local function setStatusMessage(msg) itemHelpers.setStatusMessage(msg) end
+local function getItemSpellId(item, prop) return itemHelpers.getItemSpellId(item, prop) end
+local function getSpellName(id) return itemHelpers.getSpellName(id) end
 
-local function getSpellDescription(id)
-    if not id or id <= 0 then return nil end
-    local desc = perfCache.spellDescCache[id]
-    if desc ~= nil then return desc end
-    local s = mq.TLO.Spell(id)
-    desc = s and s.Description and s.Description() or ""
-    if #perfCache.spellDescCache >= C.SPELL_CACHE_MAX then
-        local first = next(perfCache.spellDescCache)
-        if first then perfCache.spellDescCache[first] = nil end
-    end
-    perfCache.spellDescCache[id] = desc
-    return desc
-end
-
---- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
--- Used by Augments view to show which stats an augmentation provides.
-local function getItemStatsSummary(item)
-    if not item then return "" end
-    local parts = {}
-    if (item.ac or 0) ~= 0 then parts[#parts + 1] = string.format("%d AC", item.ac) end
-    if (item.hp or 0) ~= 0 then parts[#parts + 1] = string.format("%d HP", item.hp) end
-    if (item.mana or 0) ~= 0 then parts[#parts + 1] = string.format("%d Mana", item.mana) end
-    if (item.endurance or 0) ~= 0 then parts[#parts + 1] = string.format("%d End", item.endurance) end
-    local function addStat(abbr, val) if (val or 0) ~= 0 then parts[#parts + 1] = string.format("%d %s", val, abbr) end end
-    addStat("STR", item.str); addStat("STA", item.sta); addStat("AGI", item.agi); addStat("DEX", item.dex)
-    addStat("INT", item.int); addStat("WIS", item.wis); addStat("CHA", item.cha)
-    if (item.attack or 0) ~= 0 then parts[#parts + 1] = string.format("%d Atk", item.attack) end
-    if (item.accuracy or 0) ~= 0 then parts[#parts + 1] = string.format("%d Acc", item.accuracy) end
-    if (item.avoidance or 0) ~= 0 then parts[#parts + 1] = string.format("%d Avoid", item.avoidance) end
-    if (item.shielding or 0) ~= 0 then parts[#parts + 1] = string.format("%d Shield", item.shielding) end
-    if (item.haste or 0) ~= 0 then parts[#parts + 1] = string.format("%d Haste", item.haste) end
-    if (item.spellDamage or 0) ~= 0 then parts[#parts + 1] = string.format("%d SD", item.spellDamage) end
-    if (item.strikeThrough or 0) ~= 0 then parts[#parts + 1] = string.format("%d ST", item.strikeThrough) end
-    if (item.damageShield or 0) ~= 0 then parts[#parts + 1] = string.format("%d DS", item.damageShield) end
-    if (item.combatEffects or 0) ~= 0 then parts[#parts + 1] = string.format("%d CE", item.combatEffects) end
-    if (item.hpRegen or 0) ~= 0 then parts[#parts + 1] = string.format("%d HP Regen", item.hpRegen) end
-    if (item.manaRegen or 0) ~= 0 then parts[#parts + 1] = string.format("%d Mana Regen", item.manaRegen) end
-    addStat("HSTR", item.heroicSTR); addStat("HSTA", item.heroicSTA); addStat("HAGI", item.heroicAGI)
-    addStat("HDEX", item.heroicDEX); addStat("HINT", item.heroicINT); addStat("HWIS", item.heroicWIS); addStat("HCHA", item.heroicCHA)
-    if (item.svMagic or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvM", item.svMagic) end
-    if (item.svFire or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvF", item.svFire) end
-    if (item.svCold or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvC", item.svCold) end
-    if (item.svPoison or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvP", item.svPoison) end
-    if (item.svDisease or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvD", item.svDisease) end
-    if (item.svCorruption or 0) ~= 0 then parts[#parts + 1] = string.format("%d SvCorr", item.svCorruption) end
-    return table.concat(parts, ", ")
-end
-
-local function loadSellConfigCache()
-    perfCache.sellConfigCache = rules.loadSellConfigCache()
-end
-
-local function invalidateSellConfigCache()
-    perfCache.sellConfigCache = nil
-end
-
-local function invalidateLootConfigCache()
-    perfCache.lootConfigCache = nil
-end
-
--- Lazy spell ID fetch: defers 5 TLO calls per item from scan to first display (major scan perf win)
-local function getItemSpellId(item, prop)
-    if not item or not prop then return 0 end
-    local key = prop:lower()
-    if item[key] ~= nil then return item[key] or 0 end
-    local pack = mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (item.bag or 0))
-    if not pack then item[key] = 0; return 0 end
-    local slotItem = pack.Item and pack.Item(item.slot or 0)
-    if not slotItem then item[key] = 0; return 0 end
-    local spellObj = slotItem[prop]
-    if not spellObj then item[key] = 0; return 0 end
-    local id = 0
-    if spellObj.SpellID then id = spellObj.SpellID() or 0 end
-    if (not id or id == 0) and spellObj.Spell and spellObj.Spell.ID then id = spellObj.Spell.ID() or 0 end
-    item[key] = (id and id > 0) and id or 0
-    return item[key]
-end
-
--- TimerReady cache: TTL 1.5s (cooldowns in seconds; reduces TLO calls ~33%)
-local function getTimerReady(bag, slot)
-    if not bag or not slot then return 0 end
-    local key = bag .. "_" .. slot
-    local now = mq.gettime()
-    local entry = perfCache.timerReadyCache[key]
-    if entry and (now - entry.at) < C.TIMER_READY_CACHE_TTL_MS then
-        return entry.ready or 0
-    end
-    local itemTLO = mq.TLO.Me.Inventory("pack" .. bag).Item(slot)
-    local ready = (itemTLO and itemTLO.TimerReady and itemTLO.TimerReady()) or 0
-    perfCache.timerReadyCache[key] = { ready = ready, at = now }
-    return ready
-end
-
+-- Sell status service: init and local aliases (delegated to services/sell_status.lua)
+sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C })
+local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
 
 -- ============================================================================
 -- Layout Management (Phase 7: Delegated to utils/layout.lua)
 -- ============================================================================
-local function getLayoutFilePath() return layoutUtils.getLayoutFilePath() end
-local function parseLayoutFileFull() return layoutUtils.parseLayoutFileFull() end
-local function applyDefaultsFromParsed(parsed) layoutUtils.applyDefaultsFromParsed(parsed) end
-local function applyColumnVisibilityFromParsed(parsed) layoutUtils.applyColumnVisibilityFromParsed(parsed) end
-local function loadColumnVisibility() layoutUtils.loadColumnVisibility() end
-local function parseLayoutFile() return layoutUtils.parseLayoutFile() end
-local function loadLayoutValue(layout, key, default) return layoutUtils.loadLayoutValue(layout, key, default) end
-local function scheduleLayoutSave() layoutUtils.scheduleLayoutSave() end
 local function saveLayoutToFileImmediate() layoutUtils.saveLayoutToFileImmediate() end
 local function flushLayoutSave() layoutUtils.flushLayoutSave() end
-local function saveColumnVisibility() layoutUtils.saveColumnVisibility() end
-local function getFixedColumns(view) return layoutUtils.getFixedColumns(view) end
-local function toggleFixedColumn(view, colKey) return layoutUtils.toggleFixedColumn(view, colKey) end
-local function isColumnInFixedSet(view, colKey) return layoutUtils.isColumnInFixedSet(view, colKey) end
 local function saveLayoutToFile() layoutUtils.saveLayoutToFile() end
-local function captureCurrentLayoutAsDefault() layoutUtils.captureCurrentLayoutAsDefault() end
-local function resetLayoutToDefault() layoutUtils.resetLayoutToDefault() end
 local function loadLayoutConfig() layoutUtils.loadLayoutConfig() end
 local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutForView(view, w, h, bankPanelW) end
 
@@ -411,221 +272,28 @@ local function invalidateSortCache(view)
     if view == "inv" then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil end
 end
 
-local function invalidateTimerReadyCache()
-    perfCache.timerReadyCache = {}
-end
+-- Window state queries (delegated to utils/window_state.lua)
+local function isBankWindowOpen() return windowState.isBankWindowOpen() end
+local function isMerchantWindowOpen() return windowState.isMerchantWindowOpen() end
+local function isLootWindowOpen() return windowState.isLootWindowOpen() end
+local function closeGameInventoryIfOpen() windowState.closeGameInventoryIfOpen() end
 
-local function isBankWindowOpen()
-    local w = mq.TLO.Window("BigBankWnd")
-    return w and w.Open and w.Open() or false
-end
-local function isMerchantWindowOpen()
-    local w = mq.TLO.Window("MerchantWnd")
-    return w and w.Open and w.Open() or false
-end
-local function isLootWindowOpen()
-    local w = mq.TLO.Window("LootWnd")
-    return w and w.Open and w.Open() or false
-end
---- Close the default EQ inventory window (and bags) if open. Call when user closes ItemUI.
-local function closeGameInventoryIfOpen()
-    local invWnd = mq.TLO.Window("InventoryWindow")
-    if invWnd and invWnd.Open and invWnd.Open() then
-        mq.cmd("/keypress inventory")
-    end
-end
+-- buildItemFromMQ delegated to utils/item_helpers.lua
+local function buildItemFromMQ(item, bag, slot) return itemHelpers.buildItemFromMQ(item, bag, slot) end
 
--- ============================================================================
--- buildItemFromMQ - Extract all item properties from MQ item TLO (per iteminfo.mac)
--- Returns a table with all available properties; users can add/remove columns as desired.
--- ============================================================================
-local function buildItemFromMQ(item, bag, slot)
-    if not item or not item.ID or not item.ID() or item.ID() == 0 then return nil end
-    local iv = item.Value and item.Value() or 0
-    local ss = item.Stack and item.Stack() or 1
-    if ss < 1 then ss = 1 end
-    local stackSizeMax = item.StackSize and item.StackSize() or ss
-    -- Spell IDs deferred to getItemSpellId (lazy fetch on first display) - saves ~5 TLO calls per item during scan
-    local base = {
-        bag = bag, slot = slot,
-        name = item.Name and item.Name() or "",
-        id = item.ID and item.ID() or 0,
-        value = iv, totalValue = iv * ss, stackSize = ss, stackSizeMax = stackSizeMax,
-        type = item.Type and item.Type() or "",
-        weight = item.Weight and item.Weight() or 0,
-        icon = item.Icon and item.Icon() or 0,
-        itemLink = item.ItemLink and item.ItemLink() or "",
-        tribute = item.Tribute and item.Tribute() or 0,
-        size = item.Size and item.Size() or 0,
-        sizeCapacity = item.SizeCapacity and item.SizeCapacity() or 0,
-        container = item.Container and item.Container() or 0,
-        nodrop = item.NoDrop and item.NoDrop() or false,
-        notrade = item.NoTrade and item.NoTrade() or false,
-        norent = item.NoRent and item.NoRent() or false,
-        lore = item.Lore and item.Lore() or false,
-        magic = item.Magic and item.Magic() or false,
-        attuneable = item.Attuneable and item.Attuneable() or false,
-        heirloom = item.Heirloom and item.Heirloom() or false,
-        prestige = item.Prestige and item.Prestige() or false,
-        collectible = item.Collectible and item.Collectible() or false,
-        quest = item.Quest and item.Quest() or false,
-        tradeskills = item.Tradeskills and item.Tradeskills() or false,
-        class = item.Class and item.Class() or "",
-        race = item.Race and item.Race() or "",
-        wornSlots = item.WornSlots and item.WornSlots() or "",
-        requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
-        recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
-        augSlots = (item.AugSlot1 and item.AugSlot1() and 1 or 0) + (item.AugSlot2 and item.AugSlot2() and 1 or 0) +
-                   (item.AugSlot3 and item.AugSlot3() and 1 or 0) + (item.AugSlot4 and item.AugSlot4() and 1 or 0) +
-                   (item.AugSlot5 and item.AugSlot5() and 1 or 0),
-        -- clicky, proc, focus, worn, spell: nil = not yet fetched; getItemSpellId fetches lazily on first use
-        instrumentType = item.InstrumentType and item.InstrumentType() or "",
-        instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
-        -- Item stats (AC, HP, mana, attributes, etc. - used by Augments view; MQ Item TLO has these)
-        ac = (item.AC and item.AC()) or 0,
-        hp = (item.HP and item.HP()) or 0,
-        mana = (item.Mana and item.Mana()) or 0,
-        endurance = (item.Endurance and item.Endurance()) or 0,
-        str = (item.STR and item.STR()) or 0,
-        sta = (item.STA and item.STA()) or 0,
-        agi = (item.AGI and item.AGI()) or 0,
-        dex = (item.DEX and item.DEX()) or 0,
-        int = (item.INT and item.INT()) or 0,
-        wis = (item.WIS and item.WIS()) or 0,
-        cha = (item.CHA and item.CHA()) or 0,
-        attack = (item.Attack and item.Attack()) or 0,
-        accuracy = (item.Accuracy and item.Accuracy()) or 0,
-        avoidance = (item.Avoidance and item.Avoidance()) or 0,
-        shielding = (item.Shielding and item.Shielding()) or 0,
-        haste = (item.Haste and item.Haste()) or 0,
-        damage = (item.Damage and item.Damage()) or 0,
-        itemDelay = (item.ItemDelay and item.ItemDelay()) or 0,
-        dmgBonus = (item.DMGBonus and item.DMGBonus()) or 0,
-        spellDamage = (item.SpellDamage and item.SpellDamage()) or 0,
-        strikeThrough = (item.StrikeThrough and item.StrikeThrough()) or 0,
-        damageShield = (item.DamShield and item.DamShield()) or 0,
-        combatEffects = (item.CombatEffects and item.CombatEffects()) or 0,
-        dotShielding = (item.DoTShielding and item.DoTShielding()) or 0,
-        hpRegen = (item.HPRegen and item.HPRegen()) or 0,
-        manaRegen = (item.ManaRegen and item.ManaRegen()) or 0,
-        enduranceRegen = (item.EnduranceRegen and item.EnduranceRegen()) or 0,
-        heroicSTR = (item.HeroicSTR and item.HeroicSTR()) or 0,
-        heroicSTA = (item.HeroicSTA and item.HeroicSTA()) or 0,
-        heroicAGI = (item.HeroicAGI and item.HeroicAGI()) or 0,
-        heroicDEX = (item.HeroicDEX and item.HeroicDEX()) or 0,
-        heroicINT = (item.HeroicINT and item.HeroicINT()) or 0,
-        heroicWIS = (item.HeroicWIS and item.HeroicWIS()) or 0,
-        heroicCHA = (item.HeroicCHA and item.HeroicCHA()) or 0,
-        svMagic = (item.svMagic and item.svMagic()) or 0,
-        svFire = (item.svFire and item.svFire()) or 0,
-        svCold = (item.svCold and item.svCold()) or 0,
-        svPoison = (item.svPoison and item.svPoison()) or 0,
-        svDisease = (item.svDisease and item.svDisease()) or 0,
-        svCorruption = (item.svCorruption and item.svCorruption()) or 0,
-    }
-    -- Spell names fetched lazily on first render (getSpellName has cache); avoids 5 TLO.Spell calls per item during scan
-    return base
-end
-
--- ============================================================================
--- Sell logic (delegates to itemui.rules; same INI files as SellUI)
--- ============================================================================
-local function isInKeepList(itemName)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.isInKeepList(itemName, perfCache.sellConfigCache)
-end
-local function isInJunkList(itemName)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.isInJunkList(itemName, perfCache.sellConfigCache)
-end
-local function isProtectedType(itemType)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.isProtectedType(itemType, perfCache.sellConfigCache)
-end
-local function isKeptByContains(itemName)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.isKeptByContains(itemName, perfCache.sellConfigCache)
-end
-local function isKeptByType(itemType)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.isKeptByType(itemType, perfCache.sellConfigCache)
-end
-local function willItemBeSold(itemData)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    return rules.willItemBeSold(itemData, perfCache.sellConfigCache)
-end
---- Refresh stored-inv-by-name cache if missing or older than C.STORED_INV_CACHE_TTL_MS (single path for computeAndAttachSellStatus and getSellStatusForItem).
-local function refreshStoredInvByNameIfNeeded()
-    if perfCache.storedInvByName and (mq.gettime() - (perfCache.storedInvByNameTime or 0)) <= C.STORED_INV_CACHE_TTL_MS then
-        return
-    end
-    local stored, _ = storage.loadInventory()
-    perfCache.storedInvByName = {}
-    if stored and #stored > 0 then
-        for _, it in ipairs(stored) do
-            local n = (it.name or ""):match("^%s*(.-)%s*$")
-            if n ~= "" and (it.inKeep ~= nil or it.inJunk ~= nil) then
-                perfCache.storedInvByName[n] = { inKeep = it.inKeep, inJunk = it.inJunk }
-            end
-        end
-    end
-    perfCache.storedInvByNameTime = mq.gettime()
-end
-
---- Compute and attach willSell/sellReason to each item (for cache and sell_cache.ini).
--- Uses same logic as getSellStatusForItem; call before saving inventory so macro can use sell list.
-computeAndAttachSellStatus = function(items)
-    if not items or #items == 0 then return end
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    refreshStoredInvByNameIfNeeded()
-    for _, item in ipairs(items) do
-        local inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
-        local inJunk = isInJunkList(item.name)
-        local storedItem = perfCache.storedInvByName[(item.name or ""):match("^%s*(.-)%s*$")]
-        if storedItem then
-            if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
-            if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
-        end
-        local itemData = {
-            name = item.name, type = item.type, value = item.value, totalValue = item.totalValue,
-            stackSize = item.stackSize or 1, nodrop = item.nodrop, notrade = item.notrade,
-            lore = item.lore, quest = item.quest, collectible = item.collectible, heirloom = item.heirloom,
-            inKeep = inKeep, inJunk = inJunk
-        }
-        local willSell, reason = willItemBeSold(itemData)
-        item.willSell = willSell
-        item.sellReason = reason or ""
-    end
-end
-
---- Return sell filter status for an inventory item: reason string and whether it would be sold.
--- Uses same logic as sell view: keep list (exact + contains + type) and stored snapshot override.
-local function getSellStatusForItem(item)
-    if not item then return "", false end
-    -- Align with scanSellItems: inKeep = exact OR contains OR type
-    local inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
-    local inJunk = isInJunkList(item.name)
-    refreshStoredInvByNameIfNeeded()
-    local storedItem = perfCache.storedInvByName[(item.name or ""):match("^%s*(.-)%s*$")]
-    if storedItem then
-        if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
-        if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
-    end
-    local itemData = {
-        name = item.name, type = item.type, value = item.value, totalValue = item.totalValue,
-        stackSize = item.stackSize or 1, nodrop = item.nodrop, notrade = item.notrade,
-        lore = item.lore, quest = item.quest, collectible = item.collectible, heirloom = item.heirloom,
-        inKeep = inKeep, inJunk = inJunk
-    }
-    local willSell, reason = willItemBeSold(itemData)
-    return reason or "", willSell, inKeep, inJunk
-end
+-- Sell logic aliases (delegated to services/sell_status.lua)
+local function isInKeepList(itemName) return sellStatusService.isInKeepList(itemName) end
+local function isInJunkList(itemName) return sellStatusService.isInJunkList(itemName) end
+local function isProtectedType(itemType) return sellStatusService.isProtectedType(itemType) end
+local function isKeptByContains(itemName) return sellStatusService.isKeptByContains(itemName) end
+local function isKeptByType(itemType) return sellStatusService.isKeptByType(itemType) end
+local function willItemBeSold(itemData) return sellStatusService.willItemBeSold(itemData) end
+computeAndAttachSellStatus = function(items) sellStatusService.computeAndAttachSellStatus(items) end
+local function getSellStatusForItem(item) return sellStatusService.getSellStatusForItem(item) end
 
 -- Config cache init (requires isInKeepList, isInJunkList above)
 config_cache.init({
     setStatusMessage = setStatusMessage,
-    invalidateSellConfigCache = invalidateSellConfigCache,
-    invalidateLootConfigCache = invalidateLootConfigCache,
     isInKeepList = isInKeepList,
     isInJunkList = isInJunkList,
 })
@@ -644,19 +312,6 @@ removeFromLootSkipList = config_cache.removeFromLootSkipList
 augmentListAPI = config_cache.createAugmentListAPI()
 loadConfigCache()  -- Populate cache at startup (views/registry use configSellFlags, configLootLists, etc.)
 
--- Sell queue (like original SellUI): queueItemForSelling from UI; processSellQueue from main loop (must be defined after scanSellItems)
-local sellQueue = {}
-local isSelling = false
-local function queueItemForSelling(itemData)
-    if isSelling then
-        setStatusMessage("Already selling, please wait...")
-        return false
-    end
-    table.insert(sellQueue, { name = itemData.name, bag = itemData.bag, slot = itemData.slot, id = itemData.id })
-    setStatusMessage("Queued for sell")
-    return true
-end
-
 -- Scan service: init and wrappers (scan logic lives in itemui.services.scan)
 do
     local scanEnv = {
@@ -670,7 +325,7 @@ do
         C = C,
         buildItemFromMQ = buildItemFromMQ,
         invalidateSortCache = invalidateSortCache,
-        invalidateTimerReadyCache = invalidateTimerReadyCache,
+        invalidateTimerReadyCache = function() perfCache.timerReadyCache = {} end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,
@@ -693,272 +348,22 @@ local function maybeScanInventory(invOpen) scanService.maybeScanInventory(invOpe
 local function maybeScanBank(bankOpen) scanService.maybeScanBank(bankOpen) end
 local function maybeScanSellItems(merchOpen) scanService.maybeScanSellItems(merchOpen) end
 local function maybeScanLootItems(lootOpen) scanService.maybeScanLootItems(lootOpen) end
-local function ensureBankCacheFromStorage() scanService.ensureBankCacheFromStorage() end
-local function loadSnapshotsFromDisk() return scanService.loadSnapshotsFromDisk() end
-local function startIncrementalScan() scanService.startIncrementalScan() end
-local function processIncrementalScan() return scanService.processIncrementalScan() end
 
--- Removed all auto-adjustment functions - using snapshot/reset instead
-
---- Update all sellItems rows with the given itemName to inKeep/inJunk and recompute willSell/sellReason. No rescan.
-local function updateSellStatusForItemName(itemName, inKeep, inJunk)
-    if not itemName or itemName == "" then return end
-    invalidateSortCache("sell")
-    local key = (itemName or ""):match("^%s*(.-)%s*$")
-    if key == "" then return end
-    -- Reload cache if it was invalidated (e.g., after add/remove from list)
-    if not perfCache.sellConfigCache then loadSellConfigCache() end
-    for _, row in ipairs(sellItems) do
-        local rn = (row.name or ""):match("^%s*(.-)%s*$")
-        if rn == key then
-            row.inKeep = inKeep
-            row.inJunk = inJunk
-            local ws, reason = willItemBeSold(row)
-            row.willSell = ws
-            row.sellReason = reason
-        end
-    end
-end
-
---- Remove one item from inventoryItems by bag/slot. No rescan.
-local function removeLootItemBySlot(slot)
-    for i = #lootItems, 1, -1 do
-        if lootItems[i].slot == slot then
-            table.remove(lootItems, i)
-            return true
-        end
-    end
-    return false
-end
-
-local function removeItemFromInventoryBySlot(bag, slot)
-    for i = #inventoryItems, 1, -1 do
-        if inventoryItems[i].bag == bag and inventoryItems[i].slot == slot then
-            invalidateSortCache("inv")
-            table.remove(inventoryItems, i)
-            return
-        end
-    end
-end
-
---- Remove one item from sellItems by bag/slot. No rescan.
-local function removeItemFromSellItemsBySlot(bag, slot)
-    invalidateSortCache("sell")
-    for i = #sellItems, 1, -1 do
-        if sellItems[i].bag == bag and sellItems[i].slot == slot then
-            table.remove(sellItems, i)
-            return
-        end
-    end
-end
-
---- Remove one item from bankItems and bankCache by bag/slot. No rescan.
-local function removeItemFromBankBySlot(bag, slot)
-    invalidateSortCache("bank")
-    for i = #bankItems, 1, -1 do
-        if bankItems[i].bag == bag and bankItems[i].slot == slot then
-            table.remove(bankItems, i)
-            break
-        end
-    end
-    for i = #bankCache, 1, -1 do
-        if bankCache[i].bag == bag and bankCache[i].slot == slot then
-            table.remove(bankCache, i)
-            return
-        end
-    end
-end
-
---- Append one item to bankItems (and bankCache when bank open). No rescan. Used for inv→bank move.
-local function addItemToBank(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, weight, clicky, container)
-    weight = weight or 0
-    clicky = clicky or 0
-    container = container or 0
-    local row = {
-        bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", weight = weight, nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0, clicky = clicky, container = container
-    }
-    invalidateSortCache("bank")
-    table.insert(bankItems, row)
-    if isBankWindowOpen() then
-        table.insert(bankCache, { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, weight = row.weight })
-        perfCache.lastBankCacheTime = os.time()
-    end
-end
-
---- Append one item to inventoryItems (e.g. after bank→inv move). Then refresh sellItems from inventoryItems.
-local function addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots)
-    invalidateSortCache("inv")
-    local row = { bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0 }
-    table.insert(inventoryItems, row)
-    local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
-        stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
-        collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
-    dup.inKeep = isInKeepList(row.name) or isKeptByContains(row.name) or isKeptByType(row.type)
-    dup.inJunk = isInJunkList(row.name)
-    dup.isProtected = isProtectedType(row.type)
-    local ws, reason = willItemBeSold(dup)
-    dup.willSell, dup.sellReason = ws, reason
-    invalidateSortCache("sell")
-    table.insert(sellItems, dup)
-end
-
-local function processSellQueue()
-    if #sellQueue == 0 or isSelling then return end
-    if not isMerchantWindowOpen() then
-        sellQueue = {}
-        return
-    end
-    isSelling = true
-    local itemToSell = table.remove(sellQueue, 1)
-    local itemName, bagNum, slotNum = itemToSell.name, itemToSell.bag, itemToSell.slot
-    local item = mq.TLO.Me.Inventory("pack" .. bagNum).Item(slotNum)
-    if not item.ID() or item.ID() == 0 then
-        isSelling = false
-        return
-    end
-    mq.delay(200)
-    mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
-    mq.delay(300)
-    local selected = false
-    for i = 1, 10 do
-        if mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel").Text() == itemName then selected = true; break end
-        mq.delay(100)
-    end
-    if not selected then
-        isSelling = false
-        return
-    end
-    mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
-    mq.delay(300)
-    for i = 1, 15 do
-        local sel = mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel").Text()
-        if sel == "" or sel ~= itemName then
-            local v = mq.TLO.Me.Inventory("pack" .. bagNum).Item(slotNum)
-            if not v.ID() or v.ID() == 0 then break end
-        end
-        mq.delay(100)
-    end
-    removeItemFromInventoryBySlot(bagNum, slotNum)
-    removeItemFromSellItemsBySlot(bagNum, slotNum)
-    isSelling = false
-    setStatusMessage(string.format("Sold: %s", itemName))
-end
+-- Item operations: init and local aliases (delegated to services/item_ops.lua)
+itemOps.init({
+    inventoryItems = inventoryItems, bankItems = bankItems, sellItems = sellItems, lootItems = lootItems, bankCache = bankCache,
+    perfCache = perfCache, uiState = uiState, scanState = scanState,
+    sellStatus = sellStatusService, isBankWindowOpen = isBankWindowOpen, isMerchantWindowOpen = isMerchantWindowOpen,
+    invalidateSortCache = invalidateSortCache, setStatusMessage = setStatusMessage, storage = storage,
+    getItemSpellId = getItemSpellId,
+    scanBank = function() scanService.scanBank() end,
+})
+local function processSellQueue() itemOps.processSellQueue() end
+local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
+local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
 
 -- ============================================================================
--- Helpers
--- ============================================================================
-local function getItemFlags(d)
-    local t = {}
-    if d.nodrop then table.insert(t, "NoDrop") end
-    if d.notrade then table.insert(t, "NoTrade") end
-    if d.lore then table.insert(t, "Lore") end
-    if d.quest then table.insert(t, "Quest") end
-    if d.collectible then table.insert(t, "Collectible") end
-    if d.heirloom then table.insert(t, "Heirloom") end
-    if d.attuneable then table.insert(t, "Attuneable") end
-    if d.augSlots and d.augSlots > 0 then table.insert(t, string.format("Aug(%d)", d.augSlots)) end
-    if getItemSpellId(d, "Clicky") > 0 then table.insert(t, "Clicky") end
-    if d.container and d.container > 0 then table.insert(t, string.format("Bag(%d)", d.container)) end
-    return #t > 0 and table.concat(t, ", ") or "None"
-end
-local function hasItemOnCursor() return mq.TLO.Cursor() and true or false end
-
-local function findFirstFreeBankSlot()
-    for b = 1, 24 do
-        local s = mq.TLO.Me.Bank(b)
-        if s then
-            local sz = s.Container() or 0
-            if sz and sz > 0 then
-                for i = 1, sz do
-                    local it = s.Item(i)
-                    if not it or not it.ID() or it.ID() == 0 then return b, i end
-                end
-            elseif not s.ID() or s.ID() == 0 then return b, 1 end
-        end
-    end
-    return nil, nil
-end
-local function findFirstFreeInvSlot()
-    for b = 1, 10 do
-        local p = mq.TLO.Me.Inventory("pack" .. b)
-        if p and p.Container() then
-            for i = 1, p.Container() do
-                local it = p.Item(i)
-                if not it or not it.ID() or it.ID() == 0 then return b, i end
-            end
-        end
-    end
-    return nil, nil
-end
-
-local function moveInvToBank(invBag, invSlot)
-    -- Find item data in our table before we remove it (update in-place, no rescan)
-    local row
-    for _, r in ipairs(inventoryItems) do
-        if r.bag == invBag and r.slot == invSlot then row = r; break end
-    end
-    local bb, bs = findFirstFreeBankSlot()
-    if not bb or not bs then setStatusMessage("No free bank slot"); return false end
-    mq.cmdf('/itemnotify in pack%d %d leftmouseup', invBag, invSlot)
-    mq.cmdf('/itemnotify in bank%d %d leftmouseup', bb, bs)
-    uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
-    if transferStampPath then local f = io.open(transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
-    removeItemFromInventoryBySlot(invBag, invSlot)
-    removeItemFromSellItemsBySlot(invBag, invSlot)
-    if row then
-        addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, getItemSpellId(row, "Clicky"), row.container)
-        setStatusMessage(string.format("Moved to bank: %s", row.name or "item"))
-    end
-    return true
-end
-local function moveBankToInv(bagIdx, slotIdx)
-    local row
-    for _, r in ipairs(bankItems) do
-        if r.bag == bagIdx and r.slot == slotIdx then row = r; break end
-    end
-    if not row and isBankWindowOpen() then
-        scanBank()
-        for _, r in ipairs(bankItems) do
-            if r.bag == bagIdx and r.slot == slotIdx then row = r; break end
-        end
-    end
-    local ib, is_ = findFirstFreeInvSlot()
-    if not ib or not is_ then setStatusMessage("No free inventory slot"); return false end
-    mq.cmdf('/itemnotify in bank%d %d leftmouseup', bagIdx, slotIdx)
-    mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
-    uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
-    if transferStampPath then local f = io.open(transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
-    if row then
-        removeItemFromBankBySlot(bagIdx, slotIdx)
-        addItemToInventory(ib, is_, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots)
-        setStatusMessage(string.format("Moved to inventory: %s", row.name or "item"))
-    end
-    -- When row missing (stale data), tables stay as-is until user reopens or clicks Refresh.
-    return true
-end
-local function removeItemFromCursor()
-    if not hasItemOnCursor() then return false end
-    if uiState.lastPickup.bag and uiState.lastPickup.slot then
-        if uiState.lastPickup.source == "bank" then
-            mq.cmdf('/itemnotify in bank%d %d leftmouseup', uiState.lastPickup.bag, uiState.lastPickup.slot)
-        else
-            mq.cmdf('/itemnotify in pack%d %d leftmouseup', uiState.lastPickup.bag, uiState.lastPickup.slot)
-        end
-        uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
-    else
-        mq.cmd('/autoinv')
-    end
-    return true
-end
-
--- ============================================================================
--- Tab renderers (condensed; full table behavior from inventoryui/bankui/sellui)
+-- Tab renderers (condensed; full item table behavior)
 -- ============================================================================
 local TABLE_FLAGS = bit32.bor(ImGuiTableFlags.ScrollY, ImGuiTableFlags.RowBg, ImGuiTableFlags.BordersOuter, ImGuiTableFlags.BordersV, ImGuiTableFlags.SizingStretchProp, ImGuiTableFlags.Resizable, ImGuiTableFlags.Reorderable, ImGuiTableFlags.Sortable, (ImGuiTableFlags.SaveSettings or 0))
 uiState.tableFlags = TABLE_FLAGS
@@ -974,306 +379,14 @@ local function getStatusForSort(item)
 end
 sortUtils.init({getItemSpellId=getItemSpellId, getSpellName=getSpellName, getStatusForSort=getStatusForSort})
 
--- Item icon texture (EQ A_DragItem) for Icon column
-local itemIconTextureAnimation = nil
-local function getItemIconTextureAnimation()
-    if not itemIconTextureAnimation and mq.FindTextureAnimation then
-        itemIconTextureAnimation = mq.FindTextureAnimation("A_DragItem")
-    end
-    return itemIconTextureAnimation
-end
-local ITEM_ICON_OFFSET = 500
-local ITEM_ICON_SIZE = 24
-local function drawItemIcon(iconId)
-    local anim = getItemIconTextureAnimation()
-    if not anim or not iconId or iconId == 0 then return end
-    anim:SetTextureCell(iconId - ITEM_ICON_OFFSET)
-    ImGui.DrawTextureAnimation(anim, ITEM_ICON_SIZE, ITEM_ICON_SIZE)
-end
-
 local function closeItemUI()
     shouldDraw = false
     isOpen = false
     uiState.configWindowOpen = false
 end
 
---- AA Script counts (Lost Memories + Planar Power) from inventory - same data as scripttracker tool
-local SCRIPT_AA_RARITIES = {
-    { label = "Norm", tierKey = "normal", aa = 1 },
-    { label = "Enh", tierKey = "enhanced", aa = 2 },
-    { label = "Rare", tierKey = "rare", aa = 3 },
-    { label = "Epic", tierKey = "epic", aa = 4 },
-    { label = "Leg", tierKey = "legendary", aa = 5 },
-}
-local SCRIPT_AA_FULL_NAMES = {
-    "Script of Lost Memories", "Enhanced Script of Lost Memories", "Rare Script of Lost Memories", "Epic Script of Lost Memories", "Legendary Script of Lost Memories",
-    "Script of Planar Power", "Enhanced Script of Planar Power", "Rare Script of Planar Power", "Epic Script of Planar Power", "Legendary Script of Planar Power",
-}
-local SCRIPT_AA_BY_NAME = {}
-do
-    local aaByTier = { normal = 1, enhanced = 2, rare = 3, epic = 4, legendary = 5 }
-    for _, name in ipairs(SCRIPT_AA_FULL_NAMES) do
-        local tier = "normal"
-        if name:find("^Enhanced ") then tier = "enhanced"
-        elseif name:find("^Rare ") then tier = "rare"
-        elseif name:find("^Epic ") then tier = "epic"
-        elseif name:find("^Legendary ") then tier = "legendary"
-        end
-        SCRIPT_AA_BY_NAME[name] = aaByTier[tier]
-    end
-end
-
-local function getScriptCountsFromInventory(items)
-    local byTier = { normal = 0, enhanced = 0, rare = 0, epic = 0, legendary = 0 }
-    local totalAA = 0
-    for _, it in ipairs(items or {}) do
-        local name = it.name or ""
-        local aa = SCRIPT_AA_BY_NAME[name]
-        if aa then
-            local stack = (it.stackSize and it.stackSize > 0) and it.stackSize or 1
-            local tier = "normal"
-            if name:find("^Enhanced ") then tier = "enhanced"
-            elseif name:find("^Rare ") then tier = "rare"
-            elseif name:find("^Epic ") then tier = "epic"
-            elseif name:find("^Legendary ") then tier = "legendary"
-            end
-            byTier[tier] = byTier[tier] + stack
-            totalAA = totalAA + aa * stack
-        end
-    end
-    local rows = {}
-    for _, r in ipairs(SCRIPT_AA_RARITIES) do
-        local count = byTier[r.tierKey] or 0
-        rows[#rows + 1] = { label = r.label, count = count, aa = r.aa * count }
-    end
-    return { rows = rows, totalAA = totalAA }
-end
-
--- ============================================================================
--- Character Stats Panel (Left Header)
--- ============================================================================
-local function renderCharacterStatsPanel()
-    local Me = mq.TLO.Me
-    
-    -- Helper: read AC/Attack/Weight from game Inventory window (same as test_ac_atk.lua / ac_atk_helper.lua).
-    -- Requires the game's Inventory window to be open; paths from /windows output.
-    local function getWindowText(path)
-        local success, text = pcall(function()
-            local wnd = mq.TLO.Window(path)
-            if wnd and wnd.Open and wnd.Open() then
-                return wnd.Text()
-            end
-            return nil
-        end)
-        return success and text or nil
-    end
-
-    -- Get displayed values from InventoryWindow (Stats tab or main page)
-    local displayedAC = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentArmorClass") or
-                        getWindowText("InventoryWindow/IW_ACNumber") or "N/A"
-    local displayedATK = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentAttack") or
-                         getWindowText("InventoryWindow/IW_ATKNumber") or "N/A"
-    local displayedWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentWeight") or
-                            getWindowText("InventoryWindow/IW_CurrentWeight") or "N/A"
-    local displayedMaxWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_MaxWeight") or 
-                               getWindowText("InventoryWindow/IW_MaxWeight") or "N/A"
-    
-    -- Get character stats
-    local hp = Me.CurrentHPs() or 0
-    local maxHP = Me.MaxHPs() or 0
-    local mana = Me.CurrentMana() or 0
-    local maxMana = Me.MaxMana() or 0
-    local endur = Me.CurrentEndurance() or 0
-    local maxEndur = Me.MaxEndurance() or 0
-    local exp = Me.PctExp() or 0
-    local aaPointsTotal = Me.AAPointsTotal() or 0  -- Total AA points
-    local haste = Me.Haste() or 0
-    -- Movement speed: show 0 when not moving, rounded to nearest whole number
-    local isMoving = Me.Moving() or false
-    local movementSpeed = isMoving and math.floor((Me.Speed() or 0) + 0.5) or 0
-    
-    -- Money
-    local platinum = Me.Platinum() or 0
-    local gold = Me.Gold() or 0
-    local silver = Me.Silver() or 0
-    local copper = Me.Copper() or 0
-    
-    -- Stats
-    local str = Me.STR() or 0
-    local sta = Me.STA() or 0
-    local int = Me.INT() or 0
-    local wis = Me.WIS() or 0
-    local dex = Me.DEX() or 0
-    local cha = Me.CHA() or 0
-    
-    -- Resists
-    local magicResist = Me.svMagic() or 0
-    local fireResist = Me.svFire() or 0
-    local coldResist = Me.svCold() or 0
-    local diseaseResist = Me.svDisease() or 0
-    local poisonResist = Me.svPoison() or 0
-    local corruptionResist = Me.svCorruption() or 0
-    
-    -- Render stats panel
-    ImGui.BeginChild("CharacterStats", ImVec2(180, -C.FOOTER_HEIGHT), true, ImGuiWindowFlags.NoScrollbar)
-    
-    -- Reduce font size by 5% (scale to 0.95)
-    ImGui.SetWindowFontScale(0.95)
-    
-    ImGui.TextColored(ImVec4(0.4, 0.8, 1, 1), "Character Stats")
-    ImGui.Separator()
-    
-    -- HP/MP/EN
-    ImGui.TextColored(ImVec4(0.9, 0.3, 0.3, 1), "HP:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", hp, maxHP))
-    
-    ImGui.TextColored(ImVec4(0.3, 0.5, 0.9, 1), "MP:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", mana, maxMana))
-    
-    ImGui.TextColored(ImVec4(0.5, 0.7, 0.3, 1), "EN:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", endur, maxEndur))
-    
-    -- AC/ATK
-    ImGui.TextColored(ImVec4(0.8, 0.6, 0.2, 1), "AC:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(displayedAC))
-    
-    ImGui.TextColored(ImVec4(0.8, 0.6, 0.2, 1), "ATK:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(displayedATK))
-    
-    -- Haste/Speed
-    ImGui.TextColored(ImVec4(0.6, 0.8, 0.6, 1), "Haste:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%d%%", haste))
-    
-    ImGui.TextColored(ImVec4(0.6, 0.8, 0.6, 1), "Speed:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%d%%", movementSpeed))
-    
-    ImGui.Separator()
-    
-    -- EXP/AA section
-    ImGui.Text("EXP:")
-    ImGui.SameLine(50)
-    ImGui.Text(string.format("%.1f%%", exp))
-    
-    ImGui.Text("AAs:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(aaPointsTotal))
-    
-    ImGui.Separator()
-    
-    -- Stats section (condensed - two stats per line)
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Stats:")
-    ImGui.Text("STR:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(str))
-    ImGui.SameLine(90)
-    ImGui.Text("STA:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(sta))
-    
-    ImGui.Text("INT:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(int))
-    ImGui.SameLine(90)
-    ImGui.Text("WIS:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(wis))
-    
-    ImGui.Text("DEX:")
-    ImGui.SameLine(50)
-    ImGui.Text(tostring(dex))
-    ImGui.SameLine(90)
-    ImGui.Text("CHA:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(cha))
-    
-    ImGui.Separator()
-    
-    -- Resists section (condensed - two resists per line, with proper column alignment)
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Resist:")
-    -- Column positions: labels at 0, values at 65, column 2 labels at 95, column 2 values at 155
-    ImGui.Text("Poison:")
-    ImGui.SameLine(65)  -- Space for longest label "Corruption:"
-    ImGui.Text(tostring(poisonResist))
-    ImGui.SameLine(95)  -- Start of column 2 labels
-    ImGui.Text("Magic:")
-    ImGui.SameLine(155)  -- Column 2 values aligned
-    ImGui.Text(tostring(magicResist))
-    
-    ImGui.Text("Fire:")
-    ImGui.SameLine(65)
-    ImGui.Text(tostring(fireResist))
-    ImGui.SameLine(95)
-    ImGui.Text("Disease:")
-    ImGui.SameLine(155)
-    ImGui.Text(tostring(diseaseResist))
-    
-    ImGui.Text("Corrupt:")
-    ImGui.SameLine(65)
-    ImGui.Text(tostring(corruptionResist))
-    ImGui.SameLine(95)
-    ImGui.Text("Cold:")
-    ImGui.SameLine(155)
-    ImGui.Text(tostring(coldResist))
-    
-    ImGui.Separator()
-    
-    -- Weight
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "WEIGHT:")
-    ImGui.Text(string.format("%s / %s", tostring(displayedWeight), tostring(displayedMaxWeight)))
-    
-    ImGui.Separator()
-    
-    -- Money section
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Money:")
-    local moneyStr = ""
-    if platinum > 0 then
-        moneyStr = moneyStr .. string.format("%dp ", platinum)
-    end
-    if gold > 0 or platinum > 0 then
-        moneyStr = moneyStr .. string.format("%dg ", gold)
-    end
-    if silver > 0 or gold > 0 or platinum > 0 then
-        moneyStr = moneyStr .. string.format("%ds ", silver)
-    end
-    moneyStr = moneyStr .. string.format("%dc", copper)
-    ImGui.Text(moneyStr)
-    
-    -- AA Scripts (Lost/Planar) - compact, same data as scripttracker
-    ImGui.Separator()
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Scripts:")
-    ImGui.SameLine()
-    if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/scripttracker show') end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
-    local scriptData = getScriptCountsFromInventory(inventoryItems)
-    ImGui.SetWindowFontScale(0.85)
-    -- Header: make it clear which column is count vs AA
-    ImGui.Text("")
-    ImGui.SameLine(48)
-    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "Cnt")
-    ImGui.SameLine(78)
-    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "AA")
-    for _, row in ipairs(scriptData.rows) do
-        ImGui.Text(row.label .. ":")
-        ImGui.SameLine(48)
-        ImGui.Text(tostring(row.count))
-        ImGui.SameLine(78)
-        ImGui.Text(tostring(row.aa))
-    end
-    ImGui.TextColored(ImVec4(0.9, 0.85, 0.4, 1), "Total: " .. tostring(scriptData.totalAA) .. " AA")
-    ImGui.SetWindowFontScale(0.95)
-    
-    -- Reset font scale
-    ImGui.SetWindowFontScale(1.0)
-    
-    ImGui.EndChild()
-end
+-- Character Stats Panel (delegated to components/character_stats.lua)
+CharacterStats.init({ FOOTER_HEIGHT = C.FOOTER_HEIGHT, inventoryItems = inventoryItems })
 
 -- Phase 5: Context builder for view modules (itemui.context: single refs table, build has one upvalue)
 local windowStateAPI = {
@@ -1293,80 +406,70 @@ local sortColumnsAPI = {
 }
 
 context.init({
-    uiState = uiState,
-    sortState = sortState,
-    filterState = filterState,
-    layoutConfig = layoutConfig,
-    perfCache = perfCache,
-    sellMacState = sellMacState,
-    inventoryItems = inventoryItems,
-    bankItems = bankItems,
-    lootItems = lootItems,
-    sellItems = sellItems,
-    bankCache = bankCache,
-    configLootLists = configLootLists,
-    config = config,
-    columnAutofitWidths = columnAutofitWidths,
-    availableColumns = availableColumns,
+    -- State tables
+    uiState = uiState, sortState = sortState, filterState = filterState,
+    layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
+    -- Data tables
+    inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
+    sellItems = sellItems, bankCache = bankCache,
+    -- Config
+    configLootLists = configLootLists, config = config,
+    columnAutofitWidths = columnAutofitWidths, availableColumns = availableColumns,
     columnVisibility = columnVisibility,
-    configSellFlags = configSellFlags,
-    configSellValues = configSellValues,
-    configSellLists = configSellLists,
-    configLootFlags = configLootFlags,
-    configLootValues = configLootValues,
-    configLootSorting = configLootSorting,
-    configEpicClasses = configEpicClasses,
+    configSellFlags = configSellFlags, configSellValues = configSellValues, configSellLists = configSellLists,
+    configLootFlags = configLootFlags, configLootValues = configLootValues,
+    configLootSorting = configLootSorting, configEpicClasses = configEpicClasses,
     EPIC_CLASSES = rules.EPIC_CLASSES,
+    -- Window state
     windowState = windowStateAPI,
-    scanInventory = scanInventory,
-    scanBank = scanBank,
-    scanSellItems = scanSellItems,
-    scanLootItems = scanLootItems,
-    maybeScanInventory = maybeScanInventory,
-    maybeScanSellItems = maybeScanSellItems,
+    -- Scan functions
+    scanInventory = scanInventory, scanBank = scanBank,
+    scanSellItems = scanSellItems, scanLootItems = scanLootItems,
+    maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
     maybeScanLootItems = maybeScanLootItems,
-    ensureBankCacheFromStorage = ensureBankCacheFromStorage,
-    invalidateLootConfigCache = invalidateLootConfigCache,
-    invalidateSellConfigCache = invalidateSellConfigCache,
-    setStatusMessage = setStatusMessage,
-    saveLayoutToFile = saveLayoutToFile,
-    scheduleLayoutSave = scheduleLayoutSave,
-    flushLayoutSave = flushLayoutSave,
-    saveColumnVisibility = saveColumnVisibility,
-    loadLayoutConfig = loadLayoutConfig,
-    captureCurrentLayoutAsDefault = captureCurrentLayoutAsDefault,
-    resetLayoutToDefault = resetLayoutToDefault,
+    ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
+    -- Config cache (event-driven: views emit events, sell_status subscribes)
+    invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
+    invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
     loadConfigCache = loadConfigCache,
-    closeItemUI = closeItemUI,
-    hasItemOnCursor = hasItemOnCursor,
-    removeItemFromCursor = removeItemFromCursor,
-    moveBankToInv = moveBankToInv,
-    moveInvToBank = moveInvToBank,
-    queueItemForSelling = queueItemForSelling,
-    addToKeepList = addToKeepList,
-    removeFromKeepList = removeFromKeepList,
-    addToJunkList = addToJunkList,
-    removeFromJunkList = removeFromJunkList,
+    -- UI helpers
+    setStatusMessage = setStatusMessage, closeItemUI = closeItemUI,
+    -- Layout (module direct)
+    saveLayoutToFile = function() layoutUtils.saveLayoutToFile() end,
+    scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
+    saveColumnVisibility = function() layoutUtils.saveColumnVisibility() end,
+    loadLayoutConfig = loadLayoutConfig,
+    captureCurrentLayoutAsDefault = function() layoutUtils.captureCurrentLayoutAsDefault() end,
+    resetLayoutToDefault = function() layoutUtils.resetLayoutToDefault() end,
+    getFixedColumns = function(v) return layoutUtils.getFixedColumns(v) end,
+    toggleFixedColumn = function(v, k) return layoutUtils.toggleFixedColumn(v, k) end,
+    isColumnInFixedSet = function(v, k) return layoutUtils.isColumnInFixedSet(v, k) end,
+    -- Item ops (module direct)
+    hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
+    removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
+    moveBankToInv = function(b, s) return itemOps.moveBankToInv(b, s) end,
+    moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
+    queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
+    updateSellStatusForItemName = function(n, k, j) itemOps.updateSellStatusForItemName(n, k, j) end,
+    -- Config list APIs
+    addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
+    addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
     augmentLists = augmentListAPI,
-    updateSellStatusForItemName = updateSellStatusForItemName,
-    sortColumns = sortColumnsAPI,
-    getColumnKeyByIndex = columns.getColumnKeyByIndex,
-    autofitColumns = columns.autofitColumns,
-    getSpellName = getSpellName,
-    getSpellDescription = getSpellDescription,
-    getItemSpellId = getItemSpellId,
-    getTimerReady = getTimerReady,
-    theme = theme,
-    macroBridge = macroBridge,
-    getFixedColumns = getFixedColumns,
-    toggleFixedColumn = toggleFixedColumn,
-    isColumnInFixedSet = isColumnInFixedSet,
-    drawItemIcon = drawItemIcon,
-    getSellStatusForItem = getSellStatusForItem,
-    getItemStatsSummary = getItemStatsSummary,
-    addToLootSkipList = addToLootSkipList,
-    removeFromLootSkipList = removeFromLootSkipList,
+    addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
     isInLootSkipList = isInLootSkipList,
+    -- Sort/columns
+    sortColumns = sortColumnsAPI,
+    getColumnKeyByIndex = columns.getColumnKeyByIndex, autofitColumns = columns.autofitColumns,
+    -- Item helpers (module direct)
+    getSpellName = function(id) return itemHelpers.getSpellName(id) end,
+    getSpellDescription = function(id) return itemHelpers.getSpellDescription(id) end,
+    getItemSpellId = function(i, p) return itemHelpers.getItemSpellId(i, p) end,
+    getTimerReady = function(b, s) return itemHelpers.getTimerReady(b, s) end,
+    getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
+    getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
+    drawItemIcon = function(id) icons.drawItemIcon(id) end,
+    -- Services
+    theme = theme, macroBridge = macroBridge,
 })
 local function buildViewContext() return context.build() end
 local function extendContext(ctx) return context.extend(ctx) end
@@ -1447,10 +550,10 @@ local function renderUI()
             end
         end
         if uiState.alignToContext then
-            local invWnd = mq.TLO.Window("InventoryWindow")
-            if invWnd and invWnd.Open() then
-                local x, y = tonumber(invWnd.X()) or 0, tonumber(invWnd.Y()) or 0
-                local pw = tonumber(invWnd.Width()) or 0
+            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+            if invWnd and invWnd.Open and invWnd.Open() then
+                local x, y = tonumber(invWnd.X and invWnd.X()) or 0, tonumber(invWnd.Y and invWnd.Y()) or 0
+                local pw = tonumber(invWnd.Width and invWnd.Width()) or 0
                 if x and y and pw > 0 then 
                     local itemUIX = x + pw + 10
                     ImGui.SetNextWindowPos(ImVec2(itemUIX, y), ImGuiCond.Always)
@@ -1593,7 +696,8 @@ local function renderUI()
             end
             -- Ensure sell items are populated for simulated view
             if #sellItems == 0 then
-                local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
+                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+                local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
                 maybeScanInventory(invO); maybeScanSellItems(merchO)
             end
             if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 1 end
@@ -1621,7 +725,7 @@ local function renderUI()
     end
 
     -- Content: Character stats panel (left) + inventory (dynamic sell/gameplay view) - bank is now separate window
-    renderCharacterStatsPanel()
+    CharacterStats.render()
     ImGui.SameLine()
     
     -- Right side: Inventory content (bank is now separate window)
@@ -1701,8 +805,9 @@ local function renderUI()
 
     if hasItemOnCursor() then
         ImGui.Separator()
-        local cn = mq.TLO.Cursor.Name() or "Item"
-        local st = mq.TLO.Cursor.Stack()
+        local cursor = mq.TLO and mq.TLO.Cursor
+        local cn = (cursor and cursor.Name and cursor.Name()) or "Item"
+        local st = (cursor and cursor.Stack and cursor.Stack()) or 0
         if st and st > 1 then cn = cn .. string.format(" (x%d)", st) end
         ImGui.TextColored(ImVec4(0.95,0.75,0.2,1), "Cursor: " .. cn)
         if ImGui.Button("Clear cursor", ImVec2(90,0)) then removeItemFromCursor() end
@@ -1772,7 +877,8 @@ local function handleCommand(...)
     if cmd == "" or cmd == "toggle" then
         shouldDraw = not shouldDraw
         if shouldDraw then
-            local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
+            local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+            local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
             -- If inv closed, open it so /inv and I key give same behavior (inv open + fresh scan)
             if not invO then mq.cmd('/keypress inventory'); invO = true end
             isOpen = true; loadLayoutConfig(); maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
@@ -1781,7 +887,8 @@ local function handleCommand(...)
         end
     elseif cmd == "show" then
         shouldDraw, isOpen = true, true
-        local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
+        local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+        local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
         loadLayoutConfig()
         maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
     elseif cmd == "hide" then
@@ -1854,11 +961,12 @@ local function main()
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then
             transferStampPath = p .. "\\bankinv_refresh.txt"
+            itemOps.setTransferStampPath(transferStampPath)
             -- Use backslashes to match sell.mac path (MacroQuest.Path may use / or \)
             perfCache.sellLogPath = (p:gsub("/", "\\")) .. "\\Macros\\logs\\item_management"
         end
     end
-    while not mq.TLO.Me.Name() do mq.delay(1000) end
+    while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
     do
         local path = layoutUtils.getLayoutFilePath()
@@ -1867,7 +975,8 @@ local function main()
         end
     end
     storage.init({ profileEnabled = C.PROFILE_ENABLED, profileThresholdMs = C.PROFILE_THRESHOLD_MS })
-    local invO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false
+    local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+    local invO = (invWnd and invWnd.Open and invWnd.Open()) or false
     local bankO, merchO = isBankWindowOpen(), isMerchantWindowOpen()
     maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
     -- Initial persist save so data survives if game closes before first periodic save.
@@ -1940,12 +1049,12 @@ local function main()
                 sellMacState.failedCount = 0
                 if perfCache.sellLogPath then
                     local failedPath = perfCache.sellLogPath .. "\\sell_failed.ini"
-                    local countStr = mq.TLO.Ini.File(failedPath).Section("Failed").Key("count").Value()
+                    local countStr = config.safeIniValueByPath(failedPath, "Failed", "count", "0")
                     local count = tonumber(countStr) or 0
                     if count > 0 then
                         sellMacState.failedCount = count
                         for i = 1, count do
-                            local item = mq.TLO.Ini.File(failedPath).Section("Failed").Key("item" .. i).Value()
+                            local item = config.safeIniValueByPath(failedPath, "Failed", "item" .. i, "")
                             if item and item ~= "" then table.insert(sellMacState.failedItems, item) end
                         end
                         sellMacState.showFailedUntil = now + C.SELL_FAILED_DISPLAY_MS
@@ -1982,8 +1091,15 @@ local function main()
                 mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
             end
             -- Wait for QuantityWnd to open, then set quantity and accept
-            mq.delay(300, function() return mq.TLO.Window("QuantityWnd").Open() end)
-            if mq.TLO.Window("QuantityWnd").Open() then
+            mq.delay(300, function()
+                local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+                return w and w.Open and w.Open()
+            end)
+            local qtyWndOpen = (function()
+                local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+                return w and w.Open and w.Open()
+            end)()
+            if qtyWndOpen then
                 mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty))
                 mq.delay(150)
                 mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
@@ -1991,21 +1107,23 @@ local function main()
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
-            local qtyWnd = mq.TLO.Window("QuantityWnd")
+            local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
             local qtyWndOpen = qtyWnd and qtyWnd.Open and qtyWnd.Open() or false
             local hasCursor = hasItemOnCursor()
             -- Clear if QuantityWnd closed (user cancelled manually) or item is on cursor (user picked it up manually)
             if not qtyWndOpen and not hasCursor then
                 -- Check if item still exists at the location
                 local itemExists = false
+                local Me = mq.TLO and mq.TLO.Me
                 if uiState.pendingQuantityPickup.source == "bank" then
-                    local bn = mq.TLO.Me.Bank(uiState.pendingQuantityPickup.bag)
-                    local it = (bn and bn.Container() and bn.Container()>0) and bn.Item(uiState.pendingQuantityPickup.slot) or bn
-                    itemExists = it and it.ID() and it.ID() > 0
+                    local bn = Me and Me.Bank and Me.Bank(uiState.pendingQuantityPickup.bag)
+                    local sz = bn and bn.Container and bn.Container()
+                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(uiState.pendingQuantityPickup.slot)) or bn
+                    itemExists = it and it.ID and it.ID() and it.ID() > 0
                 else
-                    local pack = mq.TLO.Me.Inventory("pack" .. uiState.pendingQuantityPickup.bag)
-                    local it = pack and pack.Item(uiState.pendingQuantityPickup.slot)
-                    itemExists = it and it.ID() and it.ID() > 0
+                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. uiState.pendingQuantityPickup.bag)
+                    local it = pack and pack.Item and pack.Item(uiState.pendingQuantityPickup.slot)
+                    itemExists = it and it.ID and it.ID() and it.ID() > 0
                 end
                 if not itemExists then
                     -- Item was picked up, clear pending
@@ -2018,7 +1136,8 @@ local function main()
                 uiState.quantityPickerValue = ""
             end
         end
-        local invOpen = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false
+        local invWndLoop = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+        local invOpen = (invWndLoop and invWndLoop.Open and invWndLoop.Open()) or false
         local bankOpen = isBankWindowOpen()
         local merchOpen = isMerchantWindowOpen()
         local lootOpen = isLootWindowOpen()
@@ -2153,7 +1272,7 @@ local function main()
         local lootOpenNow = isLootWindowOpen()
         -- Auto-accept no-drop valuable item confirmation when loot window open
         if lootOpenNow then
-            local confirmWnd = mq.TLO.Window("ConfirmationDialogBox")
+            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
             if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
                 mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
             end
@@ -2167,6 +1286,11 @@ local function main()
         if perfCache.layoutDirty and (now - perfCache.layoutSaveScheduledAt) >= perfCache.layoutSaveDebounceMs then
             perfCache.layoutDirty = false
             saveLayoutToFileImmediate()
+        end
+        -- Periodic cache cleanup: evict expired spell cache entries (every 30s)
+        if not perfCache.lastCacheCleanup or (now - perfCache.lastCacheCleanup) >= 30000 then
+            perfCache.lastCacheCleanup = now
+            Cache.cleanup()
         end
         mq.delay(shouldDraw and C.LOOP_DELAY_VISIBLE_MS or C.LOOP_DELAY_HIDDEN_MS)
         mq.doevents()

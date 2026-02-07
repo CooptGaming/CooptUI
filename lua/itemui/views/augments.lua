@@ -233,8 +233,10 @@ function AugmentsView.render(ctx)
                 if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
                     if hasCursor then ctx.removeItemFromCursor()
                     else
-                        local tlo = mq.TLO.Me.Inventory("pack" .. item.bag).Item(item.slot)
-                        if tlo and tlo.ID() and tlo.ID() > 0 then tlo.Inspect() end
+                        local Me = mq.TLO and mq.TLO.Me
+                        local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+                        local tlo = pack and pack.Item and pack.Item(item.slot)
+                        if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
                     end
                 end
 

@@ -6,6 +6,7 @@
 
 local config = require('itemui.config')
 local rules = require('itemui.rules')
+local events = require('itemui.core.events')
 
 local M = {}
 local opts
@@ -79,7 +80,7 @@ local function addToKeepList(itemName)
     end
     if found then config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", table.concat(items, "/")) end
     config.writeListValue("sell_keep_exact.ini", "Items", "exact", current == "" and itemName or (current .. "/" .. itemName))
-    opts.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Added to Keep list")
     return true
 end
@@ -97,7 +98,7 @@ local function addToJunkList(itemName)
     end
     if found then config.writeListValue("sell_keep_exact.ini", "Items", "exact", table.concat(items, "/")) end
     config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", current == "" and itemName or (current .. "/" .. itemName))
-    opts.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Added to Always sell list")
     return true
 end
@@ -114,7 +115,7 @@ local function removeFromKeepList(itemName)
     end
     if not found then return false end
     config.writeListValue("sell_keep_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
-    opts.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Removed from Keep list")
     return true
 end
@@ -131,7 +132,7 @@ local function removeFromJunkList(itemName)
     end
     if not found then return false end
     config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
-    opts.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Removed from Always sell list")
     return true
 end
@@ -152,7 +153,7 @@ local function addToLootSkipList(itemName)
     config.writeLootListValue("loot_skip_exact.ini", "Items", "exact", config.joinList(list))
     local lootLists = cache.loot.lists
     if lootLists and lootLists.skipExact then lootLists.skipExact = list end
-    opts.invalidateLootConfigCache()
+    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
     opts.setStatusMessage("Added to Never loot list")
     return true
 end
@@ -167,7 +168,7 @@ local function removeFromLootSkipList(itemName)
     config.writeLootListValue("loot_skip_exact.ini", "Items", "exact", config.joinList(newList))
     local lootLists = cache.loot.lists
     if lootLists and lootLists.skipExact then lootLists.skipExact = newList end
-    opts.invalidateLootConfigCache()
+    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
     opts.setStatusMessage("Removed from Never loot list")
     return true
 end
@@ -190,7 +191,7 @@ local function createAugmentListAPI()
         list[#list + 1] = itemName
         config.writeListValue("sell_augment_always_sell_exact.ini", "Items", "exact", config.joinList(list))
         if sellLists and sellLists.augmentAlwaysSellExact then sellLists.augmentAlwaysSellExact = list end
-        opts.invalidateSellConfigCache(); opts.setStatusMessage("Added to Augment Always sell list")
+        events.emit(events.EVENTS.CONFIG_SELL_CHANGED); opts.setStatusMessage("Added to Augment Always sell list")
         return true
     end
     function api.removeFromAugmentAlwaysSellList(itemName)
@@ -202,7 +203,7 @@ local function createAugmentListAPI()
         if not found then return false end
         config.writeListValue("sell_augment_always_sell_exact.ini", "Items", "exact", config.joinList(newList))
         if sellLists and sellLists.augmentAlwaysSellExact then sellLists.augmentAlwaysSellExact = newList end
-        opts.invalidateSellConfigCache(); opts.setStatusMessage("Removed from Augment Always sell list")
+        events.emit(events.EVENTS.CONFIG_SELL_CHANGED); opts.setStatusMessage("Removed from Augment Always sell list")
         return true
     end
     function api.isInAugmentNeverLootList(itemName)
@@ -219,7 +220,7 @@ local function createAugmentListAPI()
         list[#list + 1] = itemName
         config.writeLootListValue("loot_augment_skip_exact.ini", "Items", "exact", config.joinList(list))
         if lootLists and lootLists.augmentSkipExact then lootLists.augmentSkipExact = list end
-        opts.invalidateLootConfigCache(); opts.setStatusMessage("Added to Augment Never loot list")
+        events.emit(events.EVENTS.CONFIG_LOOT_CHANGED); opts.setStatusMessage("Added to Augment Never loot list")
         return true
     end
     function api.removeFromAugmentNeverLootList(itemName)
@@ -231,7 +232,7 @@ local function createAugmentListAPI()
         if not found then return false end
         config.writeLootListValue("loot_augment_skip_exact.ini", "Items", "exact", config.joinList(newList))
         if lootLists and lootLists.augmentSkipExact then lootLists.augmentSkipExact = newList end
-        opts.invalidateLootConfigCache(); opts.setStatusMessage("Removed from Augment Never loot list")
+        events.emit(events.EVENTS.CONFIG_LOOT_CHANGED); opts.setStatusMessage("Removed from Augment Never loot list")
         return true
     end
     return api

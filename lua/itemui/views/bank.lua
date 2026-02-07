@@ -42,10 +42,10 @@ function BankView.render(ctx)
             ImGui.SetNextWindowPos(ImVec2(bankX, bankY), ImGuiCond.FirstUseEver)
         elseif ctx.uiState.alignToContext then
             -- Calculate initial position relative to ItemUI (if snapping is enabled)
-            local invWnd = mq.TLO.Window("InventoryWindow")
-            if invWnd and invWnd.Open() then
-                local invX, invY = tonumber(invWnd.X()) or 0, tonumber(invWnd.Y()) or 0
-                local invW = tonumber(invWnd.Width()) or 0
+            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+            if invWnd and invWnd.Open and invWnd.Open() then
+                local invX, invY = tonumber(invWnd.X and invWnd.X()) or 0, tonumber(invWnd.Y and invWnd.Y()) or 0
+                local invW = tonumber(invWnd.Width and invWnd.Width()) or 0
                 if invX and invY and invW > 0 then
                     -- ItemUI position = InventoryWindow.X + InventoryWindow.Width + spacing
                     local itemUIX = invX + invW + 10
@@ -347,9 +347,11 @@ function BankView.render(ctx)
                             if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
                                 if hasCursor then ctx.removeItemFromCursor()
                                 else
-                                    local bn = mq.TLO.Me.Bank(item.bag)
-                                    local it = (bn and bn.Container() and bn.Container()>0) and bn.Item(item.slot) or bn
-                                    if it and it.ID() and it.ID()>0 then it.Inspect() end
+                                    local Me = mq.TLO and mq.TLO.Me
+                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
+                                    local sz = bn and bn.Container and bn.Container()
+                                    local it = (bn and sz and sz>0) and (bn.Item and bn.Item(item.slot)) or bn
+                                    if it and it.ID and it.ID() and it.ID()>0 and it.Inspect then it.Inspect() end
                                 end
                             end
                         end

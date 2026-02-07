@@ -61,10 +61,11 @@ function SellView.render(ctx, simulateSellView)
         -- Macro.Name may return "sell" or "sell.mac" depending on MQ version
         local sellMacRunning = (mn == "sell" or mn == "sell.mac")
         if sellMacRunning and ctx.perfCache.sellLogPath then
+            local config = require('itemui.config')
             local progPath = ctx.perfCache.sellLogPath .. "\\sell_progress.ini"
-            local totalStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("total").Value()
-            local currentStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("current").Value()
-            local remainingStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("remaining").Value()
+            local totalStr = config.safeIniValueByPath(progPath, "Progress", "total", "0")
+            local currentStr = config.safeIniValueByPath(progPath, "Progress", "current", "0")
+            local remainingStr = config.safeIniValueByPath(progPath, "Progress", "remaining", "0")
             local total = tonumber(totalStr) or 0
             local current = tonumber(currentStr) or 0
             local remaining = tonumber(remainingStr) or 0
@@ -306,8 +307,10 @@ function SellView.render(ctx, simulateSellView)
                 if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
                     if hasCursor then ctx.removeItemFromCursor()
                     else
-                        local tlo = mq.TLO.Me.Inventory("pack"..item.bag).Item(item.slot)
-                        if tlo and tlo.ID() and tlo.ID()>0 then tlo.Inspect() end
+                        local Me = mq.TLO and mq.TLO.Me
+                        local pack = Me and Me.Inventory and Me.Inventory("pack"..item.bag)
+                        local tlo = pack and pack.Item and pack.Item(item.slot)
+                        if tlo and tlo.ID and tlo.ID() and tlo.ID()>0 and tlo.Inspect then tlo.Inspect() end
                     end
                 end
                 ImGui.TableNextColumn()

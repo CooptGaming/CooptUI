@@ -3,7 +3,7 @@
     Purpose: AA Script Progress Tracker
     Part of CoopUI — EverQuest EMU Companion
     Author: Perky's Crew
-    Version: 1.0.0-rc1
+    Version: see coopui.version (SCRIPTTRACKER)
     Dependencies: mq2lua, ImGui
 
     Tracks Lost and Planar scripts in inventory; shows counts and total AA value.
@@ -16,8 +16,10 @@
 
 local mq = require('mq')
 require('ImGui')
+local CoopVersion = require('coopui.version')
+local theme = require('coopui.utils.theme')
 
-local VERSION = "1.1.0"
+local VERSION = CoopVersion.SCRIPTTRACKER
 
 -- Rarity tiers: same AA value for Planar and Lost of same rarity
 local RARITY_ROWS = {
@@ -150,9 +152,9 @@ local function renderUI()
     end
 
     -- Row 1: "AA Script Tracker v1.1.0" only (no overlap)
-    ImGui.TextColored(ImVec4(0.6, 0.9, 0.6, 1.0), "AA Script Tracker")
+    theme.TextInfo("AA Script Tracker")
     ImGui.SameLine()
-    ImGui.TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), string.format("v%s", VERSION))
+    theme.TextMuted(string.format("v%s", VERSION))
 
     -- Row 2: Refresh and PIN checkbox next to each other
     if ImGui.Button("Refresh", ImVec2(70, 0)) then
@@ -165,7 +167,7 @@ local function renderUI()
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When pinned, window cannot be closed or moved"); ImGui.EndTooltip() end
 
     -- Scripts label and table (Planar + Lost combined by rarity)
-    ImGui.TextColored(ImVec4(0.8, 0.8, 0.8, 1.0), "Scripts")
+    ImGui.Text("Scripts")
     if ImGui.BeginTable("ScriptCounts", 3, ImGuiTableFlags.Borders) then
         ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 90)
         ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 50)
@@ -189,10 +191,10 @@ local function renderUI()
     end
 
     -- Total AA
-    ImGui.TextColored(ImVec4(0.9, 0.85, 0.4, 1.0), string.format("Total AA: %d", totalAA))
+    theme.TextWarning(string.format("Total AA: %d", totalAA))
 
     -- Last Scan
-    ImGui.TextColored(ImVec4(0.45, 0.45, 0.45, 1.0), string.format("Last scan: %s", os.date("%H:%M:%S", lastScanTime / 1000)))
+    theme.TextMuted(string.format("Last scan: %s", os.date("%H:%M:%S", lastScanTime / 1000)))
 
     ImGui.End()
 end
