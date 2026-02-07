@@ -186,6 +186,51 @@ function M.getTimerReady(bag, slot)
     return ready
 end
 
+-- Slot index (0-22) to display name; WornSlots is count, WornSlot(N) returns Nth slot index.
+local SLOT_DISPLAY_NAMES = {
+    [0] = "Charm", [1] = "Ear", [2] = "Head", [3] = "Face", [4] = "Ear",
+    [5] = "Neck", [6] = "Shoulder", [7] = "Arms", [8] = "Back", [9] = "Wrist",
+    [10] = "Wrist", [11] = "Ranged", [12] = "Hands", [13] = "Primary", [14] = "Secondary",
+    [15] = "Ring", [16] = "Ring", [17] = "Chest", [18] = "Legs", [19] = "Feet",
+    [20] = "Waist", [21] = "Power", [22] = "Ammo",
+}
+local function slotIndexToDisplayName(s)
+    if s == nil or s == "" then return nil end
+    local n = tonumber(s)
+    if n ~= nil and SLOT_DISPLAY_NAMES[n] then return SLOT_DISPLAY_NAMES[n] end
+    local str = tostring(s):lower():gsub("^%l", string.upper)
+    return (str ~= "") and str or nil
+end
+
+--- Build comma-separated list of slot names from item TLO. WornSlots() is the count; WornSlot(N) is the Nth slot.
+function M.getWornSlotsStringFromTLO(it)
+    if not it or not it.WornSlots or not it.WornSlot then return "" end
+    local nSlots = it.WornSlots()
+    if not nSlots or nSlots <= 0 then return "" end
+    if nSlots >= 20 then return "All" end
+    local seen, parts = {}, {}
+    for i = 1, nSlots do
+        local s = it.WornSlot(i)
+        local name = s and slotIndexToDisplayName(tostring(s)) or ""
+        if name ~= "" and not seen[name] then seen[name] = true; parts[#parts + 1] = name end
+    end
+    return (#parts > 0) and table.concat(parts, ", ") or ""
+end
+
+--- Count augment slots: AugSlot1-5 return slot type (int); 0 = no slot, >0 = has slot.
+function M.getAugSlotsCountFromTLO(it)
+    if not it then return 0 end
+    local n = 0
+    for _, accessor in ipairs({ "AugSlot1", "AugSlot2", "AugSlot3", "AugSlot4", "AugSlot5" }) do
+        local fn = it[accessor]
+        if fn then
+            local v = fn()
+            if type(v) == "number" and v > 0 then n = n + 1 end
+        end
+    end
+    return n
+end
+
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
 --- This reduces scan from ~76 to ~30 TLO calls per item; stats load on first tooltip hover.
@@ -220,12 +265,10 @@ function M.buildItemFromMQ(item, bag, slot)
         tradeskills = item.Tradeskills and item.Tradeskills() or false,
         class = item.Class and item.Class() or "",
         race = item.Race and item.Race() or "",
-        wornSlots = item.WornSlots and item.WornSlots() or "",
+        wornSlots = M.getWornSlotsStringFromTLO(item),
         requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
         recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
-        augSlots = (item.AugSlot1 and item.AugSlot1() and 1 or 0) + (item.AugSlot2 and item.AugSlot2() and 1 or 0) +
-                   (item.AugSlot3 and item.AugSlot3() and 1 or 0) + (item.AugSlot4 and item.AugSlot4() and 1 or 0) +
-                   (item.AugSlot5 and item.AugSlot5() and 1 or 0),
+        augSlots = M.getAugSlotsCountFromTLO(item),
         instrumentType = item.InstrumentType and item.InstrumentType() or "",
         instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
     }

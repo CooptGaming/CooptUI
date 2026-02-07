@@ -377,10 +377,8 @@ function M.scanLootItems()
             local collectible = it.Collectible and it.Collectible() or false
             local heirloom = it.Heirloom and it.Heirloom() or false
             local attuneable = it.Attuneable and it.Attuneable() or false
-            local wornSlots = it.WornSlots and it.WornSlots() or ""
-            local augSlots = (it.AugSlot1 and it.AugSlot1() and 1 or 0) + (it.AugSlot2 and it.AugSlot2() and 1 or 0) +
-                (it.AugSlot3 and it.AugSlot3() and 1 or 0) + (it.AugSlot4 and it.AugSlot4() and 1 or 0) +
-                (it.AugSlot5 and it.AugSlot5() and 1 or 0)
+            local wornSlots = env.getWornSlotsStringFromTLO and env.getWornSlotsStringFromTLO(it) or ""
+            local augSlots = env.getAugSlotsCountFromTLO and env.getAugSlotsCountFromTLO(it) or 0
             local clicky = 0
             if it.Clicky and it.Clicky.Spell then
                 local spellId = it.Clicky.Spell.ID
