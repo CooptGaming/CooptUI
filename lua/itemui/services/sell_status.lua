@@ -60,6 +60,7 @@ function M.willItemBeSold(itemData)
 end
 
 --- Refresh stored-inv-by-name cache if missing or older than TTL.
+--- Also exposed as M.refreshStoredInvByName() for scan.lua to reuse cached lookup.
 local function refreshStoredInvByNameIfNeeded()
     if deps.perfCache.storedInvByName and (mq.gettime() - (deps.perfCache.storedInvByNameTime or 0)) <= deps.C.STORED_INV_CACHE_TTL_MS then
         return
@@ -77,6 +78,12 @@ local function refreshStoredInvByNameIfNeeded()
     deps.perfCache.storedInvByNameTime = mq.gettime()
 end
 
+--- Public: refresh and return the storedInvByName cache (for scan.lua to reuse)
+function M.refreshStoredInvByName()
+    refreshStoredInvByNameIfNeeded()
+    return deps.perfCache.storedInvByName
+end
+
 --- Compute and attach willSell/sellReason to each item.
 function M.computeAndAttachSellStatus(items)
     if not items or #items == 0 then return end
@@ -90,13 +97,9 @@ function M.computeAndAttachSellStatus(items)
             if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
             if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
         end
-        local itemData = {
-            name = item.name, type = item.type, value = item.value, totalValue = item.totalValue,
-            stackSize = item.stackSize or 1, nodrop = item.nodrop, notrade = item.notrade,
-            lore = item.lore, quest = item.quest, collectible = item.collectible, heirloom = item.heirloom,
-            inKeep = inKeep, inJunk = inJunk
-        }
-        local willSell, reason = M.willItemBeSold(itemData)
+        item.inKeep = inKeep
+        item.inJunk = inJunk
+        local willSell, reason = M.willItemBeSold(item)
         item.willSell = willSell
         item.sellReason = reason or ""
     end
@@ -113,13 +116,13 @@ function M.getSellStatusForItem(item)
         if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
         if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
     end
-    local itemData = {
-        name = item.name, type = item.type, value = item.value, totalValue = item.totalValue,
-        stackSize = item.stackSize or 1, nodrop = item.nodrop, notrade = item.notrade,
-        lore = item.lore, quest = item.quest, collectible = item.collectible, heirloom = item.heirloom,
-        inKeep = inKeep, inJunk = inJunk
-    }
-    local willSell, reason = M.willItemBeSold(itemData)
+    -- Save/restore inKeep/inJunk to avoid side effects on inventory items
+    local prevKeep, prevJunk = item.inKeep, item.inJunk
+    item.inKeep = inKeep
+    item.inJunk = inJunk
+    local willSell, reason = M.willItemBeSold(item)
+    item.inKeep = prevKeep
+    item.inJunk = prevJunk
     return reason or "", willSell, inKeep, inJunk
 end
 

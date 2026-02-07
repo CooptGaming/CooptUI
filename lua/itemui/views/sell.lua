@@ -209,22 +209,27 @@ function SellView.render(ctx, simulateSellView)
         local sellSortDir = ctx.sortState.sellDirection or ImGuiSortDirection.Ascending
         local sellCacheValid = ctx.perfCache.sell.key == sellSortKey and ctx.perfCache.sell.dir == sellSortDir and ctx.perfCache.sell.filter == searchLower and ctx.perfCache.sell.showOnly == ctx.uiState.showOnlySellable and ctx.perfCache.sell.n == #ctx.sellItems and ctx.perfCache.sell.nFiltered == #filteredSellItems and #ctx.perfCache.sell.sorted > 0
         if not sellCacheValid then
+            local Sort = ctx.sortColumns
             if type(ctx.sortState.sellColumn) == "string" then
                 local sortKey = ctx.sortState.sellColumn
                 local isNumeric = (sortKey == "Value" or sortKey == "Stack")
-                table.sort(filteredSellItems, function(a, b)
-                    local av = ctx.sortColumns.getSortValByKey(a, sortKey, "Sell")
-                    local bv = ctx.sortColumns.getSortValByKey(b, sortKey, "Sell")
-                    if isNumeric then
-                        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                        if ctx.sortState.sellDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                    else
-                        local as, bs = tostring(av or ""):lower(), tostring(bv or ""):lower()
-                        if ctx.sortState.sellDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                    end
-                end)
+                -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
+                local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filteredSellItems, sortKey, "Sell")
+                if decorated then
+                    table.sort(decorated, function(a, b)
+                        local av, bv = a.key, b.key
+                        if isNumeric then
+                            local an, bn = tonumber(av) or 0, tonumber(bv) or 0
+                            if ctx.sortState.sellDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                        else
+                            local as, bs = tostring(av or ""), tostring(bv or "")
+                            if ctx.sortState.sellDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                        end
+                    end)
+                    Sort.undecorate(decorated, filteredSellItems)
+                end
             elseif type(ctx.sortState.sellColumn) == "number" and ctx.sortState.sellColumn >= 3 and ctx.sortState.sellColumn <= 7 then
-                table.sort(filteredSellItems, ctx.sortColumns.makeComparator(ctx.sortColumns.getSellSortVal, ctx.sortState.sellColumn, ctx.sortState.sellDirection, {5, 6}))
+                table.sort(filteredSellItems, Sort.makeComparator(Sort.getSellSortVal, ctx.sortState.sellColumn, ctx.sortState.sellDirection, {5, 6}))
             end
             ctx.perfCache.sell.key, ctx.perfCache.sell.dir, ctx.perfCache.sell.filter = sellSortKey, sellSortDir, searchLower
             ctx.perfCache.sell.showOnly, ctx.perfCache.sell.n, ctx.perfCache.sell.nFiltered, ctx.perfCache.sell.sorted = ctx.uiState.showOnlySellable, #ctx.sellItems, #filteredSellItems, filteredSellItems

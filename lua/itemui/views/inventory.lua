@@ -191,17 +191,22 @@ function InventoryView.render(ctx, bankOpen)
         local cacheValid = ctx.perfCache.inv.key == sortKey and ctx.perfCache.inv.dir == sortDir and ctx.perfCache.inv.filter == filterStr and ctx.perfCache.inv.n == #ctx.inventoryItems and ctx.perfCache.inv.scanTime == ctx.perfCache.lastScanTimeInv and #ctx.perfCache.inv.sorted > 0
         if not cacheValid and sortKey ~= "" then
             local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(sortKey)
-            table.sort(filtered, function(a, b)
-                local av = ctx.sortColumns.getSortValByKey(a, sortKey, "Inventory")
-                local bv = ctx.sortColumns.getSortValByKey(b, sortKey, "Inventory")
-                if isNumeric then
-                    local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                    if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                else
-                    local as, bs = tostring(av or ""):lower(), tostring(bv or ""):lower()
-                    if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                end
-            end)
+            -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
+            local Sort = ctx.sortColumns
+            local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filtered, sortKey, "Inventory")
+            if decorated then
+                table.sort(decorated, function(a, b)
+                    local av, bv = a.key, b.key
+                    if isNumeric then
+                        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
+                        if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                    else
+                        local as, bs = tostring(av or ""), tostring(bv or "")
+                        if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                    end
+                end)
+                Sort.undecorate(decorated, filtered)
+            end
             ctx.perfCache.inv.key, ctx.perfCache.inv.dir, ctx.perfCache.inv.filter = sortKey, sortDir, filterStr
             ctx.perfCache.inv.n, ctx.perfCache.inv.scanTime, ctx.perfCache.inv.sorted = #ctx.inventoryItems, ctx.perfCache.lastScanTimeInv, filtered
         elseif cacheValid then
