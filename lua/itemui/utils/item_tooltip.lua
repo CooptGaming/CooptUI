@@ -145,6 +145,40 @@ local function getItemClassRaceSlotBank(bankBag, bankSlot)
     return clsStr, raceStr, slotStr
 end
 
+--- Returns true if the current player can use the item (class, race, deity, level).
+local function canPlayerUseItem(item, source)
+    local Me = mq.TLO and mq.TLO.Me
+    if not Me or not Me.Level then return true end
+    local myLevel = tonumber(Me.Level()) or 0
+    local reqLevel = (item.requiredLevel and item.requiredLevel > 0) and item.requiredLevel or nil
+    if reqLevel and myLevel < reqLevel then return false end
+    local myDeity = Me.Deity and Me.Deity() and tostring(Me.Deity()):lower() or ""
+    if item.deity and item.deity ~= "" then
+        local allowed = false
+        for part in (tostring(item.deity):lower()):gmatch("%S+") do
+            if part == myDeity then allowed = true break end
+        end
+        if not allowed then return false end
+    end
+    local myClass = Me.Class and tostring(Me.Class() or ""):lower() or ""
+    local myRace = Me.Race and tostring(Me.Race() or ""):lower() or ""
+    if item.class and item.class ~= "" and item.class:lower() ~= "all" then
+        local ok = false
+        for part in (tostring(item.class):lower()):gmatch("%S+") do
+            if part == myClass then ok = true break end
+        end
+        if not ok then return false end
+    end
+    if item.race and item.race ~= "" and item.race:lower() ~= "all" then
+        local ok = false
+        for part in (tostring(item.race):lower()):gmatch("%S+") do
+            if part == myRace then ok = true break end
+        end
+        if not ok then return false end
+    end
+    return true
+end
+
 --- Render full item tooltip matching in-game Item Display. Shows every property.
 --- Runs content in pcall so binding/API errors do not leave tooltip stack inconsistent.
 function ItemTooltip.renderStatsTooltip(item, ctx, opts)
@@ -154,7 +188,11 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
 
     local function render()
     -- ---- Header: Name, ID, Type (like in-game Description) ----
-    ImGui.TextColored(ImVec4(0.45, 0.85, 0.45, 1.0), item.name or "—")
+    local nameColor = ImVec4(0.45, 0.85, 0.45, 1.0)
+    if not canPlayerUseItem(item, source) then
+        nameColor = ImVec4(0.95, 0.35, 0.35, 1.0)
+    end
+    ImGui.TextColored(nameColor, item.name or "—")
     if item.id and item.id ~= 0 then
         ImGui.TextColored(ImVec4(0.55, 0.55, 0.6, 1.0), "ID: " .. tostring(item.id))
     end
@@ -167,14 +205,9 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     end
     ImGui.Spacing()
 
-    -- ---- Class, Race, Slot, Deity, Augment slots, Container ----
+    -- ---- Class, Race, Slot, Deity, Augment slots, Container (top section, above Item info) ----
     local cls, race, slot = "—", "—", ""
-    local hasCached = (item.class and item.class ~= "") or (item.race and item.race ~= "") or (item.wornSlots and item.wornSlots ~= "")
-    if hasCached then
-        cls = (item.class and item.class ~= "") and item.class or "—"
-        race = (item.race and item.race ~= "") and item.race or "—"
-        slot = (item.wornSlots and item.wornSlots ~= "") and item.wornSlots or ""
-    else
+    if item.bag ~= nil and item.slot ~= nil and source then
         local ok, c, r, s
         if source == "bank" then ok, c, r, s = pcall(getItemClassRaceSlotBank, item.bag, item.slot)
         else ok, c, r, s = pcall(getItemClassRaceSlotInv, item.bag, item.slot) end
@@ -184,6 +217,9 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
             if s and s ~= "" then slot = s end
         end
     end
+    if cls == "—" and (item.class and item.class ~= "") then cls = item.class end
+    if race == "—" and (item.race and item.race ~= "") then race = item.race end
+    if (slot == "" or slot == "—") and (item.wornSlots and item.wornSlots ~= "") then slot = item.wornSlots end
     if cls and cls ~= "" and cls ~= "—" then ImGui.Text("Class: " .. tostring(cls)) end
     if race and race ~= "" and race ~= "—" then ImGui.Text("Race: " .. tostring(race)) end
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
