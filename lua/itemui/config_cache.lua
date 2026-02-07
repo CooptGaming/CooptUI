@@ -106,7 +106,7 @@ end
 local function removeFromKeepList(itemName)
     itemName = config.sanitizeItemName(itemName)
     if not itemName then return false end
-    local current = config.readINIValue("sell_keep_exact.ini", "Items", "exact", "")
+    local current = config.readListValue("sell_keep_exact.ini", "Items", "exact", "")
     if current == "" then return false end
     local items, found = {}, false
     for item in current:gmatch("([^/]+)") do
@@ -123,7 +123,7 @@ end
 local function removeFromJunkList(itemName)
     itemName = config.sanitizeItemName(itemName)
     if not itemName then return false end
-    local current = config.readINIValue("sell_always_sell_exact.ini", "Items", "exact", "")
+    local current = config.readListValue("sell_always_sell_exact.ini", "Items", "exact", "")
     if current == "" then return false end
     local items, found = {}, false
     for item in current:gmatch("([^/]+)") do

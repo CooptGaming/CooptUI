@@ -7,10 +7,13 @@
 /*
 !.gitignore
 !.cursor/
+!.github/
 !README.md
+!DEPLOY.md
 !archive_backups.ps1
 !docs/
 !epic_quests/
+!scripts/
 !lua/
 !Macros/
 !resources/
