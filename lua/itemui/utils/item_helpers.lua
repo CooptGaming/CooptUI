@@ -231,6 +231,28 @@ function M.getAugSlotsCountFromTLO(it)
     return n
 end
 
+--- Build class and race display strings from item TLO (Classes()/Class(i), Races()/Race(i)).
+function M.getClassRaceStringsFromTLO(it)
+    if not it or not it.ID or it.ID() == 0 then return "", "" end
+    local function add(parts, fn, n)
+        if not n or n <= 0 then return end
+        for i = 1, n do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = tostring(v) end end
+        if #parts == 0 then for i = 0, n - 1 do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = tostring(v) end end end
+    end
+    local clsStr, raceStr = "", ""
+    local nClass = it.Classes and it.Classes()
+    if nClass and nClass > 0 then
+        if nClass >= 16 then clsStr = "All"
+        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c end, nClass); clsStr = table.concat(p, " ") end
+    end
+    local nRace = it.Races and it.Races()
+    if nRace and nRace > 0 then
+        if nRace >= 15 then raceStr = "All"
+        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r end, nRace); raceStr = table.concat(p, " ") end
+    end
+    return clsStr, raceStr
+end
+
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
 --- This reduces scan from ~76 to ~30 TLO calls per item; stats load on first tooltip hover.
@@ -240,6 +262,7 @@ function M.buildItemFromMQ(item, bag, slot)
     local ss = item.Stack and item.Stack() or 1
     if ss < 1 then ss = 1 end
     local stackSizeMax = item.StackSize and item.StackSize() or ss
+    local clsStr, raceStr = M.getClassRaceStringsFromTLO(item)
     local base = {
         bag = bag, slot = slot,
         name = item.Name and item.Name() or "",
@@ -263,8 +286,8 @@ function M.buildItemFromMQ(item, bag, slot)
         collectible = item.Collectible and item.Collectible() or false,
         quest = item.Quest and item.Quest() or false,
         tradeskills = item.Tradeskills and item.Tradeskills() or false,
-        class = item.Class and item.Class() or "",
-        race = item.Race and item.Race() or "",
+        class = clsStr,
+        race = raceStr,
         wornSlots = M.getWornSlotsStringFromTLO(item),
         requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
         recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
