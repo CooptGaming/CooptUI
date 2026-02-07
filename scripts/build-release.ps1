@@ -19,11 +19,12 @@ $Staging = Join-Path $env:TEMP "CoopUI_release_staging_$(Get-Random)"
 New-Item -ItemType Directory -Path $Staging -Force | Out-Null
 
 try {
-    # Lua: itemui (full), scripttracker (full), mq/ItemUtils.lua
+    # Lua: itemui (full), scripttracker (full), coopui (version + theme), mq/ItemUtils.lua
     $luaDest = Join-Path $Staging "lua"
     New-Item -ItemType Directory -Path $luaDest -Force | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot "lua\itemui") -Destination (Join-Path $luaDest "itemui") -Recurse -Force
     Copy-Item -Path (Join-Path $RepoRoot "lua\scripttracker") -Destination (Join-Path $luaDest "scripttracker") -Recurse -Force
+    Copy-Item -Path (Join-Path $RepoRoot "lua\coopui") -Destination (Join-Path $luaDest "coopui") -Recurse -Force
     $mqDest = Join-Path $luaDest "mq"
     New-Item -ItemType Directory -Path $mqDest -Force | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot "lua\mq\ItemUtils.lua") -Destination (Join-Path $mqDest "ItemUtils.lua") -Force

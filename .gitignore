@@ -21,10 +21,11 @@
 .cursor/agents/
 docs/
 
-# --- lua: only itemui, scripttracker, and mq/ItemUtils.lua ---
+# --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
 !lua/itemui/
 !lua/scripttracker/
+!lua/coopui/
 !lua/mq/
 lua/mq/*
 !lua/mq/ItemUtils.lua
