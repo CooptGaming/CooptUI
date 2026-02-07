@@ -1,10 +1,21 @@
-# E3Next — ItemUI & ScriptTracker (MacroQuest2)
+# CoopUI — EverQuest EMU Companion (MacroQuest2)
 
-Item management and AA script tracking for EverQuest via MacroQuest2: unified inventory, bank, sell, and loot UI plus configurable keep/junk lists.
+A comprehensive UI companion for EverQuest emulator servers, built on MacroQuest2. CoopUI provides unified item management, AA script tracking, and automated loot/sell workflows — designed for stability during raids and minimal performance overhead.
+
+## Components
+
+| Component | Type | Command | What It Does |
+|-----------|------|---------|-------------|
+| **ItemUI** | Lua UI | `/lua run itemui` | Unified inventory, bank, sell, and loot interface |
+| **ScriptTracker** | Lua UI | `/lua run scripttracker` | AA script progress tracking (Lost/Planar, etc.) |
+| **Auto Sell** | Macro | `/dosell` | Sell marked items to merchant |
+| **Auto Loot** | Macro | `/doloot` | Auto-loot corpses with configurable filters |
 
 ## Quick Start
 
-**ItemUI** — Single window for inventory, bank, sell, and loot. Context-aware: shows sell view when merchant open, bank panel when bank open.
+### ItemUI
+
+Single window for inventory, bank, sell, and loot. Context-aware: shows sell view when merchant is open, bank panel when banker is open.
 
 ```
 /lua run itemui
@@ -14,11 +25,22 @@ Item management and AA script tracking for EverQuest via MacroQuest2: unified in
 /doloot          -- Run loot.mac (auto-loot corpses)
 ```
 
-**ScriptTracker** — Track AA script progress (Lost/Planar, etc.).
+### ScriptTracker
+
+Track AA script progress (Lost/Planar, etc.).
 
 ```
 /lua run scripttracker
 /scripttracker   -- Toggle window
+```
+
+### Auto Loot & Auto Sell
+
+These macros can be triggered from ItemUI buttons or run standalone:
+
+```
+/macro sell      -- Run sell macro directly
+/macro loot      -- Run loot macro directly
 ```
 
 ## Requirements
@@ -26,60 +48,86 @@ Item management and AA script tracking for EverQuest via MacroQuest2: unified in
 - MacroQuest2 with Lua support (mq2lua) and ImGui
 - In-game: `/lua run itemui` and `/lua run scripttracker` must work
 
+## Installation
+
+1. Extract or copy the release into your **MacroQuest2 root** (the folder that already contains `lua`, `Macros`, `config`). Merge/overwrite when prompted.
+2. If you don't have `Macros/sell_config`, `Macros/shared_config`, or `Macros/loot_config`, copy the contents from `config_templates/` (see release zip) into those folders.
+3. In-game: `/lua run itemui` and optionally `/lua run scripttracker`.
+
+**Release packaging and deployment** — For versioned zips, update-safe installs, and test distribution, see **[docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md)**.
+
 ## Project Structure
 
 ```
 MacroQuest2/
 ├── lua/
-│   ├── itemui/             # Unified ItemUI (inventory + bank + sell + loot)
-│   │   ├── init.lua
-│   │   ├── config.lua
-│   │   ├── rules.lua
-│   │   ├── storage.lua
-│   │   ├── components/, core/, services/, utils/, views/
+│   ├── itemui/             # CoopUI component: Unified ItemUI
+│   │   ├── init.lua        #   Entry point (/lua run itemui)
+│   │   ├── config.lua      #   INI read/write, config paths
+│   │   ├── rules.lua       #   Sell/loot rule evaluation
+│   │   ├── storage.lua     #   Per-character persistence
+│   │   ├── components/     #   UI components (filters, searchbar, progressbar)
+│   │   ├── core/           #   Cache, events, state management
+│   │   ├── services/       #   Filter service, macro bridge, scan
+│   │   ├── utils/          #   Layout, theme, columns, sort, tooltips
+│   │   ├── views/          #   Inventory, bank, sell, loot, config, augments
 │   │   └── README.md
-│   ├── scripttracker/      # AA script tracker
-│   │   ├── init.lua
+│   ├── scripttracker/      # CoopUI component: ScriptTracker
+│   │   ├── init.lua        #   Entry point (/lua run scripttracker)
 │   │   └── README.md
 │   └── mq/
-│       └── ItemUtils.lua   # Shared formatValue, formatWeight
+│       └── ItemUtils.lua   # Shared utilities (formatValue, formatWeight)
 ├── Macros/
+│   ├── sell.mac            # CoopUI component: Auto Sell
+│   ├── loot.mac            # CoopUI component: Auto Loot
 │   ├── sell_config/        # Sell/keep/junk lists, layout
 │   │   └── Chars/          # Per-character bank/inventory (local only)
 │   ├── shared_config/      # Shared valuable items (epic, valuable lists)
-│   ├── loot_config/        # Loot filters
-│   ├── sell.mac
-│   └── loot.mac
+│   └── loot_config/        # Loot filters
 └── resources/UIFiles/Default/
     ├── EQUI.xml
     ├── MQUI_ItemColorAnimation.xml
     └── ItemColorBG.tga
 ```
 
-### Config Paths (MQ2 convention)
+### Config Paths (MQ2 Convention)
 
 - **Macros/sell_config/** — Sell keep/junk lists, layout, per-char data
 - **Macros/shared_config/** — Shared valuable/epic items (used by loot and sell)
 - **Macros/loot_config/** — Loot filters
 
-## Installation
-
-1. Extract or copy the release into your **MacroQuest2 root** (the folder that already contains `lua`, `Macros`, `config`). Merge/overwrite when prompted.
-2. If you don’t have `Macros/sell_config`, `Macros/shared_config`, or `Macros/loot_config`, copy the contents from `config_templates/` (see release zip) into those folders.
-3. In-game: `/lua run itemui` and optionally `/lua run scripttracker`.
-
-**Release packaging and deployment** — For versioned zips, update-safe installs, and test distribution, see **[docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md)**.
+Config files are shared between ItemUI, Auto Sell, and Auto Loot. Edit them from ItemUI's Config window or directly in the INI files.
 
 ## Best Practices Applied
 
-- **Local variables** — Module state uses `local` (Lua best practice)
-- **Shared utilities** — `mq.ItemUtils` for formatValue/formatWeight
-- **Cached config** — In-memory sell/loot lists; no INI read per item
+- **Local variables** — Module state uses `local` throughout (Lua best practice)
+- **Shared utilities** — `mq.ItemUtils` for formatValue/formatWeight across components
+- **Cached config** — In-memory sell/loot lists; no INI read per item evaluation
 - **Debounced saves** — ItemUI debounces layout saves for snappy interaction
-- **Config location** — Macros/sell_config, shared_config, loot_config follow MQ2 convention
+- **Config location** — `Macros/sell_config`, `shared_config`, `loot_config` follow MQ2 convention
+- **Modular architecture** — Views, services, and utilities are separated into individual modules
+- **Stability first** — Graceful handling of zone transitions, server lag, and missing dependencies
 
 ## Development
 
-- **lua/itemui/** — ItemUI source; package per [docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md) for distribution.
-- **lua/scripttracker/** — ScriptTracker source.
-- This repository tracks only project files (ItemUI, ScriptTracker, macros, docs); see `.gitignore` and the release doc for scope.
+CoopUI source lives in this repository:
+
+- **lua/itemui/** — ItemUI source (main UI surface)
+- **lua/scripttracker/** — ScriptTracker source
+- **Macros/sell.mac, loot.mac** — Auto Sell and Auto Loot macros
+- **docs/** — Design documents, deployment guide, class guides
+
+This repository tracks only CoopUI project files; see `.gitignore` and [docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md) for scope and packaging.
+
+## Target Audience
+
+EverQuest emulator players (Hero's Journey, etc.) seeking reliable UI enhancement tools that prioritize stability and performance over feature bloat.
+
+## Philosophy
+
+- Stability over features
+- Performance over visual complexity
+- User experience over technical showcasing
+- Maintainability over clever code
+
+**Build it like a tool you'd trust during your own raids.**
