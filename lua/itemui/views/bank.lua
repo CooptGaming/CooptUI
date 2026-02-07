@@ -284,17 +284,22 @@ function BankView.render(ctx)
         local bankCacheValid = ctx.perfCache.bank.key == bankSortKey and ctx.perfCache.bank.dir == bankSortDir and ctx.perfCache.bank.filter == bankFilterStr and ctx.perfCache.bank.n == #list and ctx.perfCache.bank.nFiltered == #filteredBank and #ctx.perfCache.bank.sorted > 0
         if not bankCacheValid and bankSortKey ~= "" then
             local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(bankSortKey)
-            table.sort(filteredBank, function(a, b)
-                local av = ctx.sortColumns.getSortValByKey(a, bankSortKey, "Bank")
-                local bv = ctx.sortColumns.getSortValByKey(b, bankSortKey, "Bank")
-                if isNumeric then
-                    local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                    if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                else
-                    local as, bs = tostring(av or ""):lower(), tostring(bv or ""):lower()
-                    if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                end
-            end)
+            -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
+            local Sort = ctx.sortColumns
+            local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filteredBank, bankSortKey, "Bank")
+            if decorated then
+                table.sort(decorated, function(a, b)
+                    local av, bv = a.key, b.key
+                    if isNumeric then
+                        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
+                        if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                    else
+                        local as, bs = tostring(av or ""), tostring(bv or "")
+                        if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                    end
+                end)
+                Sort.undecorate(decorated, filteredBank)
+            end
             ctx.perfCache.bank.key, ctx.perfCache.bank.dir, ctx.perfCache.bank.filter = bankSortKey, bankSortDir, bankFilterStr
             ctx.perfCache.bank.n, ctx.perfCache.bank.nFiltered, ctx.perfCache.bank.sorted = #list, #filteredBank, filteredBank
         else

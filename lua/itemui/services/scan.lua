@@ -45,6 +45,17 @@ local function buildInventoryFingerprint()
     return table.concat(parts, "|")
 end
 
+-- Lightweight version: concatenates already-stored per-bag fingerprints (no TLO calls)
+-- Used after targetedRescanBags where getChangedBags() already updated changed bag fingerprints
+local function buildInventoryFingerprintFromCache()
+    local parts = {}
+    local lastBagFingerprints = env.scanState.lastBagFingerprints
+    for bagNum = 1, 10 do
+        parts[#parts + 1] = string.format("b%d:%s", bagNum, lastBagFingerprints[bagNum] or "")
+    end
+    return table.concat(parts, "|")
+end
+
 local function getChangedBags()
     local changed = {}
     local lastBagFingerprints = env.scanState.lastBagFingerprints
@@ -53,6 +64,8 @@ local function getChangedBags()
         local lastFp = lastBagFingerprints[bagNum] or ""
         if currentFp ~= lastFp then
             table.insert(changed, bagNum)
+            -- Update in-place so we don't rebuild for unchanged bags later
+            lastBagFingerprints[bagNum] = currentFp
         end
     end
     return changed
@@ -184,23 +197,25 @@ local function targetedRescanBags(changedBags)
     local inventoryItems = env.inventoryItems
     local buildItemFromMQ = env.buildItemFromMQ
     env.invalidateSortCache("inv")
-    for _, bagNum in ipairs(changedBags) do
-        local newItems = {}
-        for _, it in ipairs(inventoryItems) do
-            if it.bag ~= bagNum then
-                table.insert(newItems, it)
-            end
+    -- Build O(1) lookup set for changed bag numbers
+    local changedSet = {}
+    for _, bagNum in ipairs(changedBags) do changedSet[bagNum] = true end
+    -- Remove items from changed bags in-place (backward iteration)
+    for i = #inventoryItems, 1, -1 do
+        if changedSet[inventoryItems[i].bag] then
+            table.remove(inventoryItems, i)
         end
-        for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
-        for _, it in ipairs(newItems) do table.insert(inventoryItems, it) end
-        local Me = mq.TLO and mq.TLO.Me
+    end
+    -- Append rescanned items for changed bags
+    local Me = mq.TLO and mq.TLO.Me
+    for _, bagNum in ipairs(changedBags) do
         local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
         if pack and pack.Container and pack.Container() then
             local bagSize = pack.Container()
             for slotNum = 1, bagSize do
                 local item = pack.Item and pack.Item(slotNum)
                 local it = buildItemFromMQ(item, bagNum, slotNum)
-                if it then table.insert(inventoryItems, it) end
+                if it then inventoryItems[#inventoryItems + 1] = it end
             end
         end
     end
@@ -208,7 +223,8 @@ local function targetedRescanBags(changedBags)
     if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
         print(string.format("\ag[ItemUI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
     end
-    env.scanState.lastInventoryFingerprint = buildInventoryFingerprint()
+    -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
+    env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()
 end
 
 -- Bank scan
@@ -268,35 +284,55 @@ function M.ensureBankCacheFromStorage()
     end
 end
 
--- Sell items (copy inventory + sell status)
+-- Sell items: lightweight copy of inventory items with sell-status fields attached
+-- Uses flat copy (single-depth table) to avoid shared-reference issues between
+-- sellItems and inventoryItems (shared refs caused doubling when both arrays
+-- pointed to the same objects during concurrent scan/render cycles).
+--
+-- Atomic swap pattern: builds the new list into a local temp table first, then
+-- replaces sellItems contents in one non-yielding block at the end. This prevents
+-- reentrancy issues where MQ Lua yields to the ImGui render callback mid-loop,
+-- render sees sellItems=0 (after clear), triggers a second scanSellItems, and the
+-- first scan's continued appends double the list.
+local scanSellItemsRunning = false
+
 function M.scanSellItems()
+    -- Reentrancy guard: if already scanning, bail out
+    if scanSellItemsRunning then return end
+    scanSellItemsRunning = true
+
     env.invalidateSortCache("sell")
     env.loadSellConfigCache()
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
-    for i = #sellItems, 1, -1 do sellItems[i] = nil end
     local isInKeepList, isKeptByContains, isKeptByType = env.isInKeepList, env.isKeptByContains, env.isKeptByType
     local isInJunkList, isProtectedType, willItemBeSold = env.isInJunkList, env.isProtectedType, env.willItemBeSold
-    for _, i in ipairs(inventoryItems) do
+    -- Reuse cached stored-inv-by-name (2s TTL) instead of full disk read per scan
+    local storedByName = env.getStoredInvByName and env.getStoredInvByName() or {}
+    -- Build into a local temp table (not visible to render callback)
+    local newItems = {}
+    for _, item in ipairs(inventoryItems) do
+        -- Flat copy: all item fields are scalar (no nested tables), so shallow copy is sufficient
         local dup = {}
-        for k, v in pairs(i) do dup[k] = v end
-        dup.inKeep = isInKeepList(i.name) or isKeptByContains(i.name) or isKeptByType(i.type)
-        dup.inJunk = isInJunkList(i.name)
-        dup.isProtected = isProtectedType(i.type)
+        for k, v in pairs(item) do dup[k] = v end
+        dup.inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
+        dup.inJunk = isInJunkList(item.name)
+        dup.isProtected = isProtectedType(item.type)
+        -- Apply stored filter overrides (equivalent to mergeFilterStatus)
+        local stored = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
+        if stored then
+            if stored.inKeep ~= nil then dup.inKeep = stored.inKeep end
+            if stored.inJunk ~= nil then dup.inJunk = stored.inJunk end
+        end
         local ws, reason = willItemBeSold(dup)
         dup.willSell, dup.sellReason = ws, reason
-        table.insert(sellItems, dup)
+        newItems[#newItems + 1] = dup
     end
-    local storedInv = env.storage.loadInventory()
-    if storedInv then
-        local merged = env.storage.mergeFilterStatus(sellItems, storedInv)
-        for i = #sellItems, 1, -1 do sellItems[i] = nil end
-        for _, row in ipairs(merged) do
-            local ws, reason = willItemBeSold(row)
-            row.willSell, row.sellReason = ws, reason
-            table.insert(sellItems, row)
-        end
-    end
+    -- Atomic swap: clear and repopulate in one non-yielding block
+    for i = #sellItems, 1, -1 do sellItems[i] = nil end
+    for i, v in ipairs(newItems) do sellItems[i] = v end
+
+    scanSellItemsRunning = false
 end
 
 function M.loadSnapshotsFromDisk()

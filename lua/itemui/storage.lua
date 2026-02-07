@@ -28,6 +28,8 @@ end
 local function escapeLuaString(s)
     if s == nil then return "nil" end
     s = tostring(s)
+    -- Fast-path: 95%+ of EQ item names have no special chars
+    if not s:find('[\\"\n\r]') then return '"' .. s .. '"' end
     s = s:gsub("\\", "\\\\")
     s = s:gsub('"', '\\"')
     s = s:gsub("\n", "\\n")
@@ -35,119 +37,93 @@ local function escapeLuaString(s)
     return '"' .. s .. '"'
 end
 
+-- Pre-computed field definitions for batched serialization (module load time)
+-- Numeric fields: { field_key, default_value } — batched into sub-groups of ~20 for string.format
+local NUM_FIELDS_1 = {
+    {"bag",0}, {"slot",0}, {"id",0}, {"value",0}, {"totalValue",0}, {"stackSize",1}, {"stackSizeMax",1},
+    {"weight",0}, {"icon",0}, {"tribute",0}, {"size",0}, {"sizeCapacity",0}, {"container",0},
+    {"requiredLevel",0}, {"recommendedLevel",0}, {"augSlots",0}, {"clicky",0}, {"proc",0}, {"focus",0}, {"worn",0},
+}
+local NUM_FIELDS_2 = {
+    {"spell",0}, {"instrumentMod",0}, {"ac",0}, {"hp",0}, {"mana",0}, {"endurance",0},
+    {"str",0}, {"sta",0}, {"agi",0}, {"dex",0}, {"int",0}, {"wis",0}, {"cha",0},
+    {"attack",0}, {"accuracy",0}, {"avoidance",0}, {"shielding",0}, {"haste",0}, {"damage",0}, {"itemDelay",0},
+}
+local NUM_FIELDS_3 = {
+    {"dmgBonus",0}, {"spellDamage",0}, {"strikeThrough",0}, {"damageShield",0}, {"combatEffects",0},
+    {"dotShielding",0}, {"hpRegen",0}, {"manaRegen",0}, {"enduranceRegen",0},
+    {"heroicSTR",0}, {"heroicSTA",0}, {"heroicAGI",0}, {"heroicDEX",0}, {"heroicINT",0}, {"heroicWIS",0}, {"heroicCHA",0},
+    {"svMagic",0}, {"svFire",0}, {"svCold",0}, {"svPoison",0},
+}
+local NUM_FIELDS_4 = {
+    {"svDisease",0}, {"svCorruption",0},
+    {"heroicSvMagic",0}, {"heroicSvFire",0}, {"heroicSvCold",0}, {"heroicSvDisease",0}, {"heroicSvPoison",0}, {"heroicSvCorruption",0},
+    {"spellShield",0}, {"damageShieldMitigation",0}, {"stunResist",0}, {"clairvoyance",0}, {"healAmount",0},
+    {"luck",0}, {"purity",0}, {"charges",0}, {"range",0}, {"skillModValue",0}, {"skillModMax",0}, {"baneDMG",0},
+}
+-- Boolean fields: { field_key }
+local BOOL_FIELDS = {
+    "nodrop", "notrade", "norent", "lore", "magic", "attuneable", "heirloom",
+    "prestige", "collectible", "quest", "tradeskills",
+}
+-- String fields (need escapeLuaString): { field_key, default }
+local STR_FIELDS = {
+    {"name", nil}, {"type", nil}, {"class", ""}, {"race", ""}, {"wornSlots", ""},
+    {"instrumentType", ""}, {"baneDMGType", ""}, {"deity", ""}, {"dmgBonusType", ""},
+}
+
+-- Build format templates at module load time (one per batch)
+local function buildFmtTemplate(fields)
+    local fmtParts = {}
+    for _, f in ipairs(fields) do fmtParts[#fmtParts + 1] = f[1] .. "=%d" end
+    return table.concat(fmtParts, ",")
+end
+local NUM_FMT_1 = buildFmtTemplate(NUM_FIELDS_1)
+local NUM_FMT_2 = buildFmtTemplate(NUM_FIELDS_2)
+local NUM_FMT_3 = buildFmtTemplate(NUM_FIELDS_3)
+local NUM_FMT_4 = buildFmtTemplate(NUM_FIELDS_4)
+
+-- Helper: extract values array for a batch of numeric fields
+local function numVals(it, fields)
+    local vals = {}
+    for i, f in ipairs(fields) do vals[i] = it[f[1]] or f[2] end
+    return vals
+end
+
 -- Serialize one item to Lua table literal (all properties from iteminfo.mac)
+-- Uses batched string.format (4 sub-batches of ~20 numeric fields each) to reduce
+-- from ~80 individual format calls per item down to 4.
 local function serializeItem(it)
     local parts = {}
-    parts[#parts + 1] = string.format("bag=%d", it.bag or 0)
-    parts[#parts + 1] = string.format("slot=%d", it.slot or 0)
+    -- Numeric batches (4 format calls instead of ~80)
+    parts[#parts + 1] = string.format(NUM_FMT_1, unpack(numVals(it, NUM_FIELDS_1)))
+    -- String fields (interspersed between numeric batches to maintain field ordering)
     parts[#parts + 1] = "name=" .. escapeLuaString(it.name)
-    parts[#parts + 1] = string.format("id=%d", it.id or 0)
-    parts[#parts + 1] = string.format("value=%d", it.value or 0)
-    parts[#parts + 1] = string.format("totalValue=%d", it.totalValue or 0)
-    parts[#parts + 1] = string.format("stackSize=%d", it.stackSize or 1)
-    parts[#parts + 1] = string.format("stackSizeMax=%d", it.stackSizeMax or 1)
     parts[#parts + 1] = "type=" .. escapeLuaString(it.type)
-    parts[#parts + 1] = string.format("weight=%d", it.weight or 0)
-    parts[#parts + 1] = string.format("icon=%d", it.icon or 0)
-    parts[#parts + 1] = string.format("tribute=%d", it.tribute or 0)
-    parts[#parts + 1] = string.format("size=%d", it.size or 0)
-    parts[#parts + 1] = string.format("sizeCapacity=%d", it.sizeCapacity or 0)
-    parts[#parts + 1] = string.format("container=%d", it.container or 0)
-    parts[#parts + 1] = string.format("nodrop=%s", it.nodrop and "true" or "false")
-    parts[#parts + 1] = string.format("notrade=%s", it.notrade and "true" or "false")
-    parts[#parts + 1] = string.format("norent=%s", it.norent and "true" or "false")
-    parts[#parts + 1] = string.format("lore=%s", it.lore and "true" or "false")
-    parts[#parts + 1] = string.format("magic=%s", it.magic and "true" or "false")
-    parts[#parts + 1] = string.format("attuneable=%s", it.attuneable and "true" or "false")
-    parts[#parts + 1] = string.format("heirloom=%s", it.heirloom and "true" or "false")
-    parts[#parts + 1] = string.format("prestige=%s", it.prestige and "true" or "false")
-    parts[#parts + 1] = string.format("collectible=%s", it.collectible and "true" or "false")
-    parts[#parts + 1] = string.format("quest=%s", it.quest and "true" or "false")
-    parts[#parts + 1] = string.format("tradeskills=%s", it.tradeskills and "true" or "false")
+    -- Boolean fields (simple concat, no format call)
+    for _, f in ipairs(BOOL_FIELDS) do
+        parts[#parts + 1] = f .. "=" .. (it[f] and "true" or "false")
+    end
+    -- Remaining string fields
     parts[#parts + 1] = "class=" .. escapeLuaString(it.class or "")
     parts[#parts + 1] = "race=" .. escapeLuaString(it.race or "")
     parts[#parts + 1] = "wornSlots=" .. escapeLuaString(it.wornSlots or "")
-    parts[#parts + 1] = string.format("requiredLevel=%d", it.requiredLevel or 0)
-    parts[#parts + 1] = string.format("recommendedLevel=%d", it.recommendedLevel or 0)
-    parts[#parts + 1] = string.format("augSlots=%d", it.augSlots or 0)
-    parts[#parts + 1] = string.format("clicky=%d", it.clicky or 0)
-    parts[#parts + 1] = string.format("proc=%d", it.proc or 0)
-    parts[#parts + 1] = string.format("focus=%d", it.focus or 0)
-    parts[#parts + 1] = string.format("worn=%d", it.worn or 0)
-    parts[#parts + 1] = string.format("spell=%d", it.spell or 0)
     parts[#parts + 1] = "instrumentType=" .. escapeLuaString(it.instrumentType or "")
-    parts[#parts + 1] = string.format("instrumentMod=%d", it.instrumentMod or 0)
-    -- Item stats (so tooltip and views show full stats when loading from persistence)
-    parts[#parts + 1] = string.format("ac=%d", it.ac or 0)
-    parts[#parts + 1] = string.format("hp=%d", it.hp or 0)
-    parts[#parts + 1] = string.format("mana=%d", it.mana or 0)
-    parts[#parts + 1] = string.format("endurance=%d", it.endurance or 0)
-    parts[#parts + 1] = string.format("str=%d", it.str or 0)
-    parts[#parts + 1] = string.format("sta=%d", it.sta or 0)
-    parts[#parts + 1] = string.format("agi=%d", it.agi or 0)
-    parts[#parts + 1] = string.format("dex=%d", it.dex or 0)
-    parts[#parts + 1] = string.format("int=%d", it.int or 0)
-    parts[#parts + 1] = string.format("wis=%d", it.wis or 0)
-    parts[#parts + 1] = string.format("cha=%d", it.cha or 0)
-    parts[#parts + 1] = string.format("attack=%d", it.attack or 0)
-    parts[#parts + 1] = string.format("accuracy=%d", it.accuracy or 0)
-    parts[#parts + 1] = string.format("avoidance=%d", it.avoidance or 0)
-    parts[#parts + 1] = string.format("shielding=%d", it.shielding or 0)
-    parts[#parts + 1] = string.format("haste=%d", it.haste or 0)
-    parts[#parts + 1] = string.format("damage=%d", it.damage or 0)
-    parts[#parts + 1] = string.format("itemDelay=%d", it.itemDelay or 0)
-    parts[#parts + 1] = string.format("dmgBonus=%d", it.dmgBonus or 0)
-    parts[#parts + 1] = string.format("spellDamage=%d", it.spellDamage or 0)
-    parts[#parts + 1] = string.format("strikeThrough=%d", it.strikeThrough or 0)
-    parts[#parts + 1] = string.format("damageShield=%d", it.damageShield or 0)
-    parts[#parts + 1] = string.format("combatEffects=%d", it.combatEffects or 0)
-    parts[#parts + 1] = string.format("dotShielding=%d", it.dotShielding or 0)
-    parts[#parts + 1] = string.format("hpRegen=%d", it.hpRegen or 0)
-    parts[#parts + 1] = string.format("manaRegen=%d", it.manaRegen or 0)
-    parts[#parts + 1] = string.format("enduranceRegen=%d", it.enduranceRegen or 0)
-    parts[#parts + 1] = string.format("heroicSTR=%d", it.heroicSTR or 0)
-    parts[#parts + 1] = string.format("heroicSTA=%d", it.heroicSTA or 0)
-    parts[#parts + 1] = string.format("heroicAGI=%d", it.heroicAGI or 0)
-    parts[#parts + 1] = string.format("heroicDEX=%d", it.heroicDEX or 0)
-    parts[#parts + 1] = string.format("heroicINT=%d", it.heroicINT or 0)
-    parts[#parts + 1] = string.format("heroicWIS=%d", it.heroicWIS or 0)
-    parts[#parts + 1] = string.format("heroicCHA=%d", it.heroicCHA or 0)
-    parts[#parts + 1] = string.format("svMagic=%d", it.svMagic or 0)
-    parts[#parts + 1] = string.format("svFire=%d", it.svFire or 0)
-    parts[#parts + 1] = string.format("svCold=%d", it.svCold or 0)
-    parts[#parts + 1] = string.format("svPoison=%d", it.svPoison or 0)
-    parts[#parts + 1] = string.format("svDisease=%d", it.svDisease or 0)
-    parts[#parts + 1] = string.format("svCorruption=%d", it.svCorruption or 0)
-    -- Heroic resistances
-    parts[#parts + 1] = string.format("heroicSvMagic=%d", it.heroicSvMagic or 0)
-    parts[#parts + 1] = string.format("heroicSvFire=%d", it.heroicSvFire or 0)
-    parts[#parts + 1] = string.format("heroicSvCold=%d", it.heroicSvCold or 0)
-    parts[#parts + 1] = string.format("heroicSvDisease=%d", it.heroicSvDisease or 0)
-    parts[#parts + 1] = string.format("heroicSvPoison=%d", it.heroicSvPoison or 0)
-    parts[#parts + 1] = string.format("heroicSvCorruption=%d", it.heroicSvCorruption or 0)
-    -- Combat/utility stats (previously missing from tooltip)
-    parts[#parts + 1] = string.format("spellShield=%d", it.spellShield or 0)
-    parts[#parts + 1] = string.format("damageShieldMitigation=%d", it.damageShieldMitigation or 0)
-    parts[#parts + 1] = string.format("stunResist=%d", it.stunResist or 0)
-    parts[#parts + 1] = string.format("clairvoyance=%d", it.clairvoyance or 0)
-    parts[#parts + 1] = string.format("healAmount=%d", it.healAmount or 0)
-    parts[#parts + 1] = string.format("luck=%d", it.luck or 0)
-    parts[#parts + 1] = string.format("purity=%d", it.purity or 0)
-    -- Item info (previously missing from tooltip)
-    parts[#parts + 1] = string.format("charges=%d", it.charges or 0)
-    parts[#parts + 1] = string.format("range=%d", it.range or 0)
-    parts[#parts + 1] = string.format("skillModValue=%d", it.skillModValue or 0)
-    parts[#parts + 1] = string.format("skillModMax=%d", it.skillModMax or 0)
-    parts[#parts + 1] = string.format("baneDMG=%d", it.baneDMG or 0)
+    -- Numeric batch 2
+    parts[#parts + 1] = string.format(NUM_FMT_2, unpack(numVals(it, NUM_FIELDS_2)))
+    -- Numeric batch 3
+    parts[#parts + 1] = string.format(NUM_FMT_3, unpack(numVals(it, NUM_FIELDS_3)))
+    -- Numeric batch 4
+    parts[#parts + 1] = string.format(NUM_FMT_4, unpack(numVals(it, NUM_FIELDS_4)))
+    -- Remaining string fields
     parts[#parts + 1] = "baneDMGType=" .. escapeLuaString(it.baneDMGType or "")
     parts[#parts + 1] = "deity=" .. escapeLuaString(it.deity or "")
     parts[#parts + 1] = "dmgBonusType=" .. escapeLuaString(it.dmgBonusType or "")
-    -- Filter status (for sell view)
-    if it.inKeep ~= nil then parts[#parts + 1] = string.format("inKeep=%s", it.inKeep and "true" or "false") end
-    if it.inJunk ~= nil then parts[#parts + 1] = string.format("inJunk=%s", it.inJunk and "true" or "false") end
-    if it.isProtected ~= nil then parts[#parts + 1] = string.format("isProtected=%s", it.isProtected and "true" or "false") end
-    -- Sell cache: computed sell status (for sell macro)
-    if it.willSell ~= nil then parts[#parts + 1] = string.format("willSell=%s", it.willSell and "true" or "false") end
+    -- Optional/conditional fields (individual appends)
+    if it.inKeep ~= nil then parts[#parts + 1] = "inKeep=" .. (it.inKeep and "true" or "false") end
+    if it.inJunk ~= nil then parts[#parts + 1] = "inJunk=" .. (it.inJunk and "true" or "false") end
+    if it.isProtected ~= nil then parts[#parts + 1] = "isProtected=" .. (it.isProtected and "true" or "false") end
+    if it.willSell ~= nil then parts[#parts + 1] = "willSell=" .. (it.willSell and "true" or "false") end
     if it.sellReason ~= nil and it.sellReason ~= "" then parts[#parts + 1] = "sellReason=" .. escapeLuaString(it.sellReason) end
     return "{" .. table.concat(parts, ",") .. "}"
 end
@@ -243,8 +219,11 @@ local function writeSellCache(items)
     if not path then return false end
     local toSell = {}
     for _, it in ipairs(items) do
-        if it.willSell and it.name and (it.name or ""):match("^%s*(.-)%s*$") ~= "" then
-            toSell[#toSell + 1] = (it.name or ""):match("^%s*(.-)%s*$")
+        if it.willSell and it.name then
+            local trimmed = it.name:match("^%s*(.-)%s*$")
+            if trimmed ~= "" then
+                toSell[#toSell + 1] = trimmed
+            end
         end
     end
     local lines = {}

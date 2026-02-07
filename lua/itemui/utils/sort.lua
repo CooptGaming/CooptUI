@@ -133,6 +133,23 @@ function Sort.getSortValByKey(item, colKey, view)
     return ""
 end
 
+--- Pre-compute sort keys (Schwartzian transform): O(n) key computations instead of O(n*log(n)).
+--- Returns decorated array of {item, key} pairs. Call Sort.undecorate() after table.sort to restore.
+function Sort.precomputeKeys(items, colKey, view)
+    local decorated = {}
+    for i, item in ipairs(items) do
+        decorated[i] = { item = item, key = Sort.getSortValByKey(item, colKey, view) }
+    end
+    return decorated
+end
+
+--- Undecorate: extract items back from {item, key} pairs into the original array.
+function Sort.undecorate(decorated, target)
+    for i = #target, 1, -1 do target[i] = nil end
+    for i, pair in ipairs(decorated) do target[i] = pair.item end
+    return target
+end
+
 function Sort.makeComparator(getValFunc, col, dir, numericCols)
     return function(a, b)
         if not a or not b then return false end
@@ -149,7 +166,7 @@ function Sort.makeComparator(getValFunc, col, dir, numericCols)
                 return an > bn
             end
         else
-            local as, bs = tostring(av or ""):lower(), tostring(bv or ""):lower()
+            local as, bs = tostring(av or ""), tostring(bv or "")
             if dir == ImGuiSortDirection.Ascending then
                 return as < bs
             else

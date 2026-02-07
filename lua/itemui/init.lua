@@ -339,6 +339,7 @@ do
         isProtectedType = isProtectedType,
         willItemBeSold = willItemBeSold,
         rules = rules,
+        getStoredInvByName = function() return sellStatusService.refreshStoredInvByName() end,
     }
     scanService.init(scanEnv)
 end
@@ -402,6 +403,8 @@ local sortColumnsAPI = {
     getSellSortVal = sortUtils.getSellSortVal,
     getBankSortVal = sortUtils.getBankSortVal,
     makeComparator = sortUtils.makeComparator,
+    precomputeKeys = sortUtils.precomputeKeys,
+    undecorate = sortUtils.undecorate,
     getCellDisplayText = columns.getCellDisplayText,
     isNumericColumn = columns.isNumericColumn,
     getVisibleColumns = columns.getVisibleColumns,
