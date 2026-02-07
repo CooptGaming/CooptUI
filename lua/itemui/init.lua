@@ -324,6 +324,8 @@ do
         scanState = scanState,
         C = C,
         buildItemFromMQ = buildItemFromMQ,
+        getWornSlotsStringFromTLO = function(it) return itemHelpers.getWornSlotsStringFromTLO(it) end,
+        getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
         invalidateSortCache = invalidateSortCache,
         invalidateTimerReadyCache = function() perfCache.timerReadyCache = {} end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
