@@ -10,7 +10,7 @@
 
 ### 1. Filter Service ✅
 
-**File**: [`services/filter_service.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\services\filter_service.lua)  
+**File**: [`services/filter_service.lua`](lua/itemui/services/filter_service.lua)  
 **Size**: ~400 lines
 
 **Features**:
@@ -44,7 +44,7 @@ local lastFilter = filterService.getLastFilter('inventory')
 
 ### 2. Search Bar Component ✅
 
-**File**: [`components/searchbar.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\components\searchbar.lua)  
+**File**: [`components/searchbar.lua`](lua/itemui/components/searchbar.lua)  
 **Size**: ~250 lines
 
 **Features**:
@@ -84,7 +84,7 @@ end
 
 ### 3. Advanced Filters Component ✅
 
-**File**: [`components/filters.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\components\filters.lua)  
+**File**: [`components/filters.lua`](lua/itemui/components/filters.lua)  
 **Size**: ~300 lines
 
 **Features**:

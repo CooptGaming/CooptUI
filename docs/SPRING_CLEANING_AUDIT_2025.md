@@ -1,5 +1,7 @@
 # EQ UI Overhaul – Spring Cleaning Audit (January 2025)
 
+*Note: ItemUI is now a component of **CoopUI** (umbrella brand). This audit remains as historical context; deprecated UIs (SellUI, LootUI, BankUI) are consolidated into ItemUI.*
+
 **Purpose:** Comprehensive audit of the MacroQuest2 EQ UI overhaul project. Identifies outdated code, duplication, sync gaps, and provides recommendations for player experience and future improvements.
 
 **Context:** Perky's Crew and similar private servers allow MQ2; this project targets a unified, performant item management UI for EverQuest players.

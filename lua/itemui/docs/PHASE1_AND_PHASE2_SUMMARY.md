@@ -17,16 +17,16 @@
 3. Incremental scanning (2 bags per frame)
 4. Per-bag fingerprinting (targeted rescans)
 
-**File**: [`lua/itemui/init.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\init.lua)
+**File**: [`lua/itemui/init.lua`](lua/itemui/init.lua)
 
 ### Phase 2: State & Cache Refactor ✅
 **Goal**: Foundation infrastructure for reactive state and intelligent caching  
 **Result**: Core modules created and integrated
 
 **New Modules**:
-1. [`core/events.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\events.lua) - Event bus (195 lines)
-2. [`core/state.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\state.lua) - State management (380 lines)
-3. [`core/cache.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\cache.lua) - Multi-tier cache (450 lines)
+1. [`core/events.lua`](lua/itemui/core/events.lua) - Event bus (195 lines)
+2. [`core/state.lua`](lua/itemui/core/state.lua) - State management (380 lines)
+3. [`core/cache.lua`](lua/itemui/core/cache.lua) - Multi-tier cache (450 lines)
 
 **Integration**:
 - Modules required in init.lua

@@ -4,10 +4,13 @@ Write-Host "`n=== Phase 7: Layout Integration Pre-Flight Check ===" -ForegroundC
 $passed = 0
 $failed = 0
 
+# Project root: two levels up from this script (lua/itemui/phase7_check.ps1)
+$projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+
 # Test 1: Files exist
 Write-Host "`n[1] Checking files..." -ForegroundColor White
-$initFile = "c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\init.lua"
-$layoutFile = "c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\utils\layout.lua"
+$initFile = Join-Path $projectRoot "lua\itemui\init.lua"
+$layoutFile = Join-Path $projectRoot "lua\itemui\utils\layout.lua"
 
 if (Test-Path $initFile) {
     Write-Host "  init.lua: OK" -ForegroundColor Green
@@ -72,7 +75,7 @@ if ($wrapperCount -ge 15) {
 
 # Test 5: Context module (60 upvalue fix)
 Write-Host "`n[5] Checking context module (upvalue limit fix)..." -ForegroundColor White
-$contextFile = "c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\context.lua"
+$contextFile = Join-Path $projectRoot "lua\itemui\context.lua"
 if (Test-Path $contextFile) {
     Write-Host "  context.lua: OK" -ForegroundColor Green
     $passed++

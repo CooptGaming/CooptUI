@@ -7,7 +7,7 @@
 
 ## Completed: Filter Service ✅
 
-**File**: [`services/filter_service.lua`](c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\services\filter_service.lua)  
+**File**: [`services/filter_service.lua`](lua/itemui/services/filter_service.lua)  
 **Size**: ~400 lines
 
 ### Features Implemented

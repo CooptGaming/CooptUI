@@ -343,9 +343,9 @@ cache.configure({
 
 ## Files Created
 
-- `c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\events.lua` (195 lines)
-- `c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\state.lua` (380 lines)
-- `c:\MIS\E3NextAndMQNextBinary-main\lua\itemui\core\cache.lua` (450 lines)
+- `lua/itemui/core/events.lua` (195 lines)
+- `lua/itemui/core/state.lua` (380 lines)
+- `lua/itemui/core/cache.lua` (450 lines)
 
 **Total**: ~1025 lines of infrastructure code
 

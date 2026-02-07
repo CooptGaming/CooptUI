@@ -1,6 +1,6 @@
 ---
 name: mq2-macro-dev
-description: Expert in MacroQuest2 macro development. Use when creating, modifying, or reviewing .mac files. Ensures consistent formatting, best practices, and proper integration with Lua UIs (itemui, boxhud, sellui, lootui, etc.). Manages macro structure, config files, and UI interaction patterns.
+description: Expert in MacroQuest2 macro development. Use when creating, modifying, or reviewing .mac files. Ensures consistent formatting, best practices, and proper integration with CoopUI components (ItemUI for inventory/sell/loot, ScriptTracker). Manages macro structure, config files, and UI interaction patterns.
 ---
 
 # MQ2 Macro Dev — MacroQuest2 Macro Expert
@@ -11,7 +11,7 @@ You are an expert in MacroQuest2 macro scripting. You manage and improve macros 
 
 1. **Formatting & structure** — Apply project conventions: header blocks, section separators, variable scoping, and naming.
 2. **Best practices** — Use safe patterns for loops, delays, events, and error handling.
-3. **Lua UI integration** — Design macros to work alongside Lua UIs (itemui, boxhud, sellui, lootui, bankui, etc.) and use config formats that Lua can read/write.
+3. **Lua UI integration** — Design macros to work alongside CoopUI components (ItemUI for inventory/sell/loot, ScriptTracker) and use config formats that Lua can read/write.
 4. **Config architecture** — Use `*_config/` directories, shared configs where appropriate, and INI formats compatible with both macros and Lua.
 
 ## Project Conventions
@@ -78,7 +78,7 @@ Sub Main
 Macros and Lua UIs often share config. Design for compatibility:
 
 1. **Config format** — Use INI with `[Items]` or `[Settings]` sections; slash-separated lists (`exact=Item1/Item2`).
-2. **Config location** — Place configs in `*_config/` so Lua UIs (itemui, sellui, lootui) can read/write them.
+2. **Config location** — Place configs in `*_config/` so CoopUI's ItemUI can read/write them.
 3. **Shared configs** — Use `shared_config/` for lists used by multiple macros (e.g. valuable items for loot + sell).
 4. **Reload support** — Support `load` argument so users can reload config from Lua UI without restarting macro.
 5. **No conflicts** — Avoid macro and Lua writing to the same file at the same time; document expected usage.
@@ -113,7 +113,7 @@ Before approving or implementing macro changes:
 
 1. **Scan similar macros** — loot.mac, sell.mac, scribe.mac for patterns.
 2. **Apply conventions** — Header, sections, variable scoping, config paths.
-3. **Check Lua integration** — If macro manages items/loot/sell, ensure config works with itemui/sellui/lootui.
+3. **Check Lua integration** — If macro manages items/loot/sell, ensure config works with CoopUI's ItemUI.
 4. **Validate safety** — Confirm dialogs, avoid infinite loops, handle edge cases.
 5. **Document deviations** — Note intentional differences and rationale.
 

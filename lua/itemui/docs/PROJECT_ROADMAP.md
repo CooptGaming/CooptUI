@@ -1,4 +1,4 @@
-# ItemUI → Complete EverQuest UI Overhaul — Project Roadmap
+# CoopUI — ItemUI → Complete EverQuest UI Overhaul — Project Roadmap
 
 **Document Version:** 1.0  
 **Date:** January 29, 2026  
@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-ItemUI has evolved from a unified inventory/bank/sell interface into the **central hub** for item-related workflows in MQ2. It has already:
+ItemUI (part of CoopUI) has evolved from a unified inventory/bank/sell interface into the **central hub** for item-related workflows in MQ2. It has already:
 
 - **Replaced** `inventoryui` and `bankui` (both deprecated)
 - **Consolidated** sell configuration (Keep/Junk/Protected) and loot configuration (Flags, Values, Sorting, Lists) into a single Config window
@@ -169,7 +169,7 @@ Macros/
 
 ## 6. Success Metrics
 
-- **User consolidation:** Users run ItemUI only; SellUI/LootUI deprecated.
+- **User consolidation:** Users run CoopUI components (ItemUI for items, ScriptTracker for AAs); SellUI/LootUI deprecated into ItemUI.
 - **Code quality:** init.lua split into modules; no file > 600 lines.
 - **Config completeness:** All sell and loot list management in ItemUI Config; no need to edit INI by hand.
 - **Documentation:** README, PROJECT_ROADMAP, and "How it works" section in Config.

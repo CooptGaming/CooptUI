@@ -50,7 +50,7 @@ Which Claude model to use for each type of task during the CoopUI refactor. The 
 
 - **Trivial lookups** — "What line is `VERSION` on in init.lua?"
 - **Simple formatting** — Reformatting a table, fixing markdown
-- **Yes/no questions** — "Does this file contain E3Next?"
+- **Yes/no questions** — "Does this file contain CoopUI?"
 - **Not currently available on claude.ai** — but good to know for API usage
 
 ---

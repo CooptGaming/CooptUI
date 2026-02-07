@@ -1,5 +1,11 @@
 --[[
-    ItemUI - Unified Inventory / Bank / Sell / Loot Interface
+    CoopUI - ItemUI
+    Purpose: Unified Inventory / Bank / Sell / Loot Interface
+    Part of CoopUI — EverQuest EMU Companion
+    Author: Perky's Crew
+    Version: 1.0.0-rc1
+    Dependencies: mq2lua, ImGui
+
     - Inventory: one area that switches view by context:
       * Loot window open: live loot view (corpse items with Will Loot / Will Skip; same filters as loot.mac).
       * Merchant open: sell view (Status, Keep/Junk buttons, Value, Stack, Type, Show only sellable, Auto Sell).
@@ -57,7 +63,7 @@ local sortUtils = require('itemui.utils.sort')
 
 -- Constants (consolidated for Lua 200-local limit)
 local C = {
-    VERSION = "1.6.0",
+    VERSION = "1.0.0-rc1",
     MAX_BANK_SLOTS = 24,
     MAX_INVENTORY_BAGS = 10,
     LAYOUT_INI = "itemui_layout.ini",

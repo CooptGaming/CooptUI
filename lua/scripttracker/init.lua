@@ -1,10 +1,15 @@
 --[[
-    ScriptTracker - Perky EQ AA Script Tracker
+    CoopUI - ScriptTracker
+    Purpose: AA Script Progress Tracker
+    Part of CoopUI — EverQuest EMU Companion
+    Author: Perky's Crew
+    Version: 1.0.0-rc1
+    Dependencies: mq2lua, ImGui
+
     Tracks Lost and Planar scripts in inventory; shows counts and total AA value.
-    
     Script types: Lost Memories, Planar Power
     Tiers (AA each): normal(1), Enhanced(2), Rare(3), Epic(4), Legendary(5)
-    
+
     Usage: /lua run scripttracker
     Toggle: /scripttracker
 --]]

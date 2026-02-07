@@ -7,7 +7,7 @@ Use these steps to connect this project to GitHub over HTTPS. Cursor is already 
 ## 1. Create the repo on GitHub (if you haven’t)
 
 1. Go to [github.com/new](https://github.com/new).
-2. Choose a name (e.g. `E3NextAndMQNextBinary` or `E3Next-ItemUI-ScriptTracker`).
+2. Choose a name (e.g. `CoopUI`).
 3. Choose **Private** if you want to limit access for now.
 4. **Do not** add a README, .gitignore, or license (you already have these locally).
 5. Click **Create repository**.
@@ -32,7 +32,7 @@ git add .
 git status
 
 # First commit
-git commit -m "Initial commit: ItemUI, ScriptTracker, macros, docs"
+git commit -m "Initial commit: CoopUI (ItemUI, ScriptTracker, Auto Loot, Auto Sell)"
 
 # Use main as the default branch
 git branch -M main
