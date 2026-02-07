@@ -1,0 +1,38 @@
+# Build CoopUI release zip and create a GitHub Release when a version tag is pushed.
+# Usage: tag and push, e.g.  git tag v0.1.0-alpha   &&   git push origin v0.1.0-alpha
+# The workflow builds CoopUI_v0.1.0-alpha.zip and creates a release with that asset.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: version
+        run: echo "VERSION=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+
+      - name: Build release zip
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: .\scripts\build-release.ps1 -OutputDir $env:GITHUB_WORKSPACE
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CoopUI_${{ github.ref_name }}.zip
+          generate_release_notes: true
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
