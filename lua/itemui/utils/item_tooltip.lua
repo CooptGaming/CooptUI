@@ -89,7 +89,7 @@ end
 
 local function getItemClassRaceSlotInv(bag, slot)
     local clsStr, raceStr, slotStr = "", "", ""
-    local pack = mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
+    local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
     if not pack then return clsStr, raceStr, slotStr end
     local it = pack.Item and pack.Item(slot or 0)
     if not it or not it.ID or it.ID() == 0 then return clsStr, raceStr, slotStr end
@@ -118,7 +118,7 @@ end
 
 local function getItemClassRaceSlotBank(bankBag, bankSlot)
     local clsStr, raceStr, slotStr = "", "", ""
-    local bn = mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bankBag or 0)
+    local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bankBag or 0)
     if not bn then return clsStr, raceStr, slotStr end
     local it = bn.Item and bn.Item(bankSlot or 0)
     if not it or not it.ID or it.ID() == 0 then return clsStr, raceStr, slotStr end

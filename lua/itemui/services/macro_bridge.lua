@@ -149,14 +149,14 @@ local function isMacroRunning(macroName)
     return (mn == macroName or mn == macroName .. ".mac")
 end
 
--- Read sell progress from INI file
+-- Read sell progress from INI file (safe: TLO.Ini can be nil during zone/load)
 local function readSellProgress()
     if not MacroBridge.config.sellLogPath then return nil end
-    
+    local config = require('itemui.config')
     local progPath = MacroBridge.config.sellLogPath .. "\\sell_progress.ini"
-    local totalStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("total").Value()
-    local currentStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("current").Value()
-    local remainingStr = mq.TLO.Ini.File(progPath).Section("Progress").Key("remaining").Value()
+    local totalStr = config.safeIniValueByPath(progPath, "Progress", "total", "0")
+    local currentStr = config.safeIniValueByPath(progPath, "Progress", "current", "0")
+    local remainingStr = config.safeIniValueByPath(progPath, "Progress", "remaining", "0")
     
     local total = tonumber(totalStr) or 0
     local current = tonumber(currentStr) or 0
@@ -165,18 +165,18 @@ local function readSellProgress()
     return { total = total, current = current, remaining = remaining }
 end
 
--- Read failed items from sell_failed.ini
+-- Read failed items from sell_failed.ini (safe INI read)
 local function readFailedItems()
     if not MacroBridge.config.sellLogPath then return {}, 0 end
-    
+    local config = require('itemui.config')
     local failedPath = MacroBridge.config.sellLogPath .. "\\sell_failed.ini"
-    local countStr = mq.TLO.Ini.File(failedPath).Section("Failed").Key("count").Value()
+    local countStr = config.safeIniValueByPath(failedPath, "Failed", "count", "0")
     local count = tonumber(countStr) or 0
     
     local failedItems = {}
     if count > 0 then
         for i = 1, count do
-            local itemName = mq.TLO.Ini.File(failedPath).Section("Failed").Key(tostring(i)).Value()
+            local itemName = config.safeIniValueByPath(failedPath, "Failed", tostring(i), "")
             if itemName and itemName ~= "" then
                 table.insert(failedItems, itemName)
             end

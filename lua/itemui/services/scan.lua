@@ -17,12 +17,13 @@ end
 -- Fingerprint helpers (use env.scanState.lastBagFingerprints)
 local function buildBagFingerprint(bagNum)
     local parts = {}
-    local pack = mq.TLO.Me.Inventory("pack" .. bagNum)
+    local Me = mq.TLO and mq.TLO.Me
+    local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
     if pack and pack.Container then
         local bagSize = pack.Container()
         if bagSize and bagSize > 0 then
             for slotNum = 1, bagSize do
-                local item = pack.Item(slotNum)
+                local item = pack.Item and pack.Item(slotNum)
                 local id = (item and item.ID and item.ID()) or 0
                 local stack = (item and item.Stack and item.Stack()) or 0
                 if id == 0 then stack = 0 end
@@ -67,15 +68,17 @@ function M.scanInventory()
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
     local seen = {}
     local buildItemFromMQ = env.buildItemFromMQ
+    local Me = mq.TLO and mq.TLO.Me
+    if not Me or not Me.Inventory then return end
     for bagNum = 1, 10 do
-        local pack = mq.TLO.Me.Inventory("pack" .. bagNum)
-        if pack and pack.Container() then
+        local pack = Me.Inventory("pack" .. bagNum)
+        if pack and pack.Container and pack.Container() then
             local bagSize = pack.Container()
             for slotNum = 1, bagSize do
                 local key = bagNum .. ":" .. slotNum
                 if not seen[key] then
                     seen[key] = true
-                    local item = pack.Item(slotNum)
+                    local item = pack.Item and pack.Item(slotNum)
                     local it = buildItemFromMQ(item, bagNum, slotNum)
                     if it then table.insert(inventoryItems, it) end
                 end
@@ -128,16 +131,18 @@ function M.processIncrementalScan()
     local inventoryItems = env.inventoryItems
     local buildItemFromMQ = env.buildItemFromMQ
     local bagsScanned = 0
+    local Me = mq.TLO and mq.TLO.Me
+    if not Me or not Me.Inventory then incrementalScanState.active = false; return true end
     while incrementalScanState.currentBag <= 10 and bagsScanned < incrementalScanState.bagsPerFrame do
         local bagNum = incrementalScanState.currentBag
-        local pack = mq.TLO.Me.Inventory("pack" .. bagNum)
-        if pack and pack.Container() then
+        local pack = Me.Inventory("pack" .. bagNum)
+        if pack and pack.Container and pack.Container() then
             local bagSize = pack.Container()
             for slotNum = 1, bagSize do
                 local key = bagNum .. ":" .. slotNum
                 if not incrementalScanState.seen[key] then
                     incrementalScanState.seen[key] = true
-                    local item = pack.Item(slotNum)
+                    local item = pack.Item and pack.Item(slotNum)
                     local it = buildItemFromMQ(item, bagNum, slotNum)
                     if it then table.insert(incrementalScanState.newItems, it) end
                 end
@@ -188,11 +193,12 @@ local function targetedRescanBags(changedBags)
         end
         for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
         for _, it in ipairs(newItems) do table.insert(inventoryItems, it) end
-        local pack = mq.TLO.Me.Inventory("pack" .. bagNum)
-        if pack and pack.Container() then
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
+        if pack and pack.Container and pack.Container() then
             local bagSize = pack.Container()
             for slotNum = 1, bagSize do
-                local item = pack.Item(slotNum)
+                local item = pack.Item and pack.Item(slotNum)
                 local it = buildItemFromMQ(item, bagNum, slotNum)
                 if it then table.insert(inventoryItems, it) end
             end
@@ -211,21 +217,23 @@ function M.scanBank()
     local bankCache = env.bankCache
     env.invalidateSortCache("bank")
     for i = #bankItems, 1, -1 do bankItems[i] = nil end
+    local Me = mq.TLO and mq.TLO.Me
+    if not Me or not Me.Bank then return end
     local buildItemFromMQ = env.buildItemFromMQ
     local maxSlots = env.C.MAX_BANK_SLOTS or 24
     for bagNum = 1, maxSlots do
-        local slot = mq.TLO.Me.Bank(bagNum)
+        local slot = Me.Bank(bagNum)
         if slot then
-            local bagSize = slot.Container() or 0
+            local bagSize = (slot.Container and slot.Container()) or 0
             if bagSize and bagSize > 0 then
                 for slotNum = 1, bagSize do
-                    local item = slot.Item(slotNum)
+                    local item = slot.Item and slot.Item(slotNum)
                     local islot = item and (item.ItemSlot and item.ItemSlot()) or (bagNum - 1)
                     local islot2 = item and (item.ItemSlot2 and item.ItemSlot2()) or (slotNum - 1)
                     local it = buildItemFromMQ(item, (islot or (bagNum - 1)) + 1, (islot2 or (slotNum - 1)) + 1)
                     if it then table.insert(bankItems, it) end
                 end
-            elseif slot.ID() and slot.ID() > 0 then
+            elseif (slot.ID and slot.ID()) and slot.ID() > 0 then
                 local islot = (slot.ItemSlot and slot.ItemSlot()) or (bagNum - 1)
                 local islot2 = (slot.ItemSlot2 and slot.ItemSlot2()) or 0
                 local it = buildItemFromMQ(slot, (islot or (bagNum - 1)) + 1, (islot2 or 0) + 1)
@@ -349,13 +357,13 @@ end
 function M.scanLootItems()
     local lootItems = env.lootItems
     for i = #lootItems, 1, -1 do lootItems[i] = nil end
-    local corpse = mq.TLO.Corpse
+    local corpse = mq.TLO and mq.TLO.Corpse
     local itemsCount = corpse and corpse.Items and corpse.Items()
     if not corpse or not itemsCount or (type(itemsCount) ~= "number") or itemsCount <= 0 then return end
     env.perfCache.lootConfigCache = env.perfCache.lootConfigCache or env.rules.loadLootConfigCache()
     local lootCache = env.perfCache.lootConfigCache
     for i = 1, itemsCount do
-        local it = corpse.Item(i)
+        local it = corpse.Item and corpse.Item(i)
         local itId = it and it.ID and it.ID()
         if it and itId and type(itId) == "number" and itId > 0 then
             local name = it.Name and it.Name() or ""

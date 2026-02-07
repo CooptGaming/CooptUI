@@ -9,7 +9,7 @@ local mq = require('mq')
 -- MQ macro variables have 2048 char limit; keep chunks safely under
 local MAX_INI_CHUNK_LEN = 2000
 
-local basePath = (mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()) and mq.TLO.MacroQuest.Path() or ""
+local basePath = (mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()) and mq.TLO.MacroQuest.Path() or ""
 local CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/sell_config') or ""
 local SHARED_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/shared_config') or ""
 local LOOT_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/loot_config') or ""
@@ -33,25 +33,39 @@ local function getCharStoragePath(charName, filename)
     return filename and (charFolder .. '/' .. filename) or charFolder
 end
 
+--- Safe INI read: TLO.Ini can be nil during zone transitions/loading. Returns default on any nil or error.
+--- path: full path to INI file; section/key: INI section and key names.
+function safeIniValueByPath(path, section, key, default)
+    if not path or path == "" or not section or not key then return default or "" end
+    local ok, v = pcall(function()
+        local ini = mq.TLO and mq.TLO.Ini
+        if not ini or not ini.File then return nil end
+        local f = ini.File(path)
+        if not f or not f.Section then return nil end
+        local s = f.Section(section)
+        if not s or not s.Key then return nil end
+        local k = s.Key(key)
+        return (k and k.Value and k.Value()) or nil
+    end)
+    return (ok and v and v ~= "") and v or (default or "")
+end
+
 local function readINIValue(file, section, key, default)
     local path = getConfigFile(file)
     if not path then return default or "" end
-    local v = mq.TLO.Ini.File(path).Section(section).Key(key).Value()
-    return (v and v ~= "") and v or (default or "")
+    return safeIniValueByPath(path, section, key, default)
 end
 
 local function readSharedINIValue(file, section, key, default)
     local path = getSharedConfigFile(file)
     if not path then return default or "" end
-    local v = mq.TLO.Ini.File(path).Section(section).Key(key).Value()
-    return (v and v ~= "") and v or (default or "")
+    return safeIniValueByPath(path, section, key, default)
 end
 
 local function readLootINIValue(file, section, key, default)
     local path = getLootConfigFile(file)
     if not path then return default or "" end
-    local v = mq.TLO.Ini.File(path).Section(section).Key(key).Value()
-    return (v and v ~= "") and v or (default or "")
+    return safeIniValueByPath(path, section, key, default)
 end
 
 local function writeINIValue(file, section, key, value)
@@ -81,7 +95,7 @@ local function readListValue(file, section, key, default, getPathFn)
     local baseKey = key:match("^(.-)%d*$") or key
     while i <= MAX_CHUNKS do
         local k = (i == 1) and baseKey or (baseKey .. i)
-        local v = mq.TLO.Ini.File(path).Section(section).Key(k).Value()
+        local v = safeIniValueByPath(path, section, k, nil)
         if not v or v == "" then break end
         parts[#parts + 1] = v
         i = i + 1
@@ -101,7 +115,7 @@ local function writeListValue(file, section, key, value, getPathFn)
         local i = 2
         while i <= MAX_CHUNKS do
             local k = baseKey .. i
-            local v = mq.TLO.Ini.File(path).Section(section).Key(k).Value()
+            local v = safeIniValueByPath(path, section, k, nil)
             if not v or v == "" then break end
             mq.cmdf('/ini "%s" "%s" "%s" ""', path, section, k)
             i = i + 1
@@ -113,7 +127,7 @@ local function writeListValue(file, section, key, value, getPathFn)
         local i = 2
         while i <= MAX_CHUNKS do
             local k = baseKey .. i
-            local v = mq.TLO.Ini.File(path).Section(section).Key(k).Value()
+            local v = safeIniValueByPath(path, section, k, nil)
             if not v or v == "" then break end
             mq.cmdf('/ini "%s" "%s" "%s" ""', path, section, k)
             i = i + 1
@@ -142,7 +156,7 @@ local function writeListValue(file, section, key, value, getPathFn)
     local i = #chunks + 1
     while i <= MAX_CHUNKS do
         local k = baseKey .. i
-        local v = mq.TLO.Ini.File(path).Section(section).Key(k).Value()
+        local v = safeIniValueByPath(path, section, k, nil)
         if not v or v == "" then break end
         mq.cmdf('/ini "%s" "%s" "%s" ""', path, section, k)
         i = i + 1
@@ -210,6 +224,7 @@ end
 return {
     -- Paths
     CONFIG_PATH = CONFIG_PATH,
+    safeIniValueByPath = safeIniValueByPath,
     MAX_INI_CHUNK_LEN = MAX_INI_CHUNK_LEN,
     SHARED_CONFIG_PATH = SHARED_CONFIG_PATH,
     LOOT_CONFIG_PATH = LOOT_CONFIG_PATH,
