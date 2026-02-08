@@ -11,14 +11,15 @@ local function ensureImGui()
 end
 
 --- Convert {r,g,b} or {r,g,b,a} (0–1) to ImVec4.
+--- Uses global ImVec4 (set by require('ImGui')) — ensure ImGui is loaded first.
 local function ToVec4(c)
+    ensureImGui()
     if not c then return ImVec4(1, 1, 1, 1) end
     local r = c[1] or 1
     local g = c[2] or 1
     local b = c[3] or 1
     local a = c[4] or 1
-    ensureImGui()
-    return ImGui.ImVec4(r, g, b, a)
+    return ImVec4(r, g, b, a)
 end
 
 --- Colors: 0–1 RGBA. Used with ToVec4() for ImGui.
