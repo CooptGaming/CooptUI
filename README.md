@@ -54,7 +54,18 @@ These macros can be triggered from ItemUI buttons or run standalone:
 2. If you don't have `Macros/sell_config`, `Macros/shared_config`, or `Macros/loot_config`, copy the contents from `config_templates/` (see release zip) into those folders.
 3. In-game: `/lua run itemui` and optionally `/lua run scripttracker`.
 
-**Release packaging and deployment** — For versioned zips, update-safe installs, and test distribution, see **[docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md)**.
+For detailed step-by-step instructions, see **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[docs/INSTALL.md](docs/INSTALL.md)** | Installation, updating, and migration guide |
+| **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Complete configuration reference (all INI files, decision logic) |
+| **[docs/DEVELOPER.md](docs/DEVELOPER.md)** | Architecture, patterns, module map, build/release, contributing |
+| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** | Common issues, error messages, diagnostics |
+| **[CHANGELOG.md](CHANGELOG.md)** | Version history and release notes |
+| **[DEPLOY.md](DEPLOY.md)** | Quick install card (included in release zip) |
 
 ## Project Structure
 
@@ -117,7 +128,7 @@ CoopUI source lives in this repository:
 - **Macros/sell.mac, loot.mac** — Auto Sell and Auto Loot macros
 - **docs/** — Design documents, deployment guide, class guides
 
-This repository tracks only CoopUI project files; see `.gitignore` and [docs/RELEASE_AND_DEPLOYMENT.md](docs/RELEASE_AND_DEPLOYMENT.md) for scope and packaging.
+This repository tracks only CoopUI project files; see `.gitignore` and [docs/DEVELOPER.md](docs/DEVELOPER.md) for scope and packaging.
 
 ## Target Audience
 

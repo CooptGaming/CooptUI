@@ -21,17 +21,19 @@ jobs:
 
       - name: Set version from tag
         id: version
-        run: echo "VERSION=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
 
       - name: Build release zip
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: .\scripts\build-release.ps1 -OutputDir $env:GITHUB_WORKSPACE
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: CoopUI_${{ github.ref_name }}.zip
+          files: CoopUI_v${{ steps.version.outputs.VERSION }}.zip
           generate_release_notes: true
           draft: true
         env:

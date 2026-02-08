@@ -107,3 +107,10 @@ For detailed migration information, see [SELLUI_MIGRATION_GUIDE.md](docs/SELLUI_
 
 - `lua/itemui/init.lua` – single entry; run with `/lua run itemui`.
 - Canonical source is `lua/itemui/` (older `ItemUI/` or `itemui_package/` copies are deprecated).
+
+## See Also
+
+- **[Installation & Updating](../../docs/INSTALL.md)** — Step-by-step install, update, and migration guide
+- **[Configuration Reference](../../docs/CONFIGURATION.md)** — All INI files, sell/loot decision logic, list format rules
+- **[Developer Guide](../../docs/DEVELOPER.md)** — Architecture, patterns, module map, contributing
+- **[Troubleshooting](../../docs/TROUBLESHOOTING.md)** — Common issues and error messages
