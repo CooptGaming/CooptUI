@@ -305,8 +305,7 @@ function M.scanSellItems()
     env.loadSellConfigCache()
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
-    local isInKeepList, isKeptByContains, isKeptByType = env.isInKeepList, env.isKeptByContains, env.isKeptByType
-    local isInJunkList, isProtectedType, willItemBeSold = env.isInJunkList, env.isProtectedType, env.willItemBeSold
+    local willItemBeSold = env.willItemBeSold
     -- Reuse cached stored-inv-by-name (2s TTL) instead of full disk read per scan
     local storedByName = env.getStoredInvByName and env.getStoredInvByName() or {}
     -- Build into a local temp table (not visible to render callback)
@@ -315,15 +314,8 @@ function M.scanSellItems()
         -- Flat copy: all item fields are scalar (no nested tables), so shallow copy is sufficient
         local dup = {}
         for k, v in pairs(item) do dup[k] = v end
-        dup.inKeep = isInKeepList(item.name) or isKeptByContains(item.name) or isKeptByType(item.type)
-        dup.inJunk = isInJunkList(item.name)
-        dup.isProtected = isProtectedType(item.type)
-        -- Apply stored filter overrides (equivalent to mergeFilterStatus)
-        local stored = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
-        if stored then
-            if stored.inKeep ~= nil then dup.inKeep = stored.inKeep end
-            if stored.inJunk ~= nil then dup.inJunk = stored.inJunk end
-        end
+        -- Use single source of truth for granular flags (fixes augment bug)
+        env.attachGranularFlags(dup, storedByName)
         local ws, reason = willItemBeSold(dup)
         dup.willSell, dup.sellReason = ws, reason
         newItems[#newItems + 1] = dup

@@ -54,6 +54,11 @@ function M.isKeptByType(itemType)
     return deps.rules.isKeptByType(itemType, deps.perfCache.sellConfigCache)
 end
 
+function M.isInJunkContainsList(itemName)
+    if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
+    return deps.rules.isInJunkContainsList(itemName, deps.perfCache.sellConfigCache)
+end
+
 function M.willItemBeSold(itemData)
     if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
     return deps.rules.willItemBeSold(itemData, deps.perfCache.sellConfigCache)
@@ -84,46 +89,50 @@ function M.refreshStoredInvByName()
     return deps.perfCache.storedInvByName
 end
 
---- Compute and attach willSell/sellReason to each item.
+--- Single source of truth for granular flag computation.
+--- Call this to set all granular + summary flags on an item from current config lists.
+function M.attachGranularFlags(item, storedByName)
+    item.inKeepExact = M.isInKeepList(item.name)
+    item.inJunkExact = M.isInJunkList(item.name)
+    item.inKeepContains = M.isKeptByContains(item.name)
+    item.inJunkContains = M.isInJunkContainsList(item.name)
+    item.inKeepType = M.isKeptByType(item.type)
+    item.isProtectedType = M.isProtectedType(item.type)
+    -- Apply stored overrides (user manual keep/junk from UI)
+    if storedByName then
+        local storedItem = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
+        if storedItem then
+            if storedItem.inKeep ~= nil then item.inKeepExact = storedItem.inKeep end
+            if storedItem.inJunk ~= nil then item.inJunkExact = storedItem.inJunk end
+        end
+    end
+    item.inKeep = item.inKeepExact or item.inKeepContains or item.inKeepType
+    item.inJunk = item.inJunkExact or item.inJunkContains
+    item.isProtected = item.isProtectedType
+end
+
+--- Compute and attach willSell/sellReason to each item using granular flags.
 function M.computeAndAttachSellStatus(items)
     if not items or #items == 0 then return end
     if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
     refreshStoredInvByNameIfNeeded()
     for _, item in ipairs(items) do
-        local inKeep = M.isInKeepList(item.name) or M.isKeptByContains(item.name) or M.isKeptByType(item.type)
-        local inJunk = M.isInJunkList(item.name)
-        local storedItem = deps.perfCache.storedInvByName[(item.name or ""):match("^%s*(.-)%s*$")]
-        if storedItem then
-            if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
-            if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
-        end
-        item.inKeep = inKeep
-        item.inJunk = inJunk
+        M.attachGranularFlags(item, deps.perfCache.storedInvByName)
         local willSell, reason = M.willItemBeSold(item)
         item.willSell = willSell
         item.sellReason = reason or ""
     end
 end
 
---- Return sell filter status for an inventory item.
+--- Return sell filter status for an inventory item (shallow-copy, no side effects).
 function M.getSellStatusForItem(item)
     if not item then return "", false end
-    local inKeep = M.isInKeepList(item.name) or M.isKeptByContains(item.name) or M.isKeptByType(item.type)
-    local inJunk = M.isInJunkList(item.name)
+    local tmp = {}
+    for k, v in pairs(item) do tmp[k] = v end
     refreshStoredInvByNameIfNeeded()
-    local storedItem = deps.perfCache.storedInvByName[(item.name or ""):match("^%s*(.-)%s*$")]
-    if storedItem then
-        if storedItem.inKeep ~= nil then inKeep = storedItem.inKeep end
-        if storedItem.inJunk ~= nil then inJunk = storedItem.inJunk end
-    end
-    -- Save/restore inKeep/inJunk to avoid side effects on inventory items
-    local prevKeep, prevJunk = item.inKeep, item.inJunk
-    item.inKeep = inKeep
-    item.inJunk = inJunk
-    local willSell, reason = M.willItemBeSold(item)
-    item.inKeep = prevKeep
-    item.inJunk = prevJunk
-    return reason or "", willSell, inKeep, inJunk
+    M.attachGranularFlags(tmp, deps.perfCache.storedInvByName)
+    local ws, reason = M.willItemBeSold(tmp)
+    return reason or "", ws, tmp.inKeep, tmp.inJunk
 end
 
 return M

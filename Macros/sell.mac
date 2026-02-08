@@ -86,6 +86,7 @@ Sub Main
 /declare epicExact2 string outer
 /declare epicExact3 string outer
 /declare epicExact4 string outer
+/declare epicChunkIdx int outer 1
 
 | Protection Flags
 /declare protectNoDrop bool outer
@@ -319,17 +320,17 @@ sub EvaluateItem(int bag, int slot)
     | LEVEL 1: EXACT NAME FILTERS                |
     | =========================================== |
     
-    | Epic protection disabled for now - TODO: implement better solution
-    | /if (${protectEpic}) {
-    |     /if (${epicExact.Length} > 0) {
-    |         /call CheckFilterList "${epicExact}" "${itemName}" TRUE TRUE
-    |         /if (${shouldKeep}) {
-    |             /if (${verboseMode}) /echo [KEEP] ${itemName} - Epic Item
-    |             /return
-    |         }
-    |     }
-    |     ... additional epic checks commented out ...
-    | }
+    | Epic protection: check each chunk separately to avoid buffer overflow (mirrors loot.mac pattern)
+    /if (${protectEpic}) {
+        /call CheckFilterList "${epicExact}" "${itemName}" TRUE TRUE
+        /if (!${shouldKeep}) /call CheckFilterList "${epicExact2}" "${itemName}" TRUE TRUE
+        /if (!${shouldKeep}) /call CheckFilterList "${epicExact3}" "${itemName}" TRUE TRUE
+        /if (!${shouldKeep}) /call CheckFilterList "${epicExact4}" "${itemName}" TRUE TRUE
+        /if (${shouldKeep}) {
+            /if (${verboseMode}) /echo [KEEP] ${itemName} - Epic Item
+            /return
+        }
+    }
     
     | Check keep (never sell) exact first - highest priority
     /call CheckFilterList "${keepExact}" "${itemName}" TRUE TRUE
@@ -338,8 +339,10 @@ sub EvaluateItem(int bag, int slot)
         /return
     }
     
-    | Check always sell exact - can override keep keyword matches
+    | Check always sell exact - can override keep keyword matches (chunked to avoid 2048 limit)
     /call CheckFilterList "${alwaysSellExact}" "${itemName}" FALSE TRUE
+    /if (!${shouldSell}) /call CheckFilterList "${alwaysSellExact2}" "${itemName}" FALSE TRUE
+    /if (!${shouldSell}) /call CheckFilterList "${alwaysSellExact3}" "${itemName}" FALSE TRUE
     /if (${shouldSell}) {
         /if (${countOnly}) {
             /call CountSellItem
@@ -524,6 +527,40 @@ sub CheckFilterList(string filterList, string matchValue, bool isKeepList, bool 
 /return
 
 | ================================================= |
+| AddToEpicChunks - Append a list to epic chunks   |
+| (avoids buffer overflow, mirrors loot.mac)        |
+| ================================================= |
+sub AddToEpicChunks(string list)
+    /if (${list.Length} == 0) /return
+    /if (${epicChunkIdx} == 1) {
+        /if (${epicExact.Length} > 0 && ${Math.Calc[${epicExact.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 2
+        /if (${epicChunkIdx} == 1) {
+            /if (${epicExact.Length} > 0) /varset epicExact ${epicExact}/${list}
+            /else /varset epicExact ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 2) {
+        /if (${epicExact2.Length} > 0 && ${Math.Calc[${epicExact2.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 3
+        /if (${epicChunkIdx} == 2) {
+            /if (${epicExact2.Length} > 0) /varset epicExact2 ${epicExact2}/${list}
+            /else /varset epicExact2 ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 3) {
+        /if (${epicExact3.Length} > 0 && ${Math.Calc[${epicExact3.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 4
+        /if (${epicChunkIdx} == 3) {
+            /if (${epicExact3.Length} > 0) /varset epicExact3 ${epicExact3}/${list}
+            /else /varset epicExact3 ${list}
+        }
+    }
+    /if (${epicChunkIdx} == 4) {
+        /if (${epicExact4.Length} > 0 && ${Math.Calc[${epicExact4.Length}+1+${list.Length}]} > 2040) /return
+        /if (${epicExact4.Length} > 0) /varset epicExact4 ${epicExact4}/${list}
+        /else /varset epicExact4 ${list}
+    }
+/return
+
+| ================================================= |
 | ProcessSellItem - Handle the actual selling       |
 | ================================================= |
 sub ProcessSellItem(int bag, int slot, string reason)
@@ -632,16 +669,111 @@ sub ShowHelp
 sub LoadConfig(bool verbose)
     /if (${verbose}) /echo Loading configuration from sell_config/ and shared_config/ directories...
     
-    | Load protectEpic early (set to FALSE - epic protection disabled for now)
+    | Load protectEpic early so epic loading can be gated on it
     /declare flagsFile string local ${configPath}/sell_flags.ini
-    /varset protectEpic FALSE
-    
-    | Epic protection DISABLED - do not load epic items
-    | TODO: Implement better solution for epic item protection
+    /if (${Ini[${flagsFile},Settings,protectEpic].Length}) {
+        /varset protectEpic ${Ini[${flagsFile},Settings,protectEpic]}
+    } else {
+        /varset protectEpic TRUE
+    }
+    /varset protectEpic ${Bool[${protectEpic}]}
+
+    | Load Epic Items (chunked - do NOT merge). Respect epic_classes.ini: if any class=TRUE, only those classes; else full list.
+    /declare epicExactFile string local ${sharedConfigPath}/epic_items_exact.ini
+    /declare epicClassesFile string local ${sharedConfigPath}/epic_classes.ini
     /varset epicExact
     /varset epicExact2
     /varset epicExact3
     /varset epicExact4
+    /if (${protectEpic}) {
+        /declare anyEpicClass int local 0
+        /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
+        /if (${anyEpicClass}) {
+            /varset epicChunkIdx 1
+            /declare epicList string local
+            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) {
+                /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]}
+                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
+            }
+        } else {
+            | No class selected - skip epic check (do not load any epic list)
+        }
+    }
     
     | Load Shared Valuable Items FIRST (higher priority)
     /declare sharedExactFile string local ${sharedConfigPath}/valuable_exact.ini
@@ -663,20 +795,6 @@ sub LoadConfig(bool verbose)
     /if (${Ini[${sharedTypesFile},Items,types].Length}) {
         /varset sharedTypes ${Ini[${sharedTypesFile},Items,types]}
     }
-    
-    | Epic protection disabled - do not load from INI file (causes buffer overflow)
-    | /if (${Ini[${epicExactFile},Items,exact].Length}) {
-    |     /varset epicExact ${Ini[${epicExactFile},Items,exact]}
-    | }
-    | /if (${Ini[${epicExactFile},Items,exact2].Length}) {
-    |     /varset epicExact2 ${Ini[${epicExactFile},Items,exact2]}
-    | }
-    | /if (${Ini[${epicExactFile},Items,exact3].Length}) {
-    |     /varset epicExact3 ${Ini[${epicExactFile},Items,exact3]}
-    | }
-    | /if (${Ini[${epicExactFile},Items,exact4].Length}) {
-    |     /varset epicExact4 ${Ini[${epicExactFile},Items,exact4]}
-    | }
     
     | Load Macro-Specific Keep Lists (merged with shared)
     /declare keepExactFile string local ${configPath}/sell_keep_exact.ini
@@ -715,12 +833,7 @@ sub LoadConfig(bool verbose)
         /varset keepExact
     }
     
-    | Add epic items separately to avoid buffer overflow
-    | Epic items are checked in EvaluateItem with separate epicExact variables
-    /if (${protectEpic}) {
-        | Keep epic chunks separate - do not merge into single variable
-        | They will be checked individually in the evaluation logic
-    }
+    | Epic items kept in separate epicExact1-4 chunks, checked individually in EvaluateItem
     
     /if (${sharedContains.Length} > 0 && ${macroContains.Length} > 0) {
         /varset keepContains ${sharedContains}/${macroContains}
@@ -889,12 +1002,7 @@ sub LoadConfig(bool verbose)
         /varset protectAugSlots FALSE
     }
     
-    | Epic protection disabled - do not load from INI
-    | /if (${Ini[${flagsFile},Settings,protectEpic].Length}) {
-    |     /varset protectEpic ${Ini[${flagsFile},Settings,protectEpic]}
-    | } else {
-    |     /varset protectEpic TRUE
-    | }
+    | protectEpic already loaded at top of LoadConfig
     
     | Convert string values to proper types
     /varset minSellValue ${Int[${minSellValue}]}

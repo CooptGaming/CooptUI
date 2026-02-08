@@ -91,12 +91,19 @@ function SellView.render(ctx, simulateSellView)
         end
     end
     
-    -- Summary: Keeping / Selling / Protected counts and sell total (one pass over sellItems)
+    -- Summary: Keeping / Selling / Protected counts, trust indicator, augment warning (one pass over sellItems)
     local keepCount, sellCount, protectCount = 0, 0, 0
     local sellTotal = 0
+    local keepInSellQueue = 0  -- items with inKeep=true AND willSell=true (trust check)
+    local augmentSellCount = 0 -- augmentation-type items that will be sold
     for _, it in ipairs(ctx.sellItems) do
         if it.inKeep then keepCount = keepCount + 1 end
-        if it.willSell then sellCount = sellCount + 1; sellTotal = sellTotal + (it.totalValue or 0) end
+        if it.willSell then
+            sellCount = sellCount + 1
+            sellTotal = sellTotal + (it.totalValue or 0)
+            if it.inKeep then keepInSellQueue = keepInSellQueue + 1 end
+            if it.type and it.type:lower() == "augmentation" then augmentSellCount = augmentSellCount + 1 end
+        end
         if it.isProtected then protectCount = protectCount + 1 end
     end
     ctx.theme.TextInfo(string.format("Keeping: %d  ·  Selling: %d  ·  Protected: %d", keepCount, sellCount, protectCount))
@@ -104,6 +111,19 @@ function SellView.render(ctx, simulateSellView)
     ImGui.SameLine()
     ctx.theme.TextWarning(string.format("Sell total: %s", ItemUtils.formatValue(sellTotal)))
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Total value of items that will be sold"); ImGui.EndTooltip() end
+    -- C2: Trust indicator
+    if keepInSellQueue > 0 then
+        ImGui.TextColored(ImVec4(1, 0.3, 0.3, 1), string.format("!! %d keep-list items still in sell queue -- review before selling", keepInSellQueue))
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Items marked Keep are still set to Sell. This may indicate a filter conflict."); ImGui.EndTooltip() end
+    else
+        ImGui.TextColored(ImVec4(0.3, 0.9, 0.3, 1), "All keep-list items protected")
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("No items with inKeep=true have willSell=true"); ImGui.EndTooltip() end
+    end
+    -- C3: Augment safety banner
+    if augmentSellCount > 0 then
+        ImGui.TextColored(ImVec4(1, 0.85, 0.2, 1), string.format("! %d augment(s) will be sold -- review carefully", augmentSellCount))
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Augmentation-type items are in the sell queue. Consider adding them to Never Sell or Protected Types."); ImGui.EndTooltip() end
+    end
     ImGui.Separator()
     
     -- Cache once per frame to avoid TLO/string work per row

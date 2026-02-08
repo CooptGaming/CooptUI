@@ -83,8 +83,9 @@ local function loadSellConfigCache()
     local keepExact = readINIValue("sell_keep_exact.ini", "Items", "exact", "")
     local keepContains = readINIValue("sell_keep_contains.ini", "Items", "contains", "")
     local keepTypes = readINIValue("sell_keep_types.ini", "Items", "types", "")
-    local junkExact = readINIValue("sell_always_sell_exact.ini", "Items", "exact", "")
-    local protectedTypes = readINIValue("sell_protected_types.ini", "Items", "types", "")
+    local junkExact = readListValue("sell_always_sell_exact.ini", "Items", "exact", "")
+    local junkContains = readListValue("sell_always_sell_contains.ini", "Items", "contains", "")
+    local protectedTypes = readListValue("sell_protected_types.ini", "Items", "types", "")
     local augmentAlwaysSellExact = readINIValue("sell_augment_always_sell_exact.ini", "Items", "exact", "")
     local skipExact = readLootListValue("loot_skip_exact.ini", "Items", "exact", "")
     local augmentSkipExact = readLootListValue("loot_augment_skip_exact.ini", "Items", "exact", "")
@@ -97,9 +98,12 @@ local function loadSellConfigCache()
         protectCollectible = readINIValue("sell_flags.ini", "Settings", "protectCollectible", "TRUE") == "TRUE",
         protectHeirloom = readINIValue("sell_flags.ini", "Settings", "protectHeirloom", "TRUE") == "TRUE",
         protectEpic = readINIValue("sell_flags.ini", "Settings", "protectEpic", "TRUE") == "TRUE",
+        protectAttuneable = readINIValue("sell_flags.ini", "Settings", "protectAttuneable", "FALSE") == "TRUE",
+        protectAugSlots = readINIValue("sell_flags.ini", "Settings", "protectAugSlots", "FALSE") == "TRUE",
         minSell = tonumber(readINIValue("sell_value.ini", "Settings", "minSellValue", "50")) or 50,
         minStack = tonumber(readINIValue("sell_value.ini", "Settings", "minSellValueStack", "10")) or 10,
         maxKeep = tonumber(readINIValue("sell_value.ini", "Settings", "maxKeepValue", "10000")) or 10000,
+        tributeKeepOverride = tonumber(readINIValue("sell_value.ini", "Settings", "tributeKeepOverride", "1000")) or 1000,
     }
 
     cache.keepSet = {}
@@ -116,6 +120,12 @@ local function loadSellConfigCache()
     for item in (junkExact or ""):gmatch("([^/]+)") do
         local t = item:match("^%s*(.-)%s*$")
         if isValidFilterEntry(t) then cache.junkSet[t] = true end
+    end
+
+    cache.junkContainsList = {}
+    for s in (junkContains or ""):gmatch("([^/]+)") do
+        local x = s:match("^%s*(.-)%s*$")
+        if isValidFilterEntry(x) then cache.junkContainsList[#cache.junkContainsList + 1] = x end
     end
 
     -- Augment-only list: overrides all other sell rules when item is Augmentation
@@ -217,49 +227,82 @@ local function isProtectedType(itemType, cache)
     return false
 end
 
---- Determine if item will be sold. Mirrors sell.mac EvaluateItem.
---- @param itemData table { name, type, value, totalValue, stackSize, nodrop, notrade, lore, quest, collectible, heirloom, inKeep, inJunk }
+--- Check if item name contains any always-sell keyword. Uses cache.
+local function isInJunkContainsList(itemName, cache)
+    if not itemName or itemName == "" then return false end
+    if cache and cache.junkContainsList then
+        for _, kw in ipairs(cache.junkContainsList) do
+            if itemName:find(kw, 1, true) then return true end
+        end
+    end
+    return false
+end
+
+--- Determine if item will be sold. Mirrors sell.mac EvaluateItem canonical order.
+--- Uses granular flags (inKeepExact, inJunkExact, inKeepContains, inJunkContains, inKeepType, isProtectedType)
+--- set by sell_status.lua computeAndAttachSellStatus.
+--- @param itemData table { name, type, value, totalValue, stackSize, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, tribute, inKeepExact, inJunkExact, inKeepContains, inJunkContains, inKeepType, isProtectedType }
 --- @param cache table|nil Sell config cache from loadSellConfigCache()
 --- @return boolean willSell, string reason
 local function willItemBeSold(itemData, cache)
     local cfg = cache or {}
-    -- Augment-only list overrides all other sell/keep rules
+    -- Step 0a: Augment overrides (highest priority sell rules)
     local itemType = (itemData.type or ""):match("^%s*(.-)%s*$")
     if itemType == "Augmentation" and cfg.augmentAlwaysSellSet and itemData.name and cfg.augmentAlwaysSellSet[itemData.name] then
         return true, "AugmentAlwaysSell"
     end
-    -- Never-loot list: sell to clear from inventory (then won't loot again)
     if itemType == "Augmentation" and cfg.augmentNeverLootSellSet and itemData.name and cfg.augmentNeverLootSellSet[itemData.name] then
         return true, "AugmentNeverLoot"
     end
     if cfg.neverLootSellSet and itemData.name and cfg.neverLootSellSet[itemData.name] then
         return true, "NeverLoot"
     end
-    local protectNoDrop = cfg.protectNoDrop ~= false
-    local protectNoTrade = cfg.protectNoTrade ~= false
-    local protectLore = cfg.protectLore ~= false
-    local protectQuest = cfg.protectQuest ~= false
-    local protectCollectible = cfg.protectCollectible ~= false
-    local protectHeirloom = cfg.protectHeirloom ~= false
-    local minSell = cfg.minSell or 50
-    local minStack = cfg.minStack or 10
-    local maxKeep = cfg.maxKeep or 10000
 
-    if protectNoDrop and itemData.nodrop then return false, "NoDrop" end
-    if protectNoTrade and itemData.notrade then return false, "NoTrade" end
+    -- Step 1: NoDrop
+    if (cfg.protectNoDrop ~= false) and itemData.nodrop then return false, "NoDrop" end
+    -- Step 2: NoTrade
+    if (cfg.protectNoTrade ~= false) and itemData.notrade then return false, "NoTrade" end
+    -- Step 3: Epic
     local epicKey = itemData.name and normalizeItemName(itemData.name) or ""
     if cfg.epicItemSet and epicKey ~= "" and cfg.epicItemSet[epicKey] then return false, "Epic" end
-    if itemData.inKeep then return false, "Keep" end
-    if itemData.inJunk then return true, "Junk" end
-    if protectLore and itemData.lore then return false, "Lore" end
-    if protectQuest and itemData.quest then return false, "Quest" end
-    if protectCollectible and itemData.collectible then return false, "Collectible" end
-    if protectHeirloom and itemData.heirloom then return false, "Heirloom" end
+    -- Step 4: Keep exact
+    if itemData.inKeepExact then return false, "Keep" end
+    -- Step 5: Always-sell exact
+    if itemData.inJunkExact then return true, "Junk" end
+    -- Step 6: Keep contains
+    if itemData.inKeepContains then return false, "KeepKeyword" end
+    -- Step 7: Always-sell contains
+    if itemData.inJunkContains then return true, "JunkKeyword" end
+    -- Step 8: Keep type
+    if itemData.inKeepType then return false, "KeepType" end
+    -- Step 9: Protected type
+    if itemData.isProtectedType then return false, "ProtectedType" end
+    -- Step 10: Lore
+    if (cfg.protectLore ~= false) and itemData.lore then return false, "Lore" end
+    -- Step 11: Quest
+    if (cfg.protectQuest ~= false) and itemData.quest then return false, "Quest" end
+    -- Step 12: Collectible
+    if (cfg.protectCollectible ~= false) and itemData.collectible then return false, "Collectible" end
+    -- Step 13: Heirloom
+    if (cfg.protectHeirloom ~= false) and itemData.heirloom then return false, "Heirloom" end
+    -- Step 14: Attuneable
+    if cfg.protectAttuneable and itemData.attuneable then return false, "Attuneable" end
+    -- Step 15: AugSlots
+    if cfg.protectAugSlots and itemData.augSlots and itemData.augSlots > 0 then return false, "AugSlots" end
+    -- Step 16: maxKeepValue
+    local maxKeep = cfg.maxKeep or 10000
     if maxKeep > 0 and itemData.totalValue and itemData.totalValue >= maxKeep then return false, "HighValue" end
+    -- Step 17: tributeKeepOverride
+    local tributeKeep = cfg.tributeKeepOverride or 0
+    if tributeKeep > 0 and (itemData.tribute or 0) >= tributeKeep then return false, "Tribute" end
+    -- Step 18: minSellValue / minSellValueStack
     local isStack = (itemData.stackSize or 1) > 1
     local val = itemData.value or 0
+    local minSell = cfg.minSell or 50
+    local minStack = cfg.minStack or 10
     if isStack and val < minStack then return false, "BelowSell" end
     if not isStack and val < minSell then return false, "BelowSell" end
+    -- Step 19: Default SELL
     return true, "Sell"
 end
 
@@ -418,6 +461,7 @@ return {
     isKeptByContains = isKeptByContains,
     isKeptByType = isKeptByType,
     isProtectedType = isProtectedType,
+    isInJunkContainsList = isInJunkContainsList,
     willItemBeSold = willItemBeSold,
     -- Loot (for Phase 3 Loot view)
     loadLootConfigCache = loadLootConfigCache,

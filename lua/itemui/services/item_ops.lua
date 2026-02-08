@@ -92,12 +92,23 @@ function M.updateSellStatusForItemName(itemName, inKeep, inJunk)
     for _, row in ipairs(deps.sellItems) do
         local rn = (row.name or ""):match("^%s*(.-)%s*$")
         if rn == key then
-            row.inKeep = inKeep
-            row.inJunk = inJunk
+            row.inKeepExact = inKeep
+            row.inJunkExact = inJunk
+            row.inKeepContains = deps.sellStatus.isKeptByContains(row.name)
+            row.inJunkContains = deps.sellStatus.isInJunkContainsList(row.name)
+            row.inKeepType = deps.sellStatus.isKeptByType(row.type)
+            row.isProtectedType = deps.sellStatus.isProtectedType(row.type)
+            row.inKeep = row.inKeepExact or row.inKeepContains or row.inKeepType
+            row.inJunk = row.inJunkExact or row.inJunkContains
+            row.isProtected = row.isProtectedType
             local ws, reason = deps.sellStatus.willItemBeSold(row)
             row.willSell = ws
             row.sellReason = reason
         end
+    end
+    -- Regenerate sell cache so sell.mac sees the change immediately (A5)
+    if deps.storage and deps.storage.writeSellCache then
+        deps.storage.writeSellCache(deps.sellItems)
     end
 end
 
@@ -175,9 +186,7 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
     local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
         stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
         collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
-    dup.inKeep = deps.sellStatus.isInKeepList(row.name) or deps.sellStatus.isKeptByContains(row.name) or deps.sellStatus.isKeptByType(row.type)
-    dup.inJunk = deps.sellStatus.isInJunkList(row.name)
-    dup.isProtected = deps.sellStatus.isProtectedType(row.type)
+    deps.sellStatus.attachGranularFlags(dup, nil)
     local ws, reason = deps.sellStatus.willItemBeSold(dup)
     dup.willSell, dup.sellReason = ws, reason
     deps.invalidateSortCache("sell")

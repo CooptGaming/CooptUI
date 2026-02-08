@@ -215,6 +215,12 @@ local SELL_CACHE_FILE = "sell_cache.ini"
 -- Format: [Meta] savedAt=... ; [Count] count=N ; [Items] 1=Name1 2=Name2 ...
 local function writeSellCache(items)
     if not items or #items == 0 then return false end
+    -- Guard: skip writing if no items have willSell computed (prevents empty/stale cache)
+    local hasComputed = false
+    for _, it in ipairs(items) do
+        if it.willSell ~= nil then hasComputed = true; break end
+    end
+    if not hasComputed then return false end
     local path = config.getCharStoragePath(getCharName(), SELL_CACHE_FILE)
     if not path then return false end
     local toSell = {}
