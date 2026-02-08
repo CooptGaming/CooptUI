@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = if ($PSScriptRoot) { Split-Path $PSScriptRoot -Parent } else { Get-Location }
-if (-not $Version) { $Version = "0.1.0-alpha" }
+if (-not $Version) { $Version = "0.2.0-alpha" }
 if (-not $OutputDir) { $OutputDir = $RepoRoot }
 
 $ZipName = "CoopUI_v$Version.zip"
@@ -23,6 +23,14 @@ try {
     $luaDest = Join-Path $Staging "lua"
     New-Item -ItemType Directory -Path $luaDest -Force | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot "lua\itemui") -Destination (Join-Path $luaDest "itemui") -Recurse -Force
+
+    # Remove dev-only files from release staging
+    $itemuiStaged = Join-Path $luaDest "itemui"
+    Remove-Item -Path (Join-Path $itemuiStaged "docs") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $itemuiStaged "test_rules.lua") -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $itemuiStaged "upvalue_check.lua") -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $itemuiStaged "phase7_check.ps1") -Force -ErrorAction SilentlyContinue
+
     Copy-Item -Path (Join-Path $RepoRoot "lua\scripttracker") -Destination (Join-Path $luaDest "scripttracker") -Recurse -Force
     Copy-Item -Path (Join-Path $RepoRoot "lua\coopui") -Destination (Join-Path $luaDest "coopui") -Recurse -Force
     $mqDest = Join-Path $luaDest "mq"

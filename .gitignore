@@ -16,10 +16,18 @@
 !lua/
 !Macros/
 !resources/
+!docs/
 
 # --- Ignore these project paths (do not track or push) ---
 .cursor/agents/
-docs/
+
+# --- docs: only track new user-facing documentation ---
+docs/*
+!docs/INSTALL.md
+!docs/CONFIGURATION.md
+!docs/DEVELOPER.md
+!docs/TROUBLESHOOTING.md
+!docs/RELEASE_AND_DEPLOYMENT.md
 
 # --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
