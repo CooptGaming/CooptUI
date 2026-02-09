@@ -202,8 +202,9 @@ function AugmentsView.render(ctx)
                 local rid = "aug_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
 
-                local actualInAugmentAlwaysSell = ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(item.name) or false
-                local actualInAugmentNeverLoot = augmentNeverLootSet[item.name or ""] == true
+                local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
+                local actualInAugmentAlwaysSell = ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(nameKey) or false
+                local actualInAugmentNeverLoot = augmentNeverLootSet[nameKey] == true
 
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()
@@ -262,9 +263,9 @@ function AugmentsView.render(ctx)
                 end
                 if ImGui.Button("Always sell##" .. rid, ImVec2(70, 0)) then
                     if actualInAugmentAlwaysSell then
-                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentAlwaysSellList(item.name) end
+                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentAlwaysSellList(nameKey) end
                     else
-                        if ctx.augmentLists then ctx.augmentLists.addToAugmentAlwaysSellList(item.name) end
+                        if ctx.augmentLists then ctx.augmentLists.addToAugmentAlwaysSellList(nameKey) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Augment Always sell list (overrides Keep/sell rules)"); ImGui.EndTooltip() end
@@ -279,9 +280,9 @@ function AugmentsView.render(ctx)
                 end
                 if ImGui.Button("Never loot##" .. rid, ImVec2(70, 0)) then
                     if actualInAugmentNeverLoot then
-                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentNeverLootList(item.name) end
+                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentNeverLootList(nameKey) end
                     else
-                        if ctx.augmentLists then ctx.augmentLists.addToAugmentNeverLootList(item.name) end
+                        if ctx.augmentLists then ctx.augmentLists.addToAugmentNeverLootList(nameKey) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Augment Never loot list (overrides other loot rules)"); ImGui.EndTooltip() end

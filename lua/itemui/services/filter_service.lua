@@ -79,12 +79,16 @@ end
 -- @param filter table Filter specification
 -- @return boolean True if item matches filter
 function FilterService.matchesFilter(item, filter)
-    -- Text search (item name, case-insensitive)
+    -- Text search (item name, case-insensitive); trim so "  foo  " matches "foo"
     if filter.text and filter.text ~= '' then
-        local searchLower = filter.text:lower()
-        local nameLower = (item.name or ''):lower()
-        if not nameLower:find(searchLower, 1, true) then
-            return false
+        local searchTrimmed = filter.text:match("^%s*(.-)%s*$") or ""
+        if searchTrimmed ~= "" then
+            local searchLower = searchTrimmed:lower()
+            local nameTrimmed = (item.name or ""):match("^%s*(.-)%s*$") or ""
+            local nameLower = nameTrimmed:lower()
+            if not nameLower:find(searchLower, 1, true) then
+                return false
+            end
         end
     end
     
