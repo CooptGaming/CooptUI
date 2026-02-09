@@ -89,21 +89,30 @@ function M.updateSellStatusForItemName(itemName, inKeep, inJunk)
     local key = (itemName or ""):match("^%s*(.-)%s*$")
     if key == "" then return end
     if not deps.perfCache.sellConfigCache then deps.sellStatus.loadSellConfigCache() end
+    local function applyFlags(row)
+        row.inKeepExact = inKeep
+        row.inJunkExact = inJunk
+        row.inKeepContains = deps.sellStatus.isKeptByContains(row.name)
+        row.inJunkContains = deps.sellStatus.isInJunkContainsList(row.name)
+        row.inKeepType = deps.sellStatus.isKeptByType(row.type)
+        row.isProtectedType = deps.sellStatus.isProtectedType(row.type)
+        row.inKeep = row.inKeepExact or row.inKeepContains or row.inKeepType
+        row.inJunk = row.inJunkExact or row.inJunkContains
+        row.isProtected = row.isProtectedType
+        local ws, reason = deps.sellStatus.willItemBeSold(row)
+        row.willSell = ws
+        row.sellReason = reason
+    end
     for _, row in ipairs(deps.sellItems) do
         local rn = (row.name or ""):match("^%s*(.-)%s*$")
-        if rn == key then
-            row.inKeepExact = inKeep
-            row.inJunkExact = inJunk
-            row.inKeepContains = deps.sellStatus.isKeptByContains(row.name)
-            row.inJunkContains = deps.sellStatus.isInJunkContainsList(row.name)
-            row.inKeepType = deps.sellStatus.isKeptByType(row.type)
-            row.isProtectedType = deps.sellStatus.isProtectedType(row.type)
-            row.inKeep = row.inKeepExact or row.inKeepContains or row.inKeepType
-            row.inJunk = row.inJunkExact or row.inJunkContains
-            row.isProtected = row.isProtectedType
-            local ws, reason = deps.sellStatus.willItemBeSold(row)
-            row.willSell = ws
-            row.sellReason = reason
+        if rn == key then applyFlags(row) end
+    end
+    -- Sync inventoryItems so saveInventory() persists correct Keep/Junk state
+    if deps.inventoryItems then
+        deps.invalidateSortCache("inv")
+        for _, row in ipairs(deps.inventoryItems) do
+            local rn = (row.name or ""):match("^%s*(.-)%s*$")
+            if rn == key then applyFlags(row) end
         end
     end
     -- Regenerate sell cache so sell.mac sees the change immediately (A5)

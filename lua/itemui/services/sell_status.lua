@@ -98,8 +98,9 @@ function M.attachGranularFlags(item, storedByName)
     item.inJunkContains = M.isInJunkContainsList(item.name)
     item.inKeepType = M.isKeptByType(item.type)
     item.isProtectedType = M.isProtectedType(item.type)
-    -- Apply stored overrides (user manual keep/junk from UI)
-    if storedByName then
+    -- Apply stored overrides only when item is in neither exact list (config list always wins).
+    -- This keeps Keep/Junk button decisions persistent across rescans and stored-inv refresh.
+    if storedByName and not item.inKeepExact and not item.inJunkExact then
         local storedItem = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
         if storedItem then
             if storedItem.inKeep ~= nil then item.inKeepExact = storedItem.inKeep end
