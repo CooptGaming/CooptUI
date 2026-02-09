@@ -297,10 +297,12 @@ function SellView.render(ctx, simulateSellView)
                     if actualInKeep then
                         if ctx.removeFromKeepList(item.name) then
                             ctx.updateSellStatusForItemName(item.name, false, item.inJunk)
+                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
                         end
                     else
                         if ctx.addToKeepList(item.name) then
                             ctx.updateSellStatusForItemName(item.name, true, false)
+                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
                         end
                     end
                 end
@@ -312,10 +314,12 @@ function SellView.render(ctx, simulateSellView)
                     if actualInJunk then
                         if ctx.removeFromJunkList(item.name) then
                             ctx.updateSellStatusForItemName(item.name, item.inKeep, false)
+                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
                         end
                     else
                         if ctx.addToJunkList(item.name) then
                             ctx.updateSellStatusForItemName(item.name, false, true)
+                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
                         end
                     end
                 end

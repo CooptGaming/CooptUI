@@ -91,17 +91,19 @@ end
 
 --- Single source of truth for granular flag computation.
 --- Call this to set all granular + summary flags on an item from current config lists.
+--- Uses normalized name key (trimmed) so Keep/Junk list lookups match INI/stored keys after rescans.
 function M.attachGranularFlags(item, storedByName)
-    item.inKeepExact = M.isInKeepList(item.name)
-    item.inJunkExact = M.isInJunkList(item.name)
-    item.inKeepContains = M.isKeptByContains(item.name)
-    item.inJunkContains = M.isInJunkContainsList(item.name)
+    local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
+    item.inKeepExact = M.isInKeepList(nameKey)
+    item.inJunkExact = M.isInJunkList(nameKey)
+    item.inKeepContains = M.isKeptByContains(nameKey)
+    item.inJunkContains = M.isInJunkContainsList(nameKey)
     item.inKeepType = M.isKeptByType(item.type)
     item.isProtectedType = M.isProtectedType(item.type)
     -- Apply stored overrides only when item is in neither exact list (config list always wins).
     -- This keeps Keep/Junk button decisions persistent across rescans and stored-inv refresh.
     if storedByName and not item.inKeepExact and not item.inJunkExact then
-        local storedItem = storedByName[(item.name or ""):match("^%s*(.-)%s*$")]
+        local storedItem = storedByName[nameKey]
         if storedItem then
             if storedItem.inKeep ~= nil then item.inKeepExact = storedItem.inKeep end
             if storedItem.inJunk ~= nil then item.inJunkExact = storedItem.inJunk end
