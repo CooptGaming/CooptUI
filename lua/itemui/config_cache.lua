@@ -179,7 +179,12 @@ local function createAugmentListAPI()
     local api = {}
     function api.isInAugmentAlwaysSellList(itemName)
         if not itemName then return false end
-        local list = config.parseList(config.readListValue("sell_augment_always_sell_exact.ini", "Items", "exact", ""))
+        local list = sellLists and sellLists.augmentAlwaysSellExact
+        if list then
+            for _, s in ipairs(list) do if s == itemName then return true end end
+            return false
+        end
+        list = config.parseList(config.readListValue("sell_augment_always_sell_exact.ini", "Items", "exact", ""))
         for _, s in ipairs(list) do if s == itemName then return true end end
         return false
     end
@@ -208,7 +213,12 @@ local function createAugmentListAPI()
     end
     function api.isInAugmentNeverLootList(itemName)
         if not itemName then return false end
-        local list = config.parseList(config.readLootListValue("loot_augment_skip_exact.ini", "Items", "exact", ""))
+        local list = lootLists and lootLists.augmentSkipExact
+        if list then
+            for _, s in ipairs(list) do if s == itemName then return true end end
+            return false
+        end
+        list = config.parseList(config.readLootListValue("loot_augment_skip_exact.ini", "Items", "exact", ""))
         for _, s in ipairs(list) do if s == itemName then return true end end
         return false
     end

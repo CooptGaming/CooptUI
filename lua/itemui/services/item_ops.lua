@@ -90,10 +90,11 @@ function M.updateSellStatusForItemName(itemName, inKeep, inJunk)
     if key == "" then return end
     if not deps.perfCache.sellConfigCache then deps.sellStatus.loadSellConfigCache() end
     local function applyFlags(row)
+        local rn = (row.name or ""):match("^%s*(.-)%s*$")
         row.inKeepExact = inKeep
         row.inJunkExact = inJunk
-        row.inKeepContains = deps.sellStatus.isKeptByContains(row.name)
-        row.inJunkContains = deps.sellStatus.isInJunkContainsList(row.name)
+        row.inKeepContains = deps.sellStatus.isKeptByContains(rn)
+        row.inJunkContains = deps.sellStatus.isInJunkContainsList(rn)
         row.inKeepType = deps.sellStatus.isKeptByType(row.type)
         row.isProtectedType = deps.sellStatus.isProtectedType(row.type)
         row.inKeep = row.inKeepExact or row.inKeepContains or row.inKeepType
