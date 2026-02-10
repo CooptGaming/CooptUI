@@ -5,9 +5,9 @@
 
 # --- Root: ignore everything, then un-ignore only project paths ---
 /*
-!.gitignore
-!.cursor/
-!.github/
+.gitignore
+.cursor/
+.github/
 !README.md
 !DEPLOY.md
 !CHANGELOG.md
