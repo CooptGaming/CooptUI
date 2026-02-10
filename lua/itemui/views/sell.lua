@@ -329,17 +329,23 @@ function SellView.render(ctx, simulateSellView)
                     end
                 end
                 ImGui.TableNextColumn()
-                local statusText = item.sellReason or ""
-                local statusColor = item.willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
-                if item.isProtected then
-                    -- Show specific reason (EpicQuest, NoDrop, NoTrade, etc.) so users know why it's protected
-                    statusText = (item.sellReason and item.sellReason ~= "") and item.sellReason or "Protected"
-                    if statusText == "Epic" then
-                        statusText = "EpicQuest"
-                        statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
-                    else
-                        statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
-                    end
+                -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank
+                local statusText, willSell = "", false
+                if item.sellReason ~= nil and item.willSell ~= nil then
+                    statusText = item.sellReason or "—"
+                    willSell = item.willSell
+                elseif ctx.getSellStatusForItem then
+                    statusText, willSell = ctx.getSellStatusForItem(item)
+                    if statusText == "" then statusText = "—" end
+                else
+                    statusText = "—"
+                end
+                local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                if statusText == "Epic" then
+                    statusText = "EpicQuest"
+                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
+                elseif statusText == "NoDrop" or statusText == "NoTrade" then
+                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
                 end
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))

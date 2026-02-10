@@ -321,7 +321,7 @@ local function scheduleSellStatusRefresh(invalidateNow)
         sellStatusService.invalidateSellConfigCache()  -- sell cache includes augment never-loot and other loot-derived lists for Status column
     end
 end
--- When sell config changes (Config window or list APIs), schedule refresh; invalidation happens in debounced block.
+-- When sell config changes: don't invalidate here so same-frame Junk list write is visible when debounced refresh runs; Augment Always sell Status may update next frame.
 events.on(events.EVENTS.CONFIG_SELL_CHANGED, function() scheduleSellStatusRefresh(false) end)
 -- When loot config changes (e.g. Augment Never loot), schedule refresh and invalidate now so same-frame context-menu update shows correct Status.
 events.on(events.EVENTS.CONFIG_LOOT_CHANGED, function() scheduleSellStatusRefresh(true) end)
@@ -1185,7 +1185,7 @@ local function main()
         if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
         if perfCache.sellConfigPendingRefresh then
             -- Force fresh config load so we see INI changes (e.g. addToJunkList) that may not have been visible when cache was last loaded
-            sellStatusService.invalidateSellConfigCache()
+            if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
             computeAndAttachSellStatus(inventoryItems)
             if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
             if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
