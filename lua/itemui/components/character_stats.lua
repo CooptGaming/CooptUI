@@ -15,6 +15,59 @@ function M.init(d)
 end
 
 -- ============================================================================
+-- Class display: 3-letter abbreviation + optional server subclasses
+-- ============================================================================
+
+local CLASS_TO_ABBREV = {
+    ["warrior"] = "WAR", ["cleric"] = "CLR", ["paladin"] = "PAL", ["ranger"] = "RNG",
+    ["shadow knight"] = "SHD", ["druid"] = "DRU", ["monk"] = "MNK", ["rogue"] = "ROG",
+    ["bard"] = "BRD", ["shaman"] = "SHM", ["necromancer"] = "NEC", ["wizard"] = "WIZ",
+    ["magician"] = "MAG", ["enchanter"] = "ENC", ["beastlord"] = "BST", ["berserker"] = "BER",
+}
+
+--- Return 3-letter class abbreviation for display; nil if unknown.
+local function classAbbrev(className)
+    if not className or className == "" then return nil end
+    local key = tostring(className):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    return CLASS_TO_ABBREV[key]
+end
+
+--- Build primary + optional subclass string. Tries server-specific TLOs for tagged/alt classes.
+local function getClassDisplayString(Me)
+    local primary = Me.Class and Me.Class()
+    local abbrev = classAbbrev(primary)
+    local primaryStr = abbrev and abbrev or (tostring(primary or "?"):gsub("^%s+", ""):gsub("%s+$", ""))
+    local subclasses = {}
+    local seen = {}
+    -- Server may expose tagged/alt classes via custom TLOs; try common names without failing
+    for _, tloName in ipairs({ "AltClass", "SecondaryClass", "SubClass", "TaggedClasses", "ExtraClasses" }) do
+        local fn = Me[tloName]
+        if type(fn) == "function" then
+            local ok, val = pcall(function() return fn() end)
+            if ok and val and tostring(val):len() > 0 then
+                local s = tostring(val):lower():gsub("^%s+", ""):gsub("%s+$", "")
+                if s ~= "" then
+                    for part in s:gmatch("[^,;|]+") do
+                        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+                        if part ~= "" then
+                            local a = classAbbrev(part) or part:sub(1, 3):upper()
+                            if a and a ~= primaryStr and not seen[a] then
+                                seen[a] = true
+                                subclasses[#subclasses + 1] = a
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if #subclasses > 0 then
+        return primaryStr .. " (" .. table.concat(subclasses, ", ") .. ")"
+    end
+    return primaryStr
+end
+
+-- ============================================================================
 -- AA Script Counting (Lost Memories + Planar Power)
 -- ============================================================================
 
@@ -135,7 +188,11 @@ function M.render()
 
     ImGui.SetWindowFontScale(0.95)
 
-    ImGui.TextColored(ImVec4(0.4, 0.8, 1, 1), "Character Stats")
+    local playerName = (Me.Name and Me.Name()) and Me.Name() or "?"
+    local playerLevel = (Me.Level and Me.Level()) and Me.Level() or 0
+    local classStr = getClassDisplayString(Me)
+    local headerText = string.format("%s (%s) %s", playerName, playerLevel, classStr)
+    ImGui.TextColored(ImVec4(0.4, 0.8, 1, 1), headerText)
     ImGui.Separator()
 
     ImGui.TextColored(ImVec4(0.9, 0.3, 0.3, 1), "HP:")
