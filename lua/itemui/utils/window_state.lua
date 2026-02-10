@@ -31,4 +31,13 @@ function M.closeGameInventoryIfOpen()
     end
 end
 
+--- Close the default EQ merchant window if open (for clean close when leaving sell view).
+function M.closeGameMerchantIfOpen()
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd")
+    if w and w.Open and w.Open() then
+        -- Use DoClose (MQ window method); more reliable than /notify on some clients/custom UIs
+        mq.cmd("/invoke ${Window[MerchantWnd].DoClose}")
+    end
+end
+
 return M

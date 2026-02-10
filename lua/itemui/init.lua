@@ -298,6 +298,7 @@ local function isBankWindowOpen() return windowState.isBankWindowOpen() end
 local function isMerchantWindowOpen() return windowState.isMerchantWindowOpen() end
 local function isLootWindowOpen() return windowState.isLootWindowOpen() end
 local function closeGameInventoryIfOpen() windowState.closeGameInventoryIfOpen() end
+local function closeGameMerchantIfOpen() windowState.closeGameMerchantIfOpen() end
 
 -- buildItemFromMQ delegated to utils/item_helpers.lua
 local function buildItemFromMQ(item, bag, slot) return itemHelpers.buildItemFromMQ(item, bag, slot) end
@@ -678,6 +679,7 @@ local function renderUI()
             isOpen = false
             uiState.configWindowOpen = false
             closeGameInventoryIfOpen()
+            closeGameMerchantIfOpen()  -- clean close: also close default merchant UI when in sell view
             ImGui.End()
             return
         end
