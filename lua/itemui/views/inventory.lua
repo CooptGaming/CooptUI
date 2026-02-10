@@ -386,10 +386,11 @@ function InventoryView.render(ctx, bankOpen)
                             ImGui.Dummy(ImVec2(0, 6))
                             ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors.Error))
                             if ImGui.MenuItem("Delete") then
+                                local stackSize = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
                                 if ctx.getSkipConfirmDelete and ctx.getSkipConfirmDelete() then
-                                    ctx.requestDestroyItem(item.bag, item.slot, item.name)
+                                    ctx.requestDestroyItem(item.bag, item.slot, item.name, stackSize)
                                 else
-                                    ctx.setPendingDestroy({ bag = item.bag, slot = item.slot, name = item.name or "" })
+                                    ctx.setPendingDestroy({ bag = item.bag, slot = item.slot, name = item.name or "", stackSize = stackSize })
                                 end
                             end
                             ImGui.PopStyleColor()

@@ -151,8 +151,10 @@ local uiState = {
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
     pendingQuantityPickup = nil, pendingQuantityAction = nil,
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
-    pendingDestroy = nil,       -- { bag, slot, name } when Delete clicked and confirm required
-    pendingDestroyAction = nil, -- { bag, slot, name } for main loop to call performDestroyItem
+    pendingDestroy = nil,       -- { bag, slot, name, stackSize } when Delete clicked and confirm required
+    pendingDestroyAction = nil, -- { bag, slot, name, qty } for main loop to call performDestroyItem (qty = whole stack when confirm skipped)
+    destroyQuantityValue = "",  -- quantity input for destroy dialog (1..stackSize)
+    destroyQuantityMax = 1,     -- max allowed (stack size) while pendingDestroy is set
     confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
 }
 
@@ -502,8 +504,19 @@ context.init({
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
     updateSellStatusForItemName = function(n, k, j) itemOps.updateSellStatusForItemName(n, k, j) end,
     applySellListChange = applySellListChange,
-    setPendingDestroy = function(p) uiState.pendingDestroy = p end,
-    requestDestroyItem = function(bag, slot, name) uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "" }; uiState.pendingDestroy = nil end,
+    setPendingDestroy = function(p)
+        uiState.pendingDestroy = p
+        local sz = (p and p.stackSize) and p.stackSize or 1
+        uiState.destroyQuantityMax = sz
+        uiState.destroyQuantityValue = tostring(sz)
+    end,
+    requestDestroyItem = function(bag, slot, name, stackSize)
+        local qty = (stackSize and stackSize > 0) and stackSize or 1
+        uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "", qty = qty }
+        uiState.pendingDestroy = nil
+        uiState.destroyQuantityValue = ""
+        uiState.destroyQuantityMax = 1
+    end,
     getSkipConfirmDelete = function() return not uiState.confirmBeforeDelete end,
     -- Config list APIs
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
@@ -900,19 +913,40 @@ local function renderUI()
     -- Footer: status messages (Keep/Junk, moves, sell), failed items notice
     ImGui.Separator()
     if uiState.pendingDestroy then
-        local name = uiState.pendingDestroy.name or "item"
+        local pd = uiState.pendingDestroy
+        local name = pd.name or "item"
         if #name > 40 then name = name:sub(1, 37) .. "..." end
+        local stackSize = (pd.stackSize and pd.stackSize > 0) and pd.stackSize or 1
         ImGui.Text("Destroy " .. name .. "?")
+        if stackSize > 1 then
+            ImGui.SameLine()
+            ImGui.SetNextItemWidth(60)
+            local qtyFlags = bit32.bor(ImGuiInputTextFlags.CharsDecimal, ImGuiInputTextFlags.EnterReturnsTrue)
+            uiState.destroyQuantityValue, _ = ImGui.InputText("##DestroyQty", uiState.destroyQuantityValue, qtyFlags)
+            ImGui.SameLine()
+            ImGui.Text(string.format("(1-%d)", stackSize))
+        end
         ImGui.SameLine()
         local errCol = theme and theme.ToVec4 and theme.ToVec4(theme.Colors.Error) or ImVec4(0.9, 0.25, 0.2, 1)
         ImGui.PushStyleColor(ImGuiCol.Button, errCol)
         if ImGui.Button("Confirm Delete", ImVec2(110, 0)) then
-            uiState.pendingDestroyAction = { bag = uiState.pendingDestroy.bag, slot = uiState.pendingDestroy.slot, name = uiState.pendingDestroy.name }
+            local qty = stackSize
+            if stackSize > 1 then
+                local n = tonumber(uiState.destroyQuantityValue)
+                if n and n >= 1 and n <= stackSize then qty = math.floor(n) else qty = stackSize end
+            end
+            uiState.pendingDestroyAction = { bag = pd.bag, slot = pd.slot, name = pd.name, qty = qty }
             uiState.pendingDestroy = nil
+            uiState.destroyQuantityValue = ""
+            uiState.destroyQuantityMax = 1
         end
         ImGui.PopStyleColor()
         ImGui.SameLine()
-        if ImGui.Button("Cancel", ImVec2(60, 0)) then uiState.pendingDestroy = nil end
+        if ImGui.Button("Cancel", ImVec2(60, 0)) then
+            uiState.pendingDestroy = nil
+            uiState.destroyQuantityValue = ""
+            uiState.destroyQuantityMax = 1
+        end
     end
     -- Failed items notice (after sell.mac finishes)
     if sellMacState.failedCount > 0 and mq.gettime() < sellMacState.showFailedUntil then
@@ -1203,7 +1237,9 @@ local function main()
         if uiState.pendingDestroyAction then
             local pd = uiState.pendingDestroyAction
             uiState.pendingDestroyAction = nil
-            itemOps.performDestroyItem(pd.bag, pd.slot, pd.name)
+            uiState.pendingQuantityPickup = nil
+            uiState.quantityPickerValue = ""
+            itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then

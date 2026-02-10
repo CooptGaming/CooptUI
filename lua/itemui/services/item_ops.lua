@@ -152,6 +152,39 @@ function M.removeItemFromSellItemsBySlot(bag, slot)
     end
 end
 
+--- Reduce stack at bag/slot by destroyQty; remove row if stack would be 0. Updates both inventoryItems and sellItems.
+function M.reduceStackOrRemoveBySlot(bag, slot, destroyQty)
+    if not destroyQty or destroyQty < 1 then return end
+    deps.invalidateSortCache("inv")
+    deps.invalidateSortCache("sell")
+    for i = #deps.inventoryItems, 1, -1 do
+        if deps.inventoryItems[i].bag == bag and deps.inventoryItems[i].slot == slot then
+            local row = deps.inventoryItems[i]
+            local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+            if destroyQty >= cur then
+                table.remove(deps.inventoryItems, i)
+            else
+                row.stackSize = cur - destroyQty
+                row.totalValue = (row.value or 0) * row.stackSize
+            end
+            break
+        end
+    end
+    for i = #deps.sellItems, 1, -1 do
+        if deps.sellItems[i].bag == bag and deps.sellItems[i].slot == slot then
+            local row = deps.sellItems[i]
+            local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+            if destroyQty >= cur then
+                table.remove(deps.sellItems, i)
+            else
+                row.stackSize = cur - destroyQty
+                row.totalValue = (row.value or 0) * row.stackSize
+            end
+            return
+        end
+    end
+end
+
 function M.removeItemFromBankBySlot(bag, slot)
     deps.invalidateSortCache("bank")
     for i = #deps.bankItems, 1, -1 do
@@ -328,18 +361,43 @@ end
 -- ============================================================================
 -- Destroy item (inventory only; runs from main loop via pendingDestroyAction)
 -- ============================================================================
---- Pick up item, destroy with /destroy, remove from lists and save. Call from main loop only.
-function M.performDestroyItem(bag, slot, itemName)
+--- Close QuantityWnd if open (so our destroy flow controls quantity). Uses Cancel to avoid moving items.
+local function closeQuantityWndIfOpen()
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+    if w and w.Open and w.Open() then
+        mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
+        mq.delay(150)
+    end
+end
+
+--- Pick up item (optionally with qty for stacks), destroy with /destroy, update lists and save. Call from main loop only.
+--- qty: number to destroy (default 1). When > 1 we use QuantityWnd to pick that many then /destroy.
+function M.performDestroyItem(bag, slot, itemName, qty)
     if not bag or not slot then return end
+    qty = (qty and qty > 0) and math.floor(qty) or 1
+    closeQuantityWndIfOpen()
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
-    mq.delay(200)
+    mq.delay(300, function()
+        local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+        return w and w.Open and w.Open()
+    end)
+    local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+    if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
+        mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
+        mq.delay(150)
+        mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+        mq.delay(100)
+    else
+        mq.delay(100)
+    end
     mq.cmd('/destroy')
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    M.removeItemFromInventoryBySlot(bag, slot)
-    M.removeItemFromSellItemsBySlot(bag, slot)
+    M.reduceStackOrRemoveBySlot(bag, slot, qty)
     if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
     if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
-    deps.setStatusMessage(itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item")
+    local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
+    if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
+    deps.setStatusMessage(msg)
 end
 
 return M
