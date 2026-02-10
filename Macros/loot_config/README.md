@@ -42,6 +42,10 @@ This directory contains modular configuration files for the loot macro. Each fil
   - `lootHeirloom`: Loot heirloom items - Default: FALSE
   - `lootAttuneable`: Loot attuneable items - Default: FALSE
   - `lootAugSlots`: Loot items with augmentation slots - Default: FALSE
+  - `pauseOnMythicalNoDropNoTrade`: When TRUE, pause macro when a Mythical item with NoDrop or NoTrade is found; leave item on corpse, beep twice, alert group, then end - Default: FALSE
+  - `alertMythicalGroupChat`: When pause triggers, send item and corpse name to group - Default: TRUE
+  - `testMythicalPause`: Test mode: trigger same pause/alert on any item matching `testMythicalPauseItem` that has NoDrop or NoTrade - Default: FALSE
+  - `testMythicalPauseItem`: Item name (exact or partial) for test mode; only used when `testMythicalPause` is TRUE
 
 ### `loot_sorting.ini`
 - **Purpose**: Inventory sorting configuration after looting
@@ -52,6 +56,15 @@ This directory contains modular configuration files for the loot macro. Each fil
   - `enableWeightSort`: Enable weight-based sorting - Default: FALSE
   - `minWeight`: Weight threshold for sorting (in tenths, 40 = 4.0 lbs)
 - **Future Options**: Value sorting, type sorting, custom bag assignments, bag exclusions
+
+## Mythical NoDrop/NoTrade pause and test mode
+
+When `pauseOnMythicalNoDropNoTrade=TRUE` in `loot_flags.ini`, the macro will **pause** (not loot) when it sees a **Mythical** item that has **NoDrop** or **NoTrade**. It will play two beeps, send the item and corpse name to group chat (if `alertMythicalGroupChat=TRUE` and you are grouped), close the loot window, and end. This lets your group decide who loots the item (e.g. a cleric-only piece) before you restart the macro. Item links in group chat require the MQ2LinkDB plugin; "click to target corpse" behavior may require MQ2FakeLink.
+
+**Test without a rare drop:**
+- **INI test:** Set `testMythicalPause=TRUE` and `testMythicalPauseItem` to a common NoDrop/NoTrade item name. Run the loot macro on a corpse that has that item; the same pause/alert will trigger.
+- **Dry-run:** Run `/macro loot test` to trigger the pause alert once with fake data (beeps and group message). No corpse or item needed.
+- After testing, set `testMythicalPause=FALSE` (and clear `testMythicalPauseItem` if desired).
 
 ## Decision Logic Priority
 

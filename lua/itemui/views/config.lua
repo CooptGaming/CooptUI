@@ -1604,6 +1604,9 @@ local function renderConfigWindow()
             lootFlag("Loot heirloom", "lootHeirloom", "Loot items with the Heirloom flag")
             lootFlag("Loot attuneable", "lootAttuneable", "Loot items with the Attuneable flag")
             lootFlag("Loot augment slots", "lootAugSlots", "Loot items that can have augments")
+            ImGui.Spacing()
+            lootFlag("Pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "When a Mythical item with NoDrop or NoTrade is found, pause the loot macro, beep twice, alert group, and leave the item on corpse so the group can decide who loots.")
+            lootFlag("Alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
         end
         ImGui.Spacing()
         if ImGui.CollapsingHeader("Loot value thresholds", ImGuiTreeNodeFlags.DefaultOpen) then

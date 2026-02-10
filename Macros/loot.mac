@@ -5,7 +5,8 @@
 | ================================================= |
 | Usage:                                            |
 |   /macro loot          - Run auto-loot            |
-|   /macro loot load     - Reload config           |
+|   /macro loot load     - Reload config            |
+|   /macro loot test     - Dry-run Mythical pause alert (beeps + group message) |
 |   /macro loot help     - Show this help message   |
 | ================================================= |
 | Config Files: loot_config/ directory              |
@@ -17,6 +18,7 @@ Sub Main
 | ------------------------------------------------- |
 /declare doLoad bool outer FALSE
 /declare doHelp bool outer FALSE
+/declare doTest bool outer FALSE
 /declare arg1 string local ${Param0}
 /declare configPath string outer ${MacroQuest.Path}/Macros/loot_config
 /declare sharedConfigPath string outer ${MacroQuest.Path}/Macros/shared_config
@@ -24,6 +26,7 @@ Sub Main
 | Check for command arguments
 /if (${arg1.Equal[help]}) /varset doHelp TRUE
 /if (${arg1.Equal[load]}) /varset doLoad TRUE
+/if (${arg1.Equal[test]}) /varset doTest TRUE
 
 | Handle help command
 /if (${doHelp}) {
@@ -34,7 +37,11 @@ Sub Main
 | ------------------------------------------------- |
 | RUNTIME VARIABLES                                 |
 | ------------------------------------------------- |
-/declare Alert int outer 1
+/if (!${Defined[Alert]}) {
+    /declare Alert int outer 1
+} else {
+    /varset Alert 1
+}
 /declare loottotal int outer 0
 /declare lootslot int outer 0
 /declare lootName string outer
@@ -80,6 +87,12 @@ Sub Main
 /declare lootAttuneable bool outer
 /declare lootAugSlots bool outer
 /declare alwaysLootEpic bool outer
+/declare pauseOnMythicalNoDropNoTrade bool outer
+/declare alertMythicalGroupChat bool outer
+/declare testMythicalPause bool outer
+/declare testMythicalPauseItem string outer
+/declare pauseAlertItemName string outer
+/declare pauseAlertCorpseName string outer
 
 | Epic Items (when alwaysLootEpic - chunked to avoid buffer overflow, do NOT merge)
 | When epic_classes.ini has any class=TRUE, only those classes' lists are loaded; else full epic_items_exact.ini
@@ -110,6 +123,36 @@ Sub Main
 /if (${doLoad}) {
     /call LoadConfig TRUE
     /echo Configuration reloaded.
+    /return
+}
+
+| Handle test command: use targeted corpse and first item as if Mythical pause triggered
+/if (${doTest}) {
+    /call LoadConfig FALSE
+    /if (!${pauseOnMythicalNoDropNoTrade}) {
+        /echo Test skipped: Pause on Mythical NoDrop/NoTrade is turned OFF (loot_flags.ini: pauseOnMythicalNoDropNoTrade=FALSE). Turn it on to test the alert.
+        /return
+    }
+    /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) {
+        /echo Test mode: target a corpse first, then run /macro loot test
+        /return
+    }
+    /loot
+    /delay 10 ${Window[LootWnd].Open}
+    /if (!${Window[LootWnd].Open}) {
+        /echo Test mode: could not open loot window on target
+        /return
+    }
+    /delay 2
+    /if (${Corpse.Items} < 1) {
+        /call CloseLootWindow
+        /echo Test mode: targeted corpse has no items - need at least one item to test
+        /return
+    }
+    /varset pauseAlertItemName ${Corpse.Item[1].Name}
+    /varset pauseAlertCorpseName ${Target.DisplayName}
+    /call CloseLootWindow
+    /call PauseMythicalNoDropAlert
     /return
 }
 
@@ -262,6 +305,23 @@ sub EvaluateItem(int slot)
     }
 
     /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
+    
+    | =========================================== |
+    | MYTHICAL NODROP/NOTRADE PAUSE (optional)   |
+    | =========================================== |
+    | When enabled: Mythical + (NoDrop or NoTrade) or test-match -> pause, alert group, leave item on corpse
+    /declare isNoDropNoTrade bool local FALSE
+    /if (${Corpse.Item[${slot}].NoDrop} || ${Corpse.Item[${slot}].NoTrade}) /varset isNoDropNoTrade TRUE
+    /if (${isNoDropNoTrade}) {
+        /declare doPause bool local FALSE
+        /if (${pauseOnMythicalNoDropNoTrade} && ${lootName.Find[Mythical]}) /varset doPause TRUE
+        /if (${testMythicalPause} && ${testMythicalPauseItem.Length} > 0 && ${lootName.Find[${testMythicalPauseItem}]}) /varset doPause TRUE
+        /if (${doPause}) {
+            /varset pauseAlertItemName ${lootName}
+            /call PauseMythicalNoDropAlert
+            /return
+        }
+    }
     
     | =========================================== |
     | PRIORITY 0.5: EPIC ITEMS (always loot)     |
@@ -456,28 +516,40 @@ sub AddToEpicChunks(string list)
     /if (${epicChunkIdx} == 1) {
         /if (${epicExact.Length} > 0 && ${Math.Calc[${epicExact.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 2
         /if (${epicChunkIdx} == 1) {
-            /if (${epicExact.Length} > 0) /varset epicExact ${epicExact}/${list}
-            /else /varset epicExact ${list}
+            /if (${epicExact.Length} > 0) {
+                /varset epicExact ${epicExact}/${list}
+            } else {
+                /varset epicExact ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 2) {
         /if (${epicExact2.Length} > 0 && ${Math.Calc[${epicExact2.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 3
         /if (${epicChunkIdx} == 2) {
-            /if (${epicExact2.Length} > 0) /varset epicExact2 ${epicExact2}/${list}
-            /else /varset epicExact2 ${list}
+            /if (${epicExact2.Length} > 0) {
+                /varset epicExact2 ${epicExact2}/${list}
+            } else {
+                /varset epicExact2 ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 3) {
         /if (${epicExact3.Length} > 0 && ${Math.Calc[${epicExact3.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 4
         /if (${epicChunkIdx} == 3) {
-            /if (${epicExact3.Length} > 0) /varset epicExact3 ${epicExact3}/${list}
-            /else /varset epicExact3 ${list}
+            /if (${epicExact3.Length} > 0) {
+                /varset epicExact3 ${epicExact3}/${list}
+            } else {
+                /varset epicExact3 ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 4) {
         /if (${epicExact4.Length} > 0 && ${Math.Calc[${epicExact4.Length}+1+${list.Length}]} > 2040) /return
-        /if (${epicExact4.Length} > 0) /varset epicExact4 ${epicExact4}/${list}
-        /else /varset epicExact4 ${list}
+        /if (${epicExact4.Length} > 0) {
+            /varset epicExact4 ${epicExact4}/${list}
+        } else {
+            /varset epicExact4 ${list}
+        }
     }
 /return
 
@@ -536,6 +608,38 @@ sub LootItemWithSound(int slot)
 
     | --- Now loot the item ---
     /call LootItem ${slot}
+/return
+
+| ================================================= |
+| PauseMythicalNoDropAlert - Pause, beep, alert group, then end |
+| Uses outer pauseAlertItemName and pauseAlertCorpseName (empty corpse = use Target.DisplayName and close loot window) |
+| ================================================= |
+sub PauseMythicalNoDropAlert
+    /declare itemDisplay string local ${pauseAlertItemName}
+    /declare corpseDisplay string local ${pauseAlertCorpseName}
+    /if (${corpseDisplay.Length} == 0) /varset corpseDisplay ${Target.DisplayName}
+    
+    | Two beeps in quick succession
+    /beep
+    /delay 3
+    /beep
+    
+    /echo Paused: Mythical NoDrop/NoTrade item left on corpse for group. See group chat. Restart macro when ready.
+    
+    | Group alert: item and corpse name (LinkDB used if available)
+    /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
+        /declare linkText string local
+        /squelch /varset linkText ${LinkDB[=${itemDisplay}]}
+        /if (${linkText.Length} > 0) {
+            /g Mythical NoDrop/NoTrade item left on corpse for group: ${linkText} -- Corpse: ${corpseDisplay}. Target this corpse and type /loot.
+        } else {
+            /g Mythical NoDrop/NoTrade item left on corpse for group: ${itemDisplay} -- Corpse: ${corpseDisplay}. Target this corpse and type /loot.
+        }
+    }
+    
+    | Only close loot window when we had a real corpse (pauseAlertCorpseName was empty)
+    /if (${pauseAlertCorpseName.Length} == 0) /call CloseLootWindow
+    /end
 /return
 
 | ================================================= |
@@ -738,6 +842,27 @@ sub LoadConfig(bool verbose)
         /varset alwaysLootEpic TRUE
     }
     
+    /if (${Ini[${flagsFile},Settings,pauseOnMythicalNoDropNoTrade].Length}) {
+        /varset pauseOnMythicalNoDropNoTrade ${Ini[${flagsFile},Settings,pauseOnMythicalNoDropNoTrade]}
+    } else {
+        /varset pauseOnMythicalNoDropNoTrade FALSE
+    }
+    /if (${Ini[${flagsFile},Settings,alertMythicalGroupChat].Length}) {
+        /varset alertMythicalGroupChat ${Ini[${flagsFile},Settings,alertMythicalGroupChat]}
+    } else {
+        /varset alertMythicalGroupChat TRUE
+    }
+    /if (${Ini[${flagsFile},Settings,testMythicalPause].Length}) {
+        /varset testMythicalPause ${Ini[${flagsFile},Settings,testMythicalPause]}
+    } else {
+        /varset testMythicalPause FALSE
+    }
+    /if (${Ini[${flagsFile},Settings,testMythicalPauseItem].Length}) {
+        /varset testMythicalPauseItem ${Ini[${flagsFile},Settings,testMythicalPauseItem]}
+    } else {
+        /varset testMythicalPauseItem
+    }
+    
     | Load Epic Items (chunked - do NOT merge). Respect epic_classes.ini: if any class=TRUE, only those classes; else full list.
     /declare epicExactFile string local ${sharedConfigPath}/epic_items_exact.ini
     /declare epicClassesFile string local ${sharedConfigPath}/epic_classes.ini
@@ -864,8 +989,7 @@ sub LoadConfig(bool verbose)
         /varset maxMoveDelay 100
     }
     
-    | Load Loop Safety Settings
-    /declare flagsFile string local ${configPath}/loot_flags.ini
+    | Load Loop Safety Settings (flagsFile already declared above for flag settings)
     /if (${Ini[${flagsFile},Settings,maxLoopIterations].Length}) {
         /varset maxLoopIterations ${Ini[${flagsFile},Settings,maxLoopIterations]}
     } else {
@@ -940,9 +1064,11 @@ sub ShowHelp
     /echo Usage:
     /echo   /macro loot          - Run auto-loot
     /echo   /macro loot load     - Reload config
+    /echo   /macro loot test     - Dry-run Mythical NoDrop pause alert
     /echo   /macro loot help     - Show this help
     /echo ==========================================
     /echo Config Files: loot_config/ directory
+    /echo Mythical NoDrop/NoTrade: loot_flags.ini pauseOnMythicalNoDropNoTrade, alertMythicalGroupChat, testMythicalPause, testMythicalPauseItem
     /echo ==========================================
     /echo Filter Priority (highest to lowest):
     /echo   1. Lore duplicate check (skip)
