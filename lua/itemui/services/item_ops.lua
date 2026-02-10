@@ -282,6 +282,54 @@ local function findFirstFreeBankSlot()
     return nil, nil
 end
 
+--- Find a bank slot that already has this item and has room for more. Prefer slot with most room.
+--- Returns destBag, destSlot or nil,nil. movingQty is how many we're adding.
+local function findExistingBankStackSlot(itemName, itemId, movingQty)
+    if not itemName and not itemId then return nil, nil end
+    movingQty = (movingQty and movingQty > 0) and movingQty or 1
+    local bestBag, bestSlot, bestRoom = nil, nil, -1
+    for _, r in ipairs(deps.bankItems) do
+        local same = (itemId and r.id and r.id == itemId) or (itemName and r.name and (r.name == itemName or (r.name or ""):lower() == (itemName or ""):lower()))
+        if same then
+            local cur = (r.stackSize and r.stackSize > 0) and r.stackSize or 1
+            local maxStack = (r.stackSizeMax and r.stackSizeMax > 0) and r.stackSizeMax or cur
+            if maxStack > cur then
+                local room = maxStack - cur
+                if room >= movingQty and room > bestRoom then
+                    bestBag, bestSlot, bestRoom = r.bag, r.slot, room
+                end
+            end
+        end
+    end
+    return bestBag, bestSlot
+end
+
+--- Add quantity to an existing bank stack (merge). Updates bankItems and bankCache.
+local function addQtyToBankStack(bag, slot, addQty, valuePerUnit)
+    if not addQty or addQty < 1 then return end
+    valuePerUnit = valuePerUnit or 0
+    deps.invalidateSortCache("bank")
+    for _, row in ipairs(deps.bankItems) do
+        if row.bag == bag and row.slot == slot then
+            local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+            row.stackSize = cur + addQty
+            row.totalValue = (row.value or valuePerUnit) * row.stackSize
+            break
+        end
+    end
+    if deps.isBankWindowOpen() then
+        for _, row in ipairs(deps.bankCache) do
+            if row.bag == bag and row.slot == slot then
+                local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+                row.stackSize = cur + addQty
+                row.totalValue = (row.value or valuePerUnit) * row.stackSize
+                deps.perfCache.lastBankCacheTime = os.time()
+                break
+            end
+        end
+    end
+end
+
 local function findFirstFreeInvSlot()
     local Me = mq.TLO and mq.TLO.Me
     if not Me or not Me.Inventory then return nil, nil end
@@ -303,12 +351,21 @@ function M.moveInvToBank(invBag, invSlot)
     for _, r in ipairs(deps.inventoryItems) do
         if r.bag == invBag and r.slot == invSlot then row = r; break end
     end
-    local bb, bs = findFirstFreeBankSlot()
-    if not bb or not bs then deps.setStatusMessage("No free bank slot"); return false end
     local stackSize = (row and row.stackSize and row.stackSize > 0) and row.stackSize or 1
+    local bb, bs = nil, nil
+    local mergeIntoExisting = false
+    if row and (row.name or row.id) then
+        local eb, es = findExistingBankStackSlot(row.name, row.id, stackSize)
+        if eb and es then bb, bs, mergeIntoExisting = eb, es, true end
+    end
+    if not bb or not bs then
+        bb, bs = findFirstFreeBankSlot()
+    end
+    if not bb or not bs then deps.setStatusMessage("No free bank slot"); return false end
     if stackSize > 1 then
         deps.uiState.pendingMoveAction = {
             source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
+            mergeIntoExisting = mergeIntoExisting,
             row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container }
         }
         if deps.uiState.pendingMoveAction.row then deps.uiState.pendingMoveAction.row.clicky = deps.getItemSpellId(row, "Clicky") end
@@ -321,7 +378,11 @@ function M.moveInvToBank(invBag, invSlot)
     M.removeItemFromInventoryBySlot(invBag, invSlot)
     M.removeItemFromSellItemsBySlot(invBag, invSlot)
     if row then
-        M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container)
+        if mergeIntoExisting then
+            addQtyToBankStack(bb, bs, 1, row.value)
+        else
+            M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container)
+        end
         deps.setStatusMessage(string.format("Moved to bank: %s", row.name or "item"))
     end
     return true
@@ -400,7 +461,13 @@ function M.executeMoveAction(action)
     if action.source == "inv" then
         M.removeItemFromInventoryBySlot(action.bag, action.slot)
         M.removeItemFromSellItemsBySlot(action.bag, action.slot)
-        if row then M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0) end
+        if row then
+            if action.mergeIntoExisting then
+                addQtyToBankStack(action.destBag, action.destSlot, action.qty or row.stackSize or 1, row.value)
+            else
+                M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0)
+            end
+        end
         deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
     else
         M.removeItemFromBankBySlot(action.bag, action.slot)
