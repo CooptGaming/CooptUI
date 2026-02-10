@@ -65,6 +65,7 @@ function M.willItemBeSold(itemData)
 end
 
 --- Refresh stored-inv-by-name cache if missing or older than TTL.
+--- Only apply stored inKeep/inJunk when the item is in the exact keep or junk list (filters stale keyword-derived overrides).
 --- Also exposed as M.refreshStoredInvByName() for scan.lua to reuse cached lookup.
 local function refreshStoredInvByNameIfNeeded()
     if deps.perfCache.storedInvByName and (mq.gettime() - (deps.perfCache.storedInvByNameTime or 0)) <= deps.C.STORED_INV_CACHE_TTL_MS then
@@ -73,11 +74,17 @@ local function refreshStoredInvByNameIfNeeded()
     local stored, _ = deps.storage.loadInventory()
     deps.perfCache.storedInvByName = {}
     if stored and #stored > 0 then
+        if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
         for _, it in ipairs(stored) do
             local n = (it.name or ""):match("^%s*(.-)%s*$")
-            if n ~= "" and (it.inKeep ~= nil or it.inJunk ~= nil) then
-                deps.perfCache.storedInvByName[n] = { inKeep = it.inKeep, inJunk = it.inJunk }
+            if n == "" then goto continue end
+            local entry = {}
+            if it.inKeep ~= nil and M.isInKeepList(n) then entry.inKeep = it.inKeep end
+            if it.inJunk ~= nil and M.isInJunkList(n) then entry.inJunk = it.inJunk end
+            if entry.inKeep ~= nil or entry.inJunk ~= nil then
+                deps.perfCache.storedInvByName[n] = entry
             end
+            ::continue::
         end
     end
     deps.perfCache.storedInvByNameTime = mq.gettime()

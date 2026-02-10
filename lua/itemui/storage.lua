@@ -119,9 +119,9 @@ local function serializeItem(it)
     parts[#parts + 1] = "baneDMGType=" .. escapeLuaString(it.baneDMGType or "")
     parts[#parts + 1] = "deity=" .. escapeLuaString(it.deity or "")
     parts[#parts + 1] = "dmgBonusType=" .. escapeLuaString(it.dmgBonusType or "")
-    -- Optional/conditional fields (individual appends)
-    if it.inKeep ~= nil then parts[#parts + 1] = "inKeep=" .. (it.inKeep and "true" or "false") end
-    if it.inJunk ~= nil then parts[#parts + 1] = "inJunk=" .. (it.inJunk and "true" or "false") end
+    -- Optional/conditional fields (individual appends). Only persist Keep/Junk when in exact list (not keyword/type-derived).
+    if it.inKeepExact then parts[#parts + 1] = "inKeep=true" end
+    if it.inJunkExact then parts[#parts + 1] = "inJunk=true" end
     if it.isProtected ~= nil then parts[#parts + 1] = "isProtected=" .. (it.isProtected and "true" or "false") end
     if it.willSell ~= nil then parts[#parts + 1] = "willSell=" .. (it.willSell and "true" or "false") end
     if it.sellReason ~= nil and it.sellReason ~= "" then parts[#parts + 1] = "sellReason=" .. escapeLuaString(it.sellReason) end
