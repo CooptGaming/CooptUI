@@ -193,12 +193,13 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
         lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
         attuneable = attuneable or false, augSlots = augSlots or 0 }
     table.insert(deps.inventoryItems, row)
+    deps.sellStatus.attachGranularFlags(row, nil)
+    local ws, reason = deps.sellStatus.willItemBeSold(row)
+    row.willSell, row.sellReason = ws, reason or ""
     local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
         stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
-        collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
-    deps.sellStatus.attachGranularFlags(dup, nil)
-    local ws, reason = deps.sellStatus.willItemBeSold(dup)
-    dup.willSell, dup.sellReason = ws, reason
+        collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots,
+        inKeep = row.inKeep, inJunk = row.inJunk, willSell = row.willSell, sellReason = row.sellReason }
     deps.invalidateSortCache("sell")
     table.insert(deps.sellItems, dup)
 end

@@ -294,16 +294,9 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.SameLine()
                 ctx.theme.PushKeepButton(not actualInKeep)  -- disabled style when not in keep list
                 if ImGui.Button("Keep##"..rid, ImVec2(58, 0)) then
-                    if actualInKeep then
-                        if ctx.removeFromKeepList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, false, item.inJunk)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
-                    else
-                        if ctx.addToKeepList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, true, false)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
+                    if ctx.applySellListChange then
+                        if actualInKeep then ctx.applySellListChange(item.name, false, item.inJunk)
+                        else ctx.applySellListChange(item.name, true, false) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from keep list (never sell)"); ImGui.EndTooltip() end
@@ -311,16 +304,9 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.SameLine()
                 ctx.theme.PushJunkButton(not actualInJunk)  -- disabled style when not in junk list
                 if ImGui.Button("Junk##"..rid, ImVec2(58, 0)) then
-                    if actualInJunk then
-                        if ctx.removeFromJunkList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, item.inKeep, false)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
-                    else
-                        if ctx.addToJunkList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, false, true)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
+                    if ctx.applySellListChange then
+                        if actualInJunk then ctx.applySellListChange(item.name, item.inKeep, false)
+                        else ctx.applySellListChange(item.name, false, true) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Always sell list"); ImGui.EndTooltip() end

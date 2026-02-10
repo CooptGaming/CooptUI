@@ -303,17 +303,94 @@ function InventoryView.render(ctx, bankOpen)
                             ImGui.Text(tostring(item.icon or 0))
                         end
                         if ImGui.IsItemHovered() then
-                            ImGui.SetNextWindowSize(ImVec2(460, 0), ImGuiCond.Always)
-                            ImGui.BeginTooltip()
+                            ItemTooltip.beginItemTooltip()
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
                             ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv" })
                             ImGui.EndTooltip()
                         end
+                        -- Right-click on icon: context menu for Inspect, Keep, Always sell, augment lists.
+                        -- Status and menu use row state when set; list changes must update rows (updateSellStatusForItemName or computeAndAttachSellStatus) so all views stay in sync.
+                        if ImGui.BeginPopupContextItem("ItemContextInv_" .. rid) then
+                            local inKeep, inJunk = false, false
+                            if item.inKeep ~= nil and item.inJunk ~= nil then
+                                inKeep, inJunk = item.inKeep, item.inJunk
+                            elseif ctx.getSellStatusForItem then
+                                local _, _, k, j = ctx.getSellStatusForItem(item)
+                                inKeep, inJunk = k, j
+                            end
+                            local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
+                            local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
+                            local isAugment = (itemTypeTrim == "Augmentation")
+                            local inAugmentAlwaysSell = isAugment and ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(nameKey)
+                            local inAugmentNeverLoot = isAugment and ctx.augmentLists and ctx.augmentLists.isInAugmentNeverLootList and ctx.augmentLists.isInAugmentNeverLootList(nameKey)
+
+                            if ImGui.MenuItem("Inspect") then
+                                if ctx.hasItemOnCursor() then
+                                    ctx.removeItemFromCursor()
+                                else
+                                    local Me = mq.TLO and mq.TLO.Me
+                                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+                                    local tlo = pack and pack.Item and pack.Item(item.slot)
+                                    if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
+                                end
+                            end
+                            ImGui.Separator()
+                            if ctx.applySellListChange then
+                                if inKeep then
+                                    if ImGui.MenuItem("Remove from Keep list") then ctx.applySellListChange(item.name, false, inJunk) end
+                                else
+                                    if ImGui.MenuItem("Add to Keep list") then ctx.applySellListChange(item.name, true, false) end
+                                end
+                                if inJunk then
+                                    if ImGui.MenuItem("Remove from Always sell list") then ctx.applySellListChange(item.name, inKeep, false) end
+                                else
+                                    if ImGui.MenuItem("Add to Always sell list") then ctx.applySellListChange(item.name, false, true) end
+                                end
+                            end
+                            if isAugment and ctx.augmentLists and nameKey ~= "" then
+                                ImGui.Separator()
+                                if inAugmentAlwaysSell then
+                                    if ImGui.MenuItem("Remove from Augment Always sell") then
+                                        if ctx.augmentLists.removeFromAugmentAlwaysSellList(nameKey) then
+                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
+                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
+                                        end
+                                    end
+                                else
+                                    if ImGui.MenuItem("Add to Augment Always sell") then
+                                        if ctx.augmentLists.addToAugmentAlwaysSellList(nameKey) then
+                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
+                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
+                                        end
+                                    end
+                                end
+                                if inAugmentNeverLoot then
+                                    if ImGui.MenuItem("Remove from Augment Never loot") then
+                                        if ctx.augmentLists.removeFromAugmentNeverLootList(nameKey) then
+                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
+                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
+                                        end
+                                    end
+                                else
+                                    if ImGui.MenuItem("Add to Augment Never loot") then
+                                        if ctx.augmentLists.addToAugmentNeverLootList(nameKey) then
+                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
+                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
+                                        end
+                                    end
+                                end
+                            end
+                            ImGui.EndPopup()
+                        end
                     elseif colKey == "Status" then
+                        -- Prefer row state (updated by list changes) so Status updates immediately; fallback to getSellStatusForItem
                         local statusText, willSell = "", false
-                        if ctx.getSellStatusForItem then
+                        if item.sellReason ~= nil and item.willSell ~= nil then
+                            statusText = item.sellReason or "—"
+                            willSell = item.willSell
+                        elseif ctx.getSellStatusForItem then
                             statusText, willSell = ctx.getSellStatusForItem(item)
                         end
                         if statusText == "" then statusText = "—" end

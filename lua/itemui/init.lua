@@ -36,6 +36,7 @@ local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
 local Cache = require('itemui.core.cache')
+local events = require('itemui.core.events')
 
 -- Components
 local CharacterStats = require('itemui.components.character_stats')
@@ -116,6 +117,7 @@ local perfCache = {
     lastScanTimeInv = 0,
     lastBankCacheTime = 0,
     sellLogPath = nil,  -- Macros/logs/item_management (set in main)
+    sellConfigPendingRefresh = false,  -- debounce: run at most one row refresh per frame after CONFIG_SELL_CHANGED
 }
 -- Invalidate stored-inv cache when we save so inventory Status column stays in sync with sell view
 do
@@ -312,6 +314,11 @@ removeFromLootSkipList = config_cache.removeFromLootSkipList
 augmentListAPI = config_cache.createAugmentListAPI()
 loadConfigCache()  -- Populate cache at startup (views/registry use configSellFlags, configLootLists, etc.)
 
+-- When sell config changes (Config window or list APIs), schedule one row refresh next frame (debounced)
+events.on(events.EVENTS.CONFIG_SELL_CHANGED, function()
+    perfCache.sellConfigPendingRefresh = true
+end)
+
 -- Scan service: init and wrappers (scan logic lives in itemui.services.scan)
 do
     local scanEnv = {
@@ -367,6 +374,14 @@ local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
 local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
 
+-- Single path for sell list changes: update INI, rows, and stored inventory so all views stay in sync
+local function applySellListChange(itemName, inKeep, inJunk)
+    if inKeep then addToKeepList(itemName) else removeFromKeepList(itemName) end
+    if inJunk then addToJunkList(itemName) else removeFromJunkList(itemName) end
+    itemOps.updateSellStatusForItemName(itemName, inKeep, inJunk)
+    if storage and inventoryItems then storage.saveInventory(inventoryItems) end
+end
+
 -- ============================================================================
 -- Tab renderers (condensed; full item table behavior)
 -- ============================================================================
@@ -377,6 +392,11 @@ uiState.tableFlags = TABLE_FLAGS
 columns.init({availableColumns=availableColumns, columnVisibility=columnVisibility, columnAutofitWidths=columnAutofitWidths, setStatusMessage=setStatusMessage, getItemSpellId=getItemSpellId, getSpellName=getSpellName})
 -- getStatusForSort used for Inventory Status column alphabetical sort (must match displayed text, e.g. Epic -> EpicQuest)
 local function getStatusForSort(item)
+    if item and item.sellReason ~= nil then
+        local st = (item.sellReason and item.sellReason ~= "") and item.sellReason or "—"
+        if st == "Epic" then return "EpicQuest" end
+        return st
+    end
     if not getSellStatusForItem then return "" end
     local st, _ = getSellStatusForItem(item)
     if st == "Epic" then return "EpicQuest" end
@@ -458,6 +478,7 @@ context.init({
     moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
     updateSellStatusForItemName = function(n, k, j) itemOps.updateSellStatusForItemName(n, k, j) end,
+    applySellListChange = applySellListChange,
     -- Config list APIs
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
@@ -1155,6 +1176,14 @@ local function main()
         if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
         if deferredScanNeeded.bank then maybeScanBank(bankOpen); deferredScanNeeded.bank = false end
         if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
+        if perfCache.sellConfigPendingRefresh then
+            -- Force fresh config load so we see INI changes (e.g. addToJunkList) that may not have been visible when cache was last loaded
+            sellStatusService.invalidateSellConfigCache()
+            computeAndAttachSellStatus(inventoryItems)
+            if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
+            if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+            perfCache.sellConfigPendingRefresh = false
+        end
         -- Auto-show when inventory, bank, or merchant just opened (loot view disabled - loot macro uses default EQ loot UI)
         local invJustOpened = invOpen and not lastInventoryWindowState
         -- Prime Stats tab only the first time inventory is opened this ItemUI session (so AC/ATK/Weight load once)

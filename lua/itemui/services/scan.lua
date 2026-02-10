@@ -258,6 +258,7 @@ function M.scanBank()
         end
     end
     env.scanState.lastScanTimeBank = mq.gettime()
+    if #bankItems > 0 and env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(bankItems) end
     if env.isBankWindowOpen() then
         for i = #bankCache, 1, -1 do bankCache[i] = nil end
         for _, it in ipairs(bankItems) do table.insert(bankCache, it) end
