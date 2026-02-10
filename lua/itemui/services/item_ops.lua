@@ -305,6 +305,15 @@ function M.moveInvToBank(invBag, invSlot)
     end
     local bb, bs = findFirstFreeBankSlot()
     if not bb or not bs then deps.setStatusMessage("No free bank slot"); return false end
+    local stackSize = (row and row.stackSize and row.stackSize > 0) and row.stackSize or 1
+    if stackSize > 1 then
+        deps.uiState.pendingMoveAction = {
+            source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container }
+        }
+        if deps.uiState.pendingMoveAction.row then deps.uiState.pendingMoveAction.row.clicky = deps.getItemSpellId(row, "Clicky") end
+        return true
+    end
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', invBag, invSlot)
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bb, bs)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
@@ -331,6 +340,14 @@ function M.moveBankToInv(bagIdx, slotIdx)
     end
     local ib, is_ = findFirstFreeInvSlot()
     if not ib or not is_ then deps.setStatusMessage("No free inventory slot"); return false end
+    local stackSize = (row and row.stackSize and row.stackSize > 0) and row.stackSize or 1
+    if stackSize > 1 then
+        deps.uiState.pendingMoveAction = {
+            source = "bank", bag = bagIdx, slot = slotIdx, destBag = ib, destSlot = is_, qty = stackSize,
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
+        }
+        return true
+    end
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bagIdx, slotIdx)
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
@@ -341,6 +358,55 @@ function M.moveBankToInv(bagIdx, slotIdx)
         deps.setStatusMessage(string.format("Moved to inventory: %s", row.name or "item"))
     end
     return true
+end
+
+--- Run a deferred stack move (inv<->bank). Closes QuantityWnd, picks with qty, drops, updates lists. Call from main loop only.
+function M.executeMoveAction(action)
+    if not action or not action.source then return end
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+    if w and w.Open and w.Open() then
+        mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
+        mq.delay(150)
+    end
+    if action.source == "inv" then
+        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
+    else
+        mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.bag, action.slot)
+    end
+    local qty = (action.qty and action.qty > 0) and action.qty or 1
+    if qty > 1 then
+        mq.delay(300, function()
+            local ww = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+            return ww and ww.Open and ww.Open()
+        end)
+        local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+        if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
+            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
+            mq.delay(150)
+            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+            mq.delay(100)
+        end
+    else
+        mq.delay(100)
+    end
+    if action.source == "inv" then
+        mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.destBag, action.destSlot)
+    else
+        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.destBag, action.destSlot)
+    end
+    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
+    local row = action.row
+    if action.source == "inv" then
+        M.removeItemFromInventoryBySlot(action.bag, action.slot)
+        M.removeItemFromSellItemsBySlot(action.bag, action.slot)
+        if row then M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0) end
+        deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
+    else
+        M.removeItemFromBankBySlot(action.bag, action.slot)
+        if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots) end
+        deps.setStatusMessage(row and string.format("Moved to inventory: %s", row.name or "item") or "Moved to inventory")
+    end
 end
 
 function M.removeItemFromCursor()

@@ -156,6 +156,7 @@ local uiState = {
     destroyQuantityValue = "",  -- quantity input for destroy dialog (1..stackSize)
     destroyQuantityMax = 1,     -- max allowed (stack size) while pendingDestroy is set
     confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
+    pendingMoveAction = nil,    -- { source = "inv"|"bank", bag, slot, destBag, destSlot, qty, row } for main loop (shift+click stack move)
 }
 
 -- Layout from setup (itemui_layout.ini): sizes per view; bank adds to base when open
@@ -1240,6 +1241,12 @@ local function main()
             uiState.pendingQuantityPickup = nil
             uiState.quantityPickerValue = ""
             itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
+        end
+        if uiState.pendingMoveAction then
+            uiState.pendingQuantityPickup = nil
+            uiState.quantityPickerValue = ""
+            itemOps.executeMoveAction(uiState.pendingMoveAction)
+            uiState.pendingMoveAction = nil
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
