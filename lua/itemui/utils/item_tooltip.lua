@@ -145,6 +145,58 @@ local function getItemClassRaceSlotBank(bankBag, bankSlot)
     return clsStr, raceStr, slotStr
 end
 
+-- Augment slot type ID to display name (in-game style)
+local AUG_TYPE_NAMES = {
+    [1] = "General: Single", [2] = "Armor: General", [3] = "Armor: Visible", [4] = "Weapon: General",
+    [5] = "Weapon: Secondary", [6] = "General: Raid", [7] = "General: Group", [8] = "Energeian Power Source",
+    [20] = "Ornamentation",
+}
+
+--- Get item TLO for inv or bank (returns nil if not available).
+local function getItemTLO(bag, slot, source)
+    if source == "bank" then
+        local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
+        if not bn then return nil end
+        return bn.Item and bn.Item(slot or 0)
+    else
+        local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
+        if not pack then return nil end
+        return pack.Item and pack.Item(slot or 0)
+    end
+end
+
+--- Return table of strings for augment slots: "Slot N, type X (Name): empty" or ": AugName". Falls back to nil if TLO not available.
+local function getAugmentSlotLines(item, source)
+    if not item or (item.augSlots or 0) == 0 then return nil end
+    local it = getItemTLO(item.bag, item.slot, source)
+    if not it or not it.ID or it.ID() == 0 then return nil end
+    local lines = {}
+    for i = 1, 6 do
+        local acc = it["AugSlot" .. i]
+        if acc == nil then break end
+        local typ = type(acc) == "function" and acc() or acc
+        typ = tonumber(typ) or 0
+        if typ > 0 then
+            local typeName = AUG_TYPE_NAMES[typ] or ("Type " .. tostring(typ))
+            local augName = "empty"
+            local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
+            if ok and itemN and itemN.Name then
+                local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+            end
+            lines[#lines + 1] = string.format("Slot %d, type %d (%s): %s", i, typ, typeName, augName)
+        end
+    end
+    return #lines > 0 and lines or nil
+end
+
+--- Build a compact list of only non-nil values (so row count = longest column's value count, no placeholders in longest col).
+local function compactCol(c)
+    local t = {}
+    for i = 1, 256 do if c[i] ~= nil then t[#t + 1] = c[i] end end
+    return t
+end
+
 --- Returns true if the current player can use the item (class, race, deity, level).
 local function canPlayerUseItem(item, source)
     local Me = mq.TLO and mq.TLO.Me
@@ -225,58 +277,74 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
     slot = slotStringToDisplay(slot)
     if slot and slot ~= "" and slot ~= "—" then ImGui.Text(slot) end
-    if item.augSlots and item.augSlots > 0 then ImGui.Text("Augment slots: " .. tostring(item.augSlots)) end
+    local augLines = (item.bag ~= nil and item.slot ~= nil and source) and getAugmentSlotLines(item, source) or nil
+    if augLines and #augLines > 0 then
+        ImGui.Spacing()
+        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
+        ImGui.Spacing()
+        for _, line in ipairs(augLines) do ImGui.Text(line) end
+        ImGui.Spacing()
+    elseif item.augSlots and item.augSlots > 0 then
+        ImGui.Text("Augment slots: " .. tostring(item.augSlots))
+    end
     if item.container and item.container > 0 then
         local capStr = item.sizeCapacity and item.sizeCapacity > 0 and (SIZE_NAMES[item.sizeCapacity] or tostring(item.sizeCapacity)) or nil
         ImGui.Text("Container: " .. tostring(item.container) .. " slot" .. (item.container == 1 and "" or "s") .. (capStr and (" (" .. capStr .. ")") or ""))
     end
     ImGui.Spacing()
 
-    -- ---- Item info: Size, AC, HP, Mana, End (and all other core fields) ----
+    -- ---- Item info: in-game layout = Left (Size/Weight/Req/Skill) | Middle (AC/HP/Mana/End/Haste) | Right (Base Dmg, Delay, Dmg Bon) ----
     local colW1, colW2, colW3 = 145, 100, 110
     local L1, L2, L3 = "%-12s %s", "%-6s %s", "%-10s %s"
-    local function cell1(t) if t then ImGui.Text(t) end end
-    local function cell2(t) ImGui.NextColumn(); if t then ImGui.Text(t) end end
-    local function cell3(t) ImGui.NextColumn(); if t then ImGui.Text(t) end end
-    local function rowEnd() ImGui.NextColumn() end
-
-    local hasItemInfo = formatSize(item) or (item.ac and item.ac ~= 0) or (item.hp and item.hp ~= 0) or (item.mana and item.mana ~= 0) or (item.endurance and item.endurance ~= 0) or (item.weight and item.weight ~= 0) or (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.requiredLevel and item.requiredLevel ~= 0) or (item.recommendedLevel and item.recommendedLevel ~= 0) or (item.dmgBonus and item.dmgBonus ~= 0) or (item.type and item.type ~= "") or (item.instrumentType and item.instrumentType ~= "") or (item.haste and item.haste ~= 0) or (item.charges and item.charges ~= 0) or (item.range and item.range ~= 0) or (item.skillModValue and item.skillModValue ~= 0) or (item.baneDMG and item.baneDMG ~= 0)
+    local leftCol, midCol, rightCol = {}, {}, {}
+    local wStr = (item.weight and item.weight ~= 0) and (item.weight >= 10 and string.format("%.1f", item.weight / 10) or tostring(item.weight)) or nil
+    if formatSize(item) then leftCol[#leftCol + 1] = string.format(L1, "Size:", formatSize(item)) end
+    if wStr then leftCol[#leftCol + 1] = string.format(L1, "Weight:", wStr) end
+    if item.requiredLevel and item.requiredLevel ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Req Level:", tostring(item.requiredLevel)) end
+    if item.recommendedLevel and item.recommendedLevel ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Rec Level:", tostring(item.recommendedLevel)) end
+    if item.type and item.type ~= "" then leftCol[#leftCol + 1] = string.format(L1, "Skill:", tostring(item.type)) end
+    if item.instrumentType and item.instrumentType ~= "" then leftCol[#leftCol + 1] = string.format(L1, "Instrument:", tostring(item.instrumentType) .. ((item.instrumentMod and item.instrumentMod ~= 0) and (" " .. tostring(item.instrumentMod)) or "")) end
+    if item.range and item.range ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Range:", tostring(item.range)) end
+    if item.charges and item.charges ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Charges:", (item.charges == -1) and "Unlimited" or tostring(item.charges)) end
+    if item.skillModValue and item.skillModValue ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Skill Mod:", (item.skillModMax and item.skillModMax ~= 0) and (tostring(item.skillModValue) .. "/" .. tostring(item.skillModMax)) or tostring(item.skillModValue)) end
+    if item.baneDMG and item.baneDMG ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Bane:", tostring(item.baneDMG) .. (item.baneDMGType and item.baneDMGType ~= "" and (" " .. item.baneDMGType) or "")) end
+    if item.ac and item.ac ~= 0 then midCol[#midCol + 1] = string.format(L2, "AC:", tostring(item.ac)) end
+    if item.hp and item.hp ~= 0 then midCol[#midCol + 1] = string.format(L2, "HP:", tostring(item.hp)) end
+    if item.mana and item.mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(item.mana)) end
+    if item.endurance and item.endurance ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(item.endurance)) end
+    if item.haste and item.haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(item.haste) .. "%") end
+    -- Weapon block: always show Base Dmg, Delay, Dmg Bon when item has weapon stats (match in-game Item Display)
+    local isWeapon = (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.type and item.type ~= "" and (item.type:lower():find("piercing") or item.type:lower():find("slashing") or item.type:lower():find("1h") or item.type:lower():find("2h") or item.type:lower():find("ranged")))
+    if isWeapon then
+        rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage or 0))
+        rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay or 0))
+        rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus or 0) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or ""))
+    else
+        if item.damage and item.damage ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage)) end
+        if item.itemDelay and item.itemDelay ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay)) end
+        if item.dmgBonus and item.dmgBonus ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or "")) end
+    end
+    local hasItemInfo = #leftCol > 0 or #midCol > 0 or #rightCol > 0
     if hasItemInfo then
+        -- Flat list in item-display order (row-major: each row = left, mid, right; use placeholder for empty)
+        local placeholder = " "
+        local maxRows = math.max(#leftCol, #midCol, #rightCol)
+        local itemInfoFlat = {}
+        for row = 1, maxRows do
+            itemInfoFlat[#itemInfoFlat + 1] = leftCol[row] or placeholder
+            itemInfoFlat[#itemInfoFlat + 1] = midCol[row] or placeholder
+            itemInfoFlat[#itemInfoFlat + 1] = rightCol[row] or placeholder
+        end
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Item info")
         ImGui.Spacing()
         ImGui.Columns(3, "##TooltipItemInfo", false)
         ImGui.SetColumnWidth(0, colW1)
         ImGui.SetColumnWidth(1, colW2)
         ImGui.SetColumnWidth(2, colW3)
-        -- Row: Size, AC, HP
-        cell1(formatSize(item) and string.format(L1, "Size:", formatSize(item)) or nil)
-        cell2((item.ac and item.ac ~= 0) and string.format(L2, "AC:", tostring(item.ac)) or nil)
-        cell3((item.hp and item.hp ~= 0) and string.format(L3, "HP:", tostring(item.hp)) or nil)
-        rowEnd()
-        -- Row: Weight, Mana, End
-        local wStr = (item.weight and item.weight ~= 0) and (item.weight >= 10 and string.format("%.1f", item.weight / 10) or tostring(item.weight)) or nil
-        cell1(wStr and string.format(L1, "Weight:", wStr) or nil)
-        cell2((item.mana and item.mana ~= 0) and string.format(L2, "Mana:", tostring(item.mana)) or nil)
-        cell3((item.endurance and item.endurance ~= 0) and string.format(L3, "End:", tostring(item.endurance)) or nil)
-        rowEnd()
-        -- Row: Req Level, Rec Level, Dmg/Delay
-        cell1((item.requiredLevel and item.requiredLevel ~= 0) and string.format(L1, "Req Level:", tostring(item.requiredLevel)) or nil)
-        cell2((item.recommendedLevel and item.recommendedLevel ~= 0) and string.format(L2, "Rec Level:", tostring(item.recommendedLevel)) or nil)
-        cell3((item.damage and item.damage ~= 0) and string.format(L3, "Dmg:", tostring(item.damage)) or (item.itemDelay and item.itemDelay ~= 0) and string.format(L3, "Delay:", tostring(item.itemDelay)) or nil)
-        rowEnd()
-        cell1((item.dmgBonus and item.dmgBonus ~= 0) and string.format(L1, "Dmg Bon:", tostring(item.dmgBonus) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or "")) or nil)
-        cell2(nil)
-        cell3(nil)
-        rowEnd()
-        -- Skill, Instrument, Haste, Charges
-        cell1((item.type and item.type ~= "") and string.format(L1, "Skill:", tostring(item.type)) or (item.instrumentType and item.instrumentType ~= "") and string.format(L1, "Instrument:", tostring(item.instrumentType) .. ((item.instrumentMod and item.instrumentMod ~= 0) and (" " .. tostring(item.instrumentMod)) or "")) or nil)
-        cell2((item.haste and item.haste ~= 0) and string.format(L2, "Haste:", tostring(item.haste) .. "%") or nil)
-        cell3((item.charges and item.charges ~= 0) and string.format(L3, "Charges:", (item.charges == -1) and "Unlimited" or tostring(item.charges)) or nil)
-        rowEnd()
-        cell1((item.range and item.range ~= 0) and string.format(L1, "Range:", tostring(item.range)) or nil)
-        cell2((item.skillModValue and item.skillModValue ~= 0) and string.format(L2, "Skill Mod:", (item.skillModMax and item.skillModMax ~= 0) and (tostring(item.skillModValue) .. "/" .. tostring(item.skillModMax)) or tostring(item.skillModValue)) or nil)
-        cell3((item.baneDMG and item.baneDMG ~= 0) and string.format(L3, "Bane:", tostring(item.baneDMG) .. (item.baneDMGType and item.baneDMGType ~= "" and (" " .. item.baneDMGType) or "")) or nil)
-        rowEnd()
+        for i = 1, #itemInfoFlat do
+            ImGui.Text(itemInfoFlat[i])
+            ImGui.NextColumn()
+        end
         ImGui.Columns(1)
         ImGui.Spacing()
     end
@@ -306,25 +374,26 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         resistLine(item.svCorruption, item.heroicSvCorruption, "Corruption"),
     }
     local function cl(val, label) if (val or 0) ~= 0 then return string.format("%s: %d", label, val) end return nil end
+    -- Order combat stats to match in-game Item Display right column, then remaining
     local combat = {
         cl(item.attack, "Attack"),
         cl(item.hpRegen, "HP Regen"),
         cl(item.manaRegen, "Mana Regen"),
         cl(item.enduranceRegen, "End Regen"),
+        cl(item.combatEffects, "Combat Eff"),
+        cl(item.damageShield, "Dmg Shield"),
+        cl(item.damageShieldMitigation, "Dmg Shld Mit"),
+        cl(item.accuracy, "Accuracy"),
+        cl(item.strikeThrough, "Strike Thr"),
+        cl(item.healAmount, "Heal Amount"),
+        cl(item.spellDamage, "Spell Dmg"),
         cl(item.spellShield, "Spell Shield"),
         cl(item.shielding, "Shielding"),
-        cl(item.damageShield, "Dmg Shield"),
         cl(item.dotShielding, "DoT Shield"),
-        cl(item.damageShieldMitigation, "Dmg Shld Mit"),
         cl(item.avoidance, "Avoidance"),
-        cl(item.accuracy, "Accuracy"),
         cl(item.stunResist, "Stun Resist"),
-        cl(item.spellDamage, "Spell Dmg"),
         cl(item.clairvoyance, "Clairvoyance"),
         cl(item.haste, "Haste"),
-        cl(item.strikeThrough, "Strike Through"),
-        cl(item.combatEffects, "Combat Effects"),
-        cl(item.healAmount, "Heal Amt"),
         cl(item.luck, "Luck"),
         cl(item.purity, "Purity"),
     }
@@ -333,31 +402,45 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     for _, v in ipairs(resists) do if v then hasAnyStat = true break end end
     for _, v in ipairs(combat) do if v then hasAnyStat = true break end end
     if hasAnyStat then
+        -- Values at top, placeholders at bottom. Use compact columns (non-nil only) so row count = longest column's value count (no placeholders in longest col).
+        local placeholder = " "
+        local a, r, c = compactCol(attrs), compactCol(resists), compactCol(combat)
+        local maxRows = math.max(#a, #r, #c)
+        local statsFlat = {}
+        for row = 1, maxRows do
+            statsFlat[#statsFlat + 1] = a[row] or placeholder
+            statsFlat[#statsFlat + 1] = r[row] or placeholder
+            statsFlat[#statsFlat + 1] = c[row] or placeholder
+        end
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "All Stats")
         ImGui.Spacing()
         ImGui.Columns(3, "##StatsCols", false)
         ImGui.SetColumnWidth(0, colW1)
         ImGui.SetColumnWidth(1, colW2)
         ImGui.SetColumnWidth(2, colW3)
-        -- ImGui Columns places widgets row-by-row (col0, col1, col2, then next row).
-        -- Output row-by-row so column 0 = attrs, column 1 = resists, column 2 = combat.
-        local maxRows = math.max(#attrs, #resists, #combat)
-        for row = 1, maxRows do
-            if attrs[row] then ImGui.Text(attrs[row]) end
-            ImGui.NextColumn()
-            if resists[row] then ImGui.Text(resists[row]) end
-            ImGui.NextColumn()
-            if combat[row] then ImGui.Text(combat[row]) end
+        for i = 1, #statsFlat do
+            if statsFlat[i] ~= placeholder then ImGui.Text(statsFlat[i]) end
             ImGui.NextColumn()
         end
         ImGui.Columns(1)
         ImGui.Spacing()
     end
 
-    -- ---- Item effects: in-game style "Effect: SpellName (Worn)" / "Focus Effect: SpellName" ----
+    -- ---- Item effects: in-game style "Effect: SpellName (Worn)" / "Focus Effect: SpellName", with Cast/Recast for clicky ----
     if ctx and ctx.getItemSpellId and ctx.getSpellName then
         local effectLabels = { Clicky = "Clicky", Worn = "Worn", Proc = "Proc", Focus = "Focus", Spell = "Spell" }
         local focusLabel = "Focus"
+        local function formatRecastDelay(sec)
+            if sec == nil or sec < 0 then return nil end
+            local s = math.floor(sec + 0.5)
+            if s < 60 then return s == 1 and "1 second" or (s .. " seconds") end
+            local m = math.floor(s / 60)
+            local r = s % 60
+            if r == 0 then return m == 1 and "1 minute" or (m .. " minutes") end
+            local ms = m == 1 and "1 minute" or (m .. " minutes")
+            local rs = r == 1 and "1 second" or (r .. " seconds")
+            return ms .. " and " .. rs
+        end
         local effects = {}
         for _, key in ipairs({"Clicky", "Worn", "Proc", "Focus", "Spell"}) do
             local id = ctx.getItemSpellId(item, key)
@@ -365,7 +448,9 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
                 local spellName = ctx.getSpellName(id)
                 if spellName and spellName ~= "" then
                     local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
-                    effects[#effects + 1] = { key = key, spellName = spellName, desc = desc }
+                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
+                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
+                    effects[#effects + 1] = { key = key, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
                 end
             end
         end
@@ -380,6 +465,18 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
                     label = "Effect: " .. e.spellName .. " (" .. effectLabels[e.key] .. ")"
                 end
                 ImGui.Text(label)
+                if e.key == "Clicky" and (e.castTime ~= nil or (e.recastTime ~= nil and e.recastTime > 0)) then
+                    ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
+                    if e.castTime ~= nil then
+                        local ct = e.castTime
+                        local ctStr = (ct == math.floor(ct)) and tostring(math.floor(ct)) or string.format("%.1f", ct)
+                        ImGui.Text("Casting Time: " .. ctStr)
+                    end
+                    if e.recastTime ~= nil and e.recastTime > 0 then
+                        ImGui.Text("Recast Delay: " .. formatRecastDelay(e.recastTime))
+                    end
+                    ImGui.PopStyleColor()
+                end
                 if e.desc and e.desc ~= "" then
                     ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
                     ImGui.TextWrapped(e.desc)

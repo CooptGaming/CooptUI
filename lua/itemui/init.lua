@@ -532,6 +532,8 @@ context.init({
     -- Item helpers (module direct)
     getSpellName = function(id) return itemHelpers.getSpellName(id) end,
     getSpellDescription = function(id) return itemHelpers.getSpellDescription(id) end,
+    getSpellCastTime = function(id) return itemHelpers.getSpellCastTime(id) end,
+    getSpellRecastTime = function(id) return itemHelpers.getSpellRecastTime(id) end,
     getItemSpellId = function(i, p) return itemHelpers.getItemSpellId(i, p) end,
     getTimerReady = function(b, s) return itemHelpers.getTimerReady(b, s) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
