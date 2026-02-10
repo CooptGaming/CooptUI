@@ -1151,6 +1151,14 @@ local function renderSimpleProtectionTab()
             ImGui.Text("Don't auto-show ItemUI when inventory opens while loot.mac runs.")
             ImGui.EndTooltip()
         end
+        local prevConfirm = uiState.confirmBeforeDelete
+        uiState.confirmBeforeDelete = ImGui.Checkbox("Confirm before delete", uiState.confirmBeforeDelete)
+        if prevConfirm ~= uiState.confirmBeforeDelete then scheduleLayoutSave() end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Show a confirmation dialog before destroying an item from the inventory context menu.")
+            ImGui.EndTooltip()
+        end
     end
     ImGui.Spacing()
     if ImGui.CollapsingHeader("Sell protection", ImGuiTreeNodeFlags.DefaultOpen) then
@@ -1405,6 +1413,14 @@ local function renderConfigWindow()
                 ImGui.Text("Don't auto-show ItemUI when inventory opens while loot.mac runs.")
                 ImGui.Text("Useful when looting many corpses quickly.")
                 ImGui.Text("You can still open ItemUI manually if needed.")
+                ImGui.EndTooltip()
+            end
+            local prevConfirm = uiState.confirmBeforeDelete
+            uiState.confirmBeforeDelete = ImGui.Checkbox("Confirm before delete", uiState.confirmBeforeDelete)
+            if prevConfirm ~= uiState.confirmBeforeDelete then scheduleLayoutSave() end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Show a confirmation dialog before destroying an item from the inventory context menu.")
                 ImGui.EndTooltip()
             end
         end

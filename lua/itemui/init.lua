@@ -153,6 +153,7 @@ local uiState = {
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
     pendingDestroy = nil,       -- { bag, slot, name } when Delete clicked and confirm required
     pendingDestroyAction = nil, -- { bag, slot, name } for main loop to call performDestroyItem
+    confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
 }
 
 -- Layout from setup (itemui_layout.ini): sizes per view; bank adds to base when open
@@ -179,6 +180,7 @@ local layoutDefaults = {
     UILocked = 1,
     SyncBankWindow = 1,
     SuppressWhenLootMac = 1,  -- Don't auto-show ItemUI when inventory opens while loot.mac is running
+    ConfirmBeforeDelete = 1, -- Show confirmation dialog before destroying an item (1 = yes, 0 = no)
 }
 local layoutConfig = {}  -- filled by loadLayoutConfig()
 
@@ -502,7 +504,7 @@ context.init({
     applySellListChange = applySellListChange,
     setPendingDestroy = function(p) uiState.pendingDestroy = p end,
     requestDestroyItem = function(bag, slot, name) uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "" }; uiState.pendingDestroy = nil end,
-    skipConfirmDelete = false,
+    getSkipConfirmDelete = function() return not uiState.confirmBeforeDelete end,
     -- Config list APIs
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,

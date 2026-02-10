@@ -95,6 +95,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.AABackupPath ~= nil then layoutDefaults.AABackupPath = (d.AABackupPath and d.AABackupPath ~= "") and d.AABackupPath or "" end
     if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
+    if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end
     if d.SellViewLocked then uiState.sellViewLocked = setBool(d.SellViewLocked) end
@@ -190,7 +191,7 @@ function LayoutUtils.loadLayoutValue(layout, key, default)
     if not layout then return default end
     local val = layout[key]
     if not val or val == "" then return default end
-    if key == "AlignToContext" or key == "UILocked" or key == "SyncBankWindow" or key == "SuppressWhenLootMac" or key == "SellViewLocked" or key == "InvViewLocked" or key == "BankViewLocked" or key == "ConfigAdvancedMode" then
+    if key == "AlignToContext" or key == "UILocked" or key == "SyncBankWindow" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "SellViewLocked" or key == "InvViewLocked" or key == "BankViewLocked" or key == "ConfigAdvancedMode" then
         return (val == "1" or val == "true")
     end
     if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" then return val end  -- string (column key)
@@ -277,6 +278,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
+        f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
         f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
         f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
         f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
@@ -436,6 +438,7 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
     layoutDefaults.SyncBankWindow = uiState.syncBankWindow and 1 or 0
     layoutDefaults.SuppressWhenLootMac = uiState.suppressWhenLootMac and 1 or 0
+    layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
     -- Save ImGui table settings (column widths) - this captures current column widths
     if ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
     
@@ -491,6 +494,7 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("AABackupPath=" .. tostring(layoutDefaults.AABackupPath or "") .. "\n")
             f:write("SyncBankWindow=" .. layoutDefaults.SyncBankWindow .. "\n")
             f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
+            f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
             f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
             f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
             f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
@@ -551,6 +555,7 @@ function LayoutUtils.resetLayoutToDefault()
     uiState.uiLocked = (layoutDefaults.UILocked == 1)
     uiState.syncBankWindow = (layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = (layoutDefaults.SuppressWhenLootMac == 1)
+    uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     -- Save the reset configuration
     LayoutUtils.saveLayoutToFile()
     
@@ -604,6 +609,7 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
+        uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
         uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
         uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
         uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
@@ -692,6 +698,7 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
     uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
+    uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
     uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
     uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
