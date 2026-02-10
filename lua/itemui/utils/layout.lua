@@ -87,6 +87,12 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightAugments then layoutDefaults.HeightAugments = tonumber(d.HeightAugments) or layoutDefaults.HeightAugments end
     if d.AugmentsWindowX then layoutDefaults.AugmentsWindowX = tonumber(d.AugmentsWindowX) or layoutDefaults.AugmentsWindowX end
     if d.AugmentsWindowY then layoutDefaults.AugmentsWindowY = tonumber(d.AugmentsWindowY) or layoutDefaults.AugmentsWindowY end
+    if d.WidthAAPanel then layoutDefaults.WidthAAPanel = tonumber(d.WidthAAPanel) or layoutDefaults.WidthAAPanel end
+    if d.HeightAA then layoutDefaults.HeightAA = tonumber(d.HeightAA) or layoutDefaults.HeightAA end
+    if d.AAWindowX then layoutDefaults.AAWindowX = tonumber(d.AAWindowX) or layoutDefaults.AAWindowX end
+    if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
+    if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
+    if d.AABackupPath ~= nil then layoutDefaults.AABackupPath = (d.AABackupPath and d.AABackupPath ~= "") and d.AABackupPath or "" end
     if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
@@ -263,6 +269,12 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightAugments=" .. tostring(layoutConfig.HeightAugments or layoutDefaults.HeightAugments) .. "\n")
         f:write("AugmentsWindowX=" .. tostring(layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX) .. "\n")
         f:write("AugmentsWindowY=" .. tostring(layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY) .. "\n")
+        f:write("WidthAAPanel=" .. tostring(layoutConfig.WidthAAPanel or layoutDefaults.WidthAAPanel) .. "\n")
+        f:write("HeightAA=" .. tostring(layoutConfig.HeightAA or layoutDefaults.HeightAA) .. "\n")
+        f:write("AAWindowX=" .. tostring(layoutConfig.AAWindowX or layoutDefaults.AAWindowX) .. "\n")
+        f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
+        f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
+        f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
@@ -283,6 +295,9 @@ function LayoutUtils.saveLayoutToFileImmediate()
         if sortState.bankColumnOrder and #sortState.bankColumnOrder > 0 then
             f:write("BankColumnOrder=" .. table.concat(sortState.bankColumnOrder, "/") .. "\n")
         end
+        f:write("AASortColumn=" .. tostring(sortState.aaColumn or "Title") .. "\n")
+        f:write("AASortDirection=" .. tostring(sortState.aaDirection or ImGuiSortDirection.Ascending) .. "\n")
+        f:write("AALastTab=" .. tostring(sortState.aaTab or 1) .. "\n")
         f:write("\n[ColumnVisibility]\n")
         local fixedOrder = layoutConfig.fixedColumnOrder or {}
         for view, cols in pairs(columnVisibility) do
@@ -410,6 +425,12 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
     layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
     layoutDefaults.AugmentsWindowY = layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY
+    layoutDefaults.WidthAAPanel = layoutConfig.WidthAAPanel or layoutDefaults.WidthAAPanel
+    layoutDefaults.HeightAA = layoutConfig.HeightAA or layoutDefaults.HeightAA
+    layoutDefaults.AAWindowX = layoutConfig.AAWindowX or layoutDefaults.AAWindowX
+    layoutDefaults.AAWindowY = layoutConfig.AAWindowY or layoutDefaults.AAWindowY
+    layoutDefaults.ShowAAWindow = layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow
+    layoutDefaults.AABackupPath = layoutConfig.AABackupPath or ""
     layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
     layoutDefaults.AlignToMerchant = uiState.alignToMerchant and 1 or 0
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
@@ -462,6 +483,12 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("HeightAugments=" .. layoutDefaults.HeightAugments .. "\n")
             f:write("AugmentsWindowX=" .. layoutDefaults.AugmentsWindowX .. "\n")
             f:write("AugmentsWindowY=" .. layoutDefaults.AugmentsWindowY .. "\n")
+            f:write("WidthAAPanel=" .. layoutDefaults.WidthAAPanel .. "\n")
+            f:write("HeightAA=" .. layoutDefaults.HeightAA .. "\n")
+            f:write("AAWindowX=" .. layoutDefaults.AAWindowX .. "\n")
+            f:write("AAWindowY=" .. layoutDefaults.AAWindowY .. "\n")
+            f:write("ShowAAWindow=" .. layoutDefaults.ShowAAWindow .. "\n")
+            f:write("AABackupPath=" .. tostring(layoutDefaults.AABackupPath or "") .. "\n")
             f:write("SyncBankWindow=" .. layoutDefaults.SyncBankWindow .. "\n")
             f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
             f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
@@ -508,6 +535,18 @@ function LayoutUtils.resetLayoutToDefault()
     layoutConfig.HeightAugments = layoutDefaults.HeightAugments
     layoutConfig.AugmentsWindowX = layoutDefaults.AugmentsWindowX
     layoutConfig.AugmentsWindowY = layoutDefaults.AugmentsWindowY
+    layoutConfig.WidthAAPanel = layoutDefaults.WidthAAPanel
+    layoutConfig.HeightAA = layoutDefaults.HeightAA
+    layoutConfig.AAWindowX = layoutDefaults.AAWindowX
+    layoutConfig.AAWindowY = layoutDefaults.AAWindowY
+    layoutConfig.ShowAAWindow = layoutDefaults.ShowAAWindow
+    layoutConfig.AABackupPath = layoutDefaults.AABackupPath or ""
+    local sortState = LayoutUtils.sortState
+    if sortState then
+        sortState.aaColumn = "Title"
+        sortState.aaDirection = ImGuiSortDirection.Ascending
+        sortState.aaTab = 1
+    end
     uiState.alignToContext = (layoutDefaults.AlignToContext == 1)
     uiState.uiLocked = (layoutDefaults.UILocked == 1)
     uiState.syncBankWindow = (layoutDefaults.SyncBankWindow == 1)
@@ -516,7 +555,8 @@ function LayoutUtils.resetLayoutToDefault()
     LayoutUtils.saveLayoutToFile()
     
     -- Force reload to apply changes immediately
-    perfCache.layoutNeedsReload = true
+    local perfCache = LayoutUtils.perfCache
+    if perfCache then perfCache.layoutNeedsReload = true end
     
     print("\ag[ItemUI]\ax Layout reset to default! (Window sizes, column visibility, and settings restored)")
     print("\ay[ItemUI]\ax Note: Window sizes will apply on next reload. Close and reopen ItemUI.")
@@ -556,6 +596,12 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
         layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
         layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+        layoutConfig.WidthAAPanel = LayoutUtils.loadLayoutValue(layout, "WidthAAPanel", layoutDefaults.WidthAAPanel)
+        layoutConfig.HeightAA = LayoutUtils.loadLayoutValue(layout, "HeightAA", layoutDefaults.HeightAA)
+        layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
+        layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
+        layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+        layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
@@ -598,6 +644,12 @@ function LayoutUtils.loadLayoutConfig()
         else
             sortState.bankColumnOrder = nil  -- Use default ordering
         end
+        local aaCol = LayoutUtils.loadLayoutValue(layout, "AASortColumn", "Title")
+        sortState.aaColumn = (type(aaCol) == "string" and aaCol ~= "") and aaCol or "Title"
+        local aaDir = LayoutUtils.loadLayoutValue(layout, "AASortDirection", ImGuiSortDirection.Ascending)
+        sortState.aaDirection = (type(aaDir) == "number") and aaDir or ImGuiSortDirection.Ascending
+        local aaTab = LayoutUtils.loadLayoutValue(layout, "AALastTab", 1)
+        sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
         LayoutUtils.applyColumnVisibilityFromParsed(perfCache.layoutCached)
         local e = mq.gettime() - t0
         if LayoutUtils.DEBUG then
@@ -632,6 +684,12 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
     layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
     layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+    layoutConfig.WidthAAPanel = LayoutUtils.loadLayoutValue(layout, "WidthAAPanel", layoutDefaults.WidthAAPanel)
+    layoutConfig.HeightAA = LayoutUtils.loadLayoutValue(layout, "HeightAA", layoutDefaults.HeightAA)
+    layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
+    layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
+    layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+    layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
     uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
     uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
@@ -674,6 +732,12 @@ function LayoutUtils.loadLayoutConfig()
     else
         sortState.bankColumnOrder = nil  -- Use default ordering
     end
+    local aaCol = LayoutUtils.loadLayoutValue(layout, "AASortColumn", "Title")
+    sortState.aaColumn = (type(aaCol) == "string" and aaCol ~= "") and aaCol or "Title"
+    local aaDir = LayoutUtils.loadLayoutValue(layout, "AASortDirection", ImGuiSortDirection.Ascending)
+    sortState.aaDirection = (type(aaDir) == "number") and aaDir or ImGuiSortDirection.Ascending
+    local aaTab = LayoutUtils.loadLayoutValue(layout, "AALastTab", 1)
+    sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
     local e = mq.gettime() - t0
     if LayoutUtils.DEBUG then

@@ -59,6 +59,8 @@ local BankView = require('itemui.views.bank')
 local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local AugmentsView = require('itemui.views.augments')
+local AAView = require('itemui.views.aa')
+local aa_data = require('itemui.services.aa_data')
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
@@ -143,11 +145,14 @@ local uiState = {
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
+    aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
     pendingQuantityPickup = nil, pendingQuantityAction = nil,
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
+    pendingDestroy = nil,       -- { bag, slot, name } when Delete clicked and confirm required
+    pendingDestroyAction = nil, -- { bag, slot, name } for main loop to call performDestroyItem
 }
 
 -- Layout from setup (itemui_layout.ini): sizes per view; bank adds to base when open
@@ -164,6 +169,12 @@ local layoutDefaults = {
     HeightAugments = 500,
     AugmentsWindowX = 0,
     AugmentsWindowY = 0,
+    WidthAAPanel = 640,
+    HeightAA = 520,
+    AAWindowX = 0,
+    AAWindowY = 0,
+    ShowAAWindow = 1,
+    AABackupPath = "",  -- empty = use CONFIG_PATH (Macros/sell_config)
     AlignToContext = 0,
     UILocked = 1,
     SyncBankWindow = 1,
@@ -218,6 +229,9 @@ local sortState = {
     bankColumn = "Name",
     bankDirection = ImGuiSortDirection.Ascending,
     bankColumnOrder = nil,  -- Will be set from saved layout or auto-generated on first use
+    aaColumn = "Title",
+    aaDirection = ImGuiSortDirection.Ascending,
+    aaTab = 1,  -- 1=General, 2=Archetype, 3=Class, 4=Special
 }
 
 -- Phase 7: Initialize layout utility module
@@ -486,6 +500,9 @@ context.init({
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
     updateSellStatusForItemName = function(n, k, j) itemOps.updateSellStatusForItemName(n, k, j) end,
     applySellListChange = applySellListChange,
+    setPendingDestroy = function(p) uiState.pendingDestroy = p end,
+    requestDestroyItem = function(bag, slot, name) uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "" }; uiState.pendingDestroy = nil end,
+    skipConfirmDelete = false,
     -- Config list APIs
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
@@ -549,6 +566,17 @@ end
 local function renderAugmentsWindow()
     local ctx = extendContext(buildViewContext())
     AugmentsView.render(ctx)
+end
+
+--- AA window: Alt Advancement (tabs, search, train, export/import)
+local function renderAAWindow()
+    local ctx = buildViewContext()
+    ctx.refreshAA = function() aa_data.refresh() end
+    ctx.getAAList = function() return aa_data.getList() end
+    ctx.getAAPointsSummary = function() return aa_data.getPointsSummary() end
+    ctx.shouldRefreshAA = function() return aa_data.shouldRefresh() end
+    ctx.getAALastRefreshTime = function() return aa_data.getLastRefreshTime() end
+    AAView.render(ctx)
 end
 
 -- ============================================================================
@@ -692,6 +720,18 @@ local function renderUI()
         if uiState.augmentsWindowOpen then setStatusMessage("Augments window opened") end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Augmentations window (Always sell / Never loot, stats on hover)"); ImGui.EndTooltip() end
+    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
+        ImGui.SameLine()
+        if ImGui.Button("AA", ImVec2(45, 0)) then
+            uiState.aaWindowOpen = not uiState.aaWindowOpen
+            uiState.aaWindowShouldDraw = uiState.aaWindowOpen
+            if uiState.aaWindowOpen then
+                if aa_data.shouldRefresh() then aa_data.refresh() end
+                setStatusMessage("Alt Advancement window opened")
+            end
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
+    end
     ImGui.SameLine(ImGui.GetWindowWidth() - 68)
     local bankOnline = isBankWindowOpen()
     if bankOnline then
@@ -857,6 +897,21 @@ local function renderUI()
 
     -- Footer: status messages (Keep/Junk, moves, sell), failed items notice
     ImGui.Separator()
+    if uiState.pendingDestroy then
+        local name = uiState.pendingDestroy.name or "item"
+        if #name > 40 then name = name:sub(1, 37) .. "..." end
+        ImGui.Text("Destroy " .. name .. "?")
+        ImGui.SameLine()
+        local errCol = theme and theme.ToVec4 and theme.ToVec4(theme.Colors.Error) or ImVec4(0.9, 0.25, 0.2, 1)
+        ImGui.PushStyleColor(ImGuiCol.Button, errCol)
+        if ImGui.Button("Confirm Delete", ImVec2(110, 0)) then
+            uiState.pendingDestroyAction = { bag = uiState.pendingDestroy.bag, slot = uiState.pendingDestroy.slot, name = uiState.pendingDestroy.name }
+            uiState.pendingDestroy = nil
+        end
+        ImGui.PopStyleColor()
+        ImGui.SameLine()
+        if ImGui.Button("Cancel", ImVec2(60, 0)) then uiState.pendingDestroy = nil end
+    end
     -- Failed items notice (after sell.mac finishes)
     if sellMacState.failedCount > 0 and mq.gettime() < sellMacState.showFailedUntil then
         ImGui.TextColored(ImVec4(1, 0.6, 0.2, 1), string.format("Failed to sell (%d):", sellMacState.failedCount))
@@ -879,6 +934,9 @@ local function renderUI()
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()
+    end
+    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
+        renderAAWindow()
     end
 end
 
@@ -1139,6 +1197,11 @@ local function main()
                 mq.delay(150)
                 mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
             end
+        end
+        if uiState.pendingDestroyAction then
+            local pd = uiState.pendingDestroyAction
+            uiState.pendingDestroyAction = nil
+            itemOps.performDestroyItem(pd.bag, pd.slot, pd.name)
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
