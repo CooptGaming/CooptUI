@@ -314,10 +314,17 @@ removeFromLootSkipList = config_cache.removeFromLootSkipList
 augmentListAPI = config_cache.createAugmentListAPI()
 loadConfigCache()  -- Populate cache at startup (views/registry use configSellFlags, configLootLists, etc.)
 
--- When sell config changes (Config window or list APIs), schedule one row refresh next frame (debounced)
-events.on(events.EVENTS.CONFIG_SELL_CHANGED, function()
+-- Schedule one sell-status refresh next frame (debounced). When invalidateNow is true, clear sell cache so same-frame updateSellStatusForItemName sees fresh data (e.g. augment never-loot list).
+local function scheduleSellStatusRefresh(invalidateNow)
     perfCache.sellConfigPendingRefresh = true
-end)
+    if invalidateNow then
+        sellStatusService.invalidateSellConfigCache()  -- sell cache includes augment never-loot and other loot-derived lists for Status column
+    end
+end
+-- When sell config changes (Config window or list APIs), schedule refresh; invalidation happens in debounced block.
+events.on(events.EVENTS.CONFIG_SELL_CHANGED, function() scheduleSellStatusRefresh(false) end)
+-- When loot config changes (e.g. Augment Never loot), schedule refresh and invalidate now so same-frame context-menu update shows correct Status.
+events.on(events.EVENTS.CONFIG_LOOT_CHANGED, function() scheduleSellStatusRefresh(true) end)
 
 -- Scan service: init and wrappers (scan logic lives in itemui.services.scan)
 do
