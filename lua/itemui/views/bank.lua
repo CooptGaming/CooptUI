@@ -376,7 +376,10 @@ function BankView.render(ctx)
                         end
                     elseif colKey == "Status" then
                         local statusText, willSell = "", false
-                        if ctx.getSellStatusForItem then
+                        if item.sellReason ~= nil and item.willSell ~= nil then
+                            statusText = item.sellReason or "—"
+                            willSell = item.willSell
+                        elseif ctx.getSellStatusForItem then
                             statusText, willSell = ctx.getSellStatusForItem(item)
                         end
                         if statusText == "" then statusText = "—" end

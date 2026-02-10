@@ -294,16 +294,9 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.SameLine()
                 ctx.theme.PushKeepButton(not actualInKeep)  -- disabled style when not in keep list
                 if ImGui.Button("Keep##"..rid, ImVec2(58, 0)) then
-                    if actualInKeep then
-                        if ctx.removeFromKeepList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, false, item.inJunk)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
-                    else
-                        if ctx.addToKeepList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, true, false)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
+                    if ctx.applySellListChange then
+                        if actualInKeep then ctx.applySellListChange(item.name, false, item.inJunk)
+                        else ctx.applySellListChange(item.name, true, false) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from keep list (never sell)"); ImGui.EndTooltip() end
@@ -311,16 +304,9 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.SameLine()
                 ctx.theme.PushJunkButton(not actualInJunk)  -- disabled style when not in junk list
                 if ImGui.Button("Junk##"..rid, ImVec2(58, 0)) then
-                    if actualInJunk then
-                        if ctx.removeFromJunkList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, item.inKeep, false)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
-                    else
-                        if ctx.addToJunkList(item.name) then
-                            ctx.updateSellStatusForItemName(item.name, false, true)
-                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                        end
+                    if ctx.applySellListChange then
+                        if actualInJunk then ctx.applySellListChange(item.name, item.inKeep, false)
+                        else ctx.applySellListChange(item.name, false, true) end
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Always sell list"); ImGui.EndTooltip() end
@@ -343,17 +329,23 @@ function SellView.render(ctx, simulateSellView)
                     end
                 end
                 ImGui.TableNextColumn()
-                local statusText = item.sellReason or ""
-                local statusColor = item.willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
-                if item.isProtected then
-                    -- Show specific reason (EpicQuest, NoDrop, NoTrade, etc.) so users know why it's protected
-                    statusText = (item.sellReason and item.sellReason ~= "") and item.sellReason or "Protected"
-                    if statusText == "Epic" then
-                        statusText = "EpicQuest"
-                        statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
-                    else
-                        statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
-                    end
+                -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank
+                local statusText, willSell = "", false
+                if item.sellReason ~= nil and item.willSell ~= nil then
+                    statusText = item.sellReason or "—"
+                    willSell = item.willSell
+                elseif ctx.getSellStatusForItem then
+                    statusText, willSell = ctx.getSellStatusForItem(item)
+                    if statusText == "" then statusText = "—" end
+                else
+                    statusText = "—"
+                end
+                local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                if statusText == "Epic" then
+                    statusText = "EpicQuest"
+                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
+                elseif statusText == "NoDrop" or statusText == "NoTrade" then
+                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
                 end
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
