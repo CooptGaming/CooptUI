@@ -325,4 +325,21 @@ function M.removeItemFromCursor()
     return true
 end
 
+-- ============================================================================
+-- Destroy item (inventory only; runs from main loop via pendingDestroyAction)
+-- ============================================================================
+--- Pick up item, destroy with /destroy, remove from lists and save. Call from main loop only.
+function M.performDestroyItem(bag, slot, itemName)
+    if not bag or not slot then return end
+    mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
+    mq.delay(200)
+    mq.cmd('/destroy')
+    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    M.removeItemFromInventoryBySlot(bag, slot)
+    M.removeItemFromSellItemsBySlot(bag, slot)
+    if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
+    if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
+    deps.setStatusMessage(itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item")
+end
+
 return M

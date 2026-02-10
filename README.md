@@ -25,6 +25,8 @@ Single window for inventory, bank, sell, and loot. Context-aware: shows sell vie
 /doloot          -- Run loot.mac (auto-loot corpses)
 ```
 
+**AA Window (optional):** Click the **AA** button in the ItemUI footer to open the Alt Advancement window. View and train AAs by category (General, Archetype, Class, Special), search, and use **Export** to save your current AA setup to a file and **Import** to restore it after a server AA reset. Backups are stored in `Macros/sell_config/` as `aa_CharacterName_YYYYMMDD_HHMMSS.ini`. The list is cached and refreshes on open, when you click Refresh, or after Train/Import. You can hide the AA button by setting `ShowAAWindow=0` in the layout INI.
+
 ### ScriptTracker
 
 Track AA script progress (Lost/Planar, etc.).
@@ -79,9 +81,9 @@ MacroQuest2/
 │   │   ├── storage.lua     #   Per-character persistence
 │   │   ├── components/     #   UI components (filters, searchbar, progressbar)
 │   │   ├── core/           #   Cache, events, state management
-│   │   ├── services/       #   Filter service, macro bridge, scan
+│   │   ├── services/       #   Filter service, macro bridge, scan, aa_data
 │   │   ├── utils/          #   Layout, theme, columns, sort, tooltips
-│   │   ├── views/          #   Inventory, bank, sell, loot, config, augments
+│   │   ├── views/          #   Inventory, bank, sell, loot, config, augments, aa
 │   │   └── README.md
 │   ├── scripttracker/      # CoopUI component: ScriptTracker
 │   │   ├── init.lua        #   Entry point (/lua run scripttracker)
@@ -103,7 +105,7 @@ MacroQuest2/
 
 ### Config Paths (MQ2 Convention)
 
-- **Macros/sell_config/** — Sell keep/junk lists, layout, per-char data
+- **Macros/sell_config/** — Sell keep/junk lists, layout, per-char data, AA backups (`aa_*.ini`)
 - **Macros/shared_config/** — Shared valuable/epic items (used by loot and sell)
 - **Macros/loot_config/** — Loot filters
 

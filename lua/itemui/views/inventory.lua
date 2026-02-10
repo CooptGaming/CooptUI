@@ -382,6 +382,17 @@ function InventoryView.render(ctx, bankOpen)
                                     end
                                 end
                             end
+                            ImGui.Separator()
+                            ImGui.Dummy(ImVec2(0, 6))
+                            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors.Error))
+                            if ImGui.MenuItem("Delete") then
+                                if ctx.getSkipConfirmDelete and ctx.getSkipConfirmDelete() then
+                                    ctx.requestDestroyItem(item.bag, item.slot, item.name)
+                                else
+                                    ctx.setPendingDestroy({ bag = item.bag, slot = item.slot, name = item.name or "" })
+                                end
+                            end
+                            ImGui.PopStyleColor()
                             ImGui.EndPopup()
                         end
                     elseif colKey == "Status" then
