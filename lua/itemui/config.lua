@@ -50,6 +50,34 @@ function safeIniValueByPath(path, section, key, default)
     return (ok and v and v ~= "") and v or (default or "")
 end
 
+--- Read loot_progress.ini Progress section in one file open (single read for CoopUI Loot UI polling).
+--- Returns: corpsesLooted (number), totalCorpses (number), currentCorpse (string).
+function readLootProgressSection(path)
+    local default = { 0, 0, "" }
+    if not path or path == "" then return default[1], default[2], default[3] end
+    local ok, result = pcall(function()
+        local ini = mq.TLO and mq.TLO.Ini
+        if not ini or not ini.File then return nil end
+        local f = ini.File(path)
+        if not f or not f.Section then return nil end
+        local s = f.Section("Progress")
+        if not s or not s.Key then return nil end
+        local function get(k, def)
+            local key = s.Key(k)
+            local v = (key and key.Value and key.Value()) or def
+            return v and tostring(v) or def
+        end
+        local corpses = tonumber(get("corpsesLooted", "0")) or 0
+        local total = tonumber(get("totalCorpses", "0")) or 0
+        local current = get("currentCorpse", "") or ""
+        return { corpses, total, current }
+    end)
+    if ok and result and #result >= 3 then
+        return result[1], result[2], result[3]
+    end
+    return default[1], default[2], default[3]
+end
+
 local function readINIValue(file, section, key, default)
     local path = getConfigFile(file)
     if not path then return default or "" end
@@ -225,6 +253,7 @@ return {
     -- Paths
     CONFIG_PATH = CONFIG_PATH,
     safeIniValueByPath = safeIniValueByPath,
+    readLootProgressSection = readLootProgressSection,
     MAX_INI_CHUNK_LEN = MAX_INI_CHUNK_LEN,
     SHARED_CONFIG_PATH = SHARED_CONFIG_PATH,
     LOOT_CONFIG_PATH = LOOT_CONFIG_PATH,

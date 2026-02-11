@@ -40,10 +40,11 @@ Sub Main
 | ------------------------------------------------- |
 | RUNTIME VARIABLES                                 |
 | ------------------------------------------------- |
-/if (!${Defined[Alert]}) {
-    /declare Alert int outer 1
-} else {
+| Alert: only declare if not already in use (e.g. from previous macro run)
+/if (${Defined[Alert]}) {
     /varset Alert 1
+} else {
+    /declare Alert int outer 1
 }
 /declare loottotal int outer 0
 /declare lootslot int outer 0
@@ -62,7 +63,14 @@ Sub Main
 | ------------------------------------------------- |
 | Lore item cache (session-based, reduces FindItem calls)
 | Format: pipe-delimited string (e.g. "|ItemName1|ItemName2|")
-/declare loreItemCache string outer |
+/declare loreItemCache string outer
+
+| Two-pass loot: decide-only mode and slots-to-loot list (slash-delimited, e.g. "1/3/5")
+/declare decideOnly bool outer FALSE
+/declare slotsToLoot string outer
+/declare slotIdx int outer 1
+/declare slotCount int outer 0
+/declare slotNum string outer
 
 | ------------------------------------------------- |
 | CONFIGURATION VARIABLES                           |
@@ -273,7 +281,7 @@ Sub Main
     | --- Clear cursor before looting ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay 3 !${Cursor.ID}
     }
     
     | --- Open loot window ---
@@ -288,8 +296,8 @@ Sub Main
         /goto :mainlootloop
     }
     
-    | --- Small delay to ensure items are loaded ---
-    /delay 2
+    | --- Short delay to ensure items are loaded ---
+    /delay 1
 
     | --- Count items on corpse ---
     /varset loottotal ${Corpse.Items} 
@@ -297,32 +305,54 @@ Sub Main
         /call CloseLootWindow
         /goto :mainlootloop 
     } 
-    | --- Update CoopUI Loot UI "Current:" (corpse name while looting; Corpse.DisplayName is valid while LootWnd open)
+    | --- CoopUI Loot UI: corpse name (written with progress at end of corpse)
     /varset currentCorpseName ${Corpse.DisplayName}
-    /ini "${configPath}/loot_progress.ini" Progress currentCorpse "${currentCorpseName}"
     
-    | --- Process each item on corpse ---
+    | --- Pass 1: Evaluate all items, build list of slots to loot (no delays) ---
+    /varset slotsToLoot
+    /varset decideOnly TRUE
     /for lootslot 1 to ${loottotal}
-        | Verify loot window is still open before each item
         /if (!${Window[LootWnd].Open}) {
             /echo Warning: Loot window closed unexpectedly
             /goto :mainlootloop
         }
         /if (${Corpse.Item[${lootslot}].ID}) /call EvaluateItem ${lootslot}
     /next lootslot
+    /varset decideOnly FALSE
+    
+    | --- Pass 2: Loot only the slots we decided to take ---
+    /if (${slotsToLoot.Length} > 0) {
+        /varset slotIdx 1
+        /varset slotCount ${Math.Calc[${slotsToLoot.Count[/]}+1]}
+        /while (${slotIdx} <= ${slotCount}) {
+            /varset slotNum ${slotsToLoot.Token[${slotIdx},/]}
+            /if (${slotNum.Length} > 0 && ${Corpse.Item[${slotNum}].ID}) {
+                /varset lootName ${Corpse.Item[${slotNum}].Name}
+                /call LootItemWithSound ${slotNum}
+            }
+            /varcalc slotIdx ${slotIdx}+1
+        }
+    }
     
     | --- Clear any item left on cursor ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay 3 !${Cursor.ID}
     }
     
     | --- Close loot window ---
     /call CloseLootWindow
     
-    | --- Update progress INI for CoopUI Loot UI (corpsesLooted only; currentCorpse already written at start of looting) ---
+    | --- One progress update per corpse for CoopUI Loot UI ---
     /varcalc corpsesLooted ${corpsesLooted}+1
+    /ini "${configPath}/loot_progress.ini" Progress currentCorpse "${currentCorpseName}"
     /ini "${configPath}/loot_progress.ini" Progress corpsesLooted ${corpsesLooted}
+    
+    | --- Target next corpse so next iteration does not wait on /tar ---
+    /if (!${doCurrentOnly}) {
+        /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+        /delay 1
+    }
     
     | --- Loot current mode: one corpse then finish ---
     /if (${doCurrentOnly}) {
@@ -422,6 +452,10 @@ sub EvaluateItem(int slot)
 :LootEpicItem
     /echo LOOTING (Epic quest item): ${lootName}
     /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item" ${itemTribute}
+    /if (${decideOnly}) {
+        /call AddSlotToLootList ${slot}
+        /return
+    }
     /call LootItemWithSound ${slot}
     /return
 :AfterEpicCheck
@@ -457,6 +491,10 @@ sub EvaluateItem(int slot)
     /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
         /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
         /call LogItem "loot" "${lootName}" ${itemValue} "tribute override" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
         /return
     }
@@ -468,6 +506,10 @@ sub EvaluateItem(int slot)
     /if (${shouldLoot}) {
         /echo LOOTING (always loot exact): ${lootName}
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
         /return
     }
@@ -479,6 +521,10 @@ sub EvaluateItem(int slot)
     /if (${shouldLoot}) {
         /echo LOOTING (always loot keyword): ${lootName}
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
         /return
     }
@@ -490,6 +536,10 @@ sub EvaluateItem(int slot)
     /if (${shouldLoot}) {
         /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
         /return
     }
@@ -531,12 +581,27 @@ sub EvaluateItem(int slot)
     /if (${shouldLoot}) {
         /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
         /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
     } else {
         /call LogSkippedItem "${lootName}" "No criteria met"
         /echo Skipping (no criteria met): ${lootName}
     }
     
+/return
+
+| ================================================= |
+| AddSlotToLootList - Append slot to two-pass loot list (slash-delimited)
+| ================================================= |
+sub AddSlotToLootList(int slot)
+    /if (${slotsToLoot.Length} == 0) {
+        /varset slotsToLoot ${slot}
+    } else {
+        /varset slotsToLoot ${slotsToLoot}/${slot}
+    }
 /return
 
 | ================================================= |
@@ -655,7 +720,7 @@ sub LootItem(int slot)
     
     | --- Attempt to loot the item ---
     /ctrl /itemnotify loot${slot} rightmouseup
-    /delay 5 !${Corpse.Item[${slot}].ID}
+    /delay 3 !${Corpse.Item[${slot}].ID}
     
     | --- Handle confirmation dialog if it appears ---
     /if (${Window[ConfirmationDialogBox].Open}) {
@@ -666,7 +731,7 @@ sub LootItem(int slot)
     | --- Handle item on cursor (put in inventory) ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay 3 !${Cursor.ID}
     }
     
     | --- Retry if item is still on corpse ---
