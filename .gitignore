@@ -1,0 +1,103 @@
+# ========== Project-only: push only what we work on, not the whole MQ2 instance ==========
+# Tracks: lua/itemui, lua/scripttracker, lua/mq/ItemUtils.lua, Macros (sell/loot + config templates),
+#        resources (ItemUI UI files), epic_quests, README, .cursor (except .cursor/agents).
+# Ignores: config/, plugins/, docs/, .cursor/agents, archive_backups.ps1, etc.
+
+# --- Root: ignore everything, then un-ignore only project paths ---
+/*
+!.gitignore
+.cursor/*
+.github/*
+!README.md
+!DEPLOY.md
+!CHANGELOG.md
+!epic_quests/
+!scripts/
+!lua/
+!Macros/
+!resources/
+!docs/
+
+# --- Ignore these project paths (do not track or push) ---
+.cursor/agents/
+
+# --- docs: only track new user-facing documentation ---
+docs/*
+!docs/INSTALL.md
+!docs/CONFIGURATION.md
+!docs/DEVELOPER.md
+!docs/TROUBLESHOOTING.md
+!docs/RELEASE_AND_DEPLOYMENT.md
+
+# --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
+lua/*
+!lua/itemui/
+!lua/scripttracker/
+!lua/coopui/
+!lua/mq/
+lua/mq/*
+!lua/mq/ItemUtils.lua
+
+# --- Macros: only sell.mac, loot.mac, shared_config, sell_config (templates), loot_config ---
+Macros/*
+!Macros/sell.mac
+!Macros/loot.mac
+!Macros/shared_config/
+!Macros/sell_config/
+!Macros/loot_config/
+
+# Per-character and runtime data (never version)
+Macros/sell_config/Chars/
+Macros/sell_config/sell_cache.ini
+Macros/sell_config/itemui_layout.ini
+Macros/sell_config/itemui_filter_presets.ini
+Macros/sell_config/itemui_last_filters.ini
+Macros/bank_data/
+Macros/logs/
+
+# --- resources: only ItemUI-related UI files ---
+resources/*
+!resources/UIFiles/
+resources/UIFiles/*
+!resources/UIFiles/Default/
+resources/UIFiles/Default/*
+!resources/UIFiles/Default/EQUI.xml
+!resources/UIFiles/Default/MQUI_ItemColorAnimation.xml
+!resources/UIFiles/Default/ItemColorBG.tga
+
+# --- Always ignore (backups, logs, root clutter) ---
+Backup/
+Logs/
+
+# --- Root-level: binaries, IDE, nested repo, runtime (Windows-friendly) ---
+/.cursor/
+/.claude/
+/Backup/
+/Logs/
+/config/
+/plugins/
+/modules/
+/mono/
+/Utilities/
+/E3NextAndMQNextBinary-main/
+*.exe
+*.dll
+*.zip
+*.db
+*.db-shm
+*.db-wal
+nul
+/bankinv_refresh.txt
+/sell_config.ini
+/perky_config.ini
+/MeshGenerator.exe
+/crashpad_handler.exe
+/luarocks.exe
+/eqbcs.exe
+/eqlib.dll
+/imgui-64.dll
+/imgui.dll
+/mono-2.0-sgen.dll
+/MQ2Main.dll
+/D3DX9_43.dll
+/D3DX9d_43.dll
