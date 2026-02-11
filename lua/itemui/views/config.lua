@@ -1586,9 +1586,6 @@ local function renderConfigWindow()
                 if not uiState.suppressWhenLootMac then
                     uiState.lootUIOpen = true
                     uiState.lootRunFinished = false
-                    uiState.lootRunLootedList = {}
-                    uiState.lootRunCorpsesLooted = 0
-                    uiState.lootRunTotalCorpses = 0
                 end
                 mq.cmd('/macro loot')
                 setStatusMessage("Running loot macro...")

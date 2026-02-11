@@ -125,6 +125,9 @@ Sub Main
 /declare runLootedList string outer
 /declare runLootedValues string outer
 /declare runLootedTributes string outer
+/declare runSkippedCount int outer 0
+/declare runSkippedList string outer
+/declare runSkippedReasons string outer
 /declare runTotalValue int outer 0
 /declare runTributeValue int outer 0
 /declare runBestItemName string outer
@@ -142,7 +145,8 @@ Sub Main
     /return
 }
 
-| Handle test command: use targeted corpse and first item as if Mythical pause triggered
+| Handle test command: use targeted corpse and first item as if Mythical pause triggered.
+| Writes loot_mythical_alert.ini so CoopUI Loot UI opens and shows the alert card (same as real Mythical pause).
 /if (${doTest}) {
     /call LoadConfig FALSE
     /if (!${pauseOnMythicalNoDropNoTrade}) {
@@ -169,6 +173,11 @@ Sub Main
     /varset pauseAlertCorpseName ${Target.DisplayName}
     /call CloseLootWindow
     /call PauseMythicalNoDropAlert
+    /echo ==========================================
+    /echo Mythical test done. Loot UI should open (or be open) with an alert card.
+    /echo Verify: Item name and Corpse name match the targeted corpse and first item.
+    /echo Use Dismiss or Copy item name in the Loot UI as needed.
+    /echo ==========================================
     /return
 }
 
@@ -180,6 +189,9 @@ Sub Main
 /varset runLootedList
 /varset runLootedValues
 /varset runLootedTributes
+/varset runSkippedCount 0
+/varset runSkippedList
+/varset runSkippedReasons
 /varset runTotalValue 0
 /varset runTributeValue 0
 /varset runBestItemName
@@ -349,6 +361,7 @@ sub EvaluateItem(int slot)
         
         | Check cache first (fast string search)
         /if (${loreItemCache.Find[${cacheKey}]}) {
+            /call LogSkippedItem "${lootName}" "Lore duplicate"
             /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
@@ -359,6 +372,7 @@ sub EvaluateItem(int slot)
         /if (${foundItemID} > 0) {
             | Add to cache for future checks this session
             /varset loreItemCache ${loreItemCache}${cacheKey}
+            /call LogSkippedItem "${lootName}" "Lore duplicate"
             /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
             /return
         }
@@ -419,18 +433,21 @@ sub EvaluateItem(int slot)
     | Check skip lists - if item matches, skip it
     /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip exact"
         /echo SKIPPING (skip exact): ${lootName}
         /return
     }
     
     /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip keyword"
         /echo SKIPPING (skip keyword): ${lootName}
         /return
     }
     
     /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip type"
         /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
         /return
     }
@@ -517,6 +534,7 @@ sub EvaluateItem(int slot)
         /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
         /call LootItemWithSound ${slot}
     } else {
+        /call LogSkippedItem "${lootName}" "No criteria met"
         /echo Skipping (no criteria met): ${lootName}
     }
     
@@ -731,18 +749,28 @@ sub FinishLooting
     /ini "${configPath}/loot_progress.ini" Progress running 0
     /ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
     
-    | Write loot_session.ini for CoopUI Loot UI (items looted this run: name, value, tribute per item)
-    /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
-    /declare i int local 1
-    /for i 1 to ${runLootedCount}
-        /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
-        /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
-        /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
-    /next i
-    /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
-    /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
-    /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
-    /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
+    | Write loot_session.ini only when this run had items (keeps previous run visible in CoopUI when run had 0 loot)
+    /if (${runLootedCount} > 0) {
+        /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
+        /declare i int local 1
+        /for i 1 to ${runLootedCount}
+            /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
+            /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
+            /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
+        /next i
+        /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
+        /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
+        /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
+        /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
+    }
+    | Write loot_skipped.ini for CoopUI Skip History tab (only when this run had skips; value format name^reason)
+    /if (${runSkippedCount} > 0) {
+        /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
+        /declare j int local 1
+        /for j 1 to ${runSkippedCount}
+            /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
+        /next j
+    }
     
     /echo ==========================================
     /echo ${Time} Done Looting
@@ -1418,5 +1446,19 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /call ${File[${logFile}].Write[
 ]}
         /call ${File[${logFile}].Close}
+    }
+/return
+
+| ================================================= |
+| LogSkippedItem - Append to run skipped list for CoopUI Skip History |
+| ================================================= |
+sub LogSkippedItem(string itemName, string reason)
+    /varcalc runSkippedCount ${runSkippedCount}+1
+    /if (${runSkippedList.Length} > 0) {
+        /varset runSkippedList ${runSkippedList}|${itemName}
+        /varset runSkippedReasons ${runSkippedReasons}|${reason}
+    } else {
+        /varset runSkippedList ${itemName}
+        /varset runSkippedReasons ${reason}
     }
 /return
