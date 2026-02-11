@@ -28,7 +28,7 @@ local STAT_TLO_MAP = {
     -- Combat stats
     attack = 'Attack', accuracy = 'Accuracy', avoidance = 'Avoidance',
     shielding = 'Shielding', haste = 'Haste',
-    damage = 'Damage', itemDelay = 'Delay',
+    damage = 'Damage', itemDelay = 'ItemDelay',
     dmgBonus = 'DMGBonus', dmgBonusType = 'DMGBonusType',
     spellDamage = 'SpellDamage', strikeThrough = 'StrikeThrough',
     damageShield = 'DamShield', combatEffects = 'CombatEffects',
@@ -116,6 +116,41 @@ function M.getSpellDescription(id)
     desc = s and s.Description and s.Description() or ""
     Cache.set(cacheKey, desc, { tier = 'L2' })
     return desc
+end
+
+--- Spell cast time in seconds (for clicky display). Returns nil if not available.
+--- Normalizes raw TLO value (may be ms or tenths) to seconds to match in-game display.
+function M.getSpellCastTime(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:casttime:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s then return nil end
+    local ct = s.CastTime and s.CastTime()
+    if ct == nil then return nil end
+    local raw = tonumber(ct)
+    if not raw then return nil end
+    local sec = raw
+    if raw >= 1000 then sec = raw / 1000
+    elseif raw >= 10 then sec = raw / 10
+    end
+    Cache.set(cacheKey, sec, { tier = 'L2' })
+    return sec
+end
+
+--- Spell recast time in seconds (for clicky display). Returns nil if not available.
+function M.getSpellRecastTime(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:recasttime:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s or not s.RecastTime then return nil end
+    local rt = s.RecastTime()
+    local sec = tonumber(rt)
+    if sec then Cache.set(cacheKey, sec, { tier = 'L2' }); return sec end
+    return nil
 end
 
 --- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
