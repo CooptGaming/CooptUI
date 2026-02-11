@@ -94,6 +94,7 @@ function InventoryView.render(ctx, bankOpen)
                     elseif colDef.key == "Slot" then width = 40
                     elseif colDef.key == "Stack" then width = 50
                     elseif colDef.key == "Status" then width = 100
+                    elseif colDef.key == "Acquired" then width = 56
                     else width = 80 end
                 end
             end
@@ -307,7 +308,7 @@ function InventoryView.render(ctx, bankOpen)
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                            ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv" })
+                            ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv", bag = item.bag, slot = item.slot })
                             ImGui.EndTooltip()
                         end
                         -- Right-click on icon: context menu for Inspect, Keep, Always sell, augment lists.

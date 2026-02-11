@@ -77,6 +77,11 @@ function M.scanInventory()
     local inventoryItems = env.inventoryItems
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
+    -- Preserve acquiredSeq by bag:slot before clear (full scan rebuilds new item refs)
+    local acquiredMap = {}
+    for _, it in ipairs(inventoryItems) do
+        if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
+    end
     -- Clear and repopulate
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
     local seen = {}
@@ -98,11 +103,18 @@ function M.scanInventory()
             end
         end
     end
+    local scanState = env.scanState
+    for _, it in ipairs(inventoryItems) do
+        it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
+        if not it.acquiredSeq then
+            it.acquiredSeq = scanState.nextAcquiredSeq
+            scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+        end
+    end
     local scanMs = mq.gettime() - t0
     env.perfCache.lastScanTimeInv = mq.gettime()
     local saveMs = 0
     local now = mq.gettime()
-    local scanState = env.scanState
     local shouldPersist = (scanState.lastPersistSaveTime == 0) or ((now - scanState.lastPersistSaveTime) >= env.C.PERSIST_SAVE_INTERVAL_MS)
     if shouldPersist and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" and #inventoryItems > 0 then
         local t1 = mq.gettime()
@@ -164,9 +176,21 @@ function M.processIncrementalScan()
         incrementalScanState.currentBag = incrementalScanState.currentBag + 1
         bagsScanned = bagsScanned + 1
     end
+    local acquiredMap = {}
+    for _, it in ipairs(inventoryItems) do
+        if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
+    end
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
     for _, it in ipairs(incrementalScanState.newItems) do
         table.insert(inventoryItems, it)
+    end
+    local scanState = env.scanState
+    for _, it in ipairs(inventoryItems) do
+        it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
+        if not it.acquiredSeq then
+            it.acquiredSeq = scanState.nextAcquiredSeq
+            scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+        end
     end
     if incrementalScanState.currentBag > 10 then
         local scanMs = mq.gettime() - incrementalScanState.startTime
@@ -215,7 +239,11 @@ local function targetedRescanBags(changedBags)
             for slotNum = 1, bagSize do
                 local item = pack.Item and pack.Item(slotNum)
                 local it = buildItemFromMQ(item, bagNum, slotNum)
-                if it then inventoryItems[#inventoryItems + 1] = it end
+                if it then
+                    it.acquiredSeq = env.scanState.nextAcquiredSeq
+                    env.scanState.nextAcquiredSeq = env.scanState.nextAcquiredSeq + 1
+                    inventoryItems[#inventoryItems + 1] = it
+                end
             end
         end
     end
@@ -330,10 +358,11 @@ end
 
 function M.loadSnapshotsFromDisk()
     local loaded = false
-    local invItems, _ = env.storage.loadInventory()
+    local invItems, _, nextSeq = env.storage.loadInventory()
     if invItems and #invItems > 0 then
         for i = #env.inventoryItems, 1, -1 do env.inventoryItems[i] = nil end
         for _, it in ipairs(invItems) do table.insert(env.inventoryItems, it) end
+        if nextSeq then env.scanState.nextAcquiredSeq = nextSeq end
         loaded = true
     end
     local bankItems_, bankSavedAt = env.storage.loadBank()

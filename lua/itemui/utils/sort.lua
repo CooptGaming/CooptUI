@@ -109,6 +109,7 @@ function Sort.getSortValByKey(item, colKey, view)
         local wid = Sort.getItemSpellId(item, "Worn")
         if wid > 0 then return (Sort.getSpellName(wid) or ""):lower()
         else return "zzz_no_worn" end
+    elseif key == "Acquired" then return tonumber(item.acquiredSeq) or 0
     elseif key == "Status" then
         -- Sort alphabetically by displayed status text
         if view == "Sell" then

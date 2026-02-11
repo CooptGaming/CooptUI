@@ -282,7 +282,7 @@ function SellView.render(ctx, simulateSellView)
                     ImGui.Text("Stats")
                     ImGui.Separator()
                     local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                    ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv" })
+                    ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv", bag = item.bag, slot = item.slot })
                     ImGui.EndTooltip()
                 end
                 -- Column 2: Sell Keep Junk buttons

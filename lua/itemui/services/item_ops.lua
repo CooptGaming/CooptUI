@@ -225,6 +225,10 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
         stackSize = stackSize or 1, type = itemType or "", nodrop = nodrop or false, notrade = notrade or false,
         lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
         attuneable = attuneable or false, augSlots = augSlots or 0 }
+    if deps.scanState and deps.scanState.nextAcquiredSeq then
+        row.acquiredSeq = deps.scanState.nextAcquiredSeq
+        deps.scanState.nextAcquiredSeq = deps.scanState.nextAcquiredSeq + 1
+    end
     table.insert(deps.inventoryItems, row)
     deps.sellStatus.attachGranularFlags(row, nil)
     local ws, reason = deps.sellStatus.willItemBeSold(row)

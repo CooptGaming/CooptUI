@@ -166,24 +166,39 @@ local function getItemTLO(bag, slot, source)
 end
 
 --- Return table of strings for augment slots: "Slot N, type X (Name): empty" or ": AugName". Falls back to nil if TLO not available.
-local function getAugmentSlotLines(item, source)
-    if not item or (item.augSlots or 0) == 0 then return nil end
-    local it = getItemTLO(item.bag, item.slot, source)
+--- Uses AugSlot(i) (augtype) when available, else AugSlot1..6 and Item(i).
+local function getAugmentSlotLines(bag, slot, source, augSlots)
+    if (augSlots or 0) == 0 then return nil end
+    local it = getItemTLO(bag, slot, source)
     if not it or not it.ID or it.ID() == 0 then return nil end
     local lines = {}
     for i = 1, 6 do
-        local acc = it["AugSlot" .. i]
-        if acc == nil then break end
-        local typ = type(acc) == "function" and acc() or acc
-        typ = tonumber(typ) or 0
+        local typ, augName = 0, "empty"
+        -- Prefer AugSlot(i) (augtype) when available
+        local okAug, aug = pcall(function() return it.AugSlot and it.AugSlot(i) end)
+        if okAug and aug then
+            local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
+            typ = tonumber(t) or 0
+            if aug.Name then
+                local nOk, nVal = pcall(function() return type(aug.Name) == "function" and aug.Name() or aug.Name end)
+                if nOk and nVal and tostring(nVal) ~= "" then augName = tostring(nVal) end
+            end
+        end
+        if typ == 0 then
+            -- Fallback: AugSlot1..6 (type int) and Item(i) for name
+            local acc = it["AugSlot" .. i]
+            if acc == nil then break end
+            typ = tonumber(type(acc) == "function" and acc() or acc) or 0
+            if typ > 0 then
+                local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
+                if ok and itemN and itemN.Name then
+                    local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                    if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+                end
+            end
+        end
         if typ > 0 then
             local typeName = AUG_TYPE_NAMES[typ] or ("Type " .. tostring(typ))
-            local augName = "empty"
-            local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
-            if ok and itemN and itemN.Name then
-                local nameOk, nameVal = pcall(function() return itemN.Name() end)
-                if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
-            end
             lines[#lines + 1] = string.format("Slot %d, type %d (%s): %s", i, typ, typeName, augName)
         end
     end
@@ -237,6 +252,9 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if not item then return end
     opts = opts or {}
     local source = opts.source or "inv"
+    -- Use bag/slot from item or opts so tooltip works when getItemStatsForTooltip returns an object without bag/slot
+    local bag = item.bag ~= nil and item.bag or opts.bag
+    local slot = item.slot ~= nil and item.slot or opts.slot
 
     local function render()
     -- ---- Header: Name, ID, Type (like in-game Description) ----
@@ -258,26 +276,26 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     ImGui.Spacing()
 
     -- ---- Class, Race, Slot, Deity, Augment slots, Container (top section, above Item info) ----
-    local cls, race, slot = "—", "—", ""
-    if item.bag ~= nil and item.slot ~= nil and source then
+    local cls, race, slotStr = "—", "—", ""
+    if bag ~= nil and slot ~= nil and source then
         local ok, c, r, s
-        if source == "bank" then ok, c, r, s = pcall(getItemClassRaceSlotBank, item.bag, item.slot)
-        else ok, c, r, s = pcall(getItemClassRaceSlotInv, item.bag, item.slot) end
+        if source == "bank" then ok, c, r, s = pcall(getItemClassRaceSlotBank, bag, slot)
+        else ok, c, r, s = pcall(getItemClassRaceSlotInv, bag, slot) end
         if ok then
             if c and c ~= "" then cls = c end
             if r and r ~= "" then race = r end
-            if s and s ~= "" then slot = s end
+            if s and s ~= "" then slotStr = s end
         end
     end
     if cls == "—" and (item.class and item.class ~= "") then cls = item.class end
     if race == "—" and (item.race and item.race ~= "") then race = item.race end
-    if (slot == "" or slot == "—") and (item.wornSlots and item.wornSlots ~= "") then slot = item.wornSlots end
+    if (slotStr == "" or slotStr == "—") and (item.wornSlots and item.wornSlots ~= "") then slotStr = item.wornSlots end
     if cls and cls ~= "" and cls ~= "—" then ImGui.Text("Class: " .. tostring(cls)) end
     if race and race ~= "" and race ~= "—" then ImGui.Text("Race: " .. tostring(race)) end
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
-    slot = slotStringToDisplay(slot)
-    if slot and slot ~= "" and slot ~= "—" then ImGui.Text(slot) end
-    local augLines = (item.bag ~= nil and item.slot ~= nil and source) and getAugmentSlotLines(item, source) or nil
+    slotStr = slotStringToDisplay(slotStr)
+    if slotStr and slotStr ~= "" and slotStr ~= "—" then ImGui.Text(slotStr) end
+    local augLines = (bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil
     if augLines and #augLines > 0 then
         ImGui.Spacing()
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
@@ -286,6 +304,22 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         ImGui.Spacing()
     elseif item.augSlots and item.augSlots > 0 then
         ImGui.Text("Augment slots: " .. tostring(item.augSlots))
+    end
+    -- Ornament: show if item TLO exposes ornament (e.g. OrnamentationIcon or Ornament)
+    if bag ~= nil and slot ~= nil and source then
+        local it = getItemTLO(bag, slot, source)
+        if it and it.ID and it.ID() ~= 0 then
+            local ok, ornamentName = pcall(function()
+                if it.Ornament and it.Ornament.Name then return it.Ornament.Name() end
+                return nil
+            end)
+            if ok and ornamentName and tostring(ornamentName) ~= "" then
+                ImGui.Spacing()
+                ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Ornament")
+                ImGui.Text(tostring(ornamentName))
+                ImGui.Spacing()
+            end
+        end
     end
     if item.container and item.container > 0 then
         local capStr = item.sizeCapacity and item.sizeCapacity > 0 and (SIZE_NAMES[item.sizeCapacity] or tostring(item.sizeCapacity)) or nil

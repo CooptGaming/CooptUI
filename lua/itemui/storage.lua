@@ -125,14 +125,18 @@ local function serializeItem(it)
     if it.isProtected ~= nil then parts[#parts + 1] = "isProtected=" .. (it.isProtected and "true" or "false") end
     if it.willSell ~= nil then parts[#parts + 1] = "willSell=" .. (it.willSell and "true" or "false") end
     if it.sellReason ~= nil and it.sellReason ~= "" then parts[#parts + 1] = "sellReason=" .. escapeLuaString(it.sellReason) end
+    if it.acquiredSeq then parts[#parts + 1] = "acquiredSeq=" .. tonumber(it.acquiredSeq) end
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
--- Build Lua file content
-local function buildInventoryContent(items, savedAt)
+-- Build Lua file content (nextAcquiredSeq optional, for static acquired order)
+local function buildInventoryContent(items, savedAt, nextAcquiredSeq)
     savedAt = savedAt or os.time()
     local lines = {"-- ItemUI inventory snapshot. Do not edit manually.", "return {"}
     lines[#lines + 1] = "  savedAt=" .. savedAt .. ","
+    if nextAcquiredSeq then
+        lines[#lines + 1] = "  nextAcquiredSeq=" .. tonumber(nextAcquiredSeq) .. ","
+    end
     lines[#lines + 1] = "  items={"
     for _, it in ipairs(items or {}) do
         lines[#lines + 1] = "    " .. serializeItem(it) .. ","
@@ -167,12 +171,12 @@ local function loadLuaFile(path)
     return data
 end
 
--- Load inventory from char folder
+-- Load inventory from char folder (returns items, savedAt, nextAcquiredSeq)
 local function loadInventory()
     local path = config.getCharStoragePath(getCharName(), INVENTORY_FILE)
     local data = loadLuaFile(path)
-    if not data or not data.items then return nil, nil end
-    return data.items, data.savedAt
+    if not data or not data.items then return nil, nil, nil end
+    return data.items, data.savedAt, data.nextAcquiredSeq
 end
 
 -- Load bank from char folder
@@ -193,13 +197,13 @@ local function initStorage(opts)
     end
 end
 
--- Save inventory to char folder (safe write: no throw on disk full / permissions)
-local function saveInventory(items)
+-- Save inventory to char folder (nextAcquiredSeq optional, for persistent acquired order)
+local function saveInventory(items, nextAcquiredSeq)
     if not items then return false end
     local t0 = mq.gettime()
     local path = config.getCharStoragePath(getCharName(), INVENTORY_FILE)
     if not path then return false end
-    local content = buildInventoryContent(items, os.time())
+    local content = buildInventoryContent(items, os.time(), nextAcquiredSeq)
     local ok = file_safe.safeWrite(path, content)
     local e = mq.gettime() - t0
     if ok and profileConfig.enabled and e >= profileConfig.thresholdMs then

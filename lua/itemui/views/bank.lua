@@ -371,7 +371,7 @@ function BankView.render(ctx)
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "bank")) or item
-                            ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "bank" })
+                            ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "bank", bag = item.bag, slot = item.slot })
                             ImGui.EndTooltip()
                         end
                     elseif colKey == "Status" then
