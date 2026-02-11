@@ -275,6 +275,7 @@ local lootMacState = { lastRunning = false, pendingScan = false, finishedAt = 0 
 -- Pack loot loop state into one table to stay under Lua 60-upvalue limit for main()
 local lootLoopRefs = {
     pollMs = 500,
+    pollMsIdle = 1000,   -- when Loot UI open but macro not running (O9: slower poll)
     pollAt = 0,
     deferMs = 2000,
     saveHistoryAt = 0,
@@ -1472,7 +1473,7 @@ local function main()
                     uiState.lootRunFinished = true
                 end
             end
-            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMs * 2)
+            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
             if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
                 lootLoopRefs.pollAt = now
                 local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")

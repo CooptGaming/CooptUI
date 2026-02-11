@@ -50,7 +50,7 @@ function safeIniValueByPath(path, section, key, default)
     return (ok and v and v ~= "") and v or (default or "")
 end
 
---- Read loot_progress.ini Progress section in one file open (single read for CoopUI Loot UI polling).
+--- Read loot_progress.ini Progress section (O7: single "line" key with format running##corpsesLooted##totalCorpses##currentCorpse).
 --- Returns: corpsesLooted (number), totalCorpses (number), currentCorpse (string).
 function readLootProgressSection(path)
     local default = { 0, 0, "" }
@@ -62,14 +62,20 @@ function readLootProgressSection(path)
         if not f or not f.Section then return nil end
         local s = f.Section("Progress")
         if not s or not s.Key then return nil end
-        local function get(k, def)
-            local key = s.Key(k)
-            local v = (key and key.Value and key.Value()) or def
-            return v and tostring(v) or def
+        local key = s.Key("line")
+        local line = (key and key.Value and key.Value()) or nil
+        if not line or line == "" then return nil end
+        line = tostring(line)
+        local parts = {}
+        for part in (line .. "##"):gmatch("(.-)##") do
+            parts[#parts + 1] = part
         end
-        local corpses = tonumber(get("corpsesLooted", "0")) or 0
-        local total = tonumber(get("totalCorpses", "0")) or 0
-        local current = get("currentCorpse", "") or ""
+        local corpses = tonumber(parts[2]) or 0
+        local total = tonumber(parts[3]) or 0
+        local current = (parts[4] and parts[4] ~= "" and parts[4]) or ""
+        if #parts > 4 then
+            for i = 5, #parts do current = current .. "##" .. parts[i] end
+        end
         return { corpses, total, current }
     end)
     if ok and result and #result >= 3 then
