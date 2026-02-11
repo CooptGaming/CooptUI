@@ -158,7 +158,8 @@ local uiState = {
     lootRunCorpsesLooted = 0,
     lootRunTotalCorpses = 0,
     lootRunCurrentCorpse = "",
-    lootRunLootedList = {},     -- array of item names this run
+    lootRunLootedList = {},     -- array of item names (kept for compatibility)
+    lootRunLootedItems = {},    -- array of { name, value, tribute } for table display
     lootRunFinished = false,
     lootMythicalAlert = nil,   -- { itemName, corpseName } or nil
     lootRunTotalValue = 0,     -- copper (run receipt)
@@ -626,9 +627,6 @@ local function renderLootWindow()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
-            uiState.lootRunLootedList = {}
-            uiState.lootRunCorpsesLooted = 0
-            uiState.lootRunTotalCorpses = 0
         end
         mq.cmd('/macro loot current')
     end
@@ -636,9 +634,6 @@ local function renderLootWindow()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
-            uiState.lootRunLootedList = {}
-            uiState.lootRunCorpsesLooted = 0
-            uiState.lootRunTotalCorpses = 0
         end
         mq.cmd('/macro loot')
     end
@@ -655,6 +650,7 @@ local function renderLootWindow()
     end
     ctx.clearLootUIState = function()
         uiState.lootRunLootedList = {}
+        uiState.lootRunLootedItems = {}
         uiState.lootRunCorpsesLooted = 0
         uiState.lootRunTotalCorpses = 0
         uiState.lootRunCurrentCorpse = ""
@@ -1169,9 +1165,6 @@ local function main()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
-            uiState.lootRunLootedList = {}
-            uiState.lootRunCorpsesLooted = 0
-            uiState.lootRunTotalCorpses = 0
         end
         mq.cmd('/macro loot')
     end)
@@ -1293,11 +1286,10 @@ local function main()
             local macroName = mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""
             local mn = macroName:lower()
             local lootMacRunning = (mn == "loot" or mn == "loot.mac")
-            -- When macro just started (was not running, now running), open Loot UI if not suppressed
+            -- When macro just started (was not running, now running), open Loot UI if not suppressed (list persists; updates when run finishes)
             if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
                 uiState.lootUIOpen = true
                 uiState.lootRunFinished = false
-                uiState.lootRunLootedList = {}
             end
             if lootMacState.lastRunning and not lootMacRunning then
                 lootMacState.pendingScan = true
@@ -1307,19 +1299,42 @@ local function main()
                     if sessionPath and sessionPath ~= "" then
                         local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
                         local count = tonumber(countStr) or 0
-                        uiState.lootRunLootedList = {}
-                        for i = 1, count do
-                            local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
-                            if name and name ~= "" then table.insert(uiState.lootRunLootedList, name) end
+                        -- Only replace list when the run that just finished had items (persist previous run's list otherwise)
+                        if count > 0 then
+                            uiState.lootRunLootedList = {}
+                            uiState.lootRunLootedItems = {}
+                            for i = 1, count do
+                                local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
+                                if name and name ~= "" then
+                                    table.insert(uiState.lootRunLootedList, name)
+                                    local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
+                                    local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
+                                    local iconId = 0
+                                    for _, it in ipairs(inventoryItems or {}) do if it.name == name then iconId = it.icon or 0; break end end
+                                    if iconId == 0 then for _, it in ipairs(bankItems or {}) do if it.name == name then iconId = it.icon or 0; break end end end
+                                    if iconId == 0 then for _, it in ipairs(bankCache or {}) do if it.name == name then iconId = it.icon or 0; break end end end
+                                    local statusText, willSell = "", false
+                                    if getSellStatusForItem then statusText, willSell = getSellStatusForItem({ name = name }) end
+                                    if statusText == "" then statusText = "—" end
+                                    table.insert(uiState.lootRunLootedItems, {
+                                        name = name,
+                                        value = tonumber(valStr) or 0,
+                                        tribute = tonumber(tribStr) or 0,
+                                        icon = iconId,
+                                        statusText = statusText,
+                                        willSell = willSell
+                                    })
+                                end
+                            end
+                            local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
+                            local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
+                            uiState.lootRunTotalValue = tonumber(sv) or 0
+                            uiState.lootRunTributeValue = tonumber(tv) or 0
+                            uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
+                            uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
                         end
                     end
                     uiState.lootRunFinished = true
-                    local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
-                    local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
-                    uiState.lootRunTotalValue = tonumber(sv) or 0
-                    uiState.lootRunTributeValue = tonumber(tv) or 0
-                    uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
-                    uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
                 end
             end
             if (lootMacRunning or uiState.lootUIOpen) and (now - lootProgressPollAt) >= LOOT_PROGRESS_POLL_MS then

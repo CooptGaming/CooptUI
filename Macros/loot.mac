@@ -123,6 +123,8 @@ Sub Main
 /declare currentCorpseName string outer
 /declare runLootedCount int outer 0
 /declare runLootedList string outer
+/declare runLootedValues string outer
+/declare runLootedTributes string outer
 /declare runTotalValue int outer 0
 /declare runTributeValue int outer 0
 /declare runBestItemName string outer
@@ -176,6 +178,8 @@ Sub Main
 /hidecorpse looted
 /varset runLootedCount 0
 /varset runLootedList
+/varset runLootedValues
+/varset runLootedTributes
 /varset runTotalValue 0
 /varset runTributeValue 0
 /varset runBestItemName
@@ -727,11 +731,13 @@ sub FinishLooting
     /ini "${configPath}/loot_progress.ini" Progress running 0
     /ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
     
-    | Write loot_session.ini for CoopUI Loot UI (items looted this run)
+    | Write loot_session.ini for CoopUI Loot UI (items looted this run: name, value, tribute per item)
     /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
     /declare i int local 1
     /for i 1 to ${runLootedCount}
         /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
+        /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
+        /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
     /next i
     /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
     /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
@@ -1358,12 +1364,16 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /return
     }
     
-    | Append to run looted list for CoopUI Loot UI session
+    | Append to run looted list for CoopUI Loot UI session (names, values, tributes pipe-delimited)
     /varcalc runLootedCount ${runLootedCount}+1
     /if (${runLootedList.Length} > 0) {
         /varset runLootedList ${runLootedList}|${itemName}
+        /varset runLootedValues ${runLootedValues}|${itemValue}
+        /varset runLootedTributes ${runLootedTributes}|${tribute}
     } else {
         /varset runLootedList ${itemName}
+        /varset runLootedValues ${itemValue}
+        /varset runLootedTributes ${tribute}
     }
     | Run receipt: total value, tribute, best item
     /varcalc runTotalValue ${runTotalValue}+${itemValue}
