@@ -72,6 +72,11 @@ Sub Main
 /declare slotCount int outer 0
 /declare slotNum string outer
 
+| Session caches: fast-skip/fast-loot by name for rest of run (cleared at START LOOTING)
+| Format: pipe-delimited (e.g. "|Name1|Name2|")
+/declare skippedNamesThisSession string outer
+/declare lootedNamesThisSession string outer
+
 | ------------------------------------------------- |
 | CONFIGURATION VARIABLES                           |
 | ------------------------------------------------- |
@@ -204,6 +209,8 @@ Sub Main
 /varset runTributeValue 0
 /varset runBestItemName
 /varset runBestItemValue 0
+/varset skippedNamesThisSession
+/varset lootedNamesThisSession
 
 | Loot current mode: require corpse targeted
 /if (${doCurrentOnly}) {
@@ -379,6 +386,27 @@ sub EvaluateItem(int slot)
     /varset skipItem FALSE
 
     | =========================================== |
+    | SESSION CACHE: fast-skip if we already skipped this name this run |
+    | =========================================== |
+    /if (${skippedNamesThisSession.Find[|${lootName}|]}) {
+        /call LogSkippedItem "${lootName}" "Skip (cached this session)"
+        /return
+    }
+
+    | =========================================== |
+    | SESSION CACHE: fast-loot if we already looted this name this run |
+    | =========================================== |
+    /if (${lootedNamesThisSession.Find[|${lootName}|]}) {
+        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
+        /call LootItemWithSound ${slot}
+        /return
+    }
+
+    | =========================================== |
     | PRIORITY 0: LORE CHECK (CRITICAL)          |
     | =========================================== |
     | Check if we already have this lore item (inventory OR bank)
@@ -391,6 +419,7 @@ sub EvaluateItem(int slot)
         | Check cache first (fast string search)
         /if (${loreItemCache.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
+            /call AddToSkippedSessionCache
             /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
@@ -402,6 +431,7 @@ sub EvaluateItem(int slot)
             | Add to cache for future checks this session
             /varset loreItemCache ${loreItemCache}${cacheKey}
             /call LogSkippedItem "${lootName}" "Lore duplicate"
+            /call AddToSkippedSessionCache
             /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
             /return
         }
@@ -467,6 +497,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip exact"
+        /call AddToSkippedSessionCache
         /echo SKIPPING (skip exact): ${lootName}
         /return
     }
@@ -474,6 +505,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip keyword"
+        /call AddToSkippedSessionCache
         /echo SKIPPING (skip keyword): ${lootName}
         /return
     }
@@ -481,6 +513,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip type"
+        /call AddToSkippedSessionCache
         /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
         /return
     }
@@ -588,9 +621,32 @@ sub EvaluateItem(int slot)
         /call LootItemWithSound ${slot}
     } else {
         /call LogSkippedItem "${lootName}" "No criteria met"
+        /call AddToSkippedSessionCache
         /echo Skipping (no criteria met): ${lootName}
     }
     
+/return
+
+| ================================================= |
+| AddToSkippedSessionCache - Add current lootName to session skip cache |
+| ================================================= |
+sub AddToSkippedSessionCache
+    /if (${skippedNamesThisSession.Length} == 0) {
+        /varset skippedNamesThisSession |${lootName}|
+    } else {
+        /varset skippedNamesThisSession ${skippedNamesThisSession}|${lootName}|
+    }
+/return
+
+| ================================================= |
+| AddToLootedSessionCache - Add current lootName to session loot cache |
+| ================================================= |
+sub AddToLootedSessionCache
+    /if (${lootedNamesThisSession.Length} == 0) {
+        /varset lootedNamesThisSession |${lootName}|
+    } else {
+        /varset lootedNamesThisSession ${lootedNamesThisSession}|${lootName}|
+    }
 /return
 
 | ================================================= |
@@ -750,6 +806,8 @@ sub LootItemWithSound(int slot)
 
     | --- Now loot the item ---
     /call LootItem ${slot}
+    | --- Add to session loot cache so we fast-loot same name on later corpses ---
+    /call AddToLootedSessionCache
 /return
 
 | ================================================= |
