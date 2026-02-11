@@ -87,6 +87,11 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightAugments then layoutDefaults.HeightAugments = tonumber(d.HeightAugments) or layoutDefaults.HeightAugments end
     if d.AugmentsWindowX then layoutDefaults.AugmentsWindowX = tonumber(d.AugmentsWindowX) or layoutDefaults.AugmentsWindowX end
     if d.AugmentsWindowY then layoutDefaults.AugmentsWindowY = tonumber(d.AugmentsWindowY) or layoutDefaults.AugmentsWindowY end
+    if d.WidthLootPanel then layoutDefaults.WidthLootPanel = tonumber(d.WidthLootPanel) or layoutDefaults.WidthLootPanel end
+    if d.HeightLoot then layoutDefaults.HeightLoot = tonumber(d.HeightLoot) or layoutDefaults.HeightLoot end
+    if d.LootWindowX then layoutDefaults.LootWindowX = tonumber(d.LootWindowX) or layoutDefaults.LootWindowX end
+    if d.LootWindowY then layoutDefaults.LootWindowY = tonumber(d.LootWindowY) or layoutDefaults.LootWindowY end
+    if d.LootUIFirstTipSeen then layoutDefaults.LootUIFirstTipSeen = tonumber(d.LootUIFirstTipSeen) or layoutDefaults.LootUIFirstTipSeen end
     if d.WidthAAPanel then layoutDefaults.WidthAAPanel = tonumber(d.WidthAAPanel) or layoutDefaults.WidthAAPanel end
     if d.HeightAA then layoutDefaults.HeightAA = tonumber(d.HeightAA) or layoutDefaults.HeightAA end
     if d.AAWindowX then layoutDefaults.AAWindowX = tonumber(d.AAWindowX) or layoutDefaults.AAWindowX end
@@ -270,6 +275,11 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightAugments=" .. tostring(layoutConfig.HeightAugments or layoutDefaults.HeightAugments) .. "\n")
         f:write("AugmentsWindowX=" .. tostring(layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX) .. "\n")
         f:write("AugmentsWindowY=" .. tostring(layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY) .. "\n")
+        f:write("WidthLootPanel=" .. tostring(layoutConfig.WidthLootPanel or layoutDefaults.WidthLootPanel) .. "\n")
+        f:write("HeightLoot=" .. tostring(layoutConfig.HeightLoot or layoutDefaults.HeightLoot) .. "\n")
+        f:write("LootWindowX=" .. tostring(layoutConfig.LootWindowX or layoutDefaults.LootWindowX) .. "\n")
+        f:write("LootWindowY=" .. tostring(layoutConfig.LootWindowY or layoutDefaults.LootWindowY) .. "\n")
+        f:write("LootUIFirstTipSeen=" .. tostring(layoutConfig.LootUIFirstTipSeen or layoutDefaults.LootUIFirstTipSeen or 0) .. "\n")
         f:write("WidthAAPanel=" .. tostring(layoutConfig.WidthAAPanel or layoutDefaults.WidthAAPanel) .. "\n")
         f:write("HeightAA=" .. tostring(layoutConfig.HeightAA or layoutDefaults.HeightAA) .. "\n")
         f:write("AAWindowX=" .. tostring(layoutConfig.AAWindowX or layoutDefaults.AAWindowX) .. "\n")
@@ -415,6 +425,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.WidthLoot = layoutConfig.WidthLoot or layoutDefaults.WidthLoot
     layoutDefaults.WidthBankPanel = layoutConfig.WidthBankPanel or layoutDefaults.WidthBankPanel
     layoutDefaults.HeightBank = layoutConfig.HeightBank or layoutDefaults.HeightBank
+    layoutDefaults.WidthLootPanel = layoutConfig.WidthLootPanel or layoutDefaults.WidthLootPanel
+    layoutDefaults.HeightLoot = layoutConfig.HeightLoot or layoutDefaults.HeightLoot
+    layoutDefaults.LootWindowX = layoutConfig.LootWindowX or layoutDefaults.LootWindowX
+    layoutDefaults.LootWindowY = layoutConfig.LootWindowY or layoutDefaults.LootWindowY
     -- Capture bank window position if it's open
     if uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
         layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
@@ -482,6 +496,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("HeightBank=" .. layoutDefaults.HeightBank .. "\n")
             f:write("BankWindowX=" .. layoutDefaults.BankWindowX .. "\n")
             f:write("BankWindowY=" .. layoutDefaults.BankWindowY .. "\n")
+            f:write("WidthLootPanel=" .. tostring(layoutDefaults.WidthLootPanel or 420) .. "\n")
+            f:write("HeightLoot=" .. tostring(layoutDefaults.HeightLoot or 380) .. "\n")
+            f:write("LootWindowX=" .. tostring(layoutDefaults.LootWindowX or 0) .. "\n")
+            f:write("LootWindowY=" .. tostring(layoutDefaults.LootWindowY or 0) .. "\n")
             f:write("WidthAugmentsPanel=" .. layoutDefaults.WidthAugmentsPanel .. "\n")
             f:write("HeightAugments=" .. layoutDefaults.HeightAugments .. "\n")
             f:write("AugmentsWindowX=" .. layoutDefaults.AugmentsWindowX .. "\n")
@@ -535,6 +553,10 @@ function LayoutUtils.resetLayoutToDefault()
     layoutConfig.HeightBank = layoutDefaults.HeightBank
     layoutConfig.BankWindowX = layoutDefaults.BankWindowX
     layoutConfig.BankWindowY = layoutDefaults.BankWindowY
+    layoutConfig.WidthLootPanel = layoutDefaults.WidthLootPanel
+    layoutConfig.HeightLoot = layoutDefaults.HeightLoot
+    layoutConfig.LootWindowX = layoutDefaults.LootWindowX
+    layoutConfig.LootWindowY = layoutDefaults.LootWindowY
     layoutConfig.WidthAugmentsPanel = layoutDefaults.WidthAugmentsPanel
     layoutConfig.HeightAugments = layoutDefaults.HeightAugments
     layoutConfig.AugmentsWindowX = layoutDefaults.AugmentsWindowX
@@ -601,6 +623,11 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
         layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
         layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+        layoutConfig.WidthLootPanel = LayoutUtils.loadLayoutValue(layout, "WidthLootPanel", layoutDefaults.WidthLootPanel)
+        layoutConfig.HeightLoot = LayoutUtils.loadLayoutValue(layout, "HeightLoot", layoutDefaults.HeightLoot)
+        layoutConfig.LootWindowX = LayoutUtils.loadLayoutValue(layout, "LootWindowX", layoutDefaults.LootWindowX)
+        layoutConfig.LootWindowY = LayoutUtils.loadLayoutValue(layout, "LootWindowY", layoutDefaults.LootWindowY)
+        layoutConfig.LootUIFirstTipSeen = LayoutUtils.loadLayoutValue(layout, "LootUIFirstTipSeen", layoutDefaults.LootUIFirstTipSeen or 0)
         layoutConfig.WidthAAPanel = LayoutUtils.loadLayoutValue(layout, "WidthAAPanel", layoutDefaults.WidthAAPanel)
         layoutConfig.HeightAA = LayoutUtils.loadLayoutValue(layout, "HeightAA", layoutDefaults.HeightAA)
         layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
@@ -690,6 +717,11 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
     layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
     layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+    layoutConfig.WidthLootPanel = LayoutUtils.loadLayoutValue(layout, "WidthLootPanel", layoutDefaults.WidthLootPanel)
+    layoutConfig.HeightLoot = LayoutUtils.loadLayoutValue(layout, "HeightLoot", layoutDefaults.HeightLoot)
+    layoutConfig.LootWindowX = LayoutUtils.loadLayoutValue(layout, "LootWindowX", layoutDefaults.LootWindowX)
+    layoutConfig.LootWindowY = LayoutUtils.loadLayoutValue(layout, "LootWindowY", layoutDefaults.LootWindowY)
+    layoutConfig.LootUIFirstTipSeen = LayoutUtils.loadLayoutValue(layout, "LootUIFirstTipSeen", layoutDefaults.LootUIFirstTipSeen or 0)
     layoutConfig.WidthAAPanel = LayoutUtils.loadLayoutValue(layout, "WidthAAPanel", layoutDefaults.WidthAAPanel)
     layoutConfig.HeightAA = LayoutUtils.loadLayoutValue(layout, "HeightAA", layoutDefaults.HeightAA)
     layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
