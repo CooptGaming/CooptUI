@@ -58,6 +58,7 @@ local SellView = require('itemui.views.sell')
 local BankView = require('itemui.views.bank')
 local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
+local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
@@ -131,7 +132,7 @@ local uiState = {
     alignToMerchant = false,  -- NEW: Align to merchant window when in sell view
     uiLocked = true,
     syncBankWindow = true,
-    suppressWhenLootMac = true,
+    suppressWhenLootMac = false,  -- when true: Loot UI does not open during looting (default false = Loot UI opens)
     itemUIPositionX = nil, itemUIPositionY = nil,
     sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
@@ -152,6 +153,22 @@ local uiState = {
     destroyQuantityMax = 1,     -- max allowed (stack size) while pendingDestroy is set
     confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
     pendingMoveAction = nil,    -- { source = "inv"|"bank", bag, slot, destBag, destSlot, qty, row } for main loop (shift+click stack move)
+    -- Loot UI (separate window; open only on Esc or Close)
+    lootUIOpen = false,
+    lootRunCorpsesLooted = 0,
+    lootRunTotalCorpses = 0,
+    lootRunCurrentCorpse = "",
+    lootRunLootedList = {},     -- array of item names (kept for compatibility)
+    lootRunLootedItems = {},    -- array of { name, value, statusText, willSell } for table display
+    lootHistory = nil,          -- array of { name, value, statusText, willSell } for History tab (loaded from file, appended when run has items)
+    skipHistory = nil,          -- array of { name, reason } for Skip History tab (loaded from file, appended when run has skips)
+    lootRunFinished = false,
+    lootMythicalAlert = nil,   -- { itemName, corpseName } or nil
+    lootRunTotalValue = 0,     -- copper (run receipt)
+    lootRunTributeValue = 0,
+    lootRunBestItemName = "",
+    lootRunBestItemValue = 0,
+    corpseLootedHidden = true,  -- toggle for Show/Hide looted corpses (troubleshooting)
 }
 
 -- Layout from setup (itemui_layout.ini): sizes per view; bank adds to base when open
@@ -168,6 +185,11 @@ local layoutDefaults = {
     HeightAugments = 500,
     AugmentsWindowX = 0,
     AugmentsWindowY = 0,
+    WidthLootPanel = 420,
+    HeightLoot = 380,
+    LootWindowX = 0,
+    LootWindowY = 0,
+    LootUIFirstTipSeen = 0,
     WidthAAPanel = 640,
     HeightAA = 520,
     AAWindowX = 0,
@@ -177,7 +199,7 @@ local layoutDefaults = {
     AlignToContext = 0,
     UILocked = 1,
     SyncBankWindow = 1,
-    SuppressWhenLootMac = 1,  -- Don't auto-show ItemUI when inventory opens while loot.mac is running
+    SuppressWhenLootMac = 0,  -- 0 = Loot UI opens when looting (default); 1 = suppress Loot UI during looting
     ConfirmBeforeDelete = 1, -- Show confirmation dialog before destroying an item (1 = yes, 0 = no)
 }
 local layoutConfig = {}  -- filled by loadLayoutConfig()
@@ -250,6 +272,79 @@ layoutUtils.init({
 local sellItems = {}  -- inventory + sell status when merchant open
 local sellMacState = { lastRunning = false, failedItems = {}, failedCount = 0, showFailedUntil = 0, smoothedFrac = 0 }
 local lootMacState = { lastRunning = false, pendingScan = false, finishedAt = 0 }  -- detect loot macro finish for background inventory scan
+-- Pack loot loop state into one table to stay under Lua 60-upvalue limit for main()
+local lootLoopRefs = {
+    pollMs = 500,
+    pollAt = 0,
+    deferMs = 2000,
+    saveHistoryAt = 0,
+    saveSkipAt = 0,
+    sellStatusCap = 30,
+}
+local LOOT_HISTORY_MAX = 200
+local LOOT_HISTORY_DELIM = "\1"  -- ASCII 1 (safe in INI values; avoids | or tab in item names)
+local function loadLootHistoryFromFile()
+    if not config.getLootConfigFile then return end
+    local path = config.getLootConfigFile("loot_history.ini")
+    if not path or path == "" then return end
+    local countStr = config.safeIniValueByPath(path, "History", "count", "0")
+    local count = tonumber(countStr) or 0
+    if count == 0 then uiState.lootHistory = {}; return end
+    uiState.lootHistory = {}
+    for i = 1, count do
+        local raw = config.safeIniValueByPath(path, "History", tostring(i), "")
+        if raw and raw ~= "" then
+            local parts = {}
+            for p in (raw .. LOOT_HISTORY_DELIM):gmatch("(.-)" .. LOOT_HISTORY_DELIM) do parts[#parts + 1] = p end
+            table.insert(uiState.lootHistory, {
+                name = parts[1] or "",
+                value = tonumber(parts[2]) or 0,
+                statusText = parts[3] or "—",
+                willSell = (parts[4] == "1")
+            })
+        end
+    end
+end
+local function saveLootHistoryToFile()
+    if not uiState.lootHistory or #uiState.lootHistory == 0 then return end
+    local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
+    if not path or path == "" then return end
+    mq.cmdf('/ini "%s" History count %d', path, #uiState.lootHistory)
+    for i, row in ipairs(uiState.lootHistory) do
+        local val = string.format("%s%s%d%s%s%s%s", row.name or "", LOOT_HISTORY_DELIM, row.value or 0, LOOT_HISTORY_DELIM, row.statusText or "—", LOOT_HISTORY_DELIM, row.willSell and "1" or "0")
+        mq.cmdf('/ini "%s" History %d "%s"', path, i, val:gsub('"', '""'))
+    end
+end
+local function loadSkipHistoryFromFile()
+    if not config.getLootConfigFile then return end
+    local path = config.getLootConfigFile("skip_history.ini")
+    if not path or path == "" then return end
+    local countStr = config.safeIniValueByPath(path, "Skip", "count", "0")
+    local count = tonumber(countStr) or 0
+    if count == 0 then uiState.skipHistory = {}; return end
+    uiState.skipHistory = {}
+    for i = 1, count do
+        local raw = config.safeIniValueByPath(path, "Skip", tostring(i), "")
+        if raw and raw ~= "" then
+            local pos = raw:find(LOOT_HISTORY_DELIM, 1, true)
+            local name = pos and raw:sub(1, pos - 1) or raw
+            local reason = pos and raw:sub(pos + 1) or ""
+            table.insert(uiState.skipHistory, { name = name, reason = reason })
+        end
+    end
+end
+local function saveSkipHistoryToFile()
+    if not uiState.skipHistory or #uiState.skipHistory == 0 then return end
+    local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
+    if not path or path == "" then return end
+    mq.cmdf('/ini "%s" Skip count %d', path, #uiState.skipHistory)
+    for i, row in ipairs(uiState.skipHistory) do
+        local val = (row.name or "") .. LOOT_HISTORY_DELIM .. (row.reason or "")
+        mq.cmdf('/ini "%s" Skip %d "%s"', path, i, val:gsub('"', '""'))
+    end
+end
+lootLoopRefs.saveLootHistory = saveLootHistoryToFile
+lootLoopRefs.saveSkipHistory = saveSkipHistoryToFile
 local bankCache = {}
 -- Scan state (shared with itemui.services.scan): one table to stay under local/upvalue limits
 local scanState = {
@@ -599,11 +694,76 @@ local function renderAAWindow()
     AAView.render(ctx)
 end
 
+--- Loot UI window: progress and session summary (only when lootUIOpen; close on Esc or Close)
+local function renderLootWindow()
+    local ctx = extendContext(buildViewContext())
+    ctx.runLootCurrent = function()
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+            uiState.lootRunFinished = false
+        end
+        mq.cmd('/macro loot current')
+    end
+    ctx.runLootAll = function()
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+            uiState.lootRunFinished = false
+        end
+        mq.cmd('/macro loot')
+    end
+    ctx.clearLootUIMythicalAlert = function()
+        uiState.lootMythicalAlert = nil
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+        if path and path ~= "" then
+            mq.cmdf('/ini "%s" Alert itemName ""', path)
+            mq.cmdf('/ini "%s" Alert corpseName ""', path)
+        end
+    end
+    ctx.setMythicalCopyName = function(name)
+        if name and name ~= "" then print(string.format("\ay[ItemUI]\ax Mythical item name: %s", name)) end
+    end
+    ctx.clearLootUIState = function()
+        uiState.lootRunLootedList = {}
+        uiState.lootRunLootedItems = {}
+        uiState.lootRunCorpsesLooted = 0
+        uiState.lootRunTotalCorpses = 0
+        uiState.lootRunCurrentCorpse = ""
+        uiState.lootRunFinished = false
+        uiState.lootMythicalAlert = nil
+        uiState.lootRunTotalValue = 0
+        uiState.lootRunTributeValue = 0
+        uiState.lootRunBestItemName = ""
+        uiState.lootRunBestItemValue = 0
+        -- lootHistory and skipHistory are not cleared (persist across window close)
+    end
+    ctx.loadLootHistory = function()
+        if not uiState.lootHistory then loadLootHistoryFromFile() end
+        if not uiState.lootHistory then uiState.lootHistory = {} end
+    end
+    ctx.loadSkipHistory = function()
+        if not uiState.skipHistory then loadSkipHistoryFromFile() end
+        if not uiState.skipHistory then uiState.skipHistory = {} end
+    end
+    ctx.clearLootHistory = function()
+        uiState.lootHistory = {}
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
+        if path and path ~= "" then mq.cmdf('/ini "%s" History count 0', path) end
+        lootLoopRefs.saveHistoryAt = 0
+    end
+    ctx.clearSkipHistory = function()
+        uiState.skipHistory = {}
+        local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
+        if path and path ~= "" then mq.cmdf('/ini "%s" Skip count 0', path) end
+        lootLoopRefs.saveSkipAt = 0
+    end
+    LootUIView.render(ctx)
+end
+
 -- ============================================================================
 -- Main render
 -- ============================================================================
 local function renderUI()
-    if not shouldDraw then return end
+    if not shouldDraw and not uiState.lootUIOpen then return end
     local merchOpen = isMerchantWindowOpen()
     -- In setup step 1–2 show inventory/sell only; step 3 show inv+bank
     local curView
@@ -618,6 +778,7 @@ local function renderUI()
         curView = (merchOpen and "Sell") or "Inventory"
     end
 
+    if shouldDraw then
     -- Window size: setup = free resize; else use saved sizes or align-to-context
     if not uiState.setupMode then
         local w, h = nil, nil
@@ -980,6 +1141,11 @@ local function renderUI()
     if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
         renderAAWindow()
     end
+    end -- shouldDraw
+
+    if uiState.lootUIOpen then
+        renderLootWindow()
+    end
 end
 
 -- ============================================================================
@@ -1090,7 +1256,13 @@ local function main()
     mq.bind('/inventoryui', handleCommand)  -- Alias for users migrating from old InventoryUI
     mq.bind('/bankui', handleCommand)       -- Alias for users migrating from old BankUI
     mq.bind('/dosell', runSellMacro)
-    mq.bind('/doloot', function() mq.cmd('/macro loot') end)
+    mq.bind('/doloot', function()
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+            uiState.lootRunFinished = false
+        end
+        mq.cmd('/macro loot')
+    end)
     mq.imgui.init('ItemUI', renderUI)
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
@@ -1204,15 +1376,132 @@ local function main()
             end
             sellMacState.lastRunning = sellMacRunning
         end
-        -- Loot macro just finished: defer scan to next iteration (gives /inv or I-key a chance to run first)
+        -- Loot macro: progress/session INI for Loot UI; defer scan when macro finishes
         do
             local macroName = mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""
             local mn = macroName:lower()
             local lootMacRunning = (mn == "loot" or mn == "loot.mac")
+            -- When macro just started (was not running, now running), open Loot UI if not suppressed (list persists; updates when run finishes)
+            if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
+                uiState.lootUIOpen = true
+                uiState.lootRunFinished = false
+            end
             if lootMacState.lastRunning and not lootMacRunning then
                 lootMacState.pendingScan = true
+                lootMacState.finishedAt = now
+                if uiState.lootUIOpen then
+                    local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
+                    if sessionPath and sessionPath ~= "" then
+                        local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
+                        local count = tonumber(countStr) or 0
+                        -- Only replace list when the run that just finished had items (persist previous run's list otherwise)
+                        if count > 0 then
+                            uiState.lootRunLootedList = {}
+                            uiState.lootRunLootedItems = {}
+                            for i = 1, count do
+                                local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
+                                if name and name ~= "" then
+                                    table.insert(uiState.lootRunLootedList, name)
+                                    local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
+                                    local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
+                                    local statusText, willSell = "—", false
+                                    if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
+                                        statusText, willSell = getSellStatusForItem({ name = name })
+                                        if statusText == "" then statusText = "—" end
+                                    end
+                                    table.insert(uiState.lootRunLootedItems, {
+                                        name = name,
+                                        value = tonumber(valStr) or 0,
+                                        tribute = tonumber(tribStr) or 0,
+                                        statusText = statusText,
+                                        willSell = willSell
+                                    })
+                                end
+                            end
+                            local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
+                            local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
+                            uiState.lootRunTotalValue = tonumber(sv) or 0
+                            uiState.lootRunTributeValue = tonumber(tv) or 0
+                            uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
+                            uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
+                            -- Append to Loot History tab (cumulative)
+                            if not uiState.lootHistory then loadLootHistoryFromFile() end
+                            if not uiState.lootHistory then uiState.lootHistory = {} end
+                            for _, row in ipairs(uiState.lootRunLootedItems) do
+                                table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
+                            end
+                            while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                            lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
+                        end
+                    end
+                    -- Append this run's skipped items to Skip History (read loot_skipped.ini)
+                    local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
+                    if skippedPath and skippedPath ~= "" then
+                        local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
+                        local skipCount = tonumber(skipCountStr) or 0
+                        if skipCount > 0 then
+                            if not uiState.skipHistory then loadSkipHistoryFromFile() end
+                            if not uiState.skipHistory then uiState.skipHistory = {} end
+                            for j = 1, skipCount do
+                                local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
+                                if raw and raw ~= "" then
+                                    local name, reason = raw:match("^([^%^]*)%^?(.*)$")
+                                    table.insert(uiState.skipHistory, { name = name or raw, reason = reason or "" })
+                                end
+                            end
+                            while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end
+                            lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
+                        end
+                    end
+                    uiState.lootRunFinished = true
+                end
+                -- When macro stops, show Loot UI if Mythical alert INI was written (real pause or /macro loot test)
+                local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+                if alertPath and alertPath ~= "" then
+                    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+                    if itemName and itemName ~= "" then
+                        uiState.lootMythicalAlert = {
+                            itemName = itemName,
+                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                        }
+                        uiState.lootUIOpen = true
+                    end
+                end
+            end
+            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMs * 2)
+            if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
+                lootLoopRefs.pollAt = now
+                local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
+                if progPath and progPath ~= "" then
+                    uiState.lootRunCorpsesLooted = tonumber(config.safeIniValueByPath(progPath, "Progress", "corpsesLooted", "0")) or 0
+                    uiState.lootRunTotalCorpses = tonumber(config.safeIniValueByPath(progPath, "Progress", "totalCorpses", "0")) or 0
+                    uiState.lootRunCurrentCorpse = config.safeIniValueByPath(progPath, "Progress", "currentCorpse", "") or ""
+                end
+                if lootMacRunning then
+                    local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+                    if alertPath and alertPath ~= "" then
+                        local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+                        if itemName and itemName ~= "" then
+                            uiState.lootMythicalAlert = {
+                                itemName = itemName,
+                                corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                            }
+                        else
+                            uiState.lootMythicalAlert = nil
+                        end
+                    end
+                end
             end
             lootMacState.lastRunning = lootMacRunning
+        end
+        -- Deferred loot/skip history saves (avoid blocking macro-finish frame)
+        if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt then
+            lootLoopRefs.saveHistoryAt = 0
+            lootLoopRefs.saveLootHistory()
+        end
+        if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt then
+            lootLoopRefs.saveSkipAt = 0
+            lootLoopRefs.saveSkipHistory()
         end
         processSellQueue()
         -- Handle pending quantity pickup action (non-blocking, runs in main loop)
@@ -1322,21 +1611,20 @@ local function main()
         -- Macro.Name may return "loot" or "loot.mac" depending on MQ version (needed before bag-open and ItemUI suppress)
         local lootMacName = (mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or ""):lower()) or ""
         local lootMacRunning = (lootMacName == "loot" or lootMacName == "loot.mac")
-        -- Open all bags when inventory is opened (OPEN_INV_BAGS is the EQ keybind to open/toggle bags)
-        -- Skip opening bags when loot macro is running with SuppressWhenLootMac (keep EQ bag state unchanged)
-        if invJustOpened and invOpen and not (lootMacRunning and uiState.suppressWhenLootMac) then
+        -- ItemUI never shows while looting (manual or macro). Skip opening bags when loot window open or macro running.
+        if invJustOpened and invOpen and not (lootOpen or lootMacRunning) then
             mq.cmd('/keypress OPEN_INV_BAGS')
         end
-        -- When loot macro running: keep ItemUI hidden (suppress auto-show and force-hide if already visible)
-        if lootMacRunning and shouldDraw then
+        -- When looting (manual or macro): keep ItemUI hidden (suppress auto-show and force-hide if already visible)
+        if (lootOpen or lootMacRunning) and shouldDraw then
             flushLayoutSave()  -- Persist sort before hiding so next open has correct sort
             shouldDraw = false
             isOpen = false
             uiState.configWindowOpen = false
             if invOpen then mq.cmd('/keypress inventory') end
         end
-        local invOpenedFromLoot = invJustOpened and uiState.suppressWhenLootMac and lootMacRunning
-        local shouldAutoShowInv = invJustOpened and not invOpenedFromLoot
+        -- Do not auto-show ItemUI when loot window is open (manual looting) or loot macro is running
+        local shouldAutoShowInv = invJustOpened and not (lootOpen or lootMacRunning)
         -- Run pending background scan (from loot macro finish) only when user isn't opening and enough time has passed
         -- Delay 2.5s so user opening right after looting always wins (avoids double-scan, preserves sort)
         if lootMacState.pendingScan then
@@ -1426,6 +1714,15 @@ local function main()
         if lastBankWindowState and not bankOpen then scanState.lastScanState.bankOpen = false end
         if lastMerchantState and not merchOpen then scanState.lastScanState.merchOpen = false end
         local lootOpenNow = isLootWindowOpen()
+        -- When user manually opens loot window (no macro running), open Loot UI if not suppressed
+        local lootJustOpened = lootOpenNow and not lastLootWindowState
+        if lootJustOpened then
+            local mn = (mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""):lower()
+            local lootMacRunning = (mn == "loot" or mn == "loot.mac")
+            if not lootMacRunning and not uiState.suppressWhenLootMac then
+                uiState.lootUIOpen = true
+            end
+        end
         -- Auto-accept no-drop valuable item confirmation when loot window open
         if lootOpenNow then
             local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")

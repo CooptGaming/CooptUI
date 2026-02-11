@@ -4,7 +4,8 @@
 |           Filters, Optional Sorting, Lore Check   |
 | ================================================= |
 | Usage:                                            |
-|   /macro loot          - Run auto-loot            |
+|   /macro loot          - Run auto-loot (all corpses in range) |
+|   /macro loot current  - Loot only current target corpse    |
 |   /macro loot load     - Reload config            |
 |   /macro loot test     - Dry-run Mythical pause alert (beeps + group message) |
 |   /macro loot help     - Show this help message   |
@@ -19,6 +20,7 @@ Sub Main
 /declare doLoad bool outer FALSE
 /declare doHelp bool outer FALSE
 /declare doTest bool outer FALSE
+/declare doCurrentOnly bool outer FALSE
 /declare arg1 string local ${Param0}
 /declare configPath string outer ${MacroQuest.Path}/Macros/loot_config
 /declare sharedConfigPath string outer ${MacroQuest.Path}/Macros/shared_config
@@ -27,6 +29,7 @@ Sub Main
 /if (${arg1.Equal[help]}) /varset doHelp TRUE
 /if (${arg1.Equal[load]}) /varset doLoad TRUE
 /if (${arg1.Equal[test]}) /varset doTest TRUE
+/if (${arg1.Equal[current]}) /varset doCurrentOnly TRUE
 
 | Handle help command
 /if (${doHelp}) {
@@ -114,6 +117,22 @@ Sub Main
 | Movement Settings
 /declare maxMoveDelay int outer 100
 
+| Loot UI progress/session (written to loot_config for CoopUI Loot UI)
+/declare corpsesLooted int outer 0
+/declare totalCorpses int outer 0
+/declare currentCorpseName string outer
+/declare runLootedCount int outer 0
+/declare runLootedList string outer
+/declare runLootedValues string outer
+/declare runLootedTributes string outer
+/declare runSkippedCount int outer 0
+/declare runSkippedList string outer
+/declare runSkippedReasons string outer
+/declare runTotalValue int outer 0
+/declare runTributeValue int outer 0
+/declare runBestItemName string outer
+/declare runBestItemValue int outer 0
+
 | ------------------------------------------------- |
 | LOAD CONFIGURATION                                |
 | ------------------------------------------------- |
@@ -126,7 +145,8 @@ Sub Main
     /return
 }
 
-| Handle test command: use targeted corpse and first item as if Mythical pause triggered
+| Handle test command: use targeted corpse and first item as if Mythical pause triggered.
+| Writes loot_mythical_alert.ini so CoopUI Loot UI opens and shows the alert card (same as real Mythical pause).
 /if (${doTest}) {
     /call LoadConfig FALSE
     /if (!${pauseOnMythicalNoDropNoTrade}) {
@@ -153,6 +173,11 @@ Sub Main
     /varset pauseAlertCorpseName ${Target.DisplayName}
     /call CloseLootWindow
     /call PauseMythicalNoDropAlert
+    /echo ==========================================
+    /echo Mythical test done. Loot UI should open (or be open) with an alert card.
+    /echo Verify: Item name and Corpse name match the targeted corpse and first item.
+    /echo Use Dismiss or Copy item name in the Loot UI as needed.
+    /echo ==========================================
     /return
 }
 
@@ -160,6 +185,36 @@ Sub Main
 | START LOOTING                                     |
 | ------------------------------------------------- |
 /hidecorpse looted
+/varset runLootedCount 0
+/varset runLootedList
+/varset runLootedValues
+/varset runLootedTributes
+/varset runSkippedCount 0
+/varset runSkippedList
+/varset runSkippedReasons
+/varset runTotalValue 0
+/varset runTributeValue 0
+/varset runBestItemName
+/varset runBestItemValue 0
+
+| Loot current mode: require corpse targeted
+/if (${doCurrentOnly}) {
+    /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) {
+        /echo Loot current: target a corpse first, then run /macro loot current
+        /return
+    }
+    /varset totalCorpses 1
+} else {
+    /varset totalCorpses ${SpawnCount[npccorpse radius 25 noalert 1]}
+}
+
+/varset corpsesLooted 0
+/varset currentCorpseName
+/ini "${configPath}/loot_progress.ini" Progress running 1
+/ini "${configPath}/loot_progress.ini" Progress totalCorpses ${totalCorpses}
+/ini "${configPath}/loot_progress.ini" Progress corpsesLooted 0
+/ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
+
 /echo ==========================================
 /echo Loot Macro v4.0 Started
 /echo ==========================================
@@ -190,18 +245,21 @@ Sub Main
         /end
     }
     
-    | --- Check for nearby corpses ---
-    /if (${SpawnCount[npccorpse radius 25 noalert 1]} == 0) {
+    | --- Check for nearby corpses (skip when loot current = one corpse only) ---
+    /if (!${doCurrentOnly} && ${SpawnCount[npccorpse radius 25 noalert 1]} == 0) {
         /call FinishLooting
         /return
     }
     
     | --- Target and approach corpse ---
-    /tar npccorpse${If[${Alert}, noalert ${Alert},]}
-    /delay 1
-    /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
-    
-    /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
+    /if (${doCurrentOnly}) {
+        /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
+    } else {
+        /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+        /delay 1
+        /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
+        /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
+    }
     
     | --- Approach corpse with movement retry logic ---
     /call ApproachCorpse
@@ -239,6 +297,9 @@ Sub Main
         /call CloseLootWindow
         /goto :mainlootloop 
     } 
+    | --- Update CoopUI Loot UI "Current:" (corpse name while looting; Corpse.DisplayName is valid while LootWnd open)
+    /varset currentCorpseName ${Corpse.DisplayName}
+    /ini "${configPath}/loot_progress.ini" Progress currentCorpse "${currentCorpseName}"
     
     | --- Process each item on corpse ---
     /for lootslot 1 to ${loottotal}
@@ -258,6 +319,16 @@ Sub Main
     
     | --- Close loot window ---
     /call CloseLootWindow
+    
+    | --- Update progress INI for CoopUI Loot UI (corpsesLooted only; currentCorpse already written at start of looting) ---
+    /varcalc corpsesLooted ${corpsesLooted}+1
+    /ini "${configPath}/loot_progress.ini" Progress corpsesLooted ${corpsesLooted}
+    
+    | --- Loot current mode: one corpse then finish ---
+    /if (${doCurrentOnly}) {
+        /call FinishLooting
+        /return
+    }
     
     /goto :mainlootloop
     
@@ -289,6 +360,7 @@ sub EvaluateItem(int slot)
         
         | Check cache first (fast string search)
         /if (${loreItemCache.Find[${cacheKey}]}) {
+            /call LogSkippedItem "${lootName}" "Lore duplicate"
             /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
@@ -299,6 +371,7 @@ sub EvaluateItem(int slot)
         /if (${foundItemID} > 0) {
             | Add to cache for future checks this session
             /varset loreItemCache ${loreItemCache}${cacheKey}
+            /call LogSkippedItem "${lootName}" "Lore duplicate"
             /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
             /return
         }
@@ -348,7 +421,7 @@ sub EvaluateItem(int slot)
     /goto :AfterEpicCheck
 :LootEpicItem
     /echo LOOTING (Epic quest item): ${lootName}
-    /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item"
+    /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item" ${itemTribute}
     /call LootItemWithSound ${slot}
     /return
 :AfterEpicCheck
@@ -359,18 +432,21 @@ sub EvaluateItem(int slot)
     | Check skip lists - if item matches, skip it
     /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip exact"
         /echo SKIPPING (skip exact): ${lootName}
         /return
     }
     
     /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip keyword"
         /echo SKIPPING (skip keyword): ${lootName}
         /return
     }
     
     /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE
     /if (${skipItem}) {
+        /call LogSkippedItem "${lootName}" "Skip type"
         /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
         /return
     }
@@ -380,7 +456,7 @@ sub EvaluateItem(int slot)
     | =========================================== |
     /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
         /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
-        /call LogItem "loot" "${lootName}" ${itemValue} "tribute override"
+        /call LogItem "loot" "${lootName}" ${itemValue} "tribute override" ${itemTribute}
         /call LootItemWithSound ${slot}
         /return
     }
@@ -391,7 +467,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE
     /if (${shouldLoot}) {
         /echo LOOTING (always loot exact): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact"
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute}
         /call LootItemWithSound ${slot}
         /return
     }
@@ -402,7 +478,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE
     /if (${shouldLoot}) {
         /echo LOOTING (always loot keyword): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword"
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute}
         /call LootItemWithSound ${slot}
         /return
     }
@@ -413,7 +489,7 @@ sub EvaluateItem(int slot)
     /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE
     /if (${shouldLoot}) {
         /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot type"
+        /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute}
         /call LootItemWithSound ${slot}
         /return
     }
@@ -454,9 +530,10 @@ sub EvaluateItem(int slot)
     | --- Loot if any condition passed ---
     /if (${shouldLoot}) {
         /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
-        /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check"
+        /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
         /call LootItemWithSound ${slot}
     } else {
+        /call LogSkippedItem "${lootName}" "No criteria met"
         /echo Skipping (no criteria met): ${lootName}
     }
     
@@ -619,6 +696,11 @@ sub PauseMythicalNoDropAlert
     /declare corpseDisplay string local ${pauseAlertCorpseName}
     /if (${corpseDisplay.Length} == 0) /varset corpseDisplay ${Target.DisplayName}
     
+    | Write Mythical alert INI for CoopUI Loot UI
+    /ini "${configPath}/loot_mythical_alert.ini" Alert itemName "${itemDisplay}"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName "${corpseDisplay}"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
+    
     | Two beeps in quick succession
     /beep
     /delay 3
@@ -662,6 +744,33 @@ sub CloseLootWindow
 | FinishLooting                                     |
 | ================================================= |
 sub FinishLooting
+    | Write progress running=0 and clear current corpse for CoopUI Loot UI
+    /ini "${configPath}/loot_progress.ini" Progress running 0
+    /ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
+    
+    | Write loot_session.ini only when this run had items (keeps previous run visible in CoopUI when run had 0 loot)
+    /if (${runLootedCount} > 0) {
+        /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
+        /declare i int local 1
+        /for i 1 to ${runLootedCount}
+            /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
+            /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
+            /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
+        /next i
+        /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
+        /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
+        /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
+        /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
+    }
+    | Write loot_skipped.ini for CoopUI Skip History tab (only when this run had skips; value format name^reason)
+    /if (${runSkippedCount} > 0) {
+        /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
+        /declare j int local 1
+        /for j 1 to ${runSkippedCount}
+            /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
+        /next j
+    }
+    
     /echo ==========================================
     /echo ${Time} Done Looting
     /if (${enableSorting} && ${enableWeightSort}) {
@@ -1268,9 +1377,9 @@ sub ApproachCorpse
 | ================================================= |
 | LogItem - Log item to history file              |
 | ================================================= |
-| Usage: /call LogItem "loot" "ItemName" "Value" "Reason"
+| Usage: /call LogItem "loot" "ItemName" "Value" "Reason" tribute
 | ================================================= |
-sub LogItem(string action, string itemName, int itemValue, string reason)
+sub LogItem(string action, string itemName, int itemValue, string reason, int tribute)
     /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
     /declare logFile string local
     /declare logTimestamp string local
@@ -1280,6 +1389,25 @@ sub LogItem(string action, string itemName, int itemValue, string reason)
         /varset logFile ${logPath}/loot_history.log
     } else {
         /return
+    }
+    
+    | Append to run looted list for CoopUI Loot UI session (names, values, tributes pipe-delimited)
+    /varcalc runLootedCount ${runLootedCount}+1
+    /if (${runLootedList.Length} > 0) {
+        /varset runLootedList ${runLootedList}|${itemName}
+        /varset runLootedValues ${runLootedValues}|${itemValue}
+        /varset runLootedTributes ${runLootedTributes}|${tribute}
+    } else {
+        /varset runLootedList ${itemName}
+        /varset runLootedValues ${itemValue}
+        /varset runLootedTributes ${tribute}
+    }
+    | Run receipt: total value, tribute, best item
+    /varcalc runTotalValue ${runTotalValue}+${itemValue}
+    /varcalc runTributeValue ${runTributeValue}+${tribute}
+    /if (${itemValue} > ${runBestItemValue}) {
+        /varset runBestItemValue ${itemValue}
+        /varset runBestItemName ${itemName}
     }
     
     | Ensure the item_management directory exists
@@ -1317,5 +1445,19 @@ sub LogItem(string action, string itemName, int itemValue, string reason)
         /call ${File[${logFile}].Write[
 ]}
         /call ${File[${logFile}].Close}
+    }
+/return
+
+| ================================================= |
+| LogSkippedItem - Append to run skipped list for CoopUI Skip History |
+| ================================================= |
+sub LogSkippedItem(string itemName, string reason)
+    /varcalc runSkippedCount ${runSkippedCount}+1
+    /if (${runSkippedList.Length} > 0) {
+        /varset runSkippedList ${runSkippedList}|${itemName}
+        /varset runSkippedReasons ${runSkippedReasons}|${reason}
+    } else {
+        /varset runSkippedList ${itemName}
+        /varset runSkippedReasons ${reason}
     }
 /return

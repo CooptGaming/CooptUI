@@ -1144,11 +1144,12 @@ local function renderSimpleProtectionTab()
             ImGui.EndTooltip()
         end
         local prevSuppress = uiState.suppressWhenLootMac
-        uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress when loot.mac running", uiState.suppressWhenLootMac)
+        uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress Loot UI during looting", uiState.suppressWhenLootMac)
         if prevSuppress ~= uiState.suppressWhenLootMac then scheduleLayoutSave() end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Don't auto-show ItemUI when inventory opens while loot.mac runs.")
+            ImGui.Text("When enabled, the Loot UI window will not open when you loot (manual or macro).")
+            ImGui.Text("ItemUI stays hidden during looting either way.")
             ImGui.EndTooltip()
         end
         local prevConfirm = uiState.confirmBeforeDelete
@@ -1406,13 +1407,12 @@ local function renderConfigWindow()
                 ImGui.EndTooltip()
             end
             local prevSuppress = uiState.suppressWhenLootMac
-            uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress when loot.mac running", uiState.suppressWhenLootMac)
+            uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress Loot UI during looting", uiState.suppressWhenLootMac)
             if prevSuppress ~= uiState.suppressWhenLootMac then scheduleLayoutSave() end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("Don't auto-show ItemUI when inventory opens while loot.mac runs.")
-                ImGui.Text("Useful when looting many corpses quickly.")
-                ImGui.Text("You can still open ItemUI manually if needed.")
+                ImGui.Text("When enabled, the Loot UI window will not open when you loot (manual or macro).")
+                ImGui.Text("ItemUI stays hidden during looting either way.")
                 ImGui.EndTooltip()
             end
             local prevConfirm = uiState.confirmBeforeDelete
@@ -1583,6 +1583,10 @@ local function renderConfigWindow()
         if ImGui.CollapsingHeader("Run loot macro", ImGuiTreeNodeFlags.DefaultOpen) then
             renderBreadcrumb("Loot Rules", "Quick actions")
             if ImGui.Button("Auto Loot", ImVec2(100, 0)) then
+                if not uiState.suppressWhenLootMac then
+                    uiState.lootUIOpen = true
+                    uiState.lootRunFinished = false
+                end
                 mq.cmd('/macro loot')
                 setStatusMessage("Running loot macro...")
             end
