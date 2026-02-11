@@ -320,10 +320,9 @@ Sub Main
     | --- Close loot window ---
     /call CloseLootWindow
     
-    | --- Update progress INI for CoopUI Loot UI (currentCorpseName already set before close) ---
+    | --- Update progress INI for CoopUI Loot UI (corpsesLooted only; currentCorpse already written at start of looting) ---
     /varcalc corpsesLooted ${corpsesLooted}+1
     /ini "${configPath}/loot_progress.ini" Progress corpsesLooted ${corpsesLooted}
-    /ini "${configPath}/loot_progress.ini" Progress currentCorpse "${currentCorpseName}"
     
     | --- Loot current mode: one corpse then finish ---
     /if (${doCurrentOnly}) {

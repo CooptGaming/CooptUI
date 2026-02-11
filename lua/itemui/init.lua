@@ -272,8 +272,15 @@ layoutUtils.init({
 local sellItems = {}  -- inventory + sell status when merchant open
 local sellMacState = { lastRunning = false, failedItems = {}, failedCount = 0, showFailedUntil = 0, smoothedFrac = 0 }
 local lootMacState = { lastRunning = false, pendingScan = false, finishedAt = 0 }  -- detect loot macro finish for background inventory scan
-local LOOT_PROGRESS_POLL_MS = 300
-local lootProgressPollAt = 0
+-- Pack loot loop state into one table to stay under Lua 60-upvalue limit for main()
+local lootLoopRefs = {
+    pollMs = 500,
+    pollAt = 0,
+    deferMs = 2000,
+    saveHistoryAt = 0,
+    saveSkipAt = 0,
+    sellStatusCap = 30,
+}
 local LOOT_HISTORY_MAX = 200
 local LOOT_HISTORY_DELIM = "\1"  -- ASCII 1 (safe in INI values; avoids | or tab in item names)
 local function loadLootHistoryFromFile()
@@ -336,6 +343,8 @@ local function saveSkipHistoryToFile()
         mq.cmdf('/ini "%s" Skip %d "%s"', path, i, val:gsub('"', '""'))
     end
 end
+lootLoopRefs.saveLootHistory = saveLootHistoryToFile
+lootLoopRefs.saveSkipHistory = saveSkipHistoryToFile
 local bankCache = {}
 -- Scan state (shared with itemui.services.scan): one table to stay under local/upvalue limits
 local scanState = {
@@ -734,6 +743,18 @@ local function renderLootWindow()
     ctx.loadSkipHistory = function()
         if not uiState.skipHistory then loadSkipHistoryFromFile() end
         if not uiState.skipHistory then uiState.skipHistory = {} end
+    end
+    ctx.clearLootHistory = function()
+        uiState.lootHistory = {}
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
+        if path and path ~= "" then mq.cmdf('/ini "%s" History count 0', path) end
+        lootLoopRefs.saveHistoryAt = 0
+    end
+    ctx.clearSkipHistory = function()
+        uiState.skipHistory = {}
+        local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
+        if path and path ~= "" then mq.cmdf('/ini "%s" Skip count 0', path) end
+        lootLoopRefs.saveSkipAt = 0
     end
     LootUIView.render(ctx)
 end
@@ -1383,9 +1404,11 @@ local function main()
                                     table.insert(uiState.lootRunLootedList, name)
                                     local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
                                     local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
-                                    local statusText, willSell = "", false
-                                    if getSellStatusForItem then statusText, willSell = getSellStatusForItem({ name = name }) end
-                                    if statusText == "" then statusText = "—" end
+                                    local statusText, willSell = "—", false
+                                    if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
+                                        statusText, willSell = getSellStatusForItem({ name = name })
+                                        if statusText == "" then statusText = "—" end
+                                    end
                                     table.insert(uiState.lootRunLootedItems, {
                                         name = name,
                                         value = tonumber(valStr) or 0,
@@ -1408,7 +1431,7 @@ local function main()
                                 table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
                             end
                             while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
-                            saveLootHistoryToFile()
+                            lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                         end
                     end
                     -- Append this run's skipped items to Skip History (read loot_skipped.ini)
@@ -1427,7 +1450,7 @@ local function main()
                                 end
                             end
                             while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end
-                            saveSkipHistoryToFile()
+                            lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                         end
                     end
                     uiState.lootRunFinished = true
@@ -1445,28 +1468,40 @@ local function main()
                     end
                 end
             end
-            if (lootMacRunning or uiState.lootUIOpen) and (now - lootProgressPollAt) >= LOOT_PROGRESS_POLL_MS then
-                lootProgressPollAt = now
+            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMs * 2)
+            if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
+                lootLoopRefs.pollAt = now
                 local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
                 if progPath and progPath ~= "" then
                     uiState.lootRunCorpsesLooted = tonumber(config.safeIniValueByPath(progPath, "Progress", "corpsesLooted", "0")) or 0
                     uiState.lootRunTotalCorpses = tonumber(config.safeIniValueByPath(progPath, "Progress", "totalCorpses", "0")) or 0
                     uiState.lootRunCurrentCorpse = config.safeIniValueByPath(progPath, "Progress", "currentCorpse", "") or ""
                 end
-                local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-                if alertPath and alertPath ~= "" then
-                    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-                    if itemName and itemName ~= "" then
-                        uiState.lootMythicalAlert = {
-                            itemName = itemName,
-                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
-                        }
-                    else
-                        uiState.lootMythicalAlert = nil
+                if lootMacRunning then
+                    local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+                    if alertPath and alertPath ~= "" then
+                        local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+                        if itemName and itemName ~= "" then
+                            uiState.lootMythicalAlert = {
+                                itemName = itemName,
+                                corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                            }
+                        else
+                            uiState.lootMythicalAlert = nil
+                        end
                     end
                 end
             end
             lootMacState.lastRunning = lootMacRunning
+        end
+        -- Deferred loot/skip history saves (avoid blocking macro-finish frame)
+        if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt then
+            lootLoopRefs.saveHistoryAt = 0
+            lootLoopRefs.saveLootHistory()
+        end
+        if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt then
+            lootLoopRefs.saveSkipAt = 0
+            lootLoopRefs.saveSkipHistory()
         end
         processSellQueue()
         -- Handle pending quantity pickup action (non-blocking, runs in main loop)
