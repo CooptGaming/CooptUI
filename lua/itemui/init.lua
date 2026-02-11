@@ -121,11 +121,6 @@ local perfCache = {
     sellLogPath = nil,  -- Macros/logs/item_management (set in main)
     sellConfigPendingRefresh = false,  -- debounce: run at most one row refresh per frame after CONFIG_SELL_CHANGED
 }
--- Invalidate stored-inv cache when we save so inventory Status column stays in sync with sell view
-do
-    local _saveInv = storage.saveInventory
-    storage.saveInventory = function(items) _saveInv(items); perfCache.storedInvByName = nil end
-end
 
 -- Forward declaration: defined after willItemBeSold (used by scanInventory and save paths)
 local computeAndAttachSellStatus
@@ -263,7 +258,13 @@ local scanState = {
     lastInventoryFingerprint = "",
     lastScanState = { invOpen = false, bankOpen = false, merchOpen = false, lootOpen = false },
     lastBagFingerprints = {},
+    nextAcquiredSeq = 1,  -- static order for Acquired column (no per-frame time math)
 }
+-- Invalidate stored-inv cache when we save; pass nextAcquiredSeq so acquired order persists (must be after scanState)
+do
+    local _saveInv = storage.saveInventory
+    storage.saveInventory = function(items) _saveInv(items, scanState.nextAcquiredSeq); perfCache.storedInvByName = nil end
+end
 -- Deferred scan flags - for instant UI open (load snapshot first, scan after UI shown)
 local deferredScanNeeded = { inventory = false, bank = false, sell = false }
 

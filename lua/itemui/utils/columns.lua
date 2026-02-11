@@ -40,7 +40,7 @@ function Columns.getColumnKeyByIndex(view, index)
 end
 
 function Columns.isNumericColumn(colKey)
-    local numericKeys = {"Value", "Weight", "Bag", "Slot", "Stack", "StackSizeMax", "ID", "Icon", "AugSlots", "Container", "Size", "SizeCapacity", "Tribute", "RequiredLevel", "RecommendedLevel", "InstrumentMod"}
+    local numericKeys = {"Value", "Weight", "Bag", "Slot", "Stack", "StackSizeMax", "ID", "Icon", "AugSlots", "Container", "Size", "SizeCapacity", "Tribute", "RequiredLevel", "RecommendedLevel", "InstrumentMod", "Acquired"}
     for _, key in ipairs(numericKeys) do
         if colKey == key then return true end
     end
@@ -70,6 +70,10 @@ function Columns.getCellDisplayText(item, colKey, view)
     elseif colKey == "RequiredLevel" then return tostring(item.requiredLevel or 0)
     elseif colKey == "RecommendedLevel" then return tostring(item.recommendedLevel or 0)
     elseif colKey == "InstrumentMod" then return tostring(item.instrumentMod or 0)
+    elseif colKey == "Acquired" then
+        local seq = item.acquiredSeq
+        if not seq or seq == 0 then return "—" end
+        return "#" .. tostring(seq)
     elseif colKey == "Status" then return (view == "Sell" and (item.sellReason or "")) or (view == "Bank" and "") or ""
     elseif colKey == "NoDrop" then return item.nodrop and "Yes" or "No"
     elseif colKey == "NoTrade" then return item.notrade and "Yes" or "No"
