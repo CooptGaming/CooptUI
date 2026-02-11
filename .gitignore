@@ -52,6 +52,11 @@ Macros/sell_config/sell_cache.ini
 Macros/sell_config/itemui_layout.ini
 Macros/sell_config/itemui_filter_presets.ini
 Macros/sell_config/itemui_last_filters.ini
+Macros/loot_config/loot_history.ini
+Macros/loot_config/loot_progress.ini
+Macros/loot_config/loot_session.ini
+Macros/loot_config/loot_skipped.ini
+Macros/loot_config/skip_history.ini
 Macros/bank_data/
 Macros/logs/
 
