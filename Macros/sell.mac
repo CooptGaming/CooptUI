@@ -678,7 +678,8 @@ sub LoadConfig(bool verbose)
     }
     /varset protectEpic ${Bool[${protectEpic}]}
 
-    | Load Epic Items (chunked - do NOT merge). Respect epic_classes.ini: if any class=TRUE, only those classes; else full list.
+    | Load Epic Items. Prefer Lua-written epic_items_resolved.ini (chunk1..chunk4); fall back to epic_classes.ini + per-class INIs if resolved missing.
+    /declare epicResolvedFile string local ${sharedConfigPath}/epic_items_resolved.ini
     /declare epicExactFile string local ${sharedConfigPath}/epic_items_exact.ini
     /declare epicClassesFile string local ${sharedConfigPath}/epic_classes.ini
     /varset epicExact
@@ -686,92 +687,50 @@ sub LoadConfig(bool verbose)
     /varset epicExact3
     /varset epicExact4
     /if (${protectEpic}) {
-        /declare anyEpicClass int local 0
-        /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${anyEpicClass}) {
-            /varset epicChunkIdx 1
-            /declare epicList string local
-            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
+        /declare resolvedChunk1 string local ${Ini[${epicResolvedFile},Items,chunk1]}
+        /if (${resolvedChunk1.Length} > 0) {
+            /varset epicExact ${resolvedChunk1}
+            /varset epicExact2 ${Ini[${epicResolvedFile},Items,chunk2]}
+            /varset epicExact3 ${Ini[${epicResolvedFile},Items,chunk3]}
+            /varset epicExact4 ${Ini[${epicResolvedFile},Items,chunk4]}
         } else {
-            | No class selected - skip epic check (do not load any epic list)
+            /declare anyEpicClass int local 0
+            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${anyEpicClass}) {
+                /varset epicChunkIdx 1
+                /declare epicList string local
+                /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+            }
         }
     }
     

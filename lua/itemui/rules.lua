@@ -11,6 +11,8 @@ local readSharedListValue = config.readSharedListValue
 local readLootINIValue = config.readLootINIValue
 local readLootListValue = config.readLootListValue
 local readListValue = config.readListValue
+local writeSharedINIValue = config.writeSharedINIValue
+local MAX_INI_CHUNK_LEN = config.MAX_INI_CHUNK_LEN or 2000
 
 --- Filter out null/nil placeholders that shouldn't be in filter lists
 local function isValidFilterEntry(t)
@@ -68,6 +70,34 @@ local function loadEpicItemSetByClass()
         parseEpicListIntoSet(epicStr, set)
     end
     return set
+end
+
+--- Write epic item set to shared_config/epic_items_resolved.ini for the macro (chunk1..chunk4, each <= MAX_INI_CHUNK_LEN).
+--- Macro reads these chunks into epicExact, epicExact2, etc. so it does not need to read 15+ class INIs.
+local function writeEpicResolvedToIni(set)
+    if not set or not writeSharedINIValue then return end
+    local list = {}
+    for name, _ in pairs(set) do list[#list + 1] = name end
+    table.sort(list)
+    local full = table.concat(list, "/")
+    local chunks = {}
+    for i = 1, 4 do chunks[i] = "" end
+    local idx, pos = 1, 1
+    while pos <= #full and idx <= 4 do
+        local chunkEnd = math.min(pos + MAX_INI_CHUNK_LEN - 1, #full)
+        if chunkEnd < #full then
+            local seg = full:sub(pos, chunkEnd)
+            local revSlash = seg:reverse():find("/")
+            if revSlash then chunkEnd = pos + (#seg - revSlash) - 1 end
+        end
+        chunks[idx] = full:sub(pos, chunkEnd)
+        pos = chunkEnd + 1
+        if pos <= #full and full:sub(pos, pos) == "/" then pos = pos + 1 end
+        idx = idx + 1
+    end
+    for i = 1, 4 do
+        writeSharedINIValue("epic_items_resolved.ini", "Items", "chunk" .. i, chunks[i] or "")
+    end
 end
 
 -- ============================================================================
@@ -173,6 +203,7 @@ local function loadSellConfigCache()
     cache.epicItemSet = {}
     if cache.protectEpic then
         cache.epicItemSet = loadEpicItemSetByClass()
+        writeEpicResolvedToIni(cache.epicItemSet)
     end
 
     return cache
@@ -382,6 +413,7 @@ local function loadLootConfigCache()
     cache.epicItemSet = {}
     if cache.alwaysLootEpic then
         cache.epicItemSet = loadEpicItemSetByClass()
+        writeEpicResolvedToIni(cache.epicItemSet)
     end
 
     return cache

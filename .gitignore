@@ -57,6 +57,7 @@ Macros/loot_config/loot_progress.ini
 Macros/loot_config/loot_session.ini
 Macros/loot_config/loot_skipped.ini
 Macros/loot_config/skip_history.ini
+Macros/shared_config/epic_items_resolved.ini
 Macros/bank_data/
 Macros/logs/
 

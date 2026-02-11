@@ -275,11 +275,13 @@ local lootMacState = { lastRunning = false, pendingScan = false, finishedAt = 0 
 -- Pack loot loop state into one table to stay under Lua 60-upvalue limit for main()
 local lootLoopRefs = {
     pollMs = 500,
+    pollMsIdle = 1000,   -- when Loot UI open but macro not running (O9: slower poll)
     pollAt = 0,
     deferMs = 2000,
     saveHistoryAt = 0,
     saveSkipAt = 0,
     sellStatusCap = 30,
+    pendingSession = false,  -- defer session table build by one frame when macro stops
 }
 local LOOT_HISTORY_MAX = 200
 local LOOT_HISTORY_DELIM = "\1"  -- ASCII 1 (safe in INI values; avoids | or tab in item names)
@@ -1389,12 +1391,29 @@ local function main()
             if lootMacState.lastRunning and not lootMacRunning then
                 lootMacState.pendingScan = true
                 lootMacState.finishedAt = now
+                -- Defer session table build to next frame (smoother UI, no hitch on macro-stop frame)
+                lootLoopRefs.pendingSession = true
+                -- When macro stops, show Loot UI if Mythical alert INI was written (real pause or /macro loot test)
+                local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+                if alertPath and alertPath ~= "" then
+                    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+                    if itemName and itemName ~= "" then
+                        uiState.lootMythicalAlert = {
+                            itemName = itemName,
+                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                        }
+                        uiState.lootUIOpen = true
+                    end
+                end
+            end
+            -- Process deferred session build (one frame after macro stopped)
+            if lootLoopRefs.pendingSession then
+                lootLoopRefs.pendingSession = nil
                 if uiState.lootUIOpen then
                     local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
                     if sessionPath and sessionPath ~= "" then
                         local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
                         local count = tonumber(countStr) or 0
-                        -- Only replace list when the run that just finished had items (persist previous run's list otherwise)
                         if count > 0 then
                             uiState.lootRunLootedList = {}
                             uiState.lootRunLootedItems = {}
@@ -1424,7 +1443,6 @@ local function main()
                             uiState.lootRunTributeValue = tonumber(tv) or 0
                             uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
                             uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
-                            -- Append to Loot History tab (cumulative)
                             if not uiState.lootHistory then loadLootHistoryFromFile() end
                             if not uiState.lootHistory then uiState.lootHistory = {} end
                             for _, row in ipairs(uiState.lootRunLootedItems) do
@@ -1434,7 +1452,6 @@ local function main()
                             lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                         end
                     end
-                    -- Append this run's skipped items to Skip History (read loot_skipped.ini)
                     local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
                     if skippedPath and skippedPath ~= "" then
                         local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
@@ -1455,27 +1472,16 @@ local function main()
                     end
                     uiState.lootRunFinished = true
                 end
-                -- When macro stops, show Loot UI if Mythical alert INI was written (real pause or /macro loot test)
-                local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-                if alertPath and alertPath ~= "" then
-                    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-                    if itemName and itemName ~= "" then
-                        uiState.lootMythicalAlert = {
-                            itemName = itemName,
-                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
-                        }
-                        uiState.lootUIOpen = true
-                    end
-                end
             end
-            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMs * 2)
+            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
             if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
                 lootLoopRefs.pollAt = now
                 local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
-                if progPath and progPath ~= "" then
-                    uiState.lootRunCorpsesLooted = tonumber(config.safeIniValueByPath(progPath, "Progress", "corpsesLooted", "0")) or 0
-                    uiState.lootRunTotalCorpses = tonumber(config.safeIniValueByPath(progPath, "Progress", "totalCorpses", "0")) or 0
-                    uiState.lootRunCurrentCorpse = config.safeIniValueByPath(progPath, "Progress", "currentCorpse", "") or ""
+                if progPath and progPath ~= "" and config.readLootProgressSection then
+                    local corpses, total, current = config.readLootProgressSection(progPath)
+                    uiState.lootRunCorpsesLooted = corpses
+                    uiState.lootRunTotalCorpses = total
+                    uiState.lootRunCurrentCorpse = current or ""
                 end
                 if lootMacRunning then
                     local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")

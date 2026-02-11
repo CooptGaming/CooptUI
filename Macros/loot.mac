@@ -40,11 +40,8 @@ Sub Main
 | ------------------------------------------------- |
 | RUNTIME VARIABLES                                 |
 | ------------------------------------------------- |
-/if (!${Defined[Alert]}) {
-    /declare Alert int outer 1
-} else {
-    /varset Alert 1
-}
+| Alert ID for /tar noalert (use unique name to avoid conflict with MQ2 Alert TLO/command)
+/declare lootNoAlertID int outer 1
 /declare loottotal int outer 0
 /declare lootslot int outer 0
 /declare lootName string outer
@@ -62,7 +59,19 @@ Sub Main
 | ------------------------------------------------- |
 | Lore item cache (session-based, reduces FindItem calls)
 | Format: pipe-delimited string (e.g. "|ItemName1|ItemName2|")
-/declare loreItemCache string outer |
+/declare loreItemCache string outer
+
+| Two-pass loot: decide-only mode and slots-to-loot list (slash-delimited, e.g. "1/3/5")
+/declare decideOnly bool outer FALSE
+/declare slotsToLoot string outer
+/declare slotIdx int outer 1
+/declare slotCount int outer 0
+/declare slotNum string outer
+
+| Session caches: fast-skip/fast-loot by name for rest of run (cleared at START LOOTING)
+| Format: pipe-delimited (e.g. "|Name1|Name2|")
+/declare skippedNamesThisSession string outer
+/declare lootedNamesThisSession string outer
 
 | ------------------------------------------------- |
 | CONFIGURATION VARIABLES                           |
@@ -96,6 +105,8 @@ Sub Main
 /declare testMythicalPauseItem string outer
 /declare pauseAlertItemName string outer
 /declare pauseAlertCorpseName string outer
+/declare quietMode bool outer FALSE
+/declare lootDelayTicks int outer 2
 
 | Epic Items (when alwaysLootEpic - chunked to avoid buffer overflow, do NOT merge)
 | When epic_classes.ini has any class=TRUE, only those classes' lists are loaded; else full epic_items_exact.ini
@@ -132,6 +143,7 @@ Sub Main
 /declare runTributeValue int outer 0
 /declare runBestItemName string outer
 /declare runBestItemValue int outer 0
+/declare waitCount int outer 0
 
 | ------------------------------------------------- |
 | LOAD CONFIGURATION                                |
@@ -196,6 +208,8 @@ Sub Main
 /varset runTributeValue 0
 /varset runBestItemName
 /varset runBestItemValue 0
+/varset skippedNamesThisSession
+/varset lootedNamesThisSession
 
 | Loot current mode: require corpse targeted
 /if (${doCurrentOnly}) {
@@ -210,10 +224,8 @@ Sub Main
 
 /varset corpsesLooted 0
 /varset currentCorpseName
-/ini "${configPath}/loot_progress.ini" Progress running 1
-/ini "${configPath}/loot_progress.ini" Progress totalCorpses ${totalCorpses}
-/ini "${configPath}/loot_progress.ini" Progress corpsesLooted 0
-/ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
+/declare progressRunning int outer 1
+/ini "${configPath}/loot_progress.ini" Progress line "1##0##${totalCorpses}##"
 
 /echo ==========================================
 /echo Loot Macro v4.0 Started
@@ -255,7 +267,7 @@ Sub Main
     /if (${doCurrentOnly}) {
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     } else {
-        /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+        /tar npccorpse${If[${lootNoAlertID}, noalert ${lootNoAlertID},]}
         /delay 1
         /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
@@ -273,13 +285,20 @@ Sub Main
     | --- Clear cursor before looting ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay ${lootDelayTicks} !${Cursor.ID}
     }
     
-    | --- Open loot window ---
+    | --- Open loot window (proceed as soon as open, max 10 ticks) ---
     /loot
     /doevents
-    /delay 10 ${Window[LootWnd].Open}
+    /varset waitCount 0
+:WaitLootWnd
+    /delay 1
+    /if (${Window[LootWnd].Open}) /goto :AfterWaitLootWnd
+    /varcalc waitCount ${waitCount}+1
+    /if (${waitCount} >= 10) /goto :AfterWaitLootWnd
+    /goto :WaitLootWnd
+:AfterWaitLootWnd
 
     | --- Verify loot window is open ---
     /if (!${Window[LootWnd].Open}) {
@@ -288,41 +307,63 @@ Sub Main
         /goto :mainlootloop
     }
     
-    | --- Small delay to ensure items are loaded ---
-    /delay 2
-
-    | --- Count items on corpse ---
-    /varset loottotal ${Corpse.Items} 
+    | --- Count items (delay 1 only if not yet loaded) ---
+    /varset loottotal ${Corpse.Items}
+    /if (${loottotal} <= 0) {
+        /delay 1
+        /varset loottotal ${Corpse.Items}
+    }
     /if (${loottotal} <= 0) { 
         /call CloseLootWindow
         /goto :mainlootloop 
     } 
-    | --- Update CoopUI Loot UI "Current:" (corpse name while looting; Corpse.DisplayName is valid while LootWnd open)
+    | --- CoopUI Loot UI: corpse name (written with progress at end of corpse)
     /varset currentCorpseName ${Corpse.DisplayName}
-    /ini "${configPath}/loot_progress.ini" Progress currentCorpse "${currentCorpseName}"
     
-    | --- Process each item on corpse ---
+    | --- Pass 1: Evaluate all items, build list of slots to loot (no delays) ---
+    /varset slotsToLoot
+    /varset decideOnly TRUE
     /for lootslot 1 to ${loottotal}
-        | Verify loot window is still open before each item
         /if (!${Window[LootWnd].Open}) {
             /echo Warning: Loot window closed unexpectedly
             /goto :mainlootloop
         }
         /if (${Corpse.Item[${lootslot}].ID}) /call EvaluateItem ${lootslot}
     /next lootslot
+    /varset decideOnly FALSE
+    
+    | --- Pass 2: Loot only the slots we decided to take ---
+    /if (${slotsToLoot.Length} > 0) {
+        /varset slotIdx 1
+        /varset slotCount ${Math.Calc[${slotsToLoot.Count[/]}+1]}
+        /while (${slotIdx} <= ${slotCount}) {
+            /varset slotNum ${slotsToLoot.Token[${slotIdx},/]}
+            /if (${slotNum.Length} > 0 && ${Corpse.Item[${slotNum}].ID}) {
+                /varset lootName ${Corpse.Item[${slotNum}].Name}
+                /call LootItemWithSound ${slotNum}
+            }
+            /varcalc slotIdx ${slotIdx}+1
+        }
+    }
     
     | --- Clear any item left on cursor ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay ${lootDelayTicks} !${Cursor.ID}
     }
     
     | --- Close loot window ---
     /call CloseLootWindow
     
-    | --- Update progress INI for CoopUI Loot UI (corpsesLooted only; currentCorpse already written at start of looting) ---
+    | --- One progress update per corpse for CoopUI Loot UI (single line: running##corpsesLooted##totalCorpses##currentCorpse) ---
     /varcalc corpsesLooted ${corpsesLooted}+1
-    /ini "${configPath}/loot_progress.ini" Progress corpsesLooted ${corpsesLooted}
+    /ini "${configPath}/loot_progress.ini" Progress line "1##${corpsesLooted}##${totalCorpses}##${currentCorpseName}"
+    
+    | --- Target next corpse so next iteration does not wait on /tar ---
+    /if (!${doCurrentOnly}) {
+        /tar npccorpse${If[${lootNoAlertID}, noalert ${lootNoAlertID},]}
+        /delay 1
+    }
     
     | --- Loot current mode: one corpse then finish ---
     /if (${doCurrentOnly}) {
@@ -338,15 +379,50 @@ Sub Main
 | EvaluateItem - Hierarchical loot decision         |
 | ================================================= |
 sub EvaluateItem(int slot)
-    | --- Cache item properties into variables ---
+    | --- Cache item properties into variables (one read per property for speed) ---
     /varset lootName ${Corpse.Item[${slot}].Name}
     /varset lootType ${Corpse.Item[${slot}].Type}
     /varset itemValue ${Corpse.Item[${slot}].Value}
     /varset itemTribute ${Corpse.Item[${slot}].Tribute}
     /varset isStackable ${If[${Corpse.Item[${slot}].StackSize}>1,TRUE,FALSE]}
     /varset isLore ${Corpse.Item[${slot}].Lore}
+    /declare itemNoDrop bool local ${Corpse.Item[${slot}].NoDrop}
+    /declare itemNoTrade bool local ${Corpse.Item[${slot}].NoTrade}
+    /declare itemWornSlots int local ${Corpse.Item[${slot}].WornSlots}
+    /declare itemClickySpellID int local ${Corpse.Item[${slot}].Clicky.Spell.ID}
+    /declare itemClickyEffectType int local ${Corpse.Item[${slot}].Clicky.EffectType}
+    /declare itemQuest bool local ${Corpse.Item[${slot}].Quest}
+    /declare itemCollectible bool local ${Corpse.Item[${slot}].Collectible}
+    /declare itemHeirloom bool local ${Corpse.Item[${slot}].Heirloom}
+    /declare itemAttuneable bool local ${Corpse.Item[${slot}].Attuneable}
+    /declare itemAug1 int local ${Corpse.Item[${slot}].AugSlot1}
+    /declare itemAug2 int local ${Corpse.Item[${slot}].AugSlot2}
+    /declare itemAug3 int local ${Corpse.Item[${slot}].AugSlot3}
+    /declare itemAug4 int local ${Corpse.Item[${slot}].AugSlot4}
+    /declare itemAug5 int local ${Corpse.Item[${slot}].AugSlot5}
     /varset shouldLoot FALSE
     /varset skipItem FALSE
+
+    | =========================================== |
+    | SESSION CACHE: fast-skip if we already skipped this name this run |
+    | =========================================== |
+    /if (${skippedNamesThisSession.Find[|${lootName}|]}) {
+        /call LogSkippedItem "${lootName}" "Skip (cached this session)"
+        /return
+    }
+
+    | =========================================== |
+    | SESSION CACHE: fast-loot if we already looted this name this run |
+    | =========================================== |
+    /if (${lootedNamesThisSession.Find[|${lootName}|]}) {
+        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
+        /call LootItemWithSound ${slot}
+        /return
+    }
 
     | =========================================== |
     | PRIORITY 0: LORE CHECK (CRITICAL)          |
@@ -361,7 +437,8 @@ sub EvaluateItem(int slot)
         | Check cache first (fast string search)
         /if (${loreItemCache.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
-            /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /call AddToSkippedSessionCache
+            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
         
@@ -372,20 +449,19 @@ sub EvaluateItem(int slot)
             | Add to cache for future checks this session
             /varset loreItemCache ${loreItemCache}${cacheKey}
             /call LogSkippedItem "${lootName}" "Lore duplicate"
-            /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
+            /call AddToSkippedSessionCache
+            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
             /return
         }
     }
 
-    /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
+    /if (!${quietMode}) /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
     
     | =========================================== |
     | MYTHICAL NODROP/NOTRADE PAUSE (optional)   |
     | =========================================== |
     | When enabled: Mythical + (NoDrop or NoTrade) or test-match -> pause, alert group, leave item on corpse
-    /declare isNoDropNoTrade bool local FALSE
-    /if (${Corpse.Item[${slot}].NoDrop} || ${Corpse.Item[${slot}].NoTrade}) /varset isNoDropNoTrade TRUE
-    /if (${isNoDropNoTrade}) {
+    /if (${itemNoDrop} || ${itemNoTrade}) {
         /declare doPause bool local FALSE
         /if (${pauseOnMythicalNoDropNoTrade} && ${lootName.Find[Mythical]}) /varset doPause TRUE
         /if (${testMythicalPause} && ${testMythicalPauseItem.Length} > 0 && ${lootName.Find[${testMythicalPauseItem}]}) /varset doPause TRUE
@@ -399,29 +475,21 @@ sub EvaluateItem(int slot)
     | =========================================== |
     | PRIORITY 0.5: EPIC ITEMS (always loot)     |
     | =========================================== |
-    | EPIC quest items are always looted (even if in skip list). Check each chunk separately to avoid buffer overflow.
+    | EPIC quest items are always looted (even if in skip list). Skip CheckFilterList when chunk empty.
     /if (${alwaysLootEpic}) {
-        /if (${epicExact.Length} > 0) {
-            /call CheckFilterList "${epicExact}" "${lootName}" FALSE TRUE
-            /if (${shouldLoot}) /goto :LootEpicItem
-        }
-        /if (${epicExact2.Length} > 0) {
-            /call CheckFilterList "${epicExact2}" "${lootName}" FALSE TRUE
-            /if (${shouldLoot}) /goto :LootEpicItem
-        }
-        /if (${epicExact3.Length} > 0) {
-            /call CheckFilterList "${epicExact3}" "${lootName}" FALSE TRUE
-            /if (${shouldLoot}) /goto :LootEpicItem
-        }
-        /if (${epicExact4.Length} > 0) {
-            /call CheckFilterList "${epicExact4}" "${lootName}" FALSE TRUE
-            /if (${shouldLoot}) /goto :LootEpicItem
-        }
+        /if (${epicExact.Length} > 0) { /call CheckFilterList "${epicExact}" "${lootName}" FALSE TRUE /if (${shouldLoot}) /goto :LootEpicItem }
+        /if (${epicExact2.Length} > 0) { /call CheckFilterList "${epicExact2}" "${lootName}" FALSE TRUE /if (${shouldLoot}) /goto :LootEpicItem }
+        /if (${epicExact3.Length} > 0) { /call CheckFilterList "${epicExact3}" "${lootName}" FALSE TRUE /if (${shouldLoot}) /goto :LootEpicItem }
+        /if (${epicExact4.Length} > 0) { /call CheckFilterList "${epicExact4}" "${lootName}" FALSE TRUE /if (${shouldLoot}) /goto :LootEpicItem }
     }
     /goto :AfterEpicCheck
 :LootEpicItem
-    /echo LOOTING (Epic quest item): ${lootName}
+    /if (!${quietMode}) /echo LOOTING (Epic quest item): ${lootName}
     /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item" ${itemTribute}
+    /if (${decideOnly}) {
+        /call AddSlotToLootList ${slot}
+        /return
+    }
     /call LootItemWithSound ${slot}
     /return
 :AfterEpicCheck
@@ -429,34 +497,21 @@ sub EvaluateItem(int slot)
     | =========================================== |
     | PRIORITY 1: SKIP LISTS (HIGHEST PRIORITY)  |
     | =========================================== |
-    | Check skip lists - if item matches, skip it
-    /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE
-    /if (${skipItem}) {
-        /call LogSkippedItem "${lootName}" "Skip exact"
-        /echo SKIPPING (skip exact): ${lootName}
-        /return
-    }
-    
-    /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE
-    /if (${skipItem}) {
-        /call LogSkippedItem "${lootName}" "Skip keyword"
-        /echo SKIPPING (skip keyword): ${lootName}
-        /return
-    }
-    
-    /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE
-    /if (${skipItem}) {
-        /call LogSkippedItem "${lootName}" "Skip type"
-        /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
-        /return
-    }
+    | Check skip lists - if item matches, skip it. Skip call when list empty.
+    /if (${skipExact.Length} > 0) { /call CheckFilterList "${skipExact}" "${lootName}" TRUE TRUE /if (${skipItem}) { /call LogSkippedItem "${lootName}" "Skip exact" /call AddToSkippedSessionCache /if (!${quietMode}) /echo SKIPPING (skip exact): ${lootName} /return } }
+    /if (${skipContains.Length} > 0) { /call CheckFilterList "${skipContains}" "${lootName}" TRUE FALSE /if (${skipItem}) { /call LogSkippedItem "${lootName}" "Skip keyword" /call AddToSkippedSessionCache /if (!${quietMode}) /echo SKIPPING (skip keyword): ${lootName} /return } }
+    /if (${skipTypes.Length} > 0) { /call CheckFilterList "${skipTypes}" "${lootType}" TRUE TRUE /if (${skipItem}) { /call LogSkippedItem "${lootName}" "Skip type" /call AddToSkippedSessionCache /if (!${quietMode}) /echo SKIPPING (skip type): ${lootName} (Type: ${lootType}) /return } }
     
     | =========================================== |
     | PRIORITY 2: TRIBUTE OVERRIDE                |
     | =========================================== |
     /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
-        /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
+        /if (!${quietMode}) /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
         /call LogItem "loot" "${lootName}" ${itemValue} "tribute override" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
         /return
     }
@@ -464,35 +519,15 @@ sub EvaluateItem(int slot)
     | =========================================== |
     | PRIORITY 3: Always Loot - Exact Names       |
     | =========================================== |
-    /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE
-    /if (${shouldLoot}) {
-        /echo LOOTING (always loot exact): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute}
-        /call LootItemWithSound ${slot}
-        /return
-    }
-    
+    /if (${alwaysLootExact.Length} > 0) { /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE /if (${shouldLoot}) { /if (!${quietMode}) /echo LOOTING (always loot exact): ${lootName} /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute} /if (${decideOnly}) { /call AddSlotToLootList ${slot} /return } /call LootItemWithSound ${slot} /return } }
     | =========================================== |
     | PRIORITY 4: Always Loot - Contains         |
     | =========================================== |
-    /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE
-    /if (${shouldLoot}) {
-        /echo LOOTING (always loot keyword): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute}
-        /call LootItemWithSound ${slot}
-        /return
-    }
-    
+    /if (${alwaysLootContains.Length} > 0) { /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE /if (${shouldLoot}) { /if (!${quietMode}) /echo LOOTING (always loot keyword): ${lootName} /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute} /if (${decideOnly}) { /call AddSlotToLootList ${slot} /return } /call LootItemWithSound ${slot} /return } }
     | =========================================== |
     | PRIORITY 5: Always Loot - Item Types        |
     | =========================================== |
-    /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE
-    /if (${shouldLoot}) {
-        /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute}
-        /call LootItemWithSound ${slot}
-        /return
-    }
+    /if (${alwaysLootTypes.Length} > 0) { /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE /if (${shouldLoot}) { /if (!${quietMode}) /echo LOOTING (always loot type): ${lootName} (Type: ${lootType}) /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute} /if (${decideOnly}) { /call AddSlotToLootList ${slot} /return } /call LootItemWithSound ${slot} /return } }
     
     | =========================================== |
     | PRIORITY 6: Value Checks                    |
@@ -501,42 +536,63 @@ sub EvaluateItem(int slot)
     /if (!${isStackable} && ${itemValue} >= ${minLootValue}) /varset shouldLoot TRUE
     
     | =========================================== |
-    | PRIORITY 7: Flag Checks                     |
+    | PRIORITY 7: Flag Checks (use cached props) |
     | =========================================== |
-    | Clicky check (wearable items only; EffectType 1/4/5 = Click Inv/Worn, exclude Proc/Worn/Focus)
-    /if (${lootClickies} && ${Corpse.Item[${slot}].WornSlots} && ${Corpse.Item[${slot}].Clicky.Spell.ID}) {
-        /if (${Corpse.Item[${slot}].Clicky.EffectType}==1 || ${Corpse.Item[${slot}].Clicky.EffectType}==4 || ${Corpse.Item[${slot}].Clicky.EffectType}==5) /varset shouldLoot TRUE
-    }
-    
-    | Quest flag check
-    /if (${lootQuest} && ${Corpse.Item[${slot}].Quest}) /varset shouldLoot TRUE
-    
-    | Collectible flag check
-    /if (${lootCollectible} && ${Corpse.Item[${slot}].Collectible}) /varset shouldLoot TRUE
-    
-    | Heirloom flag check
-    /if (${lootHeirloom} && ${Corpse.Item[${slot}].Heirloom}) /varset shouldLoot TRUE
-    
-    | Attuneable flag check
-    /if (${lootAttuneable} && ${Corpse.Item[${slot}].Attuneable}) /varset shouldLoot TRUE
-    
-    | Augment slots check
-    /if (${lootAugSlots}) {
-        /if (${Corpse.Item[${slot}].AugSlot1} || ${Corpse.Item[${slot}].AugSlot2} || ${Corpse.Item[${slot}].AugSlot3} || ${Corpse.Item[${slot}].AugSlot4} || ${Corpse.Item[${slot}].AugSlot5}) {
-            /varset shouldLoot TRUE
-        }
-    }
+    /if (${lootClickies} && ${itemWornSlots} && ${itemClickySpellID} && (${itemClickyEffectType}==1 || ${itemClickyEffectType}==4 || ${itemClickyEffectType}==5)) /varset shouldLoot TRUE
+    /if (${lootQuest} && ${itemQuest}) /varset shouldLoot TRUE
+    /if (${lootCollectible} && ${itemCollectible}) /varset shouldLoot TRUE
+    /if (${lootHeirloom} && ${itemHeirloom}) /varset shouldLoot TRUE
+    /if (${lootAttuneable} && ${itemAttuneable}) /varset shouldLoot TRUE
+    /if (${lootAugSlots} && (${itemAug1} || ${itemAug2} || ${itemAug3} || ${itemAug4} || ${itemAug5})) /varset shouldLoot TRUE
     
     | --- Loot if any condition passed ---
     /if (${shouldLoot}) {
-        /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
+        /if (!${quietMode}) /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
         /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
         /call LootItemWithSound ${slot}
     } else {
         /call LogSkippedItem "${lootName}" "No criteria met"
-        /echo Skipping (no criteria met): ${lootName}
+        /call AddToSkippedSessionCache
+        /if (!${quietMode}) /echo Skipping (no criteria met): ${lootName}
     }
     
+/return
+
+| ================================================= |
+| AddToSkippedSessionCache - Add current lootName to session skip cache |
+| ================================================= |
+sub AddToSkippedSessionCache
+    /if (${skippedNamesThisSession.Length} == 0) {
+        /varset skippedNamesThisSession |${lootName}|
+    } else {
+        /varset skippedNamesThisSession ${skippedNamesThisSession}|${lootName}|
+    }
+/return
+
+| ================================================= |
+| AddToLootedSessionCache - Add current lootName to session loot cache |
+| ================================================= |
+sub AddToLootedSessionCache
+    /if (${lootedNamesThisSession.Length} == 0) {
+        /varset lootedNamesThisSession |${lootName}|
+    } else {
+        /varset lootedNamesThisSession ${lootedNamesThisSession}|${lootName}|
+    }
+/return
+
+| ================================================= |
+| AddSlotToLootList - Append slot to two-pass loot list (slash-delimited)
+| ================================================= |
+sub AddSlotToLootList(int slot)
+    /if (${slotsToLoot.Length} == 0) {
+        /varset slotsToLoot ${slot}
+    } else {
+        /varset slotsToLoot ${slotsToLoot}/${slot}
+    }
 /return
 
 | ================================================= |
@@ -655,18 +711,18 @@ sub LootItem(int slot)
     
     | --- Attempt to loot the item ---
     /ctrl /itemnotify loot${slot} rightmouseup
-    /delay 5 !${Corpse.Item[${slot}].ID}
+    /delay ${lootDelayTicks} !${Corpse.Item[${slot}].ID}
     
     | --- Handle confirmation dialog if it appears ---
     /if (${Window[ConfirmationDialogBox].Open}) {
         /notify ConfirmationDialogBox CD_Yes_Button leftmouseup
-        /delay 3
+        /delay ${lootDelayTicks}
     }
     
-    | --- Handle item on cursor (put in inventory) ---
+    | --- Put item on cursor into inventory (required so next slot can be looted) ---
     /if (${Cursor.ID}) {
         /autoinventory
-        /delay 5 !${Cursor.ID}
+        /delay ${lootDelayTicks} !${Cursor.ID}
     }
     
     | --- Retry if item is still on corpse ---
@@ -680,11 +736,13 @@ sub LootItemWithSound(int slot)
     | --- Check for special items and play sound effect ---
     /if (${lootName.Find[Legendary]} || ${lootName.Find[Mythical]} || ${lootName.Find[Script]}) {
         /beep
-        /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
+        /if (!${quietMode}) /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
     }
 
     | --- Now loot the item ---
     /call LootItem ${slot}
+    | --- Add to session loot cache so we fast-loot same name on later corpses ---
+    /call AddToLootedSessionCache
 /return
 
 | ================================================= |
@@ -736,7 +794,7 @@ sub CloseLootWindow
         /return
     }
     /notify LootWnd DoneButton leftmouseup
-    /delay 3 !${Window[LootWnd].Open}
+    /delay ${lootDelayTicks} !${Window[LootWnd].Open}
     /if (${Window[LootWnd].Open}) /goto :TryClose
 /return
 
@@ -744,9 +802,9 @@ sub CloseLootWindow
 | FinishLooting                                     |
 | ================================================= |
 sub FinishLooting
-    | Write progress running=0 and clear current corpse for CoopUI Loot UI
-    /ini "${configPath}/loot_progress.ini" Progress running 0
-    /ini "${configPath}/loot_progress.ini" Progress currentCorpse ""
+    | Write progress running=0 for CoopUI Loot UI (single line)
+    /varset progressRunning 0
+    /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
     
     | Write loot_session.ini only when this run had items (keeps previous run visible in CoopUI when run had 0 loot)
     /if (${runLootedCount} > 0) {
@@ -782,7 +840,7 @@ sub FinishLooting
     /echo ==========================================
     
     /if (${Me.Grouped}) /g Done Looting
-    /if (${Alert}) /squelch /alert clear ${Alert}
+    /if (${lootNoAlertID}) /squelch /alert clear ${lootNoAlertID}
 /return
 
 | ================================================= |
@@ -971,8 +1029,21 @@ sub LoadConfig(bool verbose)
     } else {
         /varset testMythicalPauseItem
     }
+    /if (${Ini[${flagsFile},Settings,quietMode].Length}) {
+        /varset quietMode ${Ini[${flagsFile},Settings,quietMode]}
+    } else {
+        /varset quietMode FALSE
+    }
+    /if (${Ini[${flagsFile},Settings,lootDelayTicks].Length}) {
+        /varset lootDelayTicks ${Ini[${flagsFile},Settings,lootDelayTicks]}
+    } else {
+        /varset lootDelayTicks 2
+    }
+    /if (${lootDelayTicks} < 1) /varset lootDelayTicks 1
+    /if (${lootDelayTicks} > 5) /varset lootDelayTicks 5
     
-    | Load Epic Items (chunked - do NOT merge). Respect epic_classes.ini: if any class=TRUE, only those classes; else full list.
+    | Load Epic Items. Prefer Lua-written epic_items_resolved.ini (chunk1..chunk4); fall back to epic_classes.ini + per-class INIs if resolved missing.
+    /declare epicResolvedFile string local ${sharedConfigPath}/epic_items_resolved.ini
     /declare epicExactFile string local ${sharedConfigPath}/epic_items_exact.ini
     /declare epicClassesFile string local ${sharedConfigPath}/epic_classes.ini
     /varset epicExact
@@ -980,94 +1051,52 @@ sub LoadConfig(bool verbose)
     /varset epicExact3
     /varset epicExact4
     /if (${alwaysLootEpic}) {
-        | Check if any class is selected in settings (epic_classes.ini)
-        /declare anyEpicClass int local 0
-        /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
-        /if (${anyEpicClass}) {
-            | Load only selected classes' epic lists (chunked to avoid buffer overflow)
-            /varset epicChunkIdx 1
-            /declare epicList string local
-            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
-            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) {
-                /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]}
-                /if (${epicList.Length}) /call AddToEpicChunks "${epicList}"
-            }
+        | Try resolved file first (written by ItemUI Lua when sell/loot config is loaded)
+        /declare resolvedChunk1 string local ${Ini[${epicResolvedFile},Items,chunk1]}
+        /if (${resolvedChunk1.Length} > 0) {
+            /varset epicExact ${resolvedChunk1}
+            /varset epicExact2 ${Ini[${epicResolvedFile},Items,chunk2]}
+            /varset epicExact3 ${Ini[${epicResolvedFile},Items,chunk3]}
+            /varset epicExact4 ${Ini[${epicResolvedFile},Items,chunk4]}
         } else {
-            | No class selected - skip epic check (do not load any epic list)
+            | Fallback: load from epic_classes.ini + per-class epic_items_<class>.ini (chunked)
+            /declare anyEpicClass int local 0
+            /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) /varset anyEpicClass 1
+            /if (${anyEpicClass}) {
+                /varset epicChunkIdx 1
+                /declare epicList string local
+                /if (${Ini[${epicClassesFile},Classes,bard].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_bard.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,beastlord].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_beastlord.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,berserker].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_berserker.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,cleric].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_cleric.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,druid].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_druid.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,enchanter].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_enchanter.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,magician].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_magician.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,monk].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_monk.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,necromancer].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_necromancer.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,paladin].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_paladin.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,ranger].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_ranger.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,rogue].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_rogue.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,shadow_knight].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_shadow_knight.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,shaman].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_shaman.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,warrior].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_warrior.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+                /if (${Ini[${epicClassesFile},Classes,wizard].Equal[TRUE]}) { /varset epicList ${Ini[${sharedConfigPath}/epic_items_wizard.ini,Items,exact]} /if (${epicList.Length}) /call AddToEpicChunks "${epicList}" }
+            }
         }
     }
     
@@ -1123,7 +1152,8 @@ sub LoadConfig(bool verbose)
     /varset alwaysLootEpic ${Bool[${alwaysLootEpic}]}
     /varset enableSorting ${Bool[${enableSorting}]}
     /varset enableWeightSort ${Bool[${enableWeightSort}]}
-    
+    /varset quietMode ${Bool[${quietMode}]}
+
     /if (${verbose}) {
         /echo Configuration loaded!
         /if (${sharedExact.Length} > 0 || ${sharedContains.Length} > 0 || ${sharedTypes.Length} > 0) {
