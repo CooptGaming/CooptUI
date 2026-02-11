@@ -71,7 +71,7 @@ Macros/loot_config/            -- must exist with INI files
 
 **Fix:**
 1. Check that `Macros/sell_config/`, `Macros/shared_config/`, and `Macros/loot_config/` exist
-2. If missing, copy from `config_templates/` in the release zip
+2. If missing, copy from `config_templates/` in the release zip, or run ItemUI and open Config — on first run it may load default protection if `sell_flags.ini` is missing
 3. Check that INI files have content (not empty)
 4. Try clicking "Reload from files" in the Config window
 

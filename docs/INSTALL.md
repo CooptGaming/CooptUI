@@ -4,7 +4,7 @@
 
 - **MacroQuest2** with Lua support (`mq2lua`) and **ImGui** plugin loaded
 - **Windows** (MQ2 is Windows-only)
-- **EverQuest** running on an emulator server (Hero's Journey, etc.)
+- **EverQuest** running on an emulator server
 - Verify: `/lua run` should be a recognized command in-game
 
 ## Downloading
@@ -31,15 +31,19 @@ C:\EQ\MacroQuest2\
 
 Extract `CoopUI_v<version>.zip` directly into your MQ2 root folder. When prompted, choose **merge/overwrite** so that the `lua/`, `Macros/`, and `resources/` folders merge with your existing ones.
 
-### Step 3: Copy config templates (first time only)
+### Step 3: Config (first time only)
 
-If you do **not** already have config INI files, copy the templates:
+If you do **not** already have config INI files:
+
+**Option A — Copy templates:** Copy the contents of `config_templates/` into the matching `Macros/` folders:
 
 ```
 config_templates/sell_config/    →  Macros/sell_config/
 config_templates/shared_config/  →  Macros/shared_config/
 config_templates/loot_config/    →  Macros/loot_config/
 ```
+
+**Option B — First-run defaults:** Run ItemUI (`/lua run itemui`) and open the Config window. If `sell_flags.ini` is missing, ItemUI will load a **default protection list** (common keywords and types) and show a welcome message. You may still need to copy or create other INI files in `Macros/sell_config`, `shared_config`, and `loot_config` for full behavior; see [CONFIGURATION.md](CONFIGURATION.md) for the full list.
 
 If you already have these folders with INI files inside (from SellUI or a previous install), **skip this step** — your existing configs are compatible.
 
