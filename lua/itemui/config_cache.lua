@@ -47,6 +47,8 @@ local function loadConfigCache()
     lootFlags.alwaysLootEpic = config.readLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", "TRUE") == "TRUE"
     lootFlags.pauseOnMythicalNoDropNoTrade = config.readLootINIValue("loot_flags.ini", "Settings", "pauseOnMythicalNoDropNoTrade", "FALSE") == "TRUE"
     lootFlags.alertMythicalGroupChat = config.readLootINIValue("loot_flags.ini", "Settings", "alertMythicalGroupChat", "TRUE") == "TRUE"
+    local delayTicks = tonumber(config.readLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", "2")) or 2
+    lootFlags.lootDelayTicks = math.max(1, math.min(5, delayTicks))
     lootValues.minLoot = tonumber(config.readLootINIValue("loot_value.ini", "Settings", "minLootValue", "999")) or 999
     lootValues.minStack = tonumber(config.readLootINIValue("loot_value.ini", "Settings", "minLootValueStack", "200")) or 200
     lootValues.tributeOverride = tonumber(config.readLootINIValue("loot_value.ini", "Settings", "tributeOverride", "1000")) or 1000

@@ -1627,6 +1627,18 @@ local function renderConfigWindow()
             ImGui.Spacing()
             lootFlag("Pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "When a Mythical item with NoDrop or NoTrade is found, pause the loot macro, beep twice, alert group, and leave the item on corpse so the group can decide who loots.")
             lootFlag("Alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
+            ImGui.Spacing()
+            local delayTicks = configLootFlags.lootDelayTicks or 2
+            local newDelay, changed = ImGui.SliderInt("Loot delay (ticks)##LootDelay", delayTicks, 1, 5, "%d")
+            if changed then
+                configLootFlags.lootDelayTicks = math.max(1, math.min(5, newDelay))
+                config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(configLootFlags.lootDelayTicks))
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Delay in ticks after looting each item and when opening/closing the loot window. 2 = faster, 3 = safer on slow clients.")
+                ImGui.EndTooltip()
+            end
         end
         ImGui.Spacing()
         if ImGui.CollapsingHeader("Loot value thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
