@@ -1628,17 +1628,22 @@ local function renderConfigWindow()
             lootFlag("Pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "When a Mythical item with NoDrop or NoTrade is found, pause the loot macro, beep twice, alert group, and leave the item on corpse so the group can decide who loots.")
             lootFlag("Alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
             ImGui.Spacing()
-            local delayTicks = configLootFlags.lootDelayTicks or 2
-            local newDelay, changed = ImGui.SliderInt("Loot delay (ticks)##LootDelay", delayTicks, 1, 5, "%d")
+            ImGui.Text("Loot delay (ticks)")
+            local ticks = tonumber(configLootFlags.lootDelayTicks)
+            if not ticks or ticks < 1 or ticks > 10 then ticks = 3 end
+            local val, changed = ImGui.SliderInt("##lootDelayTicks", ticks, 1, 10, "%d")
             if changed then
-                configLootFlags.lootDelayTicks = math.max(1, math.min(5, newDelay))
-                config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(configLootFlags.lootDelayTicks))
+                val = math.max(1, math.min(10, tonumber(val) or 3))
+                configLootFlags.lootDelayTicks = val
+                config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(val))
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("Delay in ticks after looting each item and when opening/closing the loot window. 2 = faster, 3 = safer on slow clients.")
+                ImGui.Text("Ticks to wait after itemnotify/cursor/window (loot_flags.ini). 2 = faster, 3 = default, 4+ if laggy.")
                 ImGui.EndTooltip()
             end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), tostring(configLootFlags.lootDelayTicks or 3))
         end
         ImGui.Spacing()
         if ImGui.CollapsingHeader("Loot value thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
