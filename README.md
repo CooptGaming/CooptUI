@@ -1,8 +1,8 @@
-# CoopUI — EverQuest EMU Companion
+# CoOpt UI — EverQuest EMU Companion
 
-**CoopUI** is a MacroQuest2 suite for EverQuest emulator servers. It ties together a **unified item UI**, **auto sell** and **auto loot** macros, **epic-aware config**, and **AA script tracking**—with one shared config model so the UI and macros always use the same rules.
+**CoOpt UI** is a MacroQuest2 suite for EverQuest emulator servers. It ties together a **unified item UI**, **auto sell** and **auto loot** macros, **epic-aware config**, and **AA script tracking**—with one shared config model so the UI and macros always use the same rules.
 
-<!-- SCREENSHOT: CoopUI ItemUI main window — e.g. inventory view with bank button visible. Suggested: docs/screenshots/itemui-main.png -->
+<!-- SCREENSHOT: CoOpt UI Items Companion main window — e.g. inventory view with bank button visible. Suggested: docs/screenshots/itemui-main.png -->
 
 ---
 
@@ -115,7 +115,7 @@ Details: **[docs/INSTALL.md](docs/INSTALL.md)**.
 ## Project structure
 
 ```
-CoopUI repo/
+CoOpt UI repo/
 ├── lua/
 │   ├── coopui/           # Shared core (version, theme, events, cache, state)
 │   ├── itemui/           # ItemUI (unified window + config)

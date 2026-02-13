@@ -1,4 +1,4 @@
-# CoopUI — Quick Install
+# CoOpt UI — Quick Install
 
 1. Extract this zip into your **MacroQuest2 folder** (merge when prompted)
 2. First time? Copy `config_templates/*` into `Macros/` (sell_config, shared_config, loot_config), or run ItemUI and use first-run default protection (Config window)

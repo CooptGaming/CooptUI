@@ -1,7 +1,7 @@
 --[[
-    CoopUI - ScriptTracker
+    CoOpt UI AA Scripts Companion
     Purpose: AA Script Progress Tracker
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
     Author: Perky's Crew
     Version: see coopui.version (SCRIPTTRACKER)
     Dependencies: mq2lua, ImGui
@@ -154,7 +154,7 @@ local function renderUI()
     if pinned then
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoMove)
     end
-    local windowOpen, windowVisible = ImGui.Begin("AA Scripts##ScriptTracker", isOpen, windowFlags)
+    local windowOpen, windowVisible = ImGui.Begin("CoOpt UI Script Tracker##ScriptTracker", isOpen, windowFlags)
     -- When pinned, prevent closing (ignore X button and keep open for next frame)
     if pinned then
         isOpen = true

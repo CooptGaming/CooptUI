@@ -1,5 +1,5 @@
 --[[
-    CoopUI version — single source for component versions.
+    CoOpt UI version — single source for component versions.
     Used by ItemUI, ScriptTracker, and referenced by sell.mac / loot.mac.
 --]]
 

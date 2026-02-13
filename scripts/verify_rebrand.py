@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CoopUI rebranding verification.
+CoOpt UI rebranding verification.
 Run from project root. Excludes .git/ and docs/CoopUI_Rebranding_Audit.md
 (that file intentionally documents old names).
 """

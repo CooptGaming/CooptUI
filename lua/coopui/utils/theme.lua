@@ -1,5 +1,5 @@
 --[[
-    CoopUI shared theme — colors and text helpers for ItemUI and ScriptTracker.
+    CoOpt UI shared theme — colors and text helpers for ItemUI and ScriptTracker.
     Single source so both components share the same look.
 --]]
 

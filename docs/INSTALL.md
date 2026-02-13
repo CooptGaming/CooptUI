@@ -1,4 +1,4 @@
-# CoopUI Installation Guide
+# CoOpt UI Installation Guide
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Download the latest release zip from GitHub:
 
 **https://github.com/CooptGaming/CoopUI/releases**
 
-The zip is named `CoopUI_v<version>.zip` (e.g., `CoopUI_v0.2.0-alpha.zip`).
+The zip is named `CoOpt UI_v<version>.zip` (e.g., `CoOpt UI_v0.2.0-alpha.zip`).
 
 ## First-Time Installation
 
@@ -29,7 +29,7 @@ C:\EQ\MacroQuest2\
 
 ### Step 2: Extract the zip
 
-Extract `CoopUI_v<version>.zip` directly into your MQ2 root folder. When prompted, choose **merge/overwrite** so that the `lua/`, `Macros/`, and `resources/` folders merge with your existing ones.
+Extract `CoOpt UI_v<version>.zip` directly into your MQ2 root folder. When prompted, choose **merge/overwrite** so that the `lua/`, `Macros/`, and `resources/` folders merge with your existing ones.
 
 ### Step 3: Config (first time only)
 

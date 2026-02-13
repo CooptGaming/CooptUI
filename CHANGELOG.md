@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CoopUI are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+All notable changes to CoOpt UI are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
@@ -31,7 +31,7 @@ Major architectural redesign across 7 phases: performance optimization, unified 
 - **Augments view** — Dedicated augmentation item display
 - **Config window improvements** — Renamed tabs (General & Sell, Loot Rules, Item Lists), improved tooltips, Open Config Folder button (Phase 6.1)
 - **Layout management** — `utils/layout.lua` module for window size, column visibility, sort persistence (Phase 7)
-- **CoopUI shared core** — `lua/coopui/` with version, theme, events, cache, and state modules
+- **CoOpt UI shared core** — `lua/coopui/` with version, theme, events, cache, and state modules
 - **Context registry pattern** — Single `refs` table via metatable proxy to stay under Lua's 60-upvalue limit
 - **State consolidation** — `uiState`, `perfCache`, `sortState`, `filterState` tables to stay under 200-local limit
 - **ScriptTracker auto-refresh** — Refreshes on inventory fingerprint change (PR #6)

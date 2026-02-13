@@ -1,4 +1,4 @@
-# CoopUI Developer Documentation
+# CoOpt UI Developer Documentation
 
 ## Architecture Overview
 
@@ -89,7 +89,7 @@
 |------|---------|
 | `init.lua` | ScriptTracker entry point, AA script progress tracking |
 
-#### CoopUI Shared Core (`lua/coopui/`)
+#### CoOpt UI Shared Core (`lua/coopui/`)
 
 | File | Purpose |
 |------|---------|

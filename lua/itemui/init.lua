@@ -1,7 +1,7 @@
 --[[
-    CoopUI - ItemUI
+    CoOpt UI Inventory Companion
     Purpose: Unified Inventory / Bank / Sell / Loot Interface
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
     Author: Perky's Crew
     Version: see coopui.version (ITEMUI)
     Dependencies: mq2lua, ImGui
@@ -128,7 +128,7 @@ local computeAndAttachSellStatus
 -- UI state (consolidated for Lua 200-local limit)
 local uiState = {
     windowPositioned = false,
-    alignToContext = false,
+    alignToContext = true,  -- Enable snap to Inventory by default
     alignToMerchant = false,  -- NEW: Align to merchant window when in sell view
     uiLocked = true,
     syncBankWindow = true,
@@ -196,7 +196,7 @@ local layoutDefaults = {
     AAWindowY = 0,
     ShowAAWindow = 1,
     AABackupPath = "",  -- empty = use CONFIG_PATH (Macros/sell_config)
-    AlignToContext = 0,
+    AlignToContext = 1,  -- Enable snap to Inventory by default
     UILocked = 1,
     SyncBankWindow = 1,
     SuppressWhenLootMac = 0,  -- 0 = Loot UI opens when looting (default); 1 = suppress Loot UI during looting
@@ -817,7 +817,7 @@ local function renderUI()
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
     
-    local winOpen, winVis = ImGui.Begin("Item UI##ItemUI", isOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Inventory Companion##ItemUI", isOpen, windowFlags)
     isOpen = winOpen
     if not winOpen then
         shouldDraw = false
@@ -896,7 +896,7 @@ local function renderUI()
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), and sell list"); ImGui.EndTooltip() end
     ImGui.SameLine()
     if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open ItemUI & Loot settings"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
     ImGui.SameLine()
     if ImGui.Button("Augments", ImVec2(75, 0)) then
         uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen

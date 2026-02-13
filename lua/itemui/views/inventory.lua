@@ -168,7 +168,7 @@ function InventoryView.render(ctx, bankOpen)
                 local inFixed = ctx.isColumnInFixedSet("Inventory", colDef.key)
                 if ImGui.MenuItem(colDef.label, "", inFixed) then
                     ctx.toggleFixedColumn("Inventory", colDef.key)
-                    ctx.setStatusMessage("Column changes apply when you reopen ItemUI")
+                    ctx.setStatusMessage("Column changes apply when you reopen CoOpt UI Inventory Companion")
                 end
             end
             ImGui.Separator()

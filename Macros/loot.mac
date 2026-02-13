@@ -1,5 +1,5 @@
 | ================================================= |
-| CoopUI — Auto Loot v4.0 (see lua/coopui/version.lua) |
+| CoOpt UI Loot Companion — Auto Loot v4.0 (see lua/coopui/version.lua) |
 | Features: Modular Config Files, Hierarchical    |
 |           Filters, Optional Sorting, Lore Check   |
 | ================================================= |
@@ -138,7 +138,7 @@ Sub Main
 | Movement Settings
 /declare maxMoveDelay int outer 100
 
-| Loot UI progress/session (written to loot_config for CoopUI Loot UI)
+| Loot UI progress/session (written to loot_config for CoOpt UI Loot UI)
 /declare corpsesLooted int outer 0
 /declare totalCorpses int outer 0
 /declare currentCorpseName string outer
@@ -167,7 +167,7 @@ Sub Main
 }
 
 | Handle test command: use targeted corpse and first item as if Mythical pause triggered.
-| Writes loot_mythical_alert.ini so CoopUI Loot UI opens and shows the alert card (same as real Mythical pause).
+| Writes loot_mythical_alert.ini so CoOpt UI Loot UI opens and shows the alert card (same as real Mythical pause).
 /if (${doTest}) {
     /call LoadConfig FALSE
     /if (!${pauseOnMythicalNoDropNoTrade}) {
@@ -326,7 +326,7 @@ Sub Main
         /call CloseLootWindow
         /goto :mainlootloop
     } 
-    | --- CoopUI Loot UI: corpse name (written with progress at end of corpse)
+    | --- CoOpt UI Loot UI: corpse name (written with progress at end of corpse)
     /varset currentCorpseName ${Corpse.DisplayName}
     
     | --- Pass 1: Evaluate all items, build list of slots to loot (no delays) ---
@@ -364,7 +364,7 @@ Sub Main
     | --- Close loot window ---
     /call CloseLootWindow
     
-    | --- One progress update per corpse for CoopUI Loot UI (single line: running##corpsesLooted##totalCorpses##currentCorpse) ---
+    | --- One progress update per corpse for CoOpt UI Loot UI (single line: running##corpsesLooted##totalCorpses##currentCorpse) ---
     /varcalc corpsesLooted ${corpsesLooted}+1
     /ini "${configPath}/loot_progress.ini" Progress line "1##${corpsesLooted}##${totalCorpses}##${currentCorpseName}"
     
@@ -855,7 +855,7 @@ sub PauseMythicalNoDropAlert
     /declare corpseDisplay string local ${pauseAlertCorpseName}
     /if (${corpseDisplay.Length} == 0) /varset corpseDisplay ${Target.DisplayName}
     
-    | Write Mythical alert INI for CoopUI Loot UI
+    | Write Mythical alert INI for CoOpt UI Loot UI
     /ini "${configPath}/loot_mythical_alert.ini" Alert itemName "${itemDisplay}"
     /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName "${corpseDisplay}"
     /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
@@ -903,11 +903,11 @@ sub CloseLootWindow
 | FinishLooting                                     |
 | ================================================= |
 sub FinishLooting
-    | Write progress running=0 for CoopUI Loot UI (single line)
+    | Write progress running=0 for CoOpt UI Loot UI (single line)
     /varset progressRunning 0
     /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
     
-    | Write loot_session.ini only when this run had items (keeps previous run visible in CoopUI when run had 0 loot)
+    | Write loot_session.ini only when this run had items (keeps previous run visible in CoOpt UI when run had 0 loot)
     /if (${runLootedCount} > 0) {
         /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
         /declare i int local 1
@@ -921,7 +921,7 @@ sub FinishLooting
         /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
         /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
     }
-    | Write loot_skipped.ini for CoopUI Skip History tab (only when this run had skips; value format name^reason)
+    | Write loot_skipped.ini for CoOpt UI Skip History tab (only when this run had skips; value format name^reason)
     /if (${runSkippedCount} > 0) {
         /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
         /declare j int local 1
@@ -1044,6 +1044,33 @@ sub LoadConfig(bool verbose)
         /varset skipTypes ${Ini[${skipTypesFile},Items,types]}
     } else {
         /varset skipTypes
+    }
+    
+    | Warn if any list exceeds 85% of MQ2 string buffer (2048 chars) - overflow can crash game to desktop
+    /declare bufferWarnLen int local 1740
+    /if (${alwaysLootExact.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Always Loot Exact" list is ${alwaysLootExact.Length} chars (85%% limit=1740).
+        /echo \arThe game has a 2048 character limit for this list. Exceeding it can crash to desktop. Shorten valuable_exact.ini + loot_always_exact.ini.
+    }
+    /if (${alwaysLootContains.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Always Loot Contains" list is ${alwaysLootContains.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten valuable_contains.ini + loot_always_contains.ini.
+    }
+    /if (${alwaysLootTypes.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Always Loot Types" list is ${alwaysLootTypes.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten valuable_types.ini + loot_always_types.ini.
+    }
+    /if (${skipExact.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Skip Exact" list is ${skipExact.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten loot_skip_exact.ini.
+    }
+    /if (${skipContains.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Skip Contains" list is ${skipContains.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten loot_skip_contains.ini.
+    }
+    /if (${skipTypes.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (loot): "Skip Types" list is ${skipTypes.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten loot_skip_types.ini.
     }
     
     | Load Value Settings
@@ -1531,7 +1558,7 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /return
     }
     
-    | Append to run looted list for CoopUI Loot UI session (names, values, tributes pipe-delimited)
+    | Append to run looted list for CoOpt UI Loot UI session (names, values, tributes pipe-delimited)
     /varcalc runLootedCount ${runLootedCount}+1
     /if (${runLootedList.Length} > 0) {
         /varset runLootedList ${runLootedList}|${itemName}
@@ -1550,7 +1577,7 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /varset runBestItemName ${itemName}
     }
     
-    | When quietMode: skip file I/O (run receipt already updated for CoopUI)
+    | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)
     /if (${quietMode}) /return
     
     | Ensure the item_management directory exists
@@ -1592,7 +1619,7 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
 /return
 
 | ================================================= |
-| LogSkippedItem - Append to run skipped list for CoopUI Skip History |
+| LogSkippedItem - Append to run skipped list for CoOpt UI Skip History |
 | ================================================= |
 sub LogSkippedItem(string itemName, string reason)
     /varcalc runSkippedCount ${runSkippedCount}+1

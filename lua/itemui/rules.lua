@@ -49,7 +49,7 @@ local function parseEpicListIntoSet(epicStr, set)
 end
 
 --- Load epic items from selected classes (epic_classes.ini). Each class has its own file epic_items_<class>.ini.
---- If no classes are selected, uses epic_items_exact.ini (all epic items).
+--- If no classes are selected, returns empty set (no epic items protected).
 --- If classes are selected but no per-class files exist (empty set), falls back to epic_items_exact.ini so protection still works.
 local function loadEpicItemSetByClass()
     local set = {}
@@ -62,9 +62,9 @@ local function loadEpicItemSetByClass()
         end
     end
     if not anySelected then
-        local epicStr = readSharedListValue("epic_items_exact.ini", "Items", "exact", "")
-        parseEpicListIntoSet(epicStr, set)
-    elseif next(set) == nil then
+        return set
+    end
+    if next(set) == nil then
         -- Classes selected but no per-class INI files (or all empty): fall back to full list so epic protection still works
         local epicStr = readSharedListValue("epic_items_exact.ini", "Items", "exact", "")
         parseEpicListIntoSet(epicStr, set)

@@ -1,6 +1,6 @@
 --[[
     AA View - Alt Advancement pop-out window
-    Part of CoopUI ItemUI. Tabs, search, sortable table, Train/Hotkey, Export/Import.
+    Part of CoOpt UI Items Companion. Tabs, search, sortable table, Train/Hotkey, Export/Import.
 --]]
 
 local mq = require('mq')
@@ -274,7 +274,7 @@ function AAView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("Alt Advancement##ItemUIAA", ctx.uiState.aaWindowOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI AAs Companion (Work in Progress)##ItemUIAA", ctx.uiState.aaWindowOpen, windowFlags)
     ctx.uiState.aaWindowOpen = winOpen
     ctx.uiState.aaWindowShouldDraw = winOpen
 
