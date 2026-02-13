@@ -290,7 +290,8 @@ end
 
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
---- This reduces scan from ~76 to ~30 TLO calls per item; stats load on first tooltip hover.
+--- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-5 per item).
+--- This reduces scan from ~76 to ~30 TLO calls per item; stats/wornSlots/augSlots load on first use.
 function M.buildItemFromMQ(item, bag, slot)
     if not item or not item.ID or not item.ID() or item.ID() == 0 then return nil end
     local iv = item.Value and item.Value() or 0
@@ -323,20 +324,29 @@ function M.buildItemFromMQ(item, bag, slot)
         tradeskills = item.Tradeskills and item.Tradeskills() or false,
         class = clsStr,
         race = raceStr,
-        wornSlots = M.getWornSlotsStringFromTLO(item),
         requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
         recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
-        augSlots = M.getAugSlotsCountFromTLO(item),
         instrumentType = item.InstrumentType and item.InstrumentType() or "",
         instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
     }
-    -- Lazy-load stat fields: first access to any stat triggers batch TLO fetch for all stats
+    -- Lazy-load: wornSlots, augSlots, and stat fields on first access
     setmetatable(base, { __index = function(t, k)
+        local b, s = t.bag, t.slot
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. (b or 0))
+        local it = pack and pack.Item and pack.Item(s or 0)
+        if k == "wornSlots" then
+            local v = (it and M.getWornSlotsStringFromTLO(it)) or ""
+            rawset(t, "wornSlots", v)
+            return v
+        end
+        if k == "augSlots" then
+            local v = (it and M.getAugSlotsCountFromTLO(it)) or 0
+            rawset(t, "augSlots", v)
+            return v
+        end
         if not STAT_FIELDS_SET[k] then return nil end
         -- Batch-load all stat fields from TLO (Me/Inventory can be nil during zone/load)
-        local Me = mq.TLO and mq.TLO.Me
-        local pack = Me and Me.Inventory and Me.Inventory("pack" .. bag)
-        local it = pack and pack.Item and pack.Item(slot)
         if it and it.ID and it.ID() ~= 0 then
             for _, field in ipairs(STAT_FIELDS) do
                 local tloName = STAT_TLO_MAP[field]
