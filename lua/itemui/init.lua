@@ -90,6 +90,7 @@ local C = {
     TIMER_READY_CACHE_TTL_MS = 1500,
     LAYOUT_SAVE_DEBOUNCE_MS = 600,
     LOOT_PENDING_SCAN_DELAY_MS = 2500,   -- Delay before background scan after loot macro finish
+    GET_CHANGED_BAGS_THROTTLE_MS = 600,   -- Min ms between getChangedBags() calls; skip fingerprinting when within window (unless inventoryBagsDirty)
     SELL_FAILED_DISPLAY_MS = 15000,      -- How long to show failed-items notice after sell macro
     STORED_INV_CACHE_TTL_MS = 2000,      -- TTL for storedInvByName cache (getSellStatusForItem / computeAndAttachSellStatus)
     LOOP_DELAY_VISIBLE_MS = 33,          -- Main loop delay when UI visible (~30 FPS)
@@ -121,6 +122,7 @@ local perfCache = {
     lastBankCacheTime = 0,
     sellLogPath = nil,  -- Macros/logs/item_management (set in main)
     sellConfigPendingRefresh = false,  -- debounce: run at most one row refresh per frame after CONFIG_SELL_CHANGED
+    loreHaveCache = {},  -- lore item names we've confirmed we have (skip FindItem); cleared on inventory scan
 }
 
 -- Forward declaration: defined after willItemBeSold (used by scanInventory and save paths)
@@ -356,6 +358,8 @@ local scanState = {
     lastScanState = { invOpen = false, bankOpen = false, merchOpen = false, lootOpen = false },
     lastBagFingerprints = {},
     nextAcquiredSeq = 1,  -- static order for Acquired column (no per-frame time math)
+    lastGetChangedBagsTime = 0,   -- throttle: skip getChangedBags() when (now - this) < GET_CHANGED_BAGS_THROTTLE_MS
+    inventoryBagsDirty = false,  -- when true, skip throttle so next maybeScanInventory runs getChangedBags (set on loot open/close, item op, loot macro finish)
 }
 -- Invalidate stored-inv cache when we save; pass nextAcquiredSeq so acquired order persists (must be after scanState)
 do
@@ -388,7 +392,7 @@ local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutF
 local function invalidateSortCache(view)
     local c = view == "inv" and perfCache.inv or view == "sell" and perfCache.sell or view == "bank" and perfCache.bank or view == "loot" and perfCache.loot
     if c then c.key = nil end
-    if view == "inv" then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil end
+    if view == "inv" then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true end
 end
 
 -- Window state queries (delegated to utils/window_state.lua)
@@ -1391,6 +1395,7 @@ local function main()
             if lootMacState.lastRunning and not lootMacRunning then
                 lootMacState.pendingScan = true
                 lootMacState.finishedAt = now
+                scanState.inventoryBagsDirty = true
                 -- Defer session table build to next frame (smoother UI, no hitch on macro-stop frame)
                 lootLoopRefs.pendingSession = true
                 -- When macro stops, show Loot UI if Mythical alert INI was written (real pause or /macro loot test)
@@ -1586,6 +1591,7 @@ local function main()
         local lootOpen = isLootWindowOpen()
         local bankJustOpened = bankOpen and not lastBankWindowState
         local lootJustClosed = lastLootWindowState and not lootOpen
+        if lootOpen or lootJustClosed then scanState.inventoryBagsDirty = true end
         local shouldDrawBefore = shouldDraw  -- capture before any auto-show
         -- Run deferred scans from previous frame (one scan per first-paint; rest run here)
         if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
