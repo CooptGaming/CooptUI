@@ -4,6 +4,8 @@
 **Date:** January 29, 2026  
 **Purpose:** Team lead analysis and logical next steps for modernizing ItemUI as it transitions into a complete UI overhaul for EverQuest using MacroQuest2.
 
+For a one-page product scope, see [docs/COOPUI_OVERVIEW.md](../../docs/COOPUI_OVERVIEW.md).
+
 ---
 
 ## 1. Executive Summary
@@ -21,7 +23,9 @@ The next phase is to **expand ItemUI into a full EverQuest UI overhaul** — a s
 
 ## 2. Current State Assessment
 
-### 2.1 What ItemUI Does Today (v1.2.0)
+### 2.1 What ItemUI Does Today
+
+Version is in `lua/coopui/version.lua` (e.g. 0.2.0-alpha).
 
 | Area | Features |
 |------|----------|

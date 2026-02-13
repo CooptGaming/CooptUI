@@ -3,6 +3,8 @@
 **Date**: January 31, 2026  
 **Status**: Phases 1-5 Complete, Phase 6+ Planned
 
+Implementation details for each phase are in `lua/itemui/docs/archive/`. This file and [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md) are the source of truth for current status and next steps.
+
 ---
 
 ## Phase Overview
@@ -45,7 +47,7 @@
 
 ### ⏳ Phase 6: Settings & Configuration Overhaul (Usability) - NEW!
 **Status**: ⏳ PLANNED  
-**Reference**: `SETTINGS_INVESTIGATION.md`  
+**Reference**: `archive/SETTINGS_INVESTIGATION.md`  
 **Effort**: 10-15 hours total
 
 #### Phase 6.1: Quick Wins (1-2 hours)

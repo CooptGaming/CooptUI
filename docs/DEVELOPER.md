@@ -1,5 +1,7 @@
 # CoOpt UI Developer Documentation
 
+Start with [docs/COOPUI_OVERVIEW.md](COOPUI_OVERVIEW.md) for product scope and where to look. Historical phase and design docs are in `lua/itemui/docs/archive/`.
+
 ## Architecture Overview
 
 ### Entry Points
@@ -256,7 +258,7 @@ Tests sell and loot rule evaluation using mock caches. Requires MQ2Lua and the I
 
 ### Manual Testing
 
-See `lua/itemui/docs/PHASE7_TESTING_GUIDE.md` for a comprehensive functional test suite covering:
+See `lua/itemui/docs/archive/PHASE7_TESTING_GUIDE.md` for a comprehensive functional test suite covering:
 - UI load, window display, inventory rendering
 - Sort persistence, column width saving
 - Bank panel, sell view, config window
@@ -266,44 +268,7 @@ See `lua/itemui/docs/PHASE7_TESTING_GUIDE.md` for a comprehensive functional tes
 
 ## Internal Dev Docs Index
 
-These files live in `lua/itemui/docs/` and are **not shipped in releases**. They document the design process and implementation details.
-
-| File | Description |
-|------|-------------|
-| `PROJECT_ROADMAP.md` | Overall project roadmap and phase plan |
-| `PHASE_PLAN_UPDATED.md` | Updated phase plan with current status |
-| `PHASE1_INSTANT_OPEN_IMPLEMENTATION.md` | Phase 1: Snapshot-first loading implementation |
-| `PHASE1_AND_PHASE2_SUMMARY.md` | Summary of Phase 1-2 results |
-| `PHASE2_STATE_CACHE_IMPLEMENTATION.md` | Phase 2: State and cache refactor |
-| `PHASE3_FILTER_SYSTEM_IMPLEMENTATION.md` | Phase 3: Unified filter system |
-| `PHASE3_PROGRESS_UPDATE.md` | Phase 3 progress notes |
-| `PHASE4_IMPLEMENTATION_SUMMARY.md` | Phase 4: SellUI consolidation |
-| `PHASE4_SELLUI_AUDIT.md` | SellUI feature audit for consolidation |
-| `PHASE5_IMPLEMENTATION_SUMMARY.md` | Phase 5: Macro integration |
-| `PHASE5_QUICK_REFERENCE.md` | Phase 5 quick reference |
-| `PHASES_1_TO_5_COMPLETE_SUMMARY.md` | Complete summary of Phases 1-5 |
-| `PHASE6_1_QUICK_WINS_COMPLETE.md` | Phase 6.1: Config UI improvements |
-| `PHASE6_2_DEFERRED.md` | Phase 6.2: Deferred items |
-| `PHASE7_IMPLEMENTATION_PLAN.md` | Phase 7: Layout integration plan |
-| `PHASE7_PROGRESS_REPORT.md` | Phase 7 progress report |
-| `PHASE7_COMPLETE.md` | Phase 7 completion summary |
-| `PHASE7_TESTING_GUIDE.md` | Phase 7 functional test suite |
-| `PHASE7_DEBUG_GUIDE.md` | Phase 7 debugging procedures |
-| `PHASE7_BUGFIXES.md` | Phase 7 bug fixes and resolutions |
-| `PHASE7_THEME_INTEGRATION.md` | Theme integration notes |
-| `UPVALUE_AND_MODULE_REFACTOR.md` | Upvalue limit solution and module extraction |
-| `SELLUI_MIGRATION_GUIDE.md` | SellUI to ItemUI migration |
-| `PERFORMANCE_OPTIMIZATIONS.md` | Performance optimization analysis |
-| `PERFORMANCE_IMPROVEMENTS_2025.md` | 2025 performance improvements |
-| `UI_OPEN_PERFORMANCE_ANALYSIS.md` | UI open time analysis |
-| `INVENTORY_KEY_DEEP_DIVE.md` | Inventory key/slot system analysis |
-| `MODULE_SPLIT_ANALYSIS.md` | Module extraction analysis |
-| `SIMPLIFICATION_ANALYSIS.md` | Code simplification analysis |
-| `SELL_LOOT_FILTER_ANALYSIS.md` | Sell/loot filter system analysis |
-| `FILTERS_UX_DESIGN.md` | Filter UX design document |
-| `FILTERS_REDESIGN_DESIGN.md` | Filter redesign design |
-| `LOOT_SIMPLIFICATION_PROPOSAL.md` | Loot system simplification proposal |
-| `SETTINGS_INVESTIGATION.md` | Settings system investigation |
+Historical phase and design docs have been moved to `lua/itemui/docs/archive/`. For current scope and roadmap, see [docs/COOPUI_OVERVIEW.md](COOPUI_OVERVIEW.md) and [lua/itemui/docs/PROJECT_ROADMAP.md](lua/itemui/docs/PROJECT_ROADMAP.md).
 
 ---
 

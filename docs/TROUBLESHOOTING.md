@@ -9,6 +9,8 @@ In the MQ2 console after loading ItemUI:
 [ItemUI] Item UI v0.2.0-alpha loaded. /itemui or /inv to toggle. /dosell, /doloot for macros.
 ```
 
+Version comes from `lua/coopui/version.lua`; your message may show a different version after updates.
+
 If you don't see this message, ItemUI did not load successfully.
 
 ### Verify File Structure
