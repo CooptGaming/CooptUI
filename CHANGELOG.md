@@ -4,6 +4,10 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ## [Unreleased]
 
+---
+
+## [0.3.0-alpha] — 2025-02-13
+
 ### Added
 - Configuration reference documentation (`docs/CONFIGURATION.md`)
 - Installation guide (`docs/INSTALL.md`)
