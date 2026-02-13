@@ -106,22 +106,33 @@ Sub Main
 /declare tributeKeepOverride int outer
 
 | Lag handling: wait time (ticks) and retries for sell operations
-/declare sellWaitTicks int outer 30
+/declare sellWaitTicks int outer 18
 /declare sellRetries int outer 4
 /declare sellMaxTimeoutSeconds int outer 60
+
+| ------------------------------------------------- |
+| SELL CACHE (ItemUI: only sell items in list)      |
+| Read before LoadConfig so cache mode can skip full config load |
+| ------------------------------------------------- |
+/declare sellCachePath string outer ${configPath}/sell_cache.ini
+/declare sellCacheCount int outer ${Ini[${sellCachePath},Count,count,0]}
+/declare useSellCache bool outer FALSE
+/if (${sellCacheCount} > 0) /varset useSellCache TRUE
+/declare sellCacheNames string outer
 
 | ------------------------------------------------- |
 | LOAD CONFIGURATION                                |
 | ------------------------------------------------- |
 /call LoadConfig FALSE
 
-| ------------------------------------------------- |
-| SELL CACHE (ItemUI: only sell items in list)     |
-| ------------------------------------------------- |
-/declare sellCachePath string outer ${configPath}/sell_cache.ini
-/declare sellCacheCount int outer ${Ini[${sellCachePath},Count,count,0]}
-/declare useSellCache bool outer FALSE
-/if (${sellCacheCount} > 0) /varset useSellCache TRUE
+| Build in-memory sell cache list (one string, slash-delimited) for fast lookup
+/if (${useSellCache} && ${sellCacheCount} > 0) {
+    /varset sellCacheNames ${Ini[${sellCachePath},Items,1]}
+    /declare ci int local 2
+    /for ci 2 to ${sellCacheCount}
+        /varset sellCacheNames ${sellCacheNames}/${Ini[${sellCachePath},Items,${ci}]}
+    /next ci
+}
 
 | Handle load command (verbose mode)
 /if (${doLoad}) {
@@ -284,21 +295,17 @@ sub EvaluateItem(int bag, int slot)
     
     | =========================================== |
     | SELL CACHE (ItemUI): only sell if in list  |
+    | (in-memory lookup via sellCacheNames)      |
     | =========================================== |
     /if (${useSellCache}) {
-        /declare i int local 1
-        /for i 1 to ${sellCacheCount}
-            /if (${itemName.Equal[${Ini[${sellCachePath},Items,${i}]}]}) {
-                /varset shouldSell TRUE
-                /if (${countOnly}) {
-                    /call CountSellItem
-                } else {
-                    /call ProcessSellItem ${bag} ${slot} "Sell Cache"
-                }
-                /return
+        /call CheckFilterList "${sellCacheNames}" "${itemName}" FALSE TRUE
+        /if (${shouldSell}) {
+            /if (${countOnly}) {
+                /call CountSellItem
+            } else {
+                /call ProcessSellItem ${bag} ${slot} "Sell Cache"
             }
-        /next i
-        | Not in sell list - do not sell
+        }
         /return
     }
     
@@ -576,8 +583,8 @@ sub ProcessSellItem(int bag, int slot, string reason)
         
         | Select the item
         /itemnotify in pack${bag} ${slot} leftmouseup
-        | Wait for UI to respond (lag: give time for item selection)
-        /delay 3
+        | Wait for UI to respond (increase to 3-5 on high-lag connections)
+        /delay 2
         
         | Execute sell and retry on lag - sellWaitTicks per attempt, up to sellRetries retries
         | ADDED: Overall timeout check (max elapsed time regardless of retry count)
@@ -601,7 +608,7 @@ sub ProcessSellItem(int bag, int slot, string reason)
         | On retry, re-pick item (may have been dropped back by failed attempt)
         /if (${attempt} > 1) {
             /itemnotify in pack${bag} ${slot} leftmouseup
-            /delay 3
+            /delay 2
         }
         /notify MerchantWnd MW_Sell_Button leftmouseup
         | For stackables, wait for QuantityWnd before clicking Accept (handles lag)
@@ -668,6 +675,30 @@ sub ShowHelp
 | ================================================= |
 sub LoadConfig(bool verbose)
     /if (${verbose}) /echo Loading configuration from sell_config/ and shared_config/ directories...
+    
+    | Sell-cache mode: only load lag/timing from sell_value.ini (skip epic, keep, always-sell, protected)
+    /if (${useSellCache} && !${verbose}) {
+        /declare valueFile string local ${configPath}/sell_value.ini
+        /if (${Ini[${valueFile},Settings,sellWaitTicks].Length}) {
+            /varset sellWaitTicks ${Ini[${valueFile},Settings,sellWaitTicks]}
+        } else {
+            /varset sellWaitTicks 18
+        }
+        /if (${Ini[${valueFile},Settings,sellRetries].Length}) {
+            /varset sellRetries ${Ini[${valueFile},Settings,sellRetries]}
+        } else {
+            /varset sellRetries 4
+        }
+        /if (${Ini[${valueFile},Settings,sellMaxTimeoutSeconds].Length}) {
+            /varset sellMaxTimeoutSeconds ${Ini[${valueFile},Settings,sellMaxTimeoutSeconds]}
+        } else {
+            /varset sellMaxTimeoutSeconds 60
+        }
+        /varset sellWaitTicks ${Int[${sellWaitTicks}]}
+        /varset sellRetries ${Int[${sellRetries}]}
+        /varset sellMaxTimeoutSeconds ${Int[${sellMaxTimeoutSeconds}]}
+        /return
+    }
     
     | Load protectEpic early so epic loading can be gated on it
     /declare flagsFile string local ${configPath}/sell_flags.ini
@@ -924,7 +955,7 @@ sub LoadConfig(bool verbose)
     /if (${Ini[${valueFile},Settings,sellWaitTicks].Length}) {
         /varset sellWaitTicks ${Ini[${valueFile},Settings,sellWaitTicks]}
     } else {
-        /varset sellWaitTicks 30
+        /varset sellWaitTicks 18
     }
     
     /if (${Ini[${valueFile},Settings,sellRetries].Length}) {
