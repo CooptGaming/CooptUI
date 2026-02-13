@@ -226,6 +226,14 @@ Dev files excluded: `lua/itemui/docs/`, `test_rules.lua`, `upvalue_check.lua`, `
 git tag v0.2.0-alpha && git push origin v0.2.0-alpha
 ```
 
+### Release checklist (see .cursor/rules/release.mdc)
+
+1. Update `lua/coopui/version.lua` (PACKAGE, ITEMUI).
+2. Optionally update `CHANGELOG.md`.
+3. Run `.\scripts\build-release.ps1 -Version "X.Y.Z-alpha"` to verify.
+4. Commit, push, then `git tag vX.Y.Z-alpha && git push origin vX.Y.Z-alpha`.
+5. Publish the draft release on GitHub.
+
 ### Versioning
 
 Single source of truth: `lua/coopui/version.lua`

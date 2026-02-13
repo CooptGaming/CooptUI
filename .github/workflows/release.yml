@@ -1,6 +1,6 @@
-# Build CoopUI release zip and create a GitHub Release when a version tag is pushed.
+w# Build CoopUI release zip and create a GitHub Release when a version tag is pushed.
 # Usage: tag and push, e.g.  git tag v0.1.0-alpha   &&   git push origin v0.1.0-alpha
-# The workflow builds CoopUI_v0.1.0-alpha.zip and creates a release with that asset.
+# The workflow builds CoOpt UI_v0.1.0-alpha.zip and creates a release with that asset.
 
 name: Release
 
@@ -33,7 +33,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: CoopUI_v${{ steps.version.outputs.VERSION }}.zip
+          files: CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip
           generate_release_notes: true
           draft: true
         env:
