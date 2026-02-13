@@ -1,4 +1,4 @@
-# Build CoopUI release zip for GitHub or local distribution.
+# Build CoOpt UI release zip for GitHub or local distribution.
 # Usage: .\scripts\build-release.ps1 [-Version "0.1.0-alpha"] [-OutputDir "."]
 #   Version: version string for zip name (e.g. 0.1.0-alpha). Default from env RELEASE_VERSION or "0.1.0-alpha".
 #   OutputDir: where to write the zip. Default: repo root.
@@ -14,8 +14,8 @@ $RepoRoot = if ($PSScriptRoot) { Split-Path $PSScriptRoot -Parent } else { Get-L
 if (-not $Version) { $Version = "0.2.0-alpha" }
 if (-not $OutputDir) { $OutputDir = $RepoRoot }
 
-$ZipName = "CoopUI_v$Version.zip"
-$Staging = Join-Path $env:TEMP "CoopUI_release_staging_$(Get-Random)"
+$ZipName = "CoOpt UI_v$Version.zip"
+$Staging = Join-Path $env:TEMP "CoOptUI_release_staging_$(Get-Random)"
 New-Item -ItemType Directory -Path $Staging -Force | Out-Null
 
 try {

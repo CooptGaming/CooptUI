@@ -75,7 +75,7 @@ function BankView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
     
-    local winOpen, winVis = ImGui.Begin("Bank##ItemUIBank", ctx.uiState.bankWindowOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", ctx.uiState.bankWindowOpen, windowFlags)
     ctx.uiState.bankWindowOpen = winOpen
     ctx.uiState.bankWindowShouldDraw = winOpen
     
@@ -267,7 +267,7 @@ function BankView.render(ctx)
                 local inFixed = ctx.isColumnInFixedSet("Bank", colDef.key)
                 if ImGui.MenuItem(colDef.label, "", inFixed) then
                     ctx.toggleFixedColumn("Bank", colDef.key)
-                    ctx.setStatusMessage("Column changes apply when you reopen ItemUI")
+                    ctx.setStatusMessage("Column changes apply when you reopen CoOpt UI Inventory Companion")
                 end
             end
             ImGui.Separator()

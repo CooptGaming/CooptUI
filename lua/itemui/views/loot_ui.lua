@@ -35,7 +35,7 @@ function LootUIView.render(ctx)
     -- Loot window is always resizable (independent of main UI lock)
     local windowFlags = 0
 
-    local winOpen, winVis = ImGui.Begin("Loot##LootUI", uiState.lootUIOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Loot Companion##LootUI", uiState.lootUIOpen, windowFlags)
     uiState.lootUIOpen = winOpen
 
     if not winOpen then

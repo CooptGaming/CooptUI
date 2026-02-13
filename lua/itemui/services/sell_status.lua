@@ -1,7 +1,7 @@
 --[[
     ItemUI - Sell Status Service
     Sell/loot rule wrappers, config cache management, and sell status computation.
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
 --]]
 
 local mq = require('mq')

@@ -1,12 +1,12 @@
 # Release and Deployment Guide
 
-This document describes how to package, structure, and deploy CoopUI and its components (ItemUI, ScriptTracker, Auto Loot, Auto Sell) for test or production releases. It is intended for maintainers and for agents that need to create release packages or update deployment logic.
+This document describes how to package, structure, and deploy CoOpt UI and its components (ItemUI, ScriptTracker, Auto Loot, Auto Sell) for test or production releases. It is intended for maintainers and for agents that need to create release packages or update deployment logic.
 
 ---
 
 ## 1. Overview
 
-- **Scope:** CoopUI — ItemUI (unified inventory/bank/sell/loot UI), ScriptTracker (AA script tracker), Auto Loot and Auto Sell macros, plus required config.
+- **Scope:** CoOpt UI — ItemUI (unified inventory/bank/sell/loot UI), ScriptTracker (AA script tracker), Auto Loot and Auto Sell macros, plus required config.
 - **Goal:** One versioned zip that test users can extract into their MacroQuest2 root; updates overwrite code only and never user config.
 - **Convention:** Package layout **mirrors the MQ2 directory structure** so extraction is a single merge step (same pattern as KissAssist and other MQ2 add-ons).
 
@@ -29,7 +29,7 @@ Use a GitHub repository for version control and to make the codebase available t
 | Practice | Recommendation |
 |----------|----------------|
 | **Branch strategy** | Use `main` (or `master`) for stable/release-ready code. Optionally use a `develop` branch for integration; merge to `main` when cutting a release. |
-| **Tags** | Tag each release, e.g. `v1.0`, `v1.1`, so testers can clone or download a specific version. Use **Releases** on GitHub to attach the zip (e.g. `CoopUI_v1.0.zip`) to the tag. |
+| **Tags** | Tag each release, e.g. `v1.0`, `v1.1`, so testers can clone or download a specific version. Use **Releases** on GitHub to attach the zip (e.g. `CoOpt UI_v1.0.zip`) to the tag. |
 | **README** | Keep the root `README.md` updated with: what the project is, requirements (MQ2, Lua, ImGui), link to this doc or DEPLOY.md for install/update. |
 | **Commit messages** | Use clear, short messages (e.g. “Fix sell progress reset”, “ItemUI: add column config”). Optionally prefix with scope: `itemui:`, `scripttracker:`, `macros:`, `docs:`. |
 | **What to commit** | Commit all files listed in **Section 3 (Repository file list)** that are under version control. Do **not** commit: `Backup/`, `Logs/`, `Macros/sell_config/Chars/`, binaries (`.exe`, `.dll`), or other paths listed in `.gitignore`. |
@@ -43,7 +43,7 @@ Use a GitHub repository for version control and to make the codebase available t
 
 ### 2.4 Project-only .gitignore (recommended)
 
-The project uses a **project-only** `.gitignore`: only the files you’re working on are tracked; the rest of the MacroQuest2 instance (config/, plugins/, modules/, mono/, binaries, etc.) is ignored. That way you push just CoopUI (ItemUI, ScriptTracker, macros, docs, and related assets)—not the whole MQ2 install.
+The project uses a **project-only** `.gitignore`: only the files you’re working on are tracked; the rest of the MacroQuest2 instance (config/, plugins/, modules/, mono/, binaries, etc.) is ignored. That way you push just CoOpt UI (ItemUI, ScriptTracker, macros, docs, and related assets)—not the whole MQ2 install.
 
 **Tracked (what gets pushed):**
 - **lua/** — `itemui/` (full tree), `scripttracker/` (full tree), `mq/ItemUtils.lua` only
@@ -183,7 +183,7 @@ The release zip should mirror the MacroQuest2 root. When extracted into the MQ2 
 ### 4.1 Directory tree (inside the zip)
 
 ```
-CoopUI_vX.Y.zip
+CoOpt UI_vX.Y.zip
 ├── lua/
 │   ├── itemui/                    # Full ItemUI module tree
 │   │   ├── init.lua
@@ -364,7 +364,7 @@ Use this when building the package or an update script. For the full repository 
 The following text is intended to be placed in **DEPLOY.md** at the root of the release zip so test users have a single place to look. Maintainers can copy this into the zip when cutting a release.
 
 ```markdown
-# CoopUI — Install / Update
+# CoOpt UI — Install / Update
 
 ## Requirements
 
@@ -396,7 +396,7 @@ The following text is intended to be placed in **DEPLOY.md** at the root of the 
 
 ## 9. Versioning and changelog
 
-- **Zip naming:** Use a versioned name, e.g. `CoopUI_v1.0.zip`, so testers know what they have.
+- **Zip naming:** Use a versioned name, e.g. `CoOpt UI_v1.0.zip`, so testers know what they have.
 - **CHANGELOG.md:** Optional file in the zip and in the repo listing changes per version (e.g. “1.1 – sell progress fix, scripttracker pop-out from ItemUI”). Refer to it from DEPLOY.md if present.
 
 ---

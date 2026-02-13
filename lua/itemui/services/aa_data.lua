@@ -1,6 +1,6 @@
 --[[
     AA Data Service - Build and cache the list of Alternate Advancement abilities.
-    Part of CoopUI ItemUI. Single responsibility: build list from MQ, cache, fingerprint, refresh.
+    Part of CoOpt UI Items Companion. Single responsibility: build list from MQ, cache, fingerprint, refresh.
 --]]
 
 local mq = require('mq')

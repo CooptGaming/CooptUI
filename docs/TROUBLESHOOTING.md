@@ -1,4 +1,4 @@
-# CoopUI Troubleshooting Guide
+# CoOpt UI Troubleshooting Guide
 
 ## Quick Diagnostics
 
@@ -182,7 +182,7 @@ This is expected ImGui behavior — windows don't programmatically resize while 
 
 **Fix:**
 1. Enable "Suppress when loot.mac running" in Config to prevent UI updates during macro execution
-2. Avoid running multiple CoopUI instances simultaneously
+2. Avoid running multiple CoOpt UI instances simultaneously
 3. Close the bank panel when not needed
 
 #### Slow UI open
@@ -221,7 +221,7 @@ ScriptTracker auto-refreshes on inventory changes. To force refresh:
 
 **Cause:** A Lua closure references more than 60 variables from outer scopes.
 
-**Context:** This is a Lua language limit. CoopUI uses the context registry pattern (`context.lua`) to work around it. If you see this error after modifying code, you've added too many local variables to a function that's captured by a closure.
+**Context:** This is a Lua language limit. CoOpt UI uses the context registry pattern (`context.lua`) to work around it. If you see this error after modifying code, you've added too many local variables to a function that's captured by a closure.
 
 **Fix for developers:** Consolidate variables into tables or use `context.build()` to access shared state through a single metatable proxy.
 
@@ -246,7 +246,7 @@ ScriptTracker auto-refreshes on inventory changes. To force refresh:
 
 **Cause:** A function scope has more than 200 local variables.
 
-**Context:** CoopUI uses state tables (`uiState`, `sortState`, etc.) to consolidate locals. If you see this after modifying code, you've added too many `local` declarations.
+**Context:** CoOpt UI uses state tables (`uiState`, `sortState`, etc.) to consolidate locals. If you see this after modifying code, you've added too many `local` declarations.
 
 **Fix for developers:** Move new variables into existing state tables rather than declaring new locals.
 
@@ -262,7 +262,7 @@ If you encounter a bug not covered here:
 4. **Open an issue** at: https://github.com/CooptGaming/CoopUI/issues
 
 Include:
-- CoopUI version
+- CoOpt UI version
 - MQ2 version (if known)
 - Full error message from console
 - Steps to reproduce

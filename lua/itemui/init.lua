@@ -1,7 +1,7 @@
 --[[
-    CoopUI - ItemUI
+    CoOpt UI Inventory Companion
     Purpose: Unified Inventory / Bank / Sell / Loot Interface
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
     Author: Perky's Crew
     Version: see coopui.version (ITEMUI)
     Dependencies: mq2lua, ImGui
@@ -817,7 +817,7 @@ local function renderUI()
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
     
-    local winOpen, winVis = ImGui.Begin("Item UI##ItemUI", isOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Inventory Companion##ItemUI", isOpen, windowFlags)
     isOpen = winOpen
     if not winOpen then
         shouldDraw = false
@@ -896,7 +896,7 @@ local function renderUI()
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), and sell list"); ImGui.EndTooltip() end
     ImGui.SameLine()
     if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open ItemUI & Loot settings"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
     ImGui.SameLine()
     if ImGui.Button("Augments", ImVec2(75, 0)) then
         uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen

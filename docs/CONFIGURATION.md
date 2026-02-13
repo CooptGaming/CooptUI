@@ -1,6 +1,6 @@
-# CoopUI Configuration Reference
+# CoOpt UI Configuration Reference
 
-CoopUI uses INI-based configuration files shared between ItemUI and the sell/loot macros. All config files live under `Macros/` in three directories.
+CoOpt UI uses INI-based configuration files shared between ItemUI and the sell/loot macros. All config files live under `Macros/` in three directories.
 
 ## Config File Inventory
 

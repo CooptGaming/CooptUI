@@ -1021,7 +1021,7 @@ local function renderConfigWindow()
     if w and h and w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
-    local ok = ImGui.Begin("ItemUI & Loot Config##ItemUIConfig", uiState.configWindowOpen)
+    local ok = ImGui.Begin("CoOpt UI Settings##ItemUIConfig", uiState.configWindowOpen)
     uiState.configWindowOpen = ok
     if not ok then uiState.configNeedsLoad = true; ImGui.End(); return end
     if ImGui.IsKeyPressed(ImGuiKey.Escape) then uiState.configWindowOpen = false; ImGui.End(); return end
@@ -1043,7 +1043,7 @@ local function renderConfigWindow()
         end
     end
 
-    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "ItemUI & Loot settings")
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "CoOpt UI Settings")
     ImGui.SameLine()
     if ImGui.Button("Reload from files##Config", ImVec2(130, 0)) then loadConfigCache() end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reload all settings from INI files"); ImGui.EndTooltip() end
@@ -1098,8 +1098,8 @@ local function renderConfigWindow()
             if prevAlign ~= uiState.alignToContext then scheduleLayoutSave() end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("When enabled, ItemUI stays locked to the built-in Inventory window.")
-                ImGui.Text("Uncheck to place ItemUI freely.")
+                ImGui.Text("When enabled, CoOpt UI Inventory Companion stays locked to the built-in Inventory window.")
+                ImGui.Text("Uncheck to place CoOpt UI Inventory Companion freely.")
                 ImGui.EndTooltip()
             end
             local prevSync = uiState.syncBankWindow
@@ -1118,7 +1118,7 @@ local function renderConfigWindow()
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("When enabled, the bank window follows ItemUI position.")
+                ImGui.Text("When enabled, the bank window follows CoOpt UI Inventory Companion position.")
                 ImGui.Text("Uncheck to move the bank window independently.")
                 ImGui.EndTooltip()
             end

@@ -1,8 +1,8 @@
 --[[
-    CoopUI State Management
+    CoOpt UI State Management
     Unified state with reactive updates via event system
 
-    Part of CoopUI — Shared infrastructure for all CoopUI components
+    Part of CoOpt UI — Shared infrastructure for all CoOpt UI components
 
     Usage:
         local state = require('coopui.core.state')

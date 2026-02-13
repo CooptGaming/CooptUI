@@ -1,7 +1,7 @@
 --[[
     ItemUI - Item Operations Service
     Item manipulation (add/remove), movement (inv<->bank), sell queue, flags.
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
 --]]
 
 local mq = require('mq')

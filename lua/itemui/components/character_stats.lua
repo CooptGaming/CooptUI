@@ -1,7 +1,7 @@
 --[[
     ItemUI - Character Stats Panel Component
     Renders the left-side character stats panel with HP/MP/EN, AC/ATK, stats, resists, money, AA scripts.
-    Part of CoopUI — EverQuest EMU Companion
+    Part of CoOpt UI — EverQuest EMU Companion
 --]]
 
 local mq = require('mq')

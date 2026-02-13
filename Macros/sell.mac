@@ -1,5 +1,5 @@
 | ================================================= |
-| CoopUI — Auto Sell v3.0 (see lua/coopui/version.lua) |
+| CoOpt UI Sell Companion — Auto Sell v3.0 (see lua/coopui/version.lua) |
 | Intelligent Vendor Selling with Safety Filters    |
 | ================================================= |
 | Usage:                                            |
@@ -866,6 +866,33 @@ sub LoadConfig(bool verbose)
         /varset protectedTypes3 ${Ini[${protectedTypesFile},Items,types3]}
     } else {
         /varset protectedTypes3
+    }
+    
+    | Warn if any list exceeds 85% of MQ2 string buffer (2048 chars) - overflow can crash game to desktop
+    /declare bufferWarnLen int local 1740
+    /if (${keepExact.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Keep Exact" list is ${keepExact.Length} chars (85%% limit=1740).
+        /echo \arThe game has a 2048 character limit for this list. Exceeding it can crash to desktop. Shorten valuable_exact.ini + sell_keep_exact.ini.
+    }
+    /if (${keepContains.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Keep Contains" list is ${keepContains.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten valuable_contains.ini + sell_keep_contains.ini.
+    }
+    /if (${keepTypes.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Keep Types" list is ${keepTypes.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten valuable_types.ini + sell_keep_types.ini.
+    }
+    /if (${alwaysSellExact.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Always Sell Exact" list is ${alwaysSellExact.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten sell_always_sell_exact.ini or use exact2/exact3 keys to split.
+    }
+    /if (${alwaysSellContains.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Always Sell Contains" list is ${alwaysSellContains.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten sell_always_sell_contains.ini or use contains2/contains3 keys to split.
+    }
+    /if (${protectedTypes.Length} > ${bufferWarnLen}) {
+        /echo \arBUFFER WARNING (sell): "Protected Types" list is ${protectedTypes.Length} chars (85%% limit=1740).
+        /echo \arExceeding 2048 chars can crash to desktop. Shorten sell_protected_types.ini or use types2/types3 keys to split.
     }
     
     | Load Value Settings

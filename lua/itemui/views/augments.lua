@@ -64,7 +64,7 @@ function AugmentsView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("Augmentations##ItemUIAugments", augmentsWindowOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Augments Companion##ItemUIAugments", augmentsWindowOpen, windowFlags)
     ctx.uiState.augmentsWindowOpen = winOpen
     ctx.uiState.augmentsWindowShouldDraw = winOpen
 

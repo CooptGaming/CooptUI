@@ -1,8 +1,8 @@
 --[[
-    CoopUI Cache System
+    CoOpt UI Cache System
     Multi-tier caching with granular invalidation and statistics
 
-    Part of CoopUI — Shared infrastructure for all CoopUI components
+    Part of CoOpt UI — Shared infrastructure for all CoOpt UI components
 
     Tiers (TTL in milliseconds, uses mq.gettime()):
     - L1 (Hot): Current view items, sorted lists (60s TTL, 100 items)

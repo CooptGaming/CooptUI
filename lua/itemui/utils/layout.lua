@@ -587,7 +587,7 @@ function LayoutUtils.resetLayoutToDefault()
     if perfCache then perfCache.layoutNeedsReload = true end
     
     print("\ag[ItemUI]\ax Layout reset to default! (Window sizes, column visibility, and settings restored)")
-    print("\ay[ItemUI]\ax Note: Window sizes will apply on next reload. Close and reopen ItemUI.")
+    print("\ay[ItemUI]\ax Note: Window sizes will apply on next reload. Close and reopen CoOpt UI Inventory Companion.")
 end
 
 -- Load layout config from INI file

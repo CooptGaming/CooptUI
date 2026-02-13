@@ -1,8 +1,8 @@
 --[[
-    CoopUI Event Bus
+    CoOpt UI Event Bus
     Simple event system for decoupled module communication
 
-    Part of CoopUI — Shared infrastructure for all CoopUI components
+    Part of CoOpt UI — Shared infrastructure for all CoOpt UI components
 
     Usage:
         local events = require('coopui.core.events')

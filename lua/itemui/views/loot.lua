@@ -33,7 +33,7 @@ function LootView.render(ctx)
         ctx.uiState.configWindowOpen = false
         ctx.setStatusMessage("Loot closed")
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Close loot window and ItemUI"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Close loot window and CoOpt UI Inventory Companion"); ImGui.EndTooltip() end
     ImGui.Separator()
     
     local lootCount, skipCount = 0, 0
