@@ -1,8 +1,31 @@
 # CoOpt UI — EverQuest EMU Companion
 
-**CoOpt UI** is a MacroQuest2 suite for EverQuest emulator servers. It ties together a **unified item UI**, **auto sell** and **auto loot** macros, **epic-aware config**, and **AA script tracking**—with one shared config model so the UI and macros always use the same rules.
+**CoOpt UI** is a MacroQuest2 suite for EverQuest emulator servers. One product, four components: **ItemUI** (unified inventory/bank/sell/loot UI), **ScriptTracker** (AA script progress), **Auto Sell**, and **Auto Loot**—with a single shared config so the UI and macros always use the same rules.
 
-<!-- SCREENSHOT: CoOpt UI Items Companion main window — e.g. inventory view with bank button visible. Suggested: docs/screenshots/itemui-main.png -->
+---
+
+## Key features
+
+- **One window for items** — ItemUI: inventory, bank, sell, and loot in one context-aware window. No switching between separate UIs.
+- **One config, two macros** — Edit keep/junk, valuable, and epic lists in ItemUI or INI; `sell.mac` and `loot.mac` use the same lists. Never sell what you meant to always loot.
+- **Epic quest protection** — Per-class epic item lists (all 16 classes). Epic items are never sold and can be set to always loot. Optional class filter via `epic_classes.ini`.
+- **Rich item tooltips** — Hover any item for full stats, slots, augments. Right-click or use Keep/Junk in the sell view to edit lists without opening Config.
+- **Loot view before you loot** — See how each corpse item will be evaluated (loot/skip). Add **Always Loot** / **Always Skip** from the UI; rules stay in sync with the loot macro.
+- **Quick bank** — Shift+click items to move to/from bank when the banker is open. Bank panel: live when bank open, snapshot when closed.
+- **AA script tracking** — ScriptTracker: Lost/Planar AA script progress and AA value in a separate window.
+- **Performance-first** — Snapshot-first open, debounced saves, macro bridge with minimal polling. Built for stability and low overhead.
+
+---
+
+## Screenshots
+
+_Screenshots will be added here. Suggested images:_
+
+| Screenshot | Description |
+|------------|-------------|
+| **Main window** | ItemUI inventory view with bank button visible (e.g. `docs/screenshots/itemui-main.png`) |
+| **Sell view** | ItemUI with merchant open: keep/junk toggles, Sell button (e.g. `docs/screenshots/itemui-sell.png`) |
+| **Config / Item lists** | Config window, Item Lists or epic classes (e.g. `docs/screenshots/epic-config.png`) |
 
 ---
 
@@ -10,60 +33,23 @@
 
 | Part | Role |
 |------|------|
-| **ItemUI** | Central hub: one window for inventory, bank, sell, and loot. You view items, edit keep/junk and loot lists, and trigger sell/loot from here. All config is shared with the macros. |
-| **sell.mac** | Auto sell: sells items marked as junk to the open merchant. Reads `sell_config/` and `shared_config/` (valuable & epic = never sell). |
-| **loot.mac** | Auto loot: loots corpses using your rules. Reads `loot_config/` and `shared_config/` (valuable & epic = always loot). Lore check, optional sorting, mythical alert. |
-| **shared_config/** | One place for **valuable** and **epic** item lists. Both sell and loot use it, so you don’t sell something you meant to always loot (or vice versa). |
+| **ItemUI** | Central hub: one window for inventory, bank, sell, and loot. View items, edit keep/junk and loot lists, trigger sell/loot. All config is shared with the macros. |
+| **sell.mac** | Auto sell: sells items marked as junk to the open merchant. Uses `sell_config/` and `shared_config/` (valuable & epic = never sell). |
+| **loot.mac** | Auto loot: loots corpses using your rules. Uses `loot_config/` and `shared_config/` (valuable & epic = always loot). Lore check, optional sorting, mythical alert. |
+| **shared_config/** | One place for **valuable** and **epic** item lists. Both sell and loot use it. |
 | **ScriptTracker** | Separate Lua UI: tracks AA script progress (Lost/Planar) and AA value. |
-| **epic_quests/** | Optional data and tooling: structured epic 1.0 quest data (JSON + Lua), master items list, and scripts to generate/maintain them. Runtime epic protection uses the INI lists in `shared_config/` (e.g. `epic_items_<class>.ini`). |
-
-So: **one config, one UI, two macros.** Edit in ItemUI or the INI files; sell.mac and loot.mac follow the same lists and flags.
-
----
-
-## Highlights
-
-### One window, context-aware
-
-**ItemUI** is the main surface. One window replaces separate inventory, bank, and sell UIs:
-
-- **Inventory view** — Bags, slots, weight, flags; **quick bank** when the banker is open (hold **Shift** and left-click to move items to/from bank).
-- **Sell view** — Switches when you open a merchant: keep/junk toggles, value, one-click **Sell** to run sell.mac.
-- **Bank panel** — Slide-out; live when the bank is open, snapshot when closed.
-- **Loot view** — See how each corpse item will be evaluated (loot/skip) before you loot; **Always Loot** / **Always Skip** to add items to your lists.
-
-**Hover** any item for a rich tooltip. **Right-click** in inventory (or use Keep/Always sell in the sell view) to add or remove items from keep/junk lists without opening the config window.
-
-<!-- SCREENSHOT: ItemUI with merchant open (sell view). Suggested: docs/screenshots/itemui-sell.png -->
-
-### sell.mac & loot.mac integration
-
-Trigger from ItemUI or by command:
-
-- **Sell:** **Sell** button in the sell view or `/dosell` (or `/macro sell confirm`).
-- **Loot:** **Loot** button in the loot view or `/doloot` (or `/macro loot`).
-
-Both macros use the same shared config (keep/junk, valuable, epic) so your lists stay in sync.
-
-### Epic quest items — protected by default
-
-Per-class epic item lists in `shared_config/` (all 16 classes):
-
-- **Never sell** epic items (optional class filter via `epic_classes.ini`).
-- **Always loot** epic items when auto-looting.
-
-<!-- SCREENSHOT (optional): Config "Item Lists" or epic_classes. Suggested: docs/screenshots/epic-config.png -->
+| **epic_quests/** | Optional: structured epic 1.0 quest data (JSON + Lua), master items list. Runtime epic protection uses INI lists in `shared_config/`. |
 
 ---
 
 ## Components
 
-| Component        | Type   | Command                    | What it does |
-|------------------|--------|----------------------------|--------------|
-| **ItemUI**       | Lua UI | `/lua run itemui`          | Unified inventory, bank, sell, loot; config editor |
-| **ScriptTracker** | Lua UI | `/lua run scripttracker`   | AA script progress (Lost/Planar) |
-| **Auto Sell**    | Macro  | `/dosell` or `/macro sell confirm` | Sell marked items (sell.mac) |
-| **Auto Loot**    | Macro  | `/doloot` or `/macro loot` | Auto-loot corpses (loot.mac) |
+| Component      | Type   | Command                          | What it does |
+|----------------|--------|----------------------------------|--------------|
+| **ItemUI**     | Lua UI | `/lua run itemui` then `/itemui` | Unified inventory, bank, sell, loot; config editor |
+| **ScriptTracker** | Lua UI | `/lua run scripttracker` then `/scripttracker` | AA script progress (Lost/Planar) |
+| **Auto Sell**  | Macro  | `/dosell` or `/macro sell confirm` | Sell marked items (sell.mac) |
+| **Auto Loot**  | Macro  | `/doloot` or `/macro loot`       | Auto-loot corpses (loot.mac) |
 
 ---
 
@@ -83,7 +69,7 @@ ScriptTracker: `/lua run scripttracker` then `/scripttracker` to toggle.
 
 ## Requirements
 
-- MacroQuest2 with Lua support (mq2lua) and ImGui
+- **MacroQuest2** with Lua support (mq2lua) and ImGui
 - In-game: `/lua run itemui` and `/lua run scripttracker` must work
 
 ---
@@ -102,6 +88,7 @@ Details: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 | Document | Description |
 |----------|-------------|
+| [docs/COOPUI_OVERVIEW.md](docs/COOPUI_OVERVIEW.md) | One-page scope and where to look |
 | [docs/INSTALL.md](docs/INSTALL.md) | Installation, updating, migration |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All INI files and decision logic |
 | [docs/DEVELOPER.md](docs/DEVELOPER.md) | Architecture, modules, build/release |
@@ -115,19 +102,19 @@ Details: **[docs/INSTALL.md](docs/INSTALL.md)**.
 ## Project structure
 
 ```
-CoOpt UI repo/
+CoOpt UI/
 ├── lua/
 │   ├── coopui/           # Shared core (version, theme, events, cache, state)
 │   ├── itemui/           # ItemUI (unified window + config)
 │   ├── scripttracker/    # ScriptTracker (AA scripts)
-│   └── mq/                # Shared utilities (ItemUtils)
+│   └── mq/               # Shared utilities (ItemUtils)
 ├── Macros/
-│   ├── sell.mac           # Auto Sell
-│   ├── loot.mac           # Auto Loot
-│   ├── sell_config/       # Sell/keep lists, layout, per-char
-│   ├── shared_config/     # Valuable & epic lists (used by sell + loot)
-│   └── loot_config/       # Loot rules, flags, session/history
-├── epic_quests/           # Optional: epic 1.0 data, master items, Python scripts
+│   ├── sell.mac          # Auto Sell
+│   ├── loot.mac          # Auto Loot
+│   ├── sell_config/      # Sell/keep lists, layout, per-char
+│   ├── shared_config/    # Valuable & epic lists (used by sell + loot)
+│   └── loot_config/      # Loot rules, flags, session/history
+├── epic_quests/          # Optional: epic 1.0 data, master items, scripts
 ├── resources/UIFiles/Default/
 └── docs/
 ```
