@@ -196,7 +196,7 @@ function LayoutUtils.loadLayoutValue(layout, key, default)
     if not layout then return default end
     local val = layout[key]
     if not val or val == "" then return default end
-    if key == "AlignToContext" or key == "UILocked" or key == "SyncBankWindow" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "SellViewLocked" or key == "InvViewLocked" or key == "BankViewLocked" or key == "ConfigAdvancedMode" then
+    if key == "AlignToContext" or key == "UILocked" or key == "SyncBankWindow" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "SellViewLocked" or key == "InvViewLocked" or key == "BankViewLocked" then
         return (val == "1" or val == "true")
     end
     if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" then return val end  -- string (column key)
@@ -286,13 +286,14 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
+        f:write("WidthConfig=" .. tostring(layoutConfig.WidthConfig or 520) .. "\n")
+        f:write("HeightConfig=" .. tostring(layoutConfig.HeightConfig or 420) .. "\n")
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
         f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
         f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
         f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
-        f:write("ConfigAdvancedMode=" .. (uiState.configAdvancedMode and "1" or "0") .. "\n")
         f:write("ConfigTab=" .. tostring(filterState.configTab) .. "\n")
         f:write("FilterSubTab=" .. tostring(filterState.filterSubTab) .. "\n")
         f:write("InvSortColumn=" .. tostring(sortState.invColumn or "Name") .. "\n")
@@ -634,15 +635,17 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
+        layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", 520)
+        layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
         uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
         uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
         uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
-        uiState.configAdvancedMode = LayoutUtils.loadLayoutValue(layout, "ConfigAdvancedMode", false)
         local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
-        filterState.configTab = (type(ct) == "number" and ((ct >= 1 and ct <= 5) or (ct >= 10 and ct <= 12))) and ct or 1
+        -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
+        filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
         local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
         filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
         local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")
@@ -728,15 +731,17 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
+    layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", 520)
+    layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
     uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
     uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
     uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
     uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
-    uiState.configAdvancedMode = LayoutUtils.loadLayoutValue(layout, "ConfigAdvancedMode", false)
     local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
-    filterState.configTab = (type(ct) == "number" and ((ct >= 1 and ct <= 5) or (ct >= 10 and ct <= 12))) and ct or 1
+    -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
+    filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
     local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
     filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
         local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")

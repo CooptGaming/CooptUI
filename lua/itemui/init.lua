@@ -128,7 +128,7 @@ local computeAndAttachSellStatus
 -- UI state (consolidated for Lua 200-local limit)
 local uiState = {
     windowPositioned = false,
-    alignToContext = false,
+    alignToContext = true,  -- Enable snap to Inventory by default
     alignToMerchant = false,  -- NEW: Align to merchant window when in sell view
     uiLocked = true,
     syncBankWindow = true,
@@ -196,7 +196,7 @@ local layoutDefaults = {
     AAWindowY = 0,
     ShowAAWindow = 1,
     AABackupPath = "",  -- empty = use CONFIG_PATH (Macros/sell_config)
-    AlignToContext = 0,
+    AlignToContext = 1,  -- Enable snap to Inventory by default
     UILocked = 1,
     SyncBankWindow = 1,
     SuppressWhenLootMac = 0,  -- 0 = Loot UI opens when looting (default); 1 = suppress Loot UI during looting

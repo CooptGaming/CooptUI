@@ -125,53 +125,6 @@ local function classLabel(cls)
     return (cls:gsub("_", " "):gsub("(%a)(%S*)", function(a, b) return a:upper() .. b:lower() end))
 end
 
---- Render grid of epic class checkboxes. Writes to epic_classes.ini and invalidates sell/loot caches.
-local function renderEpicClassGrid()
-    if not EPIC_CLASSES or #EPIC_CLASSES == 0 then return end
-    ImGui.Spacing()
-    ImGui.Text("Epic quest classes:")
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        ImGui.TextWrapped("Check classes whose epic quest items should always be looted and never sold (when the flags above are on). If none are checked, all epic items from all classes are used.")
-        ImGui.EndTooltip()
-    end
-    ImGui.SameLine()
-    if ImGui.SmallButton("Select all##epic") then
-        for _, cls in ipairs(EPIC_CLASSES) do
-            configEpicClasses[cls] = true
-            config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "TRUE")
-        end
-        invalidateSellConfigCache()
-        invalidateLootConfigCache()
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.SmallButton("Clear all##epic") then
-        for _, cls in ipairs(EPIC_CLASSES) do
-            configEpicClasses[cls] = false
-            config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "FALSE")
-        end
-        invalidateSellConfigCache()
-        invalidateLootConfigCache()
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all classes (all epic items used when flags are on)"); ImGui.EndTooltip() end
-    local cols = 4
-    if ImGui.BeginTable("EpicClassGrid", cols, ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH) then
-        for i, cls in ipairs(EPIC_CLASSES) do
-            if (i - 1) % cols == 0 then ImGui.TableNextRow() end
-            ImGui.TableNextColumn()
-            local v = ImGui.Checkbox(classLabel(cls) .. "##epic_" .. cls, configEpicClasses[cls] == true)
-            if v ~= (configEpicClasses[cls] == true) then
-                configEpicClasses[cls] = v
-                config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE")
-                invalidateSellConfigCache()
-                invalidateLootConfigCache()
-            end
-        end
-        ImGui.EndTable()
-    end
-end
-
 local function refreshTargets()
     SELL_FILTER_TARGETS = {
         { id = "keep", label = "Keep (never sell)", hasExact = true, hasContains = true, hasTypes = true,
@@ -298,7 +251,9 @@ local function renderUnifiedListSection(sectionId, title, exactKey, containsKey,
             ImGui.PopID()
         end
     end
-    ImGui.BeginChild(sectionId .. "List", ImVec2(0, 120), true)
+    local _, listAvailY = ImGui.GetContentRegionAvail()
+    local listHeight = math.max(220, math.floor(listAvailY * 0.5))
+    ImGui.BeginChild(sectionId .. "List", ImVec2(0, listHeight), true)
     if exactKey and lists[exactKey] then
         addEntry("exact", exactKey, exactIni, "exact", lists)
     end
@@ -731,7 +686,7 @@ local function renderFiltersSection(forcedSubTab, showTabs)
     end
 
     local _, availY = ImGui.GetContentRegionAvail()
-    local childHeight = math.max(200, availY - 8)
+    local childHeight = math.max(240, availY - 8)
     ImGui.BeginChild("FiltersContent", ImVec2(0, childHeight), true, ImGuiWindowFlags.AlwaysVerticalScrollbar)
 
     if activeSubTab == 1 then
@@ -965,7 +920,7 @@ local function renderFiltersSection(forcedSubTab, showTabs)
         end
     elseif filterState.filterSubTab == 3 then
         ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-        ImGui.TextWrapped("Never loot unless a qualification is met. Value thresholds (min loot, tribute override) are in the Loot tab. Add items to Always loot or Skip (never loot).")
+        ImGui.TextWrapped("Never loot unless a qualification is met. Value thresholds are in General > Loot. Add items to Always loot or Skip (never loot).")
         ImGui.PopStyleColor()
         ImGui.Spacing()
 
@@ -1059,219 +1014,13 @@ local function renderFiltersSection(forcedSubTab, showTabs)
     ImGui.EndChild()
 end
 
--- Simple mode: flat list UX for exact-name item lists
--- Renders: header text, text input + Add + From cursor, scrollable list with X to remove
-local function renderSimpleItemList(sectionId, headerText, listKey, iniFile, writeFn, lists, invalidateFn)
-    ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), headerText)
-    local inputKey = "simple_" .. sectionId
-    filterState.configListInputs[inputKey] = filterState.configListInputs[inputKey] or ""
-    ImGui.SetNextItemWidth(200)
-    filterState.configListInputs[inputKey], _ = ImGui.InputText("##" .. inputKey, filterState.configListInputs[inputKey] or "")
-    ImGui.SameLine()
-    if ImGui.Button("Add##" .. sectionId, ImVec2(50, 0)) then
-        local name = (filterState.configListInputs[inputKey] or ""):match("^%s*(.-)%s*$")
-        if name ~= "" then
-            local list = lists[listKey]
-            local found = false
-            for _, s in ipairs(list) do if s == name then found = true; break end end
-            if not found then
-                list[#list + 1] = name
-                filterState.configListInputs[inputKey] = ""
-                writeFn(iniFile, "Items", "exact", config.joinList(list))
-                if invalidateFn then invalidateFn() end
-            end
-        end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add item name to list"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    do
-        local hc = hasItemOnCursor()
-        if not hc then ImGui.BeginDisabled() end
-        if ImGui.Button("From cursor##" .. sectionId, ImVec2(90, 0)) then
-            local raw = mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()
-            if raw and raw ~= "" then
-                filterState.configListInputs[inputKey] = config.sanitizeItemName(raw)
-            end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up an item, then click to fill its name"); ImGui.EndTooltip() end
-        if not hc then ImGui.EndDisabled() end
-    end
-    local list = lists[listKey]
-    ImGui.BeginChild(sectionId .. "SimpleList", ImVec2(0, 120), true)
-    for i = #list, 1, -1 do
-        ImGui.PushID(sectionId .. "item" .. i)
-        ImGui.Text(list[i])
-        ImGui.SameLine(ImGui.GetContentRegionAvail() - 30)
-        if ImGui.Button("X", ImVec2(22, 0)) then
-            table.remove(list, i)
-            writeFn(iniFile, "Items", "exact", config.joinList(list))
-            if invalidateFn then invalidateFn() end
-        end
-        ImGui.PopID()
-    end
-    ImGui.EndChild()
-end
-
--- Simple mode Protection tab: 6 key checkboxes + epic grid + General window settings
-local function renderSimpleProtectionTab()
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("General", ImGuiTreeNodeFlags.DefaultOpen) then
-        local prevAlign = uiState.alignToContext
-        uiState.alignToContext = ImGui.Checkbox("Snap to Inventory", uiState.alignToContext)
-        if prevAlign ~= uiState.alignToContext then scheduleLayoutSave() end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Lock ItemUI position to the built-in Inventory window.")
-            ImGui.EndTooltip()
-        end
-        local prevSync = uiState.syncBankWindow
-        uiState.syncBankWindow = ImGui.Checkbox("Sync Bank Window", uiState.syncBankWindow)
-        if prevSync ~= uiState.syncBankWindow then
-            saveLayoutToFile()
-            if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-                local itemUIX, itemUIY = ImGui.GetWindowPos()
-                local itemUIW = ImGui.GetWindowWidth()
-                if itemUIX and itemUIY and itemUIW then
-                    layoutConfig.BankWindowX = itemUIX + itemUIW + 10
-                    layoutConfig.BankWindowY = itemUIY
-                    saveLayoutToFile()
-                end
-            end
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Keep bank window synced with ItemUI position.")
-            ImGui.EndTooltip()
-        end
-        local prevSuppress = uiState.suppressWhenLootMac
-        uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress Loot UI during looting", uiState.suppressWhenLootMac)
-        if prevSuppress ~= uiState.suppressWhenLootMac then scheduleLayoutSave() end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("When enabled, the Loot UI window will not open when you loot (manual or macro).")
-            ImGui.Text("ItemUI stays hidden during looting either way.")
-            ImGui.EndTooltip()
-        end
-        local prevConfirm = uiState.confirmBeforeDelete
-        uiState.confirmBeforeDelete = ImGui.Checkbox("Confirm before delete", uiState.confirmBeforeDelete)
-        if prevConfirm ~= uiState.confirmBeforeDelete then scheduleLayoutSave() end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Show a confirmation dialog before destroying an item from the inventory context menu.")
-            ImGui.EndTooltip()
-        end
-    end
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("Sell protection", ImGuiTreeNodeFlags.DefaultOpen) then
-        ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), "Items with these flags are never sold.")
-        ImGui.Spacing()
-        local function sellFlag(name, key, tooltip)
-            local v = ImGui.Checkbox(name, configSellFlags[key])
-            if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache() end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
-        end
-        sellFlag("Protect No-Drop", "protectNoDrop", "Never sell items with the No-Drop flag")
-        sellFlag("Protect No-Trade", "protectNoTrade", "Never sell items with the No-Trade flag")
-        sellFlag("Protect Lore", "protectLore", "Never sell items with the Lore flag")
-        sellFlag("Protect Quest", "protectQuest", "Never sell items with the Quest flag")
-        sellFlag("Protect Collectible", "protectCollectible", "Never sell items with the Collectible flag")
-        sellFlag("Protect Epic", "protectEpic", "Never sell Epic quest items")
-        if ImGui.CollapsingHeader("Epic class filter") then
-            renderEpicClassGrid()
-        end
-    end
-end
-
--- Simple mode Item Lists tab: Never Sell, Always Sell, Valuable (exact names only)
-local function renderSimpleItemListsTab()
-    ImGui.Spacing()
-    renderSimpleItemList("simpleKeep", "Never Sell — these items are always kept",
-        "keepExact", "sell_keep_exact.ini", writeListValue, configSellLists, invalidateSellConfigCache)
-    ImGui.Spacing()
-    renderSimpleItemList("simpleJunk", "Always Sell — these items are always sold",
-        "junkExact", "sell_always_sell_exact.ini", writeListValue, configSellLists, invalidateSellConfigCache)
-    ImGui.Spacing()
-    renderSimpleItemList("simpleValuable", "Valuable — never sell + always loot (shared)",
-        "sharedExact", "valuable_exact.ini", writeSharedListValue, configLootLists, invalidateSellConfigCache)
-end
-
--- Simple mode Values & Stats tab: sell + loot thresholds + statistics
-local function renderSimpleValuesTab()
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("Sell thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "All values in copper (1 platinum = 1000 copper).")
-        local function valueInput(label, key, tooltip, writeKey)
-            ImGui.Text(label)
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
-            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-            local vs = tostring(configSellValues[key])
-            vs, _ = ImGui.InputText(label .. "##SellSimple", vs, ImGuiInputTextFlags.CharsDecimal)
-            local n = tonumber(vs)
-            if n and n ~= configSellValues[key] then
-                configSellValues[key] = math.max(0, math.floor(n))
-                config.writeINIValue("sell_value.ini", "Settings", writeKey, tostring(configSellValues[key]))
-                invalidateSellConfigCache()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues[key]))
-        end
-        valueInput("Min sell value", "minSell", "Minimum value to sell a single item (0 = sell all)", "minSellValue")
-        valueInput("Min stack value", "minStack", "Minimum value per unit for stackable items", "minSellValueStack")
-        valueInput("Max keep value", "maxKeep", "Items above this value are always kept (0 = disabled)", "maxKeepValue")
-    end
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("Loot thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "All values in copper (1 platinum = 1000 copper).")
-        ImGui.SetNextItemWidth(120)
-        local vs = tostring(configLootValues.minLoot)
-        vs, _ = ImGui.InputText("Min loot value##SimpleL", vs, ImGuiInputTextFlags.CharsDecimal)
-        local n = tonumber(vs)
-        if n and n ~= configLootValues.minLoot then configLootValues.minLoot = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
-        ImGui.SameLine(); ImGui.Text("Min value (non-stack)")
-        ImGui.SameLine(); ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minLoot))
-
-        ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootValues.minStack)
-        vs, _ = ImGui.InputText("Min loot stack##SimpleL", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
-        if n and n ~= configLootValues.minStack then configLootValues.minStack = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
-        ImGui.SameLine(); ImGui.Text("Min value (stack)")
-        ImGui.SameLine(); ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minStack) .. "/unit")
-
-        ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootValues.tributeOverride)
-        vs, _ = ImGui.InputText("Tribute override##SimpleL", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
-        if n and n ~= configLootValues.tributeOverride then configLootValues.tributeOverride = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "tributeOverride", tostring(configLootValues.tributeOverride)) end
-        ImGui.SameLine(); ImGui.Text("Tribute override (0=off)")
-        ImGui.SameLine(); ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.tributeOverride))
-    end
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("Statistics") then
-        local stats = safeGetStats()
-        local sellStats = stats and stats.sell or nil
-        local lootStats = stats and stats.loot or nil
-        if not sellStats and not lootStats then
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "No stats yet. Run sell.mac or loot.mac.")
-        else
-            local function safeNumber(v, fmt)
-                if v == nil then return "N/A" end
-                if fmt then return fmt(v) end
-                return tostring(tonumber(v) or "N/A")
-            end
-            if sellStats then
-                ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), "Sell stats")
-                ImGui.Text(string.format("Runs: %s  Items sold: %s  Failed: %s", safeNumber(sellStats.totalRuns), safeNumber(sellStats.totalItemsSold), safeNumber(sellStats.totalItemsFailed)))
-            end
-            if lootStats then
-                ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), "Loot stats")
-                ImGui.Text(string.format("Runs: %s  Avg: %s", safeNumber(lootStats.totalRuns), safeNumber(lootStats.avgDurationMs, formatDurationMs)))
-            end
-        end
-    end
-end
-
 local function renderConfigWindow()
+    -- Apply saved config window size before Begin (FirstUseEver so user resize is preserved)
+    local w = layoutConfig.WidthConfig or 0
+    local h = layoutConfig.HeightConfig or 0
+    if w and h and w > 0 and h > 0 then
+        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+    end
     local ok = ImGui.Begin("ItemUI & Loot Config##ItemUIConfig", uiState.configWindowOpen)
     uiState.configWindowOpen = ok
     if not ok then uiState.configNeedsLoad = true; ImGui.End(); return end
@@ -1296,16 +1045,6 @@ local function renderConfigWindow()
 
     ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "ItemUI & Loot settings")
     ImGui.SameLine()
-    -- B1: Simple/Advanced mode toggle
-    local modeLabel = uiState.configAdvancedMode and "Advanced" or "Simple"
-    if ImGui.Button(modeLabel .. "##ConfigMode", ImVec2(80, 0)) then
-        uiState.configAdvancedMode = not uiState.configAdvancedMode
-        -- Reset tab to first tab of the new mode
-        filterState.configTab = uiState.configAdvancedMode and 1 or 10
-        scheduleLayoutSave()
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.configAdvancedMode and "Switch to Simple mode (fewer options)" or "Switch to Advanced mode (all options)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
     if ImGui.Button("Reload from files##Config", ImVec2(130, 0)) then loadConfigCache() end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reload all settings from INI files"); ImGui.EndTooltip() end
     ImGui.SameLine()
@@ -1329,65 +1068,43 @@ local function renderConfigWindow()
     ImGui.Separator()
 
     filterState.configTab = filterState.configTab or 1
+    if filterState.configTab < 1 or filterState.configTab > 4 then
+        filterState.configTab = 1
+    end
     local function renderTabButton(label, tabId, width, tooltip)
         if ImGui.Button(label, ImVec2(width, 0)) then filterState.configTab = tabId; scheduleLayoutSave() end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
         if filterState.configTab == tabId then ImGui.SameLine(0, 0); ImGui.TextColored(theme.ToVec4(theme.Colors.Success), "  <") end
     end
 
-    -- B2: Simple mode = 3 tabs; Advanced mode = existing 5 tabs
-    -- Guard: ensure tab ID is valid for current mode
-    if uiState.configAdvancedMode and filterState.configTab >= 10 then
-        filterState.configTab = 1
-    elseif not uiState.configAdvancedMode and filterState.configTab < 10 then
-        filterState.configTab = 10
-    end
-    if uiState.configAdvancedMode then
-        renderTabButton("General", 1, 90, "UI behavior, layout, and window settings")
-        ImGui.SameLine()
-        renderTabButton("Sell Rules", 2, 90, "Sell flags, value thresholds, and lists")
-        ImGui.SameLine()
-        renderTabButton("Loot Rules", 3, 90, "Loot flags, value thresholds, and lists")
-        ImGui.SameLine()
-        renderTabButton("Shared", 4, 90, "Valuable shared lists used by sell and loot")
-        ImGui.SameLine()
-        renderTabButton("Statistics", 5, 90, "Macro run history and performance stats")
-    else
-        -- Simple mode tabs: Protection (tab 10), Item Lists (tab 11), Values & Stats (tab 12)
-        renderTabButton("Protection", 10, 90, "Which item flags prevent selling")
-        ImGui.SameLine()
-        renderTabButton("Item Lists", 11, 90, "Never Sell, Always Sell, and Valuable item lists")
-        ImGui.SameLine()
-        renderTabButton("Values & Stats", 12, 110, "Sell/Loot value thresholds and statistics")
-    end
+    renderTabButton("General", 1, 90, "Window behavior, Sell options, and Loot options")
+    ImGui.SameLine()
+    renderTabButton("Sell Rules", 2, 90, "Sell item lists (Keep, Always sell, Never sell by type)")
+    ImGui.SameLine()
+    renderTabButton("Loot Rules", 3, 90, "Loot item lists (Always loot, Skip)")
+    ImGui.SameLine()
+    renderTabButton("Shared", 4, 90, "Valuable list (never sell, always loot)")
     ImGui.Separator()
 
-    -- Simple mode tabs (10, 11, 12)
-    if filterState.configTab == 10 then
-        renderSimpleProtectionTab()
-    elseif filterState.configTab == 11 then
-        renderSimpleItemListsTab()
-    elseif filterState.configTab == 12 then
-        renderSimpleValuesTab()
-    -- Advanced mode tabs (1-5)
-    elseif filterState.configTab == 1 then
+    if filterState.configTab == 1 then
         ImGui.Spacing()
         renderBreadcrumb("General", "Overview")
-        if ImGui.CollapsingHeader("Window behavior", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("General", "Window behavior")
+        if ImGui.CollapsingHeader("Features", ImGuiTreeNodeFlags.DefaultOpen) then
+            renderBreadcrumb("General", "Features")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Turn features on or off. All are enabled by default; uncheck to disable.")
+            ImGui.Spacing()
             local prevAlign = uiState.alignToContext
-            uiState.alignToContext = ImGui.Checkbox("Snap to Inventory", uiState.alignToContext)
+            uiState.alignToContext = ImGui.Checkbox("Enable snap to Inventory", uiState.alignToContext)
             if prevAlign ~= uiState.alignToContext then scheduleLayoutSave() end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("Lock ItemUI position to the built-in Inventory window.")
-                ImGui.Text("Keeps ItemUI aligned to the left; height is unchanged.")
-                ImGui.Text("Disable if you want to place ItemUI freely.")
+                ImGui.Text("When enabled, ItemUI stays locked to the built-in Inventory window.")
+                ImGui.Text("Uncheck to place ItemUI freely.")
                 ImGui.EndTooltip()
             end
             local prevSync = uiState.syncBankWindow
-            uiState.syncBankWindow = ImGui.Checkbox("Sync Bank Window", uiState.syncBankWindow)
-            if prevSync ~= uiState.syncBankWindow then 
+            uiState.syncBankWindow = ImGui.Checkbox("Enable bank window sync", uiState.syncBankWindow)
+            if prevSync ~= uiState.syncBankWindow then
                 saveLayoutToFile()
                 if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
                     local itemUIX, itemUIY = ImGui.GetWindowPos()
@@ -1401,28 +1118,241 @@ local function renderConfigWindow()
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("Keep bank window synced with ItemUI position.")
-                ImGui.Text("Enabled: bank window follows ItemUI.")
-                ImGui.Text("Disabled: bank window moves independently.")
+                ImGui.Text("When enabled, the bank window follows ItemUI position.")
+                ImGui.Text("Uncheck to move the bank window independently.")
                 ImGui.EndTooltip()
             end
-            local prevSuppress = uiState.suppressWhenLootMac
-            uiState.suppressWhenLootMac = ImGui.Checkbox("Suppress Loot UI during looting", uiState.suppressWhenLootMac)
-            if prevSuppress ~= uiState.suppressWhenLootMac then scheduleLayoutSave() end
+            -- Loot UI: stored as suppressWhenLootMac (true = hide Loot UI). Show as "Enable Loot UI" so checked = show = not suppress.
+            local enableLootUI = not uiState.suppressWhenLootMac
+            local prevEnableLootUI = enableLootUI
+            enableLootUI = ImGui.Checkbox("Enable Loot UI during looting", enableLootUI)
+            if prevEnableLootUI ~= enableLootUI then
+                uiState.suppressWhenLootMac = not enableLootUI
+                scheduleLayoutSave()
+            end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("When enabled, the Loot UI window will not open when you loot (manual or macro).")
-                ImGui.Text("ItemUI stays hidden during looting either way.")
+                ImGui.Text("When enabled, the Loot UI window opens when you loot (manual or macro).")
+                ImGui.Text("Uncheck to keep the Loot UI closed during looting.")
                 ImGui.EndTooltip()
             end
             local prevConfirm = uiState.confirmBeforeDelete
-            uiState.confirmBeforeDelete = ImGui.Checkbox("Confirm before delete", uiState.confirmBeforeDelete)
+            uiState.confirmBeforeDelete = ImGui.Checkbox("Enable confirm before delete", uiState.confirmBeforeDelete)
             if prevConfirm ~= uiState.confirmBeforeDelete then scheduleLayoutSave() end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("Show a confirmation dialog before destroying an item from the inventory context menu.")
+                ImGui.Text("When enabled, a confirmation dialog appears before destroying an item from the context menu.")
+                ImGui.Text("Uncheck to destroy without confirming.")
                 ImGui.EndTooltip()
             end
+            ImGui.Spacing()
+            -- Combined epic: never sell + always loot epic quest items (both INIs kept in sync from one checkbox)
+            local epicEnabled = configSellFlags.protectEpic or configLootFlags.alwaysLootEpic
+            local prevEpic = epicEnabled
+            epicEnabled = ImGui.Checkbox("Enable Epic Loot and Protection", epicEnabled)
+            if prevEpic ~= epicEnabled then
+                configSellFlags.protectEpic = epicEnabled
+                configLootFlags.alwaysLootEpic = epicEnabled
+                config.writeINIValue("sell_flags.ini", "Settings", "protectEpic", epicEnabled and "TRUE" or "FALSE")
+                config.writeLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", epicEnabled and "TRUE" or "FALSE")
+                invalidateSellConfigCache()
+                invalidateLootConfigCache()
+                scheduleLayoutSave()
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("When enabled, epic quest items are never sold and are always looted. Optionally limit by class below.")
+                ImGui.Text("Uncheck to allow selling epic items and to stop always-looting them.")
+                ImGui.EndTooltip()
+            end
+            if epicEnabled and EPIC_CLASSES and #EPIC_CLASSES > 0 then
+                ImGui.Indent()
+                local nSelected = 0
+                for _, cls in ipairs(EPIC_CLASSES) do
+                    if configEpicClasses[cls] == true then nSelected = nSelected + 1 end
+                end
+                local preview = (nSelected == 0) and "All classes (none selected)" or (nSelected == #EPIC_CLASSES) and "All classes" or string.format("%d class%s", nSelected, nSelected == 1 and "" or "es")
+                ImGui.SetNextItemWidth(320)
+                if ImGui.BeginCombo("Classes for epic##epic", preview, ImGuiComboFlags.None) then
+                    local rowHeight = (ImGui.GetFrameHeight and ImGui.GetFrameHeight()) or 24
+                    local popupHeight = (1 + #EPIC_CLASSES) * rowHeight + 24
+                    if ImGui.SetWindowSize then
+                        ImGui.SetWindowSize(ImVec2(320, math.max(200, popupHeight)))
+                    end
+                    if ImGui.SmallButton("Select all##epic") then
+                        for _, cls in ipairs(EPIC_CLASSES) do
+                            configEpicClasses[cls] = true
+                            config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "TRUE")
+                        end
+                        invalidateSellConfigCache()
+                        invalidateLootConfigCache()
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
+                    ImGui.SameLine()
+                    if ImGui.SmallButton("Clear all##epic") then
+                        for _, cls in ipairs(EPIC_CLASSES) do
+                            configEpicClasses[cls] = false
+                            config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "FALSE")
+                        end
+                        invalidateSellConfigCache()
+                        invalidateLootConfigCache()
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all (no epic items when none selected)"); ImGui.EndTooltip() end
+                    ImGui.Spacing()
+                    for _, cls in ipairs(EPIC_CLASSES) do
+                        local v = ImGui.Checkbox(classLabel(cls) .. "##epic_" .. cls, configEpicClasses[cls] == true)
+                        if v ~= (configEpicClasses[cls] == true) then
+                            configEpicClasses[cls] = v
+                            config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE")
+                            invalidateSellConfigCache()
+                            invalidateLootConfigCache()
+                        end
+                    end
+                    ImGui.EndCombo()
+                end
+                if ImGui.IsItemHovered() then
+                    if ImGui.SetNextWindowSize then
+                        ImGui.SetNextWindowSize(ImVec2(320, 0), ImGuiCond.Always)
+                    end
+                    ImGui.BeginTooltip()
+                    ImGui.TextWrapped("Choose which classes' epic quest items are protected and always looted. If none are checked, no epic items are included.")
+                    ImGui.EndTooltip()
+                end
+                ImGui.Unindent()
+            end
+        end
+        ImGui.Spacing()
+        if ImGui.CollapsingHeader("Sell", ImGuiTreeNodeFlags.DefaultOpen) then
+            renderBreadcrumb("General", "Sell")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Options for what is never sold. Item lists are on the Sell Rules tab.")
+            ImGui.Spacing()
+            ImGui.Text("Protection flags")
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Items with these flags are never sold."); ImGui.EndTooltip() end
+            local function sellFlag(name, key, tooltip)
+                local v = ImGui.Checkbox(name, configSellFlags[key])
+                if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache() end
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+            end
+            sellFlag("Enable No-Drop protection", "protectNoDrop", "Never sell items with the No-Drop flag")
+            sellFlag("Enable No-Trade protection", "protectNoTrade", "Never sell items with the No-Trade flag")
+            sellFlag("Enable Lore protection", "protectLore", "Never sell items with the Lore flag")
+            sellFlag("Enable Quest protection", "protectQuest", "Never sell items with the Quest flag")
+            sellFlag("Enable Collectible protection", "protectCollectible", "Never sell items with the Collectible flag")
+            sellFlag("Enable Heirloom protection", "protectHeirloom", "Never sell items with the Heirloom flag")
+            ImGui.Spacing()
+            ImGui.Text("Value thresholds (copper)")
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper"); ImGui.EndTooltip() end
+            ImGui.Text("Min value (single)")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            local vs = tostring(configSellValues.minSell)
+            vs, _ = ImGui.InputText("Min value (single)##SellMin", vs, ImGuiInputTextFlags.CharsDecimal)
+            local n = tonumber(vs)
+            if n and n ~= configSellValues.minSell then
+                configSellValues.minSell = math.max(0, math.floor(n))
+                config.writeINIValue("sell_value.ini", "Settings", "minSellValue", tostring(configSellValues.minSell))
+                invalidateSellConfigCache()
+            end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minSell))
+            ImGui.Text("Min value (stack)")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            vs = tostring(configSellValues.minStack)
+            vs, _ = ImGui.InputText("Min value (stack)##SellStack", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configSellValues.minStack then
+                configSellValues.minStack = math.max(0, math.floor(n))
+                config.writeINIValue("sell_value.ini", "Settings", "minSellValueStack", tostring(configSellValues.minStack))
+                invalidateSellConfigCache()
+            end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minStack) .. "/unit")
+            ImGui.Text("Max keep value")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            vs = tostring(configSellValues.maxKeep)
+            vs, _ = ImGui.InputText("Max keep value##SellKeep", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configSellValues.maxKeep then
+                configSellValues.maxKeep = math.max(0, math.floor(n))
+                config.writeINIValue("sell_value.ini", "Settings", "maxKeepValue", tostring(configSellValues.maxKeep))
+                invalidateSellConfigCache()
+            end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.maxKeep))
+        end
+        ImGui.Spacing()
+        if ImGui.CollapsingHeader("Loot", ImGuiTreeNodeFlags.DefaultOpen) then
+            renderBreadcrumb("General", "Loot")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Options for what to loot (loot.mac). Item lists are on the Loot Rules tab.")
+            ImGui.Spacing()
+            local function lootFlag(name, key, tooltip)
+                local v = ImGui.Checkbox(name, configLootFlags[key])
+                if v ~= configLootFlags[key] then configLootFlags[key] = v; config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+            end
+            lootFlag("Enable loot clickies", "lootClickies", "Loot wearable items with clicky effects")
+            lootFlag("Enable loot quest items", "lootQuest", "Loot items with the Quest flag")
+            lootFlag("Enable loot collectible", "lootCollectible", "Loot items with the Collectible flag")
+            lootFlag("Enable loot heirloom", "lootHeirloom", "Loot items with the Heirloom flag")
+            lootFlag("Enable loot attuneable", "lootAttuneable", "Loot items with the Attuneable flag")
+            lootFlag("Enable loot augment slots", "lootAugSlots", "Loot items that can have augments")
+            ImGui.Spacing()
+            lootFlag("Enable pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "When a Mythical item with NoDrop or NoTrade is found, pause the loot macro, beep twice, alert group, and leave the item on corpse.")
+            lootFlag("Enable alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
+            ImGui.Spacing()
+            ImGui.Text("Loot delay (ticks)")
+            local ticks = tonumber(configLootFlags.lootDelayTicks)
+            if not ticks or ticks < 1 or ticks > 10 then ticks = 3 end
+            local val, changed = ImGui.SliderInt("##lootDelayTicks", ticks, 1, 10, "%d")
+            if changed then
+                val = math.max(1, math.min(10, tonumber(val) or 3))
+                configLootFlags.lootDelayTicks = val
+                config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(val))
+            end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Ticks to wait after itemnotify/cursor/window. 2 = faster, 3 = default, 4+ if laggy."); ImGui.EndTooltip() end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), tostring(configLootFlags.lootDelayTicks or 3))
+            ImGui.Spacing()
+            ImGui.Text("Value thresholds (copper)")
+            ImGui.Text("Min value (non-stack)")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            vs = tostring(configLootValues.minLoot)
+            vs, _ = ImGui.InputText("Min loot value##LootMin", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configLootValues.minLoot then configLootValues.minLoot = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minLoot))
+            ImGui.Text("Min value (stack)")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            vs = tostring(configLootValues.minStack)
+            vs, _ = ImGui.InputText("Min stack value##LootStack", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configLootValues.minStack then configLootValues.minStack = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minStack) .. "/unit")
+            ImGui.Text("Tribute override (0=off)")
+            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
+            vs = tostring(configLootValues.tributeOverride)
+            vs, _ = ImGui.InputText("Tribute override##LootTrib", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configLootValues.tributeOverride then configLootValues.tributeOverride = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "tributeOverride", tostring(configLootValues.tributeOverride)) end
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.tributeOverride))
+            ImGui.Spacing()
+            ImGui.Text("Sorting")
+            local v = ImGui.Checkbox("Enable sorting", configLootSorting.enableSorting)
+            if v ~= configLootSorting.enableSorting then configLootSorting.enableSorting = v; config.writeLootINIValue("loot_sorting.ini", "Settings", "enableSorting", v and "TRUE" or "FALSE") end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Master toggle for loot sorting"); ImGui.EndTooltip() end
+            v = ImGui.Checkbox("Enable weight sort", configLootSorting.enableWeightSort)
+            if v ~= configLootSorting.enableWeightSort then configLootSorting.enableWeightSort = v; config.writeLootINIValue("loot_sorting.ini", "Settings", "enableWeightSort", v and "TRUE" or "FALSE") end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Sort inventory by weight when looting"); ImGui.EndTooltip() end
+            ImGui.SetNextItemWidth(120)
+            vs = tostring(configLootSorting.minWeight)
+            vs, _ = ImGui.InputText("Weight threshold##LootWt", vs, ImGuiInputTextFlags.CharsDecimal)
+            n = tonumber(vs)
+            if n and n ~= configLootSorting.minWeight then configLootSorting.minWeight = math.max(0, math.floor(n)); config.writeLootINIValue("loot_sorting.ini", "Settings", "minWeight", tostring(configLootSorting.minWeight)) end
+            ImGui.SameLine(); ImGui.Text("Weight threshold (tenths)")
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), string.format("%.1f lbs", (tonumber(configLootSorting.minWeight) or 0) / 10))
         end
         ImGui.Spacing()
         if ImGui.CollapsingHeader("Layout setup", ImGuiTreeNodeFlags.DefaultOpen) then
@@ -1440,366 +1370,34 @@ local function renderConfigWindow()
                 ImGui.EndTooltip()
             end
             if setupWasOn then ImGui.PopStyleColor(1) end
-            ImGui.SameLine()
-            ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, theme.ToVec4(theme.Colors.Keep.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, theme.ToVec4(theme.Colors.Keep.Active))
-            if ImGui.Button("Capture as Default", ImVec2(140, 0)) then
-                captureCurrentLayoutAsDefault()
-            end
-            ImGui.PopStyleColor(3)
-            if ImGui.IsItemHovered() then 
-                ImGui.BeginTooltip()
-                ImGui.Text("Save current layout configuration as default.")
-                ImGui.Text("Captures window sizes, column widths, and all settings.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine()
-            ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Delete.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, theme.ToVec4(theme.Colors.Delete.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, theme.ToVec4(theme.Colors.Delete.Active))
-            if ImGui.Button("Reset to Default", ImVec2(140, 0)) then
-                resetLayoutToDefault()
-            end
-            ImGui.PopStyleColor(3)
-            if ImGui.IsItemHovered() then 
-                ImGui.BeginTooltip()
-                ImGui.Text("Reset layout to saved default configuration.")
-                ImGui.Text("Restores window sizes, column widths, and settings.")
-                ImGui.EndTooltip()
-            end
         end
     elseif filterState.configTab == 2 then
         ImGui.Spacing()
-        renderBreadcrumb("Sell Rules", "Overview")
-        if ImGui.CollapsingHeader("How sell rules work", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Sell Rules", "Overview")
-            ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-            ImGui.TextWrapped("sell.mac and ItemUI use the same logic: SELL unless a KEEP rule matches. Rules are checked in this order:")
-            ImGui.PopStyleColor()
-            ImGui.BulletText("1. Unsellable flags: NoDrop, NoTrade (always kept if protected)")
-            ImGui.BulletText("2. Never sell (Keep): exact names, keywords, item types")
-            ImGui.BulletText("3. Always sell: exact names, keywords (can override Keep keyword matches)")
-            ImGui.BulletText("4. Protected flags: Lore, Quest, Collectible, Heirloom, Attuneable, AugSlots")
-            ImGui.BulletText("5. Value rules: max keep value, tribute override, min sell value")
-            ImGui.TextWrapped("Valuable (shared) items are merged into Keep lists. Always sell exact overrides Keep keyword matches.")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Example: Item 'Rusty Dagger of Power' matches Keep keyword 'Power'.")
-                ImGui.Text("Add 'Rusty Dagger of Power' to Always sell exact to sell it anyway.")
-                ImGui.EndTooltip()
-            end
-        end
+        renderBreadcrumb("Sell Rules", "Item lists")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Keep (never sell), Always sell, Never sell by type. Options are in General > Sell.")
         ImGui.Spacing()
-        if ImGui.CollapsingHeader("Sell protection", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Sell Rules", "Protection flags")
-            ImGui.TextWrapped("Items with these flags are never sold.")
-            local function sellFlag(name, key, tooltip)
-                local v = ImGui.Checkbox(name, configSellFlags[key])
-                if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache() end
-                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
-            end
-            sellFlag("Protect No-Drop", "protectNoDrop", "Never sell items with the No-Drop flag")
-            sellFlag("Protect No-Trade", "protectNoTrade", "Never sell items with the No-Trade flag")
-            sellFlag("Protect Lore", "protectLore", "Never sell items with the Lore flag")
-            sellFlag("Protect Quest", "protectQuest", "Never sell items with the Quest flag")
-            sellFlag("Protect Collectible", "protectCollectible", "Never sell items with the Collectible flag")
-            sellFlag("Protect Heirloom", "protectHeirloom", "Never sell items with the Heirloom flag")
-            sellFlag("Protect Epic", "protectEpic", "Never sell Epic quest items. When on, only items for classes checked below are protected (or all classes if none checked).")
-            renderEpicClassGrid()
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Sell value thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Sell Rules", "Value thresholds")
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "All values in copper (1 platinum = 1000 copper).")
-            ImGui.Text("Min value (single)")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Minimum value in copper to consider selling a single item.")
-                ImGui.Text("Example: 100 = only sell items worth 10 silver or more.")
-                ImGui.Text("Set to 0 to sell all non-protected items.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-            local vs = tostring(configSellValues.minSell)
-            vs, _ = ImGui.InputText("Min value (single)##SellMin", vs, ImGuiInputTextFlags.CharsDecimal)
-            local n = tonumber(vs)
-            if n and n ~= configSellValues.minSell then
-                configSellValues.minSell = math.max(0, math.floor(n))
-                config.writeINIValue("sell_value.ini", "Settings", "minSellValue", tostring(configSellValues.minSell))
-                invalidateSellConfigCache()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minSell))
-
-            ImGui.Text("Min value (stack)")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Minimum value per unit in copper for stackable items.")
-                ImGui.Text("Example: 50 per unit = sell a stack of 20 if each worth 5 silver.")
-                ImGui.Text("Lower than single value to sell cheap stacks.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-            vs = tostring(configSellValues.minStack)
-            vs, _ = ImGui.InputText("Min value (stack)##SellStack", vs, ImGuiInputTextFlags.CharsDecimal)
-            n = tonumber(vs)
-            if n and n ~= configSellValues.minStack then
-                configSellValues.minStack = math.max(0, math.floor(n))
-                config.writeINIValue("sell_value.ini", "Settings", "minSellValueStack", tostring(configSellValues.minStack))
-                invalidateSellConfigCache()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minStack) .. "/unit")
-
-            ImGui.Text("Max keep value")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Items ABOVE this value are always kept (never sold).")
-                ImGui.Text("Example: 100000 = keep items worth more than 100 platinum.")
-                ImGui.Text("Set to 0 to disable (no maximum).")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-            vs = tostring(configSellValues.maxKeep)
-            vs, _ = ImGui.InputText("Max keep value##SellKeep", vs, ImGuiInputTextFlags.CharsDecimal)
-            n = tonumber(vs)
-            if n and n ~= configSellValues.maxKeep then
-                configSellValues.maxKeep = math.max(0, math.floor(n))
-                config.writeINIValue("sell_value.ini", "Settings", "maxKeepValue", tostring(configSellValues.maxKeep))
-                invalidateSellConfigCache()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.maxKeep))
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Sell item lists", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Sell Rules", "Item lists")
-            renderFiltersSection(1, false)
-        end
+        renderFiltersSection(1, false)
     elseif filterState.configTab == 3 then
         ImGui.Spacing()
-        renderBreadcrumb("Loot Rules", "Overview")
-        if ImGui.CollapsingHeader("Run loot macro", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Quick actions")
-            if ImGui.Button("Auto Loot", ImVec2(100, 0)) then
-                if not uiState.suppressWhenLootMac then
-                    uiState.lootUIOpen = true
-                    uiState.lootRunFinished = false
-                end
-                mq.cmd('/macro loot')
-                setStatusMessage("Running loot macro...")
-            end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Run loot.mac to auto-loot nearby corpses"); ImGui.EndTooltip() end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "/macro loot  or  /doloot")
-        end
+        renderBreadcrumb("Loot Rules", "Item lists")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Always loot, Skip (never loot). Options are in General > Loot.")
         ImGui.Spacing()
-        if ImGui.CollapsingHeader("How loot rules work", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Overview")
-            ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-            ImGui.TextWrapped("loot.mac uses this order: SKIP first, then Always Loot, then value/flags. Valuable (shared) is merged into Always Loot.")
-            ImGui.PopStyleColor()
-            ImGui.BulletText("1. Lore duplicate: skip if already owned")
-            ImGui.BulletText("2. Skip lists: exact names, keywords, types (never loot)")
-            ImGui.BulletText("3. Tribute override: loot if tribute value >= threshold")
-            ImGui.BulletText("4. Always loot: exact names, keywords, types (shared + macro)")
-            ImGui.BulletText("5. Value checks: min loot value (stack vs single)")
-            ImGui.BulletText("6. Flag checks: clickies, quest, collectible, heirloom, attuneable, aug slots")
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Loot flags", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Flag rules")
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Success), "Loot items with these flags (loot.mac)")
-            local function lootFlag(name, key, tooltip)
-                local v = ImGui.Checkbox(name, configLootFlags[key])
-                if v ~= configLootFlags[key] then configLootFlags[key] = v; config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
-                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
-            end
-            lootFlag("Always loot Epic", "alwaysLootEpic", "Always loot EPIC quest items. When on, only items for classes checked below are always looted (or all classes if none checked).")
-            renderEpicClassGrid()
-            lootFlag("Loot clickies", "lootClickies", "Loot wearable items with clicky effects")
-            lootFlag("Loot quest items", "lootQuest", "Loot items with the Quest flag")
-            lootFlag("Loot collectible", "lootCollectible", "Loot items with the Collectible flag")
-            lootFlag("Loot heirloom", "lootHeirloom", "Loot items with the Heirloom flag")
-            lootFlag("Loot attuneable", "lootAttuneable", "Loot items with the Attuneable flag")
-            lootFlag("Loot augment slots", "lootAugSlots", "Loot items that can have augments")
-            ImGui.Spacing()
-            lootFlag("Pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "When a Mythical item with NoDrop or NoTrade is found, pause the loot macro, beep twice, alert group, and leave the item on corpse so the group can decide who loots.")
-            lootFlag("Alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
-            ImGui.Spacing()
-            ImGui.Text("Loot delay (ticks)")
-            local ticks = tonumber(configLootFlags.lootDelayTicks)
-            if not ticks or ticks < 1 or ticks > 10 then ticks = 3 end
-            local val, changed = ImGui.SliderInt("##lootDelayTicks", ticks, 1, 10, "%d")
-            if changed then
-                val = math.max(1, math.min(10, tonumber(val) or 3))
-                configLootFlags.lootDelayTicks = val
-                config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(val))
-            end
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Ticks to wait after itemnotify/cursor/window (loot_flags.ini). 2 = faster, 3 = default, 4+ if laggy.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), tostring(configLootFlags.lootDelayTicks or 3))
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Loot value thresholds", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Value thresholds")
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "All values in copper (1 platinum = 1000 copper).")
-            ImGui.SetNextItemWidth(120)
-            local vs = tostring(configLootValues.minLoot)
-            vs, _ = ImGui.InputText("Min loot value##LootMin", vs, ImGuiInputTextFlags.CharsDecimal)
-            local n = tonumber(vs)
-            if n and n ~= configLootValues.minLoot then configLootValues.minLoot = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
-            ImGui.SameLine(); ImGui.Text("Min value (non-stack)")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Minimum value in copper to loot a single item.")
-                ImGui.Text("Example: 200 = loot items worth at least 2 silver.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minLoot))
-
-            ImGui.SetNextItemWidth(120)
-            vs = tostring(configLootValues.minStack)
-            vs, _ = ImGui.InputText("Min stack value##LootStack", vs, ImGuiInputTextFlags.CharsDecimal)
-            n = tonumber(vs)
-            if n and n ~= configLootValues.minStack then configLootValues.minStack = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
-            ImGui.SameLine(); ImGui.Text("Min value (stack)")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Minimum value per unit for stackable items.")
-                ImGui.Text("Example: 50 = loot stack if each is worth 5 silver.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minStack) .. "/unit")
-
-            ImGui.SetNextItemWidth(120)
-            vs = tostring(configLootValues.tributeOverride)
-            vs, _ = ImGui.InputText("Tribute override##LootTrib", vs, ImGuiInputTextFlags.CharsDecimal)
-            n = tonumber(vs)
-            if n and n ~= configLootValues.tributeOverride then configLootValues.tributeOverride = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "tributeOverride", tostring(configLootValues.tributeOverride)) end
-            ImGui.SameLine(); ImGui.Text("Tribute override (0=off)")
-            if ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text("Tribute value override in copper; 0 disables.")
-                ImGui.Text("If tribute value >= override, item is looted.")
-                ImGui.EndTooltip()
-            end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.tributeOverride))
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Loot sorting", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Sorting")
-            local v = ImGui.Checkbox("Enable sorting", configLootSorting.enableSorting)
-            if v ~= configLootSorting.enableSorting then configLootSorting.enableSorting = v; config.writeLootINIValue("loot_sorting.ini", "Settings", "enableSorting", v and "TRUE" or "FALSE") end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Master toggle for loot sorting"); ImGui.EndTooltip() end
-            v = ImGui.Checkbox("Enable weight sort", configLootSorting.enableWeightSort)
-            if v ~= configLootSorting.enableWeightSort then configLootSorting.enableWeightSort = v; config.writeLootINIValue("loot_sorting.ini", "Settings", "enableWeightSort", v and "TRUE" or "FALSE") end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Sort inventory by weight when looting"); ImGui.EndTooltip() end
-            ImGui.SetNextItemWidth(120)
-            local vs = tostring(configLootSorting.minWeight)
-            vs, _ = ImGui.InputText("Weight threshold##LootWt", vs, ImGuiInputTextFlags.CharsDecimal)
-            local n = tonumber(vs)
-            if n and n ~= configLootSorting.minWeight then configLootSorting.minWeight = math.max(0, math.floor(n)); config.writeLootINIValue("loot_sorting.ini", "Settings", "minWeight", tostring(configLootSorting.minWeight)) end
-            ImGui.SameLine(); ImGui.Text("Weight threshold (tenths)")
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Weight in tenths of a pound (40 = 4.0 lbs)"); ImGui.EndTooltip() end
-            ImGui.SameLine()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), string.format("%.1f lbs", (tonumber(configLootSorting.minWeight) or 0) / 10))
-        end
-        ImGui.Spacing()
-        if ImGui.CollapsingHeader("Loot item lists", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Loot Rules", "Item lists")
-            renderFiltersSection(3, false)
-        end
+        renderFiltersSection(3, false)
     elseif filterState.configTab == 4 then
         ImGui.Spacing()
-        renderBreadcrumb("Shared", "Overview")
-        if ImGui.CollapsingHeader("Valuable shared lists", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Shared", "Valuable lists")
-            renderFiltersSection(2, false)
-        end
-    else
+        renderBreadcrumb("Shared", "Valuable list")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Items never sold and always looted. Shared between sell.mac and loot.mac.")
         ImGui.Spacing()
-        renderBreadcrumb("Statistics", "Overview")
-        if ImGui.CollapsingHeader("Macro statistics", ImGuiTreeNodeFlags.DefaultOpen) then
-            renderBreadcrumb("Statistics", "Macro statistics")
-            local stats = safeGetStats()
-            local sellStats = stats and stats.sell or nil
-            local lootStats = stats and stats.loot or nil
-            if not sellStats and not lootStats then
-                ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "Stats are not available yet.")
-                ImGui.TextWrapped("Run sell.mac or loot.mac to populate statistics.")
-            else
-                local function safeNumber(v, fmt)
-                    if v == nil then return "N/A" end
-                    if fmt then return fmt(v) end
-                    local n = tonumber(v)
-                    return n and tostring(n) or "N/A"
-                end
-                local function statLine(label, value)
-                    ImGui.Text(label)
-                    ImGui.SameLine(220)
-                    ImGui.Text(value)
-                end
-
-                ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), "Sell stats")
-                local sellRuns = sellStats and sellStats.totalRuns
-                statLine("Total runs", safeNumber(sellRuns))
-                statLine("Items sold", safeNumber(sellStats and sellStats.totalItemsSold))
-                statLine("Items failed", safeNumber(sellStats and sellStats.totalItemsFailed))
-                statLine("Avg items/run", safeNumber(sellStats and sellStats.avgItemsPerRun, function(v) return string.format("%.1f", v) end))
-                statLine("Avg duration", safeNumber(sellStats and sellStats.avgDurationMs, formatDurationMs))
-                statLine("Last run duration", safeNumber(sellStats and sellStats.lastRunDurationMs, formatDurationMs))
-
-                local totalItems = (tonumber(sellStats and sellStats.totalItemsSold) or 0) + (tonumber(sellStats and sellStats.totalItemsFailed) or 0)
-                if totalItems > 0 then
-                    local successRate = (tonumber(sellStats.totalItemsSold) or 0) / totalItems * 100
-                    local rateColor = successRate >= 90 and theme.Colors.Success or theme.Colors.Warning
-                    ImGui.TextColored(theme.ToVec4(rateColor), string.format("Sell success rate: %.1f%%", successRate))
-                end
-
-                ImGui.Spacing()
-                ImGui.TextColored(theme.ToVec4(theme.Colors.HeaderAlt), "Loot stats")
-                statLine("Total runs", safeNumber(lootStats and lootStats.totalRuns))
-                statLine("Avg duration", safeNumber(lootStats and lootStats.avgDurationMs, formatDurationMs))
-                statLine("Last run duration", safeNumber(lootStats and lootStats.lastRunDurationMs, formatDurationMs))
-
-                if (tonumber(sellRuns) or 0) == 0 and (tonumber(lootStats and lootStats.totalRuns) or 0) == 0 then
-                    ImGui.Spacing()
-                    ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "No runs recorded yet.")
-                end
-            end
-
-            ImGui.Spacing()
-            local canReset = macroBridge and macroBridge.resetStats
-            if not canReset then ImGui.BeginDisabled() end
-            if ImGui.Button("Reset statistics##Stats", ImVec2(160, 0)) then
-                ImGui.OpenPopup("ResetStatsConfirm##ItemUI")
-            end
-            if not canReset then ImGui.EndDisabled() end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear all sell/loot statistics"); ImGui.EndTooltip() end
-            if ImGui.BeginPopupModal("ResetStatsConfirm##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then
-                ImGui.TextWrapped("Reset all sell and loot statistics?")
-                ImGui.Spacing()
-                if ImGui.Button("Reset now##Stats", ImVec2(120, 0)) then
-                    if macroBridge and macroBridge.resetStats then
-                        macroBridge.resetStats()
-                        setStatusMessage("Statistics reset")
-                    end
-                    ImGui.CloseCurrentPopup()
-                end
-                ImGui.SameLine()
-                if ImGui.Button("Cancel##Stats", ImVec2(120, 0)) then ImGui.CloseCurrentPopup() end
-                ImGui.EndPopup()
-            end
-        end
+        renderFiltersSection(2, false)
+    end
+    -- Persist config window size on resize (tolerance 1px to avoid save storms)
+    local cw, ch = ImGui.GetWindowSize()
+    local savedW = layoutConfig.WidthConfig or 0
+    local savedH = layoutConfig.HeightConfig or 0
+    if cw and ch and (math.abs(cw - savedW) > 1 or math.abs(ch - savedH) > 1) then
+        layoutConfig.WidthConfig = cw
+        layoutConfig.HeightConfig = ch
+        scheduleLayoutSave()
     end
     ImGui.End()
 end
