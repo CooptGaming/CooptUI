@@ -414,6 +414,7 @@ local function performLootFilterAdd(targetId, typeKey, value)
     list[#list + 1] = value
     writeFn(iniFile, "Items", iniKey, config.joinList(list))
     invalidateSellConfigCache()
+    invalidateLootConfigCache()
     return true
 end
 
@@ -445,6 +446,7 @@ local function removeFromLootFilterList(targetId, typeKey, value)
             table.remove(list, i)
             writeFn(iniFile, "Items", iniKey, config.joinList(list))
             invalidateSellConfigCache()
+            invalidateLootConfigCache()
             return true
         end
     end
@@ -1002,6 +1004,7 @@ local function renderFiltersSection(forcedSubTab, showTabs)
                     table.remove(e.list, e.listIndex)
                     e.writeFn(e.iniFile, "Items", e.iniKey, config.joinList(e.list))
                     invalidateSellConfigCache()
+                    invalidateLootConfigCache()
                     filterState.lootFilterEditTarget = { targetId = e.targetId, typeKey = e.typeKey, value = e.value }
                     setStatusMessage("Removed; form filled for edit")
                 end

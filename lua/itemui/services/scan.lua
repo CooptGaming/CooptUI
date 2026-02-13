@@ -77,6 +77,7 @@ function M.scanInventory()
     local inventoryItems = env.inventoryItems
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
+    if env.perfCache.loreHaveCache then env.perfCache.loreHaveCache = {} end
     -- Preserve acquiredSeq by bag:slot before clear (full scan rebuilds new item refs)
     local acquiredMap = {}
     for _, it in ipairs(inventoryItems) do
@@ -221,6 +222,7 @@ local function targetedRescanBags(changedBags)
     local inventoryItems = env.inventoryItems
     local buildItemFromMQ = env.buildItemFromMQ
     env.invalidateSortCache("inv")
+    env.invalidateTimerReadyCache()
     -- Build O(1) lookup set for changed bag numbers
     local changedSet = {}
     for _, bagNum in ipairs(changedBags) do changedSet[bagNum] = true end
@@ -331,7 +333,7 @@ function M.scanSellItems()
     scanSellItemsRunning = true
 
     env.invalidateSortCache("sell")
-    env.loadSellConfigCache()
+    if not env.perfCache.sellConfigCache then env.loadSellConfigCache() end
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
     local willItemBeSold = env.willItemBeSold
@@ -382,7 +384,22 @@ function M.maybeScanInventory(invOpen)
         env.scanState.lastScanState.invOpen = invOpen
         return
     end
-    local changedBags = getChangedBags()
+    local scanState = env.scanState
+    local throttleMs = env.C and env.C.GET_CHANGED_BAGS_THROTTLE_MS or 600
+    local now = mq.gettime()
+    local skipFingerprint = false
+    if scanState.inventoryBagsDirty then
+        scanState.inventoryBagsDirty = false
+    elseif throttleMs > 0 and (now - (scanState.lastGetChangedBagsTime or 0)) < throttleMs then
+        skipFingerprint = true
+    end
+    local changedBags
+    if skipFingerprint then
+        changedBags = {}
+    else
+        scanState.lastGetChangedBagsTime = now
+        changedBags = getChangedBags()
+    end
     if #changedBags > 0 then
         if #changedBags >= 3 then
             M.scanInventory()
@@ -459,11 +476,21 @@ function M.scanLootItems()
                 stackSize = stackSize, tribute = tribute, lore = lore, quest = quest, collectible = collectible,
                 heirloom = heirloom, attuneable = attuneable, augSlots = augSlots, clicky = clicky, wornSlots = wornSlots, nodrop = nodrop }
             local shouldLoot, reason = env.rules.shouldItemBeLooted(itemData, lootCache)
-            local findIt = mq.TLO.FindItem and mq.TLO.FindItem("=" .. name)
-            local findId = findIt and findIt.ID and findIt.ID()
-            if lore and findIt and findId and type(findId) == "number" and findId > 0 then
-                reason = "LoreDup"
-                shouldLoot = false
+            if lore then
+                local loreCache = env.perfCache.loreHaveCache
+                if loreCache and loreCache[name] then
+                    reason = "LoreDup"
+                    shouldLoot = false
+                else
+                    local findIt = mq.TLO.FindItem and mq.TLO.FindItem("=" .. name)
+                    local findId = findIt and findIt.ID and findIt.ID()
+                    if findIt and findId and type(findId) == "number" and findId > 0 then
+                        if not loreCache then env.perfCache.loreHaveCache = {}; loreCache = env.perfCache.loreHaveCache end
+                        loreCache[name] = true
+                        reason = "LoreDup"
+                        shouldLoot = false
+                    end
+                end
             end
             itemData.willLoot = shouldLoot
             itemData.lootReason = reason
