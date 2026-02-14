@@ -12,6 +12,9 @@
 | ================================================= |
 | Config Files: loot_config/ directory              |
 | ================================================= |
+| Fallback: game chat when we try to loot duplicate lore item |
+#event LoreDuplicate "#*#You cannot loot this lore item. You already have one.#*#"
+
 Sub Main
 
 | ------------------------------------------------- |
@@ -76,6 +79,9 @@ Sub Main
 | Format: pipe-delimited (e.g. "|Name1|Name2|")
 /declare skippedNamesThisSession string outer
 /declare lootedNamesThisSession string outer
+
+| Lore fallback: set when chat event "You cannot loot this lore item..." fires (so LootItem stops retrying)
+/declare loreLootRejected bool outer FALSE
 
 | ------------------------------------------------- |
 | CONFIGURATION VARIABLES                           |
@@ -726,6 +732,18 @@ sub AddToSkippedSessionCache
 /return
 
 | ================================================= |
+| Event_LoreDuplicate - Fallback when game says we already have this lore item |
+| Adds to lore cache and skipped cache; LootItem checks loreLootRejected to stop retrying |
+| ================================================= |
+sub Event_LoreDuplicate
+    /varset loreLootRejected TRUE
+    /varset loreItemCache ${loreItemCache}|${lootName}|
+    /call LogSkippedItem "${lootName}" "Lore duplicate (chat fallback)"
+    /call AddToSkippedSessionCache
+    /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (game message - added to cache)
+/return
+
+| ================================================= |
 | AddToLootedSessionCache - Add current lootName to session loot cache |
 | ================================================= |
 sub AddToLootedSessionCache
@@ -887,6 +905,10 @@ sub LootItem(int slot)
         /delay ${lootDelayTicks}
     }
     
+    | --- Fallback: if game printed "You cannot loot this lore item...", event added to cache and set loreLootRejected ---
+    /doevents
+    /if (${loreLootRejected}) /return
+    
     | --- Put item on cursor into inventory (required so next slot can be looted) ---
     /if (${Cursor.ID}) {
         /autoinventory
@@ -909,6 +931,11 @@ sub LootItemWithSound(int slot)
 
     | --- Now loot the item ---
     /call LootItem ${slot}
+    | --- If lore duplicate was detected by chat fallback, do not add to looted cache ---
+    /if (${loreLootRejected}) {
+        /varset loreLootRejected FALSE
+        /return
+    }
     | --- Add to session loot cache so we fast-loot same name on later corpses ---
     /call AddToLootedSessionCache
 /return
