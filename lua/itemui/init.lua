@@ -721,8 +721,16 @@ local function renderLootWindow()
         uiState.lootMythicalAlert = nil
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if path and path ~= "" then
+            mq.cmdf('/ini "%s" Alert decision "skip"', path)
             mq.cmdf('/ini "%s" Alert itemName ""', path)
             mq.cmdf('/ini "%s" Alert corpseName ""', path)
+        end
+    end
+    ctx.setMythicalDecision = function(decision)
+        if decision ~= "loot" and decision ~= "skip" then return end
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+        if path and path ~= "" then
+            mq.cmdf('/ini "%s" Alert decision "%s"', path, decision)
         end
     end
     ctx.setMythicalCopyName = function(name)
@@ -1398,14 +1406,16 @@ local function main()
                 scanState.inventoryBagsDirty = true
                 -- Defer session table build to next frame (smoother UI, no hitch on macro-stop frame)
                 lootLoopRefs.pendingSession = true
-                -- When macro stops, show Loot UI if Mythical alert INI was written (real pause or /macro loot test)
+                -- When macro stops, show Loot UI if Mythical alert INI was written (e.g. /macro loot test)
                 local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
                 if alertPath and alertPath ~= "" then
                     local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
                     if itemName and itemName ~= "" then
+                        local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
                         uiState.lootMythicalAlert = {
                             itemName = itemName,
-                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+                            decision = decision
                         }
                         uiState.lootUIOpen = true
                     end
@@ -1493,10 +1503,13 @@ local function main()
                     if alertPath and alertPath ~= "" then
                         local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
                         if itemName and itemName ~= "" then
+                            local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
                             uiState.lootMythicalAlert = {
                                 itemName = itemName,
-                                corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or ""
+                                corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+                                decision = decision
                             }
+                            uiState.lootUIOpen = true
                         else
                             uiState.lootMythicalAlert = nil
                         end

@@ -153,15 +153,27 @@ function LootUIView.render(ctx)
     end
     ImGui.Separator()
 
-    -- Mythical alert: only show when a Mythical NoDrop/NoTrade item has been detected (hidden until then)
+    -- Mythical alert: show when a Mythical NoDrop/NoTrade item is pending your decision (Loot or Skip)
     if uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName and uiState.lootMythicalAlert.itemName ~= "" then
+        local decision = (uiState.lootMythicalAlert.decision or ""):lower()
+        local pending = (decision == "" or decision == "pending")
         ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Warning))
         ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
-        if ImGui.BeginChild("MythicalAlertCard", ImVec2(-1, 96), true) then
+        if ImGui.BeginChild("MythicalAlertCard", ImVec2(-1, pending and 120 or 96), true) then
             ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "Mythical NoDrop/NoTrade")
             ImGui.Text("Item: " .. (uiState.lootMythicalAlert.itemName or ""))
             if uiState.lootMythicalAlert.corpseName and uiState.lootMythicalAlert.corpseName ~= "" then
                 ImGui.Text("Corpse: " .. uiState.lootMythicalAlert.corpseName)
+            end
+            if pending then
+                if ImGui.Button("Loot##MythicalAlert") then
+                    if ctx.setMythicalDecision then ctx.setMythicalDecision("loot") end
+                end
+                ImGui.SameLine()
+                if ImGui.Button("Skip##MythicalAlert") then
+                    if ctx.setMythicalDecision then ctx.setMythicalDecision("skip") end
+                end
+                ImGui.SameLine()
             end
             if ImGui.Button("Dismiss##MythicalAlert") then
                 if ctx.clearLootUIMythicalAlert then ctx.clearLootUIMythicalAlert() end
