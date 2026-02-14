@@ -153,28 +153,85 @@ function LootUIView.render(ctx)
     end
     ImGui.Separator()
 
-    -- Mythical alert: only show when a Mythical NoDrop/NoTrade item has been detected (hidden until then)
+    -- Mythical feedback: brief "You chose: Take" / "Passed — left on corpse" after Take/Pass
+    local feedback = uiState.lootMythicalFeedback
+    if feedback and feedback.message and feedback.showUntil then
+        local now = (os.clock and os.clock()) or 0
+        if now >= feedback.showUntil then
+            uiState.lootMythicalFeedback = nil
+        else
+            ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Success))
+            ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
+            if ImGui.BeginChild("MythicalFeedbackCard", ImVec2(-1, 52), true) then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Success), feedback.message)
+            end
+            ImGui.EndChild()
+            ImGui.PopStyleVar()
+            ImGui.PopStyleColor()
+            ImGui.Separator()
+        end
+    end
+
+    -- Mythical alert: pending Take/Pass decision (distinct styling, countdown, link)
     if uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName and uiState.lootMythicalAlert.itemName ~= "" then
+        local decision = (uiState.lootMythicalAlert.decision or ""):lower()
+        local pending = (decision == "" or decision == "pending")
+        local alert = uiState.lootMythicalAlert
+        local amberBg = { 0.18, 0.14, 0.06, 0.85 }
         ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Warning))
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, ImVec4(amberBg[1], amberBg[2], amberBg[3], amberBg[4]))
         ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
-        if ImGui.BeginChild("MythicalAlertCard", ImVec2(-1, 96), true) then
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "Mythical NoDrop/NoTrade")
-            ImGui.Text("Item: " .. (uiState.lootMythicalAlert.itemName or ""))
-            if uiState.lootMythicalAlert.corpseName and uiState.lootMythicalAlert.corpseName ~= "" then
-                ImGui.Text("Corpse: " .. uiState.lootMythicalAlert.corpseName)
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 4)
+        local cardH = 152
+        if pending then cardH = 172 end
+        if ImGui.BeginChild("MythicalAlertCard", ImVec2(-1, cardH), true) then
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "MYTHICAL")
+            ImGui.SameLine()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), " NoDrop/NoTrade")
+            if ctx.drawItemIcon and alert.iconId and alert.iconId > 0 then
+                ctx.drawItemIcon(alert.iconId)
+                ImGui.SameLine()
+            end
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Header), alert.itemName or "")
+            if alert.corpseName and alert.corpseName ~= "" then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Corpse: " .. alert.corpseName)
+            end
+            if alert.timestamp and alert.timestamp ~= "" then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Found: " .. alert.timestamp)
+            end
+            if pending then
+                local remainSec = 300
+                local startAt = uiState.lootMythicalDecisionStartAt
+                if startAt and type(startAt) == "number" then
+                    remainSec = math.max(0, 300 - ((os.time and os.time() or 0) - startAt))
+                end
+                local mins = math.floor(remainSec / 60)
+                local secs = math.floor(remainSec % 60)
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Info), string.format("Time to decide: %d:%02d", mins, secs))
+                if remainSec < 60 then
+                    ImGui.SameLine()
+                    ImGui.TextColored(theme.ToVec4(theme.Colors.Error), " (less than 1 min)")
+                end
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Take = loot it. Pass = leave on corpse for group.")
+            end
+            if pending then
+                if ImGui.Button("Take##MythicalAlert") then
+                    if ctx.mythicalTake then ctx.mythicalTake() end
+                end
+                ImGui.SameLine()
+                if ImGui.Button("Pass##MythicalAlert") then
+                    if ctx.mythicalPass then ctx.mythicalPass() end
+                end
+                ImGui.SameLine()
             end
             if ImGui.Button("Dismiss##MythicalAlert") then
                 if ctx.clearLootUIMythicalAlert then ctx.clearLootUIMythicalAlert() end
             end
-            ImGui.SameLine()
-            if ImGui.Button("Copy item name##MythicalAlert") then
-                if ctx.setMythicalCopyName and uiState.lootMythicalAlert.itemName then
-                    ctx.setMythicalCopyName(uiState.lootMythicalAlert.itemName)
-                end
-            end
         end
         ImGui.EndChild()
         ImGui.PopStyleVar()
+        ImGui.PopStyleVar()
+        ImGui.PopStyleColor()
         ImGui.PopStyleColor()
         ImGui.Separator()
     end
