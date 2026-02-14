@@ -229,6 +229,7 @@ function AugmentsView.render(ctx)
                 ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0, 0))
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
                     ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
+                    ctx.uiState.lastPickupSetThisFrame = true
                     mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then

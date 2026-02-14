@@ -178,10 +178,17 @@ function InventoryView.render(ctx, bankOpen)
             ImGui.EndPopup()
         end
         
+        local hasCursor = ctx.hasItemOnCursor()
+        local lp = ctx.uiState.lastPickup
         local filtered = {}
         for _, it in ipairs(ctx.inventoryItems) do
             if ctx.uiState.searchFilterInv == "" or (it.name or ""):lower():find((ctx.uiState.searchFilterInv or ""):lower(), 1, true) then
-                table.insert(filtered, it)
+                -- Hide item from list while it is on cursor or we just initiated pickup (lastPickup set on click; game may not have cursor yet for a frame)
+                if lp and lp.source == "inv" and lp.bag and lp.slot and it.bag == lp.bag and it.slot == lp.slot then
+                    -- skip this item
+                else
+                    table.insert(filtered, it)
+                end
             end
         end
         
@@ -189,27 +196,41 @@ function InventoryView.render(ctx, bankOpen)
         local sortKey = (ctx.sortState.invColumn and type(ctx.sortState.invColumn) == "string" and ctx.sortState.invColumn) or "Name"
         local sortDir = ctx.sortState.invDirection or ImGuiSortDirection.Ascending
         local filterStr = ctx.uiState.searchFilterInv or ""
-        local cacheValid = ctx.perfCache.inv.key == sortKey and ctx.perfCache.inv.dir == sortDir and ctx.perfCache.inv.filter == filterStr and ctx.perfCache.inv.n == #ctx.inventoryItems and ctx.perfCache.inv.scanTime == ctx.perfCache.lastScanTimeInv and #ctx.perfCache.inv.sorted > 0
+        -- Invalidate cache when lastPickup is set so we use the filtered list (with picked-up item hidden). Also invalidate when lastPickup just cleared so we don't use a cache built without the item.
+        local hidingNow = not not (lp and lp.source == "inv" and lp.bag and lp.slot)
+        local cacheValid = ctx.perfCache.inv.key == sortKey and ctx.perfCache.inv.dir == sortDir and ctx.perfCache.inv.filter == filterStr and ctx.perfCache.inv.n == #ctx.inventoryItems and ctx.perfCache.inv.scanTime == ctx.perfCache.lastScanTimeInv and #ctx.perfCache.inv.sorted > 0 and (ctx.perfCache.inv.hidingSlot == hidingNow)
         if not cacheValid and sortKey ~= "" then
             local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(sortKey)
             -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
             local Sort = ctx.sortColumns
             local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filtered, sortKey, "Inventory")
             if decorated then
+                local invDir = ctx.sortState.invDirection or ImGuiSortDirection.Ascending
                 table.sort(decorated, function(a, b)
                     local av, bv = a.key, b.key
                     if isNumeric then
                         local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                        if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                        if an ~= bn then
+                            if invDir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                        end
+                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
+                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
+                        if invDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
                     else
                         local as, bs = tostring(av or ""), tostring(bv or "")
-                        if ctx.sortState.invDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                        if as ~= bs then
+                            if invDir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                        end
+                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
+                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
+                        if invDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
                     end
                 end)
                 Sort.undecorate(decorated, filtered)
             end
             ctx.perfCache.inv.key, ctx.perfCache.inv.dir, ctx.perfCache.inv.filter = sortKey, sortDir, filterStr
             ctx.perfCache.inv.n, ctx.perfCache.inv.scanTime, ctx.perfCache.inv.sorted = #ctx.inventoryItems, ctx.perfCache.lastScanTimeInv, filtered
+            ctx.perfCache.inv.hidingSlot = hidingNow
         elseif cacheValid then
             filtered = ctx.perfCache.inv.sorted
         end
@@ -247,6 +268,7 @@ function InventoryView.render(ctx, bankOpen)
                                     ctx.uiState.quantityPickerMax = item.stackSize
                                 else
                                     ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
+                                    ctx.uiState.lastPickupSetThisFrame = true
                                     mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
                                 end
                             end

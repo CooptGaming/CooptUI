@@ -149,6 +149,8 @@ local uiState = {
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
     pendingQuantityPickup = nil, pendingQuantityAction = nil,
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
+    lastPickupSetThisFrame = false,  -- true when a view set lastPickup this frame (don't clear until next frame so item hides)
+    hadItemOnCursorLastFrame = false,
     pendingDestroy = nil,       -- { bag, slot, name, stackSize } when Delete clicked and confirm required
     pendingDestroyAction = nil, -- { bag, slot, name, qty } for main loop to call performDestroyItem (qty = whole stack when confirm skipped)
     destroyQuantityValue = "",  -- quantity input for destroy dialog (1..stackSize)
@@ -826,6 +828,7 @@ end
 -- ============================================================================
 local function renderUI()
     if not shouldDraw and not uiState.lootUIOpen then return end
+    uiState.lastPickupSetThisFrame = false  -- reset each frame; views set true when they set lastPickup
     local merchOpen = isMerchantWindowOpen()
     -- In setup step 1–2 show inventory/sell only; step 3 show inv+bank
     local curView
@@ -1137,6 +1140,15 @@ local function renderUI()
     end
     if hasItemOnCursor() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and ImGui.IsWindowHovered() then
         removeItemFromCursor()
+    end
+    -- Clear lastPickup when cursor is empty so the item shows back in the list. Don't clear the same frame we set it (lastPickupSetThisFrame) or we'd clear before the game has put the item on cursor.
+    if not hasItemOnCursor() and not uiState.lastPickupSetThisFrame then
+        uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
+    end
+    if not hasItemOnCursor() then
+        uiState.hadItemOnCursorLastFrame = false
+    else
+        uiState.hadItemOnCursorLastFrame = true
     end
 
     -- Footer: status messages (Keep/Junk, moves, sell), failed items notice

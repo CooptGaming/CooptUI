@@ -151,6 +151,13 @@ function Sort.undecorate(decorated, target)
     return target
 end
 
+--- Stable sort tie-breaker: when primary keys are equal, order by bag/slot so relative order is preserved.
+local function tieBreak(a, b, dir)
+    local ta = (a.bag or 0) * 1000 + (a.slot or 0)
+    local tb = (b.bag or 0) * 1000 + (b.slot or 0)
+    if dir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
+end
+
 function Sort.makeComparator(getValFunc, col, dir, numericCols)
     return function(a, b)
         if not a or not b then return false end
@@ -161,18 +168,16 @@ function Sort.makeComparator(getValFunc, col, dir, numericCols)
         end
         if isNumeric then
             local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-            if dir == ImGuiSortDirection.Ascending then
-                return an < bn
-            else
-                return an > bn
+            if an ~= bn then
+                if dir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
             end
+            return tieBreak(a, b, dir)
         else
             local as, bs = tostring(av or ""), tostring(bv or "")
-            if dir == ImGuiSortDirection.Ascending then
-                return as < bs
-            else
-                return as > bs
+            if as ~= bs then
+                if dir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
             end
+            return tieBreak(a, b, dir)
         end
     end
 end

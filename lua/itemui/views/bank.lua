@@ -150,12 +150,19 @@ function BankView.render(ctx)
     end
     ImGui.Separator()
     
+    local hasCursor = ctx.hasItemOnCursor()
+    local lp = ctx.uiState.lastPickup
     -- Pre-filter bank list
     local filteredBank = {}
     local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
     for _, item in ipairs(list) do
         if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
-            table.insert(filteredBank, item)
+            -- Hide item from list while it is on cursor or we just initiated pickup (lastPickup set on click; game may not have cursor yet for a frame)
+            if lp and lp.source == "bank" and lp.bag and lp.slot and item.bag == lp.bag and item.slot == lp.slot then
+                -- skip this item
+            else
+                table.insert(filteredBank, item)
+            end
         end
     end
     
@@ -281,27 +288,41 @@ function BankView.render(ctx)
         local bankSortKey = (ctx.sortState.bankColumn and type(ctx.sortState.bankColumn) == "string" and ctx.sortState.bankColumn) or "Name"
         local bankSortDir = ctx.sortState.bankDirection or ImGuiSortDirection.Ascending
         local bankFilterStr = ctx.uiState.searchFilterBank or ""
-        local bankCacheValid = ctx.perfCache.bank.key == bankSortKey and ctx.perfCache.bank.dir == bankSortDir and ctx.perfCache.bank.filter == bankFilterStr and ctx.perfCache.bank.n == #list and ctx.perfCache.bank.nFiltered == #filteredBank and #ctx.perfCache.bank.sorted > 0
+        -- Invalidate cache when lastPickup is set (use list with item hidden). Also invalidate when lastPickup just cleared so we don't use a cache built without the item.
+        local bankHidingNow = not not (lp and lp.source == "bank" and lp.bag and lp.slot)
+        local bankCacheValid = ctx.perfCache.bank.key == bankSortKey and ctx.perfCache.bank.dir == bankSortDir and ctx.perfCache.bank.filter == bankFilterStr and ctx.perfCache.bank.n == #list and ctx.perfCache.bank.nFiltered == #filteredBank and #ctx.perfCache.bank.sorted > 0 and (ctx.perfCache.bank.hidingSlot == bankHidingNow)
         if not bankCacheValid and bankSortKey ~= "" then
             local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(bankSortKey)
             -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
             local Sort = ctx.sortColumns
             local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filteredBank, bankSortKey, "Bank")
             if decorated then
+                local bankDir = ctx.sortState.bankDirection or ImGuiSortDirection.Ascending
                 table.sort(decorated, function(a, b)
                     local av, bv = a.key, b.key
                     if isNumeric then
                         local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                        if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                        if an ~= bn then
+                            if bankDir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+                        end
+                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
+                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
+                        if bankDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
                     else
                         local as, bs = tostring(av or ""), tostring(bv or "")
-                        if ctx.sortState.bankDirection == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                        if as ~= bs then
+                            if bankDir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+                        end
+                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
+                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
+                        if bankDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
                     end
                 end)
                 Sort.undecorate(decorated, filteredBank)
             end
             ctx.perfCache.bank.key, ctx.perfCache.bank.dir, ctx.perfCache.bank.filter = bankSortKey, bankSortDir, bankFilterStr
             ctx.perfCache.bank.n, ctx.perfCache.bank.nFiltered, ctx.perfCache.bank.sorted = #list, #filteredBank, filteredBank
+            ctx.perfCache.bank.hidingSlot = bankHidingNow
         else
             filteredBank = ctx.perfCache.bank.sorted
         end
@@ -345,6 +366,7 @@ function BankView.render(ctx)
                                         ctx.uiState.quantityPickerMax = item.stackSize
                                     else
                                         ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "bank"
+                                        ctx.uiState.lastPickupSetThisFrame = true
                                         mq.cmdf('/itemnotify in bank%d %d leftmouseup', item.bag, item.slot)
                                     end
                                 end
