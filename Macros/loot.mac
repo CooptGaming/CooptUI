@@ -167,12 +167,11 @@ Sub Main
     /return
 }
 
-| Handle test command: use targeted corpse and first item as if Mythical pause triggered.
-| Writes loot_mythical_alert.ini so CoOpt UI Loot UI opens and shows the alert card (same as real Mythical pause).
+| Handle test command: test the Mythical Take/Pass flow (same as real pause: pending INI, beeps, group msg, wait for decision, then Take=loot or Pass=skip).
 /if (${doTest}) {
     /call LoadConfig FALSE
     /if (!${pauseOnMythicalNoDropNoTrade}) {
-        /echo Test skipped: Pause on Mythical NoDrop/NoTrade is turned OFF (loot_flags.ini: pauseOnMythicalNoDropNoTrade=FALSE). Turn it on to test the alert.
+        /echo Test skipped: Pause on Mythical NoDrop/NoTrade is turned OFF (loot_flags.ini: pauseOnMythicalNoDropNoTrade=FALSE). Turn it on to test.
         /return
     }
     /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) {
@@ -193,14 +192,45 @@ Sub Main
     }
     /varset pauseAlertItemName ${Corpse.Item[1].Name}
     /varset pauseAlertCorpseName ${Target.DisplayName}
+    /declare testLinkStr string local
+    /squelch /varset testLinkStr ${Corpse.Item[1].ItemLink[CLICKABLE]}
+    /ini "${configPath}/loot_mythical_alert.ini" Alert itemName "${pauseAlertItemName}"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName "${pauseAlertCorpseName}"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert slot 1
+    /ini "${configPath}/loot_mythical_alert.ini" Alert decision "pending"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
+    /if (${testLinkStr.Length} > 0) /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink "${testLinkStr}"
+    /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ${Corpse.Item[1].Icon}
+    /beep
+    /delay ${lootDelayTicks}
+    /beep
+    /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
+        /declare linkText string local
+        /squelch /varset linkText ${testLinkStr}
+        /if (${linkText.Length} == 0) /squelch /varset linkText ${LinkDB[=${pauseAlertItemName}]}
+        /if (${linkText.Length} > 0) {
+            /g Mythical NoDrop/NoTrade (decide in Loot UI): ${linkText} — Corpse: ${pauseAlertCorpseName}
+        } else {
+            /g Mythical NoDrop/NoTrade (decide in Loot UI): ${pauseAlertItemName} — Corpse: ${pauseAlertCorpseName}
+        }
+    }
+    /call WaitForMythicalDecision
+    /if (${mythicalDecisionResult.Equal[loot]}) {
+        /varset lootName ${pauseAlertItemName}
+        /call AddSlotToLootList 1
+        /call LootItemWithSound 1
+    }
+    /ini "${configPath}/loot_mythical_alert.ini" Alert itemName ""
+    /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName ""
+    /ini "${configPath}/loot_mythical_alert.ini" Alert decision ""
+    /ini "${configPath}/loot_mythical_alert.ini" Alert slot ""
+    /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink ""
+    /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ""
     /call CloseLootWindow
-    /call PauseMythicalNoDropAlert
     /echo ==========================================
-    /echo Mythical test done. Loot UI should open (or be open) with an alert card.
-    /echo Verify: Item name and Corpse name match the targeted corpse and first item.
-    /echo Use Dismiss or Copy item name in the Loot UI as needed.
+    /echo Mythical test done. You chose Take (looted) or Pass (skipped). Loot UI showed the alert and countdown.
     /echo ==========================================
-    /return
+    /end
 }
 
 | ------------------------------------------------- |
@@ -478,11 +508,15 @@ sub EvaluateItem(int slot)
             /varset pauseAlertItemName ${lootName}
             /varset pauseAlertCorpseName ${currentCorpseName}
             | Write INI for CoOpt UI: pending decision so user can choose Loot or Skip
+            /declare itemLinkStr string local
+            /squelch /varset itemLinkStr ${Corpse.Item[${slot}].ItemLink[CLICKABLE]}
             /ini "${configPath}/loot_mythical_alert.ini" Alert itemName "${pauseAlertItemName}"
             /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName "${pauseAlertCorpseName}"
             /ini "${configPath}/loot_mythical_alert.ini" Alert slot ${slot}
             /ini "${configPath}/loot_mythical_alert.ini" Alert decision "pending"
             /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
+            /if (${itemLinkStr.Length} > 0) /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink "${itemLinkStr}"
+            /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ${Corpse.Item[${slot}].Icon}
             /beep
             /delay ${lootDelayTicks}
             /beep
@@ -507,6 +541,8 @@ sub EvaluateItem(int slot)
             /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName ""
             /ini "${configPath}/loot_mythical_alert.ini" Alert decision ""
             /ini "${configPath}/loot_mythical_alert.ini" Alert slot ""
+            /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink ""
+            /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ""
             /return
         }
     }

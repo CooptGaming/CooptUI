@@ -165,7 +165,9 @@ local uiState = {
     lootHistory = nil,          -- array of { name, value, statusText, willSell } for History tab (loaded from file, appended when run has items)
     skipHistory = nil,          -- array of { name, reason } for Skip History tab (loaded from file, appended when run has skips)
     lootRunFinished = false,
-    lootMythicalAlert = nil,   -- { itemName, corpseName } or nil
+    lootMythicalAlert = nil,   -- { itemName, corpseName, decision, itemLink, timestamp, iconId } or nil
+    lootMythicalDecisionStartAt = nil, -- os.time() when pending alert first seen (for countdown)
+    lootMythicalFeedback = nil, -- { message, showUntil } after Take/Pass for 2s confirmation
     lootRunTotalValue = 0,     -- copper (run receipt)
     lootRunTributeValue = 0,
     lootRunBestItemName = "",
@@ -719,11 +721,14 @@ local function renderLootWindow()
     end
     ctx.clearLootUIMythicalAlert = function()
         uiState.lootMythicalAlert = nil
+        uiState.lootMythicalDecisionStartAt = nil
+        uiState.lootMythicalFeedback = nil
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if path and path ~= "" then
             mq.cmdf('/ini "%s" Alert decision "skip"', path)
             mq.cmdf('/ini "%s" Alert itemName ""', path)
             mq.cmdf('/ini "%s" Alert corpseName ""', path)
+            mq.cmdf('/ini "%s" Alert itemLink ""', path)
         end
     end
     ctx.setMythicalDecision = function(decision)
@@ -733,8 +738,49 @@ local function renderLootWindow()
             mq.cmdf('/ini "%s" Alert decision "%s"', path, decision)
         end
     end
+    ctx.mythicalTake = function()
+        local alert = uiState.lootMythicalAlert
+        if not alert then return end
+        local name = alert.itemName or ""
+        local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
+        if mq.TLO.Me.Grouped and (name ~= "" or link) then
+            if link then mq.cmdf('/g Taking %s — looting.', link) else mq.cmdf('/g Taking %s — looting.', name) end
+        end
+        ctx.setMythicalDecision("loot")
+        uiState.lootMythicalFeedback = { message = "You chose: Take", showUntil = (os.clock and os.clock() or 0) + 2 }
+        uiState.lootMythicalAlert = nil
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+        if path and path ~= "" then
+            mq.cmdf('/ini "%s" Alert itemName ""', path)
+            mq.cmdf('/ini "%s" Alert corpseName ""', path)
+            mq.cmdf('/ini "%s" Alert itemLink ""', path)
+        end
+    end
+    ctx.mythicalPass = function()
+        local alert = uiState.lootMythicalAlert
+        if not alert then return end
+        local name = alert.itemName or ""
+        local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
+        if mq.TLO.Me.Grouped and (name ~= "" or link) then
+            if link then mq.cmdf('/g Passing on %s — someone else can loot.', link) else mq.cmdf('/g Passing on %s — someone else can loot.', name) end
+        end
+        ctx.setMythicalDecision("skip")
+        uiState.lootMythicalFeedback = { message = "Passed - left on corpse for group.", showUntil = (os.clock and os.clock() or 0) + 2 }
+        uiState.lootMythicalAlert = nil
+        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+        if path and path ~= "" then
+            mq.cmdf('/ini "%s" Alert itemName ""', path)
+            mq.cmdf('/ini "%s" Alert corpseName ""', path)
+            mq.cmdf('/ini "%s" Alert itemLink ""', path)
+        end
+    end
     ctx.setMythicalCopyName = function(name)
         if name and name ~= "" then print(string.format("\ay[ItemUI]\ax Mythical item name: %s", name)) end
+    end
+    ctx.setMythicalCopyLink = function(link)
+        if not link or link == "" then return end
+        if ImGui and ImGui.SetClipboardText then ImGui.SetClipboardText(link) end
+        print(string.format("\ay[ItemUI]\ax Mythical item link copied to clipboard (or see console)."))
     end
     ctx.clearLootUIState = function()
         uiState.lootRunLootedList = {}
@@ -744,6 +790,8 @@ local function renderLootWindow()
         uiState.lootRunCurrentCorpse = ""
         uiState.lootRunFinished = false
         uiState.lootMythicalAlert = nil
+        uiState.lootMythicalDecisionStartAt = nil
+        uiState.lootMythicalFeedback = nil
         uiState.lootRunTotalValue = 0
         uiState.lootRunTributeValue = 0
         uiState.lootRunBestItemName = ""
@@ -1412,11 +1460,23 @@ local function main()
                     local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
                     if itemName and itemName ~= "" then
                         local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+                        local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+                        local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
                         uiState.lootMythicalAlert = {
                             itemName = itemName,
                             corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                            decision = decision
+                            decision = decision,
+                            itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+                            timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+                            iconId = tonumber(iconStr) or 0
                         }
+                        if decision == "pending" then
+                            if not prevName or prevName ~= itemName then
+                                uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+                            end
+                        else
+                            uiState.lootMythicalDecisionStartAt = nil
+                        end
                         uiState.lootUIOpen = true
                     end
                 end
@@ -1504,14 +1564,27 @@ local function main()
                         local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
                         if itemName and itemName ~= "" then
                             local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+                            local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+                            local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
                             uiState.lootMythicalAlert = {
                                 itemName = itemName,
                                 corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                                decision = decision
+                                decision = decision,
+                                itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+                                timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+                                iconId = tonumber(iconStr) or 0
                             }
+                            if decision == "pending" then
+                                if not prevName or prevName ~= itemName then
+                                    uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+                                end
+                            else
+                                uiState.lootMythicalDecisionStartAt = nil
+                            end
                             uiState.lootUIOpen = true
                         else
                             uiState.lootMythicalAlert = nil
+                            uiState.lootMythicalDecisionStartAt = nil
                         end
                     end
                 end
