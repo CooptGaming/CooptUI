@@ -406,8 +406,8 @@ local function isLootWindowOpen() return windowState.isLootWindowOpen() end
 local function closeGameInventoryIfOpen() windowState.closeGameInventoryIfOpen() end
 local function closeGameMerchantIfOpen() windowState.closeGameMerchantIfOpen() end
 
--- buildItemFromMQ delegated to utils/item_helpers.lua
-local function buildItemFromMQ(item, bag, slot) return itemHelpers.buildItemFromMQ(item, bag, slot) end
+-- buildItemFromMQ delegated to utils/item_helpers.lua (optional 4th arg source: "inv" | "bank")
+local function buildItemFromMQ(item, bag, slot, source) return itemHelpers.buildItemFromMQ(item, bag, slot, source) end
 
 -- Sell logic aliases (delegated to services/sell_status.lua)
 local function isInKeepList(itemName) return sellStatusService.isInKeepList(itemName) end

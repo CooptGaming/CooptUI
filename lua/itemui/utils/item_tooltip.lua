@@ -9,6 +9,7 @@
 local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
+local itemHelpers = require('itemui.utils.item_helpers')
 
 local ItemTooltip = {}
 
@@ -152,17 +153,9 @@ local AUG_TYPE_NAMES = {
     [20] = "Ornamentation",
 }
 
---- Get item TLO for inv or bank (returns nil if not available).
+--- Use shared getItemTLO from item_helpers (single place for bank vs inv TLO resolution).
 local function getItemTLO(bag, slot, source)
-    if source == "bank" then
-        local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
-        if not bn then return nil end
-        return bn.Item and bn.Item(slot or 0)
-    else
-        local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
-        if not pack then return nil end
-        return pack.Item and pack.Item(slot or 0)
-    end
+    return itemHelpers.getItemTLO(bag, slot, source)
 end
 
 --- Return table of strings for augment slots: "Slot N, type X (Name): empty" or ": AugName". Falls back to nil if TLO not available.
@@ -251,7 +244,7 @@ end
 function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if not item then return end
     opts = opts or {}
-    local source = opts.source or "inv"
+    local source = opts.source or (item and item.source) or "inv"
     -- Use bag/slot from item or opts so tooltip works when getItemStatsForTooltip returns an object without bag/slot
     local bag = item.bag ~= nil and item.bag or opts.bag
     local slot = item.slot ~= nil and item.slot or opts.slot
