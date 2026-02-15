@@ -12,8 +12,8 @@
 | ================================================= |
 | Config Files: loot_config/ directory              |
 | ================================================= |
-| Fallback: if we try to loot a lore duplicate, game prints this and we add to cache
-#event LoreDuplicate "#*#You cannot loot this lore item. You already have one.#*#"
+| Chat event: game message when duplicate lore loot attempted (recovery)
+#event LoreDup "#*#cannot loot this lore item#*#already have one#*#"
 Sub Main
 
 | ------------------------------------------------- |
@@ -66,8 +66,9 @@ Sub Main
 | Lore item cache (session-based, reduces FindItem calls)
 | Format: pipe-delimited string (e.g. "|ItemName1|ItemName2|")
 /declare loreItemCache string outer
-| Set by Event_LoreDuplicate when game rejects lore duplicate (fallback); LootItem exits, LootItemWithSound logs skip
-/declare loreLootRejected bool outer FALSE
+| Chat event recovery: last item we tried to loot; set when lore-dup game message fires
+/declare lastLootAttemptName string outer
+/declare loreDupDetected bool outer
 
 | Two-pass loot: decide-only mode and slots-to-loot list (slash-delimited, e.g. "1/3/5")
 /declare decideOnly bool outer FALSE
@@ -363,6 +364,7 @@ Sub Main
     } 
     | --- CoOpt UI Loot UI: corpse name (written with progress at end of corpse)
     /varset currentCorpseName ${Corpse.DisplayName}
+    /varset loreDupDetected FALSE
     
     | --- Pass 1: Evaluate all items, build list of slots to loot (no delays) ---
     /varset slotsToLoot
@@ -384,10 +386,18 @@ Sub Main
             /varset slotNum ${slotsToLoot.Token[${slotIdx},/]}
             /if (${slotNum.Length} > 0 && ${Corpse.Item[${slotNum}].ID}) {
                 /varset lootName ${Corpse.Item[${slotNum}].Name}
+                /varset lastLootAttemptName ${lootName}
                 /call LootItemWithSound ${slotNum}
+                /doevents
+                /if (${loreDupDetected}) {
+                    /varset loreDupDetected FALSE
+                    /if (!${quietMode}) /echo Lore duplicate detected from game message - added "${lootName}" to cache
+                    /goto :Pass2Done
+                }
             }
             /varcalc slotIdx ${slotIdx}+1
         }
+:Pass2Done
     }
     
     | --- Clear any item left on cursor ---
@@ -730,15 +740,6 @@ sub AddToSkippedSessionCache
 /return
 
 | ================================================= |
-| Event_LoreDuplicate - Fallback when game rejects lore duplicate (chat message) |
-| Add item to lore cache so we never try again this run; LootItem will exit on loreLootRejected |
-| ================================================= |
-sub Event_LoreDuplicate
-    /varset loreItemCache ${loreItemCache}|${lootName}|
-    /varset loreLootRejected TRUE
-/return
-
-| ================================================= |
 | AddToLootedSessionCache - Add current lootName to session loot cache |
 | ================================================= |
 sub AddToLootedSessionCache
@@ -878,10 +879,13 @@ sub LootItem(int slot)
     | --- Safety check: ensure item still exists ---
     /if (!${Corpse.Item[${slot}].ID}) /return
     
-    | --- Store item name for verification ---
+    | --- Store item name for verification (and for lore-dup event) ---
     /varset itemName ${Corpse.Item[${slot}].Name}
+    /varset lastLootAttemptName ${itemName}
 
 :WaitLootItem
+    /doevents
+    /if (${loreDupDetected}) /return
     /varset lootAttempts ${Math.Calc[${lootAttempts}+1]}
     
     | --- Check if we've tried too many times ---
@@ -900,10 +904,6 @@ sub LootItem(int slot)
         /delay ${lootDelayTicks}
     }
     
-    | --- Fallback: game printed "You cannot loot this lore item. You already have one." ---
-    /doevents
-    /if (${loreLootRejected}) /return
-    
     | --- Put item on cursor into inventory (required so next slot can be looted) ---
     /if (${Cursor.ID}) {
         /autoinventory
@@ -912,6 +912,19 @@ sub LootItem(int slot)
     
     | --- Retry if item is still on corpse ---
     /if (${Corpse.Item[${slot}].ID}) /goto :WaitLootItem
+/return
+
+| ================================================= |
+| Event_LoreDup - Game said "cannot loot lore, already have one" |
+| Add to cache so we skip it next time; set flag to break loot loop |
+| ================================================= |
+sub Event_LoreDup
+    /if (${lastLootAttemptName.Length} > 0) {
+        /varset loreItemCache ${loreItemCache}|${lastLootAttemptName}|
+        /call LogSkippedItem "${lastLootAttemptName}" "Lore duplicate (game message)"
+        /call AddToSkippedSessionCache
+    }
+    /varset loreDupDetected TRUE
 /return
 
 | ================================================= |
@@ -926,16 +939,8 @@ sub LootItemWithSound(int slot)
 
     | --- Now loot the item ---
     /call LootItem ${slot}
-    | --- Fallback: game rejected lore duplicate; we already added to loreItemCache in Event_LoreDuplicate ---
-    /if (${loreLootRejected}) {
-        /call LogSkippedItem "${lootName}" "Lore duplicate (chat)"
-        /call AddToSkippedSessionCache
-        /varset loreLootRejected FALSE
-        /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (game rejected - added to cache)
-        /return
-    }
-    | --- Add to session loot cache so we fast-loot same name on later corpses ---
-    /call AddToLootedSessionCache
+    | --- Add to session loot cache so we fast-loot same name on later corpses (skip if lore dup) ---
+    /if (!${loreDupDetected}) /call AddToLootedSessionCache
 /return
 
 | ================================================= |
