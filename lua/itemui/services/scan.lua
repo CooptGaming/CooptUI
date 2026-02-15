@@ -274,12 +274,14 @@ function M.scanBank()
             if bagSize and bagSize > 0 then
                 for slotNum = 1, bagSize do
                     local item = slot.Item and slot.Item(slotNum)
+                    -- MQ ItemSlot/ItemSlot2 are 0-based; convert to 1-based for storage (see docs/ITEM_INDEX_BASE.md)
                     local islot = item and (item.ItemSlot and item.ItemSlot()) or (bagNum - 1)
                     local islot2 = item and (item.ItemSlot2 and item.ItemSlot2()) or (slotNum - 1)
                     local it = buildItemFromMQ(item, (islot or (bagNum - 1)) + 1, (islot2 or (slotNum - 1)) + 1, "bank")
                     if it then table.insert(bankItems, it) end
                 end
             elseif (slot.ID and slot.ID()) and slot.ID() > 0 then
+                -- Single-item bank slot; ItemSlot/ItemSlot2 0-based -> 1-based (see docs/ITEM_INDEX_BASE.md)
                 local islot = (slot.ItemSlot and slot.ItemSlot()) or (bagNum - 1)
                 local islot2 = (slot.ItemSlot2 and slot.ItemSlot2()) or 0
                 local it = buildItemFromMQ(slot, (islot or (bagNum - 1)) + 1, (islot2 or 0) + 1, "bank")

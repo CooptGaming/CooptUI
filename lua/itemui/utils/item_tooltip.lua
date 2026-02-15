@@ -88,11 +88,9 @@ local function attrLine(base, heroic, label)
     return string.format("%s: %d", label, b)
 end
 
-local function getItemClassRaceSlotInv(bag, slot)
+--- Class/race/slot from item TLO (pass existing it to avoid re-resolving). Returns clsStr, raceStr, slotStr.
+local function getItemClassRaceSlotFromIt(it)
     local clsStr, raceStr, slotStr = "", "", ""
-    local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
-    if not pack then return clsStr, raceStr, slotStr end
-    local it = pack.Item and pack.Item(slot or 0)
     if not it or not it.ID or it.ID() == 0 then return clsStr, raceStr, slotStr end
     local function add(parts, fn, n)
         if not n or n <= 0 then return end
@@ -117,33 +115,10 @@ local function getItemClassRaceSlotInv(bag, slot)
     return clsStr, raceStr, slotStr
 end
 
-local function getItemClassRaceSlotBank(bankBag, bankSlot)
-    local clsStr, raceStr, slotStr = "", "", ""
-    local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bankBag or 0)
-    if not bn then return clsStr, raceStr, slotStr end
-    local it = bn.Item and bn.Item(bankSlot or 0)
-    if not it or not it.ID or it.ID() == 0 then return clsStr, raceStr, slotStr end
-    local function add(parts, fn, n)
-        if not n or n <= 0 then return end
-        for i = 1, n do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = v end end
-        if #parts == 0 then for i = 0, n - 1 do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = v end end end
-    end
-    local nClass = it.Classes and it.Classes()
-    if nClass and nClass > 0 then
-        if nClass >= 16 then clsStr = "All"
-        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c and tostring(c) or "" end, nClass); clsStr = table.concat(p, " ") end
-    end
-    local nRace = it.Races and it.Races()
-    if nRace and nRace > 0 then
-        if nRace >= 15 then raceStr = "All"
-        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r and tostring(r) or "" end, nRace); raceStr = table.concat(p, " ") end
-    end
-    local nSlots = it.WornSlots and it.WornSlots()
-    if nSlots and nSlots > 0 then
-        if nSlots >= 20 then slotStr = "All"
-        else local p = {}; add(p, function(i) local s = it.WornSlot and it.WornSlot(i); return s and slotToDisplayName(tostring(s)) or "" end, nSlots); slotStr = table.concat(p, ", ") end
-    end
-    return clsStr, raceStr, slotStr
+--- Class/race/slot from bag/slot/source (resolves TLO then calls getItemClassRaceSlotFromIt).
+local function getItemClassRaceSlotFromTLO(bag, slot, source)
+    local it = getItemTLO(bag, slot, source)
+    return getItemClassRaceSlotFromIt(it)
 end
 
 -- Augment slot type ID to display name (in-game style)
@@ -158,20 +133,19 @@ local function getItemTLO(bag, slot, source)
     return itemHelpers.getItemTLO(bag, slot, source)
 end
 
---- Return table of strings for augment slots: "Slot N, type X (Name): empty" or ": AugName". Falls back to nil if TLO not available.
---- Uses AugSlot(i) (augtype) when available, else AugSlot1..6 and Item(i).
-local function getAugmentSlotLines(bag, slot, source, augSlots)
-    if (augSlots or 0) == 0 then return nil end
-    local it = getItemTLO(bag, slot, source)
+--- Core: build augment slot lines from item TLO (pass it to avoid re-resolving). Returns table of "Slot N, type X (TypeName): empty|name".
+--- Tries AugSlot(i) first; fallback AugSlot1..6. Never break on nil slot so other slots still show when TLO shape differs.
+local function getAugmentSlotLinesFromIt(it, augSlots)
     if not it or not it.ID or it.ID() == 0 then return nil end
+    if (augSlots or 0) == 0 then return nil end
     local lines = {}
     for i = 1, 6 do
         local typ, augName = 0, "empty"
-        -- Prefer AugSlot(i) (augtype) when available
+        -- Prefer AugSlot(i) (augtype) when available; coerce Type to number (may be string or function)
         local okAug, aug = pcall(function() return it.AugSlot and it.AugSlot(i) end)
         if okAug and aug then
             local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
-            typ = tonumber(t) or 0
+            typ = tonumber(t) or tonumber(tostring(t)) or 0
             if aug.Name then
                 local nOk, nVal = pcall(function() return type(aug.Name) == "function" and aug.Name() or aug.Name end)
                 if nOk and nVal and tostring(nVal) ~= "" then augName = tostring(nVal) end
@@ -180,22 +154,90 @@ local function getAugmentSlotLines(bag, slot, source, augSlots)
         if typ == 0 then
             -- Fallback: AugSlot1..6 (type int) and Item(i) for name
             local acc = it["AugSlot" .. i]
-            if acc == nil then break end
-            typ = tonumber(type(acc) == "function" and acc() or acc) or 0
-            if typ > 0 then
-                local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
-                if ok and itemN and itemN.Name then
-                    local nameOk, nameVal = pcall(function() return itemN.Name() end)
-                    if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+            if acc ~= nil then
+                typ = tonumber(type(acc) == "function" and acc() or acc) or 0
+                if typ > 0 then
+                    local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
+                    if ok and itemN and itemN.Name then
+                        local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                        if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+                    end
+                end
+            else
+                -- AugSlot# property missing; reuse first AugSlot(i) result if we have it to avoid second TLO call
+                if okAug and aug then
+                    local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
+                    typ = tonumber(t) or tonumber(tostring(t)) or 0
+                    if typ > 0 then
+                        local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
+                        if ok and itemN and itemN.Name then
+                            local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                            if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+                        end
+                    end
+                else
+                    okAug, aug = pcall(function() return it.AugSlot and it.AugSlot(i) end)
+                    if okAug and aug then
+                        local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
+                        typ = tonumber(t) or tonumber(tostring(t)) or 0
+                        if typ > 0 then
+                            local ok, itemN = pcall(function() return it.Item and it.Item(i) end)
+                            if ok and itemN and itemN.Name then
+                                local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                                if nameOk and nameVal and tostring(nameVal) ~= "" then augName = tostring(nameVal) end
+                            end
+                        end
+                    end
                 end
             end
         end
         if typ > 0 then
+            if not augName or augName == "" or tostring(augName):lower() == "null" then augName = "empty" end
             local typeName = AUG_TYPE_NAMES[typ] or ("Type " .. tostring(typ))
             lines[#lines + 1] = string.format("Slot %d, type %d (%s): %s", i, typ, typeName, augName)
         end
     end
     return #lines > 0 and lines or nil
+end
+
+--- Augment slot lines from bag/slot/source (resolves TLO then calls getAugmentSlotLinesFromIt).
+local function getAugmentSlotLines(bag, slot, source, augSlots)
+    local it = getItemTLO(bag, slot, source)
+    return getAugmentSlotLinesFromIt(it, augSlots)
+end
+
+--- Ornament name from item TLO. Tries it.Ornament.Name(); if missing/errors (e.g. no Ornament member), uses augment slot with type 20 (Ornamentation).
+--- Uses AugSlot(i) when AugSlot# property is nil so ornament shows on TLOs that only expose the method.
+local function getOrnamentNameFromIt(it)
+    if not it or not it.ID or it.ID() == 0 then return nil end
+    local ok, name = pcall(function()
+        if it.Ornament and it.Ornament.Name then return it.Ornament.Name() end
+        return nil
+    end)
+    if ok and name and tostring(name) ~= "" then return tostring(name) end
+    -- Fallback: type 20 = Ornamentation; try AugSlot# then AugSlot(i)
+    for i = 1, 6 do
+        local typ = 0
+        local acc = it["AugSlot" .. i]
+        if acc ~= nil then
+            typ = tonumber(type(acc) == "function" and acc() or acc) or 0
+        else
+            local okAug, aug = pcall(function() return it.AugSlot and it.AugSlot(i) end)
+            if okAug and aug then
+                local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
+                typ = tonumber(t) or tonumber(tostring(t)) or 0
+            end
+        end
+        if typ == 20 then
+            local ok2, itemN = pcall(function() return it.Item and it.Item(i) end)
+            if ok2 and itemN and itemN.Name then
+                local nameOk, nameVal = pcall(function() return itemN.Name() end)
+                if nameOk and nameVal and tostring(nameVal) ~= "" then return tostring(nameVal) end
+            end
+            return "empty"
+        end
+    end
+    return nil
 end
 
 --- Build a compact list of only non-nil values (so row count = longest column's value count, no placeholders in longest col).
@@ -250,6 +292,10 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     local slot = item.slot ~= nil and item.slot or opts.slot
 
     local function render()
+    -- Resolve item TLO once per hover (quick); use for class/race/slot, ornament, and augment lines.
+    local it = (bag ~= nil and slot ~= nil and source) and getItemTLO(bag, slot, source) or nil
+    local itValid = it and it.ID and it.ID() ~= 0
+
     -- ---- Header: Name, ID, Type (like in-game Description) ----
     local nameColor = ImVec4(0.45, 0.85, 0.45, 1.0)
     if not canPlayerUseItem(item, source) then
@@ -268,12 +314,17 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     end
     ImGui.Spacing()
 
-    -- ---- Class, Race, Slot, Deity, Augment slots, Container (top section, above Item info) ----
+    -- ---- Class, Race, Slot, Deity, Ornament, Augment slots, Container (top section, above Item info) ----
     local cls, race, slotStr = "—", "—", ""
-    if bag ~= nil and slot ~= nil and source then
-        local ok, c, r, s
-        if source == "bank" then ok, c, r, s = pcall(getItemClassRaceSlotBank, bag, slot)
-        else ok, c, r, s = pcall(getItemClassRaceSlotInv, bag, slot) end
+    if itValid then
+        local ok, c, r, s = pcall(getItemClassRaceSlotFromIt, it)
+        if ok then
+            if c and c ~= "" then cls = c end
+            if r and r ~= "" then race = r end
+            if s and s ~= "" then slotStr = s end
+        end
+    else
+        local ok, c, r, s = pcall(getItemClassRaceSlotFromTLO, bag, slot, source)
         if ok then
             if c and c ~= "" then cls = c end
             if r and r ~= "" then race = r end
@@ -288,7 +339,18 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
     slotStr = slotStringToDisplay(slotStr)
     if slotStr and slotStr ~= "" and slotStr ~= "—" then ImGui.Text(slotStr) end
-    local augLines = (bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil
+    -- Ornament first (match Item Display: Appearance then sockets). Uses type-20 slot when .Ornament missing.
+    if itValid then
+        local ornamentName = getOrnamentNameFromIt(it)
+        if ornamentName and ornamentName ~= "" then
+            ImGui.Spacing()
+            ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Ornament")
+            ImGui.Text(ornamentName)
+            ImGui.Spacing()
+        end
+    end
+    -- Augmentation slots (standard): Slot N, type X (TypeName): empty|name
+    local augLines = itValid and getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
     if augLines and #augLines > 0 then
         ImGui.Spacing()
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
@@ -297,22 +359,6 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         ImGui.Spacing()
     elseif item.augSlots and item.augSlots > 0 then
         ImGui.Text("Augment slots: " .. tostring(item.augSlots))
-    end
-    -- Ornament: show if item TLO exposes ornament (e.g. OrnamentationIcon or Ornament)
-    if bag ~= nil and slot ~= nil and source then
-        local it = getItemTLO(bag, slot, source)
-        if it and it.ID and it.ID() ~= 0 then
-            local ok, ornamentName = pcall(function()
-                if it.Ornament and it.Ornament.Name then return it.Ornament.Name() end
-                return nil
-            end)
-            if ok and ornamentName and tostring(ornamentName) ~= "" then
-                ImGui.Spacing()
-                ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Ornament")
-                ImGui.Text(tostring(ornamentName))
-                ImGui.Spacing()
-            end
-        end
     end
     if item.container and item.container > 0 then
         local capStr = item.sizeCapacity and item.sizeCapacity > 0 and (SIZE_NAMES[item.sizeCapacity] or tostring(item.sizeCapacity)) or nil
