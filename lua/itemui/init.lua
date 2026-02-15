@@ -645,6 +645,7 @@ context.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
     drawItemIcon = function(id) icons.drawItemIcon(id) end,
+    drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
