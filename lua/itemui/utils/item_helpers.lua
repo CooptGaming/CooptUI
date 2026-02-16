@@ -65,6 +65,20 @@ for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
 --- String-type stat fields (default to "" not 0)
 local STAT_STRING_FIELDS = { deity = true, baneDMGType = true, dmgBonusType = true }
 
+--- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), else Me.Inventory("pack"..bag).Item(slot).
+--- Bag and slot are 1-based (same as stored on item tables). Returns nil if TLO not available.
+function M.getItemTLO(bag, slot, source)
+    if source == "bank" then
+        local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
+        if not bn then return nil end
+        return bn.Item and bn.Item(slot or 0)
+    else
+        local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
+        if not pack then return nil end
+        return pack.Item and pack.Item(slot or 0)
+    end
+end
+
 --- Set in-UI status (Keep/Junk, moves, sell). Safe: trims, coerces to string, truncates.
 function M.setStatusMessage(msg)
     if msg == nil then return end
@@ -107,6 +121,12 @@ function M.getSpellName(id)
     return name
 end
 
+--- Strip XML/STML-like tags so description text displays without raw markup. Leaves placeholder tokens (#1, @2, etc.) as-is.
+function M.stripDescriptionMarkup(str)
+    if not str or str == "" then return str end
+    return (tostring(str):gsub("<[^>]+>", ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 function M.getSpellDescription(id)
     if not id or id <= 0 then return nil end
     local cacheKey = 'spell:desc:' .. id
@@ -114,6 +134,7 @@ function M.getSpellDescription(id)
     if desc ~= nil then return desc end
     local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
     desc = s and s.Description and s.Description() or ""
+    desc = M.stripDescriptionMarkup(desc) or desc
     Cache.set(cacheKey, desc, { tier = 'L2' })
     return desc
 end
@@ -153,6 +174,68 @@ function M.getSpellRecastTime(id)
     return nil
 end
 
+--- Spell duration (raw from TLO; often ticks). Returns nil if not available. Cached.
+function M.getSpellDuration(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:duration:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s or not s.Duration then return nil end
+    local ok, raw = pcall(function() return s.Duration() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Spell recovery time (e.g. after fizzle). Returns nil if not available. Cached.
+function M.getSpellRecoveryTime(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:recoverytime:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s then return nil end
+    local fn = s.RecoveryTime or s.FizzleTime
+    if not fn then return nil end
+    local ok, raw = pcall(function() return fn() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Spell range. Returns nil if not available. Cached.
+function M.getSpellRange(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:range:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s or not s.Range then return nil end
+    local ok, raw = pcall(function() return s.Range() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Item lore text (flavor string) from item TLO. Returns string or nil. Safe to call with nil it.
+--- Tries LoreText() then Lore() if it returns a string; does not cache (caller may cache per tooltip).
+function M.getItemLoreText(it)
+    if not it then return nil end
+    local ok, val = pcall(function()
+        if it.LoreText and it.LoreText() and tostring(it.LoreText()):match("%S") then return tostring(it.LoreText()) end
+        if it.Lore then
+            local v = it.Lore()
+            if type(v) == "string" and v:match("%S") then return v end
+        end
+        return nil
+    end)
+    return (ok and val and val ~= "") and val or nil
+end
+
 --- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
 function M.getItemStatsSummary(item)
     if not item then return "" end
@@ -186,16 +269,21 @@ function M.getItemStatsSummary(item)
     return table.concat(parts, ", ")
 end
 
---- Lazy spell ID fetch: defers 5 TLO calls per item from scan to first display.
+--- Lazy spell ID fetch: defers 5 TLO calls per item from scan to first display. Uses item.source for bank vs inv.
+--- When item.socketIndex is set (e.g. augment/ornament link tooltip), resolves parent TLO then parent.Item(socketIndex).
 function M.getItemSpellId(item, prop)
     if not item or not prop then return 0 end
     local key = prop:lower()
     if item[key] ~= nil then return item[key] or 0 end
-    local pack = mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (item.bag or 0))
-    if not pack then item[key] = 0; return 0 end
-    local slotItem = pack.Item and pack.Item(item.slot or 0)
+    local src = rawget(item, "source") or "inv"
+    local slotItem = M.getItemTLO(item.bag, item.slot, src)
     if not slotItem then item[key] = 0; return 0 end
-    local spellObj = slotItem[prop]
+    local sock = rawget(item, "socketIndex")
+    if sock and slotItem.Item then
+        local ok, si = pcall(function() return slotItem.Item(sock) end)
+        if ok and si and si.ID and si.ID() ~= 0 then slotItem = si end
+    end
+    local spellObj = slotItem and slotItem[prop]
     if not spellObj then item[key] = 0; return 0 end
     local id = 0
     if spellObj.SpellID then id = spellObj.SpellID() or 0 end
@@ -204,18 +292,17 @@ function M.getItemSpellId(item, prop)
     return item[key]
 end
 
---- TimerReady cache: TTL 1.5s (cooldowns in seconds; reduces TLO calls ~33%)
-function M.getTimerReady(bag, slot)
+--- TimerReady cache: TTL 1.5s (cooldowns in seconds; reduces TLO calls ~33%). Optional source "bank" | "inv" (default inv).
+function M.getTimerReady(bag, slot, source)
     if not bag or not slot then return 0 end
-    local key = bag .. "_" .. slot
+    source = source or "inv"
+    local key = source .. "_" .. bag .. "_" .. slot
     local now = mq.gettime()
     local entry = deps.perfCache.timerReadyCache[key]
     if entry and (now - entry.at) < deps.C.TIMER_READY_CACHE_TTL_MS then
         return entry.ready or 0
     end
-    local Me = mq.TLO and mq.TLO.Me
-    local pack = Me and Me.Inventory and Me.Inventory("pack" .. bag)
-    local itemTLO = pack and pack.Item and pack.Item(slot)
+    local itemTLO = M.getItemTLO(bag, slot, source)
     local ready = (itemTLO and itemTLO.TimerReady and itemTLO.TimerReady()) or 0
     deps.perfCache.timerReadyCache[key] = { ready = ready, at = now }
     return ready
@@ -252,11 +339,11 @@ function M.getWornSlotsStringFromTLO(it)
     return (#parts > 0) and table.concat(parts, ", ") or ""
 end
 
---- Count augment slots: AugSlot1-5 return slot type (int); 0 = no slot, >0 = has slot.
+--- Count augment slots: AugSlot1-6 return slot type (int); 0 = no slot, >0 = has slot.
 function M.getAugSlotsCountFromTLO(it)
     if not it then return 0 end
     local n = 0
-    for _, accessor in ipairs({ "AugSlot1", "AugSlot2", "AugSlot3", "AugSlot4", "AugSlot5" }) do
+    for _, accessor in ipairs({ "AugSlot1", "AugSlot2", "AugSlot3", "AugSlot4", "AugSlot5", "AugSlot6" }) do
         local fn = it[accessor]
         if fn then
             local v = fn()
@@ -290,9 +377,10 @@ end
 
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
---- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-5 per item).
---- This reduces scan from ~76 to ~30 TLO calls per item; stats/wornSlots/augSlots load on first use.
-function M.buildItemFromMQ(item, bag, slot)
+--- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-6 per item).
+--- Optional 5th arg socketIndex: when set, item is the socket TLO (e.g. parentIt.Item(5)); __index resolves
+--- parent via getItemTLO(bag,slot,source) then it.Item(socketIndex) for lazy stats. Used for augment/ornament link tooltips.
+function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
     if not item or not item.ID or not item.ID() or item.ID() == 0 then return nil end
     local iv = item.Value and item.Value() or 0
     local ss = item.Stack and item.Stack() or 1
@@ -301,6 +389,8 @@ function M.buildItemFromMQ(item, bag, slot)
     local clsStr, raceStr = M.getClassRaceStringsFromTLO(item)
     local base = {
         bag = bag, slot = slot,
+        source = source or "inv",
+        socketIndex = socketIndex,
         name = item.Name and item.Name() or "",
         id = item.ID and item.ID() or 0,
         value = iv, totalValue = iv * ss, stackSize = ss, stackSizeMax = stackSizeMax,
@@ -329,19 +419,22 @@ function M.buildItemFromMQ(item, bag, slot)
         instrumentType = item.InstrumentType and item.InstrumentType() or "",
         instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
     }
-    -- Lazy-load: wornSlots, augSlots, and stat fields on first access
+    -- Lazy-load: wornSlots, augSlots, and stat fields on first access (use getItemTLO so bank uses Me.Bank)
     setmetatable(base, { __index = function(t, k)
         local b, s = t.bag, t.slot
-        local Me = mq.TLO and mq.TLO.Me
-        local pack = Me and Me.Inventory and Me.Inventory("pack" .. (b or 0))
-        local it = pack and pack.Item and pack.Item(s or 0)
+        local src = rawget(t, "source") or "inv"
+        local sock = rawget(t, "socketIndex")
+        local it = M.getItemTLO(b, s, src)
+        if sock and it and it.Item then it = it.Item(sock) end
         if k == "wornSlots" then
             local v = (it and M.getWornSlotsStringFromTLO(it)) or ""
+            if not it or not it.ID or it.ID() == 0 then rawset(t, "_tlo_unavailable", true) end
             rawset(t, "wornSlots", v)
             return v
         end
         if k == "augSlots" then
             local v = (it and M.getAugSlotsCountFromTLO(it)) or 0
+            if not it or not it.ID or it.ID() == 0 then rawset(t, "_tlo_unavailable", true) end
             rawset(t, "augSlots", v)
             return v
         end
@@ -363,7 +456,8 @@ function M.buildItemFromMQ(item, bag, slot)
                 end
             end
         else
-            -- Item no longer in slot (moved/sold); set all to defaults
+            -- Item no longer in slot (moved/sold) or TLO unavailable (e.g. bank closed); set defaults and mark unavailable
+            rawset(t, "_tlo_unavailable", true)
             for _, field in ipairs(STAT_FIELDS) do
                 rawset(t, field, STAT_STRING_FIELDS[field] and "" or 0)
             end

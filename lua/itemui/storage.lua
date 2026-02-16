@@ -126,6 +126,7 @@ local function serializeItem(it)
     if it.willSell ~= nil then parts[#parts + 1] = "willSell=" .. (it.willSell and "true" or "false") end
     if it.sellReason ~= nil and it.sellReason ~= "" then parts[#parts + 1] = "sellReason=" .. escapeLuaString(it.sellReason) end
     if it.acquiredSeq then parts[#parts + 1] = "acquiredSeq=" .. tonumber(it.acquiredSeq) end
+    if it.source and it.source ~= "" then parts[#parts + 1] = "source=" .. escapeLuaString(it.source) end
     return "{" .. table.concat(parts, ",") .. "}"
 end
 

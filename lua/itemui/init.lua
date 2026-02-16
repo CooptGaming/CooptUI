@@ -406,8 +406,8 @@ local function isLootWindowOpen() return windowState.isLootWindowOpen() end
 local function closeGameInventoryIfOpen() windowState.closeGameInventoryIfOpen() end
 local function closeGameMerchantIfOpen() windowState.closeGameMerchantIfOpen() end
 
--- buildItemFromMQ delegated to utils/item_helpers.lua
-local function buildItemFromMQ(item, bag, slot) return itemHelpers.buildItemFromMQ(item, bag, slot) end
+-- buildItemFromMQ delegated to utils/item_helpers.lua (optional 4th arg source: "inv" | "bank")
+local function buildItemFromMQ(item, bag, slot, source) return itemHelpers.buildItemFromMQ(item, bag, slot, source) end
 
 -- Sell logic aliases (delegated to services/sell_status.lua)
 local function isInKeepList(itemName) return sellStatusService.isInKeepList(itemName) end
@@ -640,11 +640,16 @@ context.init({
     getSpellDescription = function(id) return itemHelpers.getSpellDescription(id) end,
     getSpellCastTime = function(id) return itemHelpers.getSpellCastTime(id) end,
     getSpellRecastTime = function(id) return itemHelpers.getSpellRecastTime(id) end,
+    getSpellDuration = function(id) return itemHelpers.getSpellDuration(id) end,
+    getSpellRecoveryTime = function(id) return itemHelpers.getSpellRecoveryTime(id) end,
+    getSpellRange = function(id) return itemHelpers.getSpellRange(id) end,
     getItemSpellId = function(i, p) return itemHelpers.getItemSpellId(i, p) end,
-    getTimerReady = function(b, s) return itemHelpers.getTimerReady(b, s) end,
+    getItemLoreText = function(it) return itemHelpers.getItemLoreText(it) end,
+    getTimerReady = function(b, s, src) return itemHelpers.getTimerReady(b, s, src) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
-    drawItemIcon = function(id) icons.drawItemIcon(id) end,
+    drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
+    drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
     -- Services
     theme = theme, macroBridge = macroBridge,
 })

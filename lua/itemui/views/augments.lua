@@ -214,11 +214,14 @@ function AugmentsView.render(ctx)
                     ImGui.Text(tostring(item.icon or 0))
                 end
                 if ImGui.IsItemHovered() then
-                    ItemTooltip.beginItemTooltip()
+                    local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
+                    local opts = { source = "inv", bag = item.bag, slot = item.slot }
+                    local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
+                    opts.effects = effects
+                    ItemTooltip.beginItemTooltip(w, h)
                     ImGui.Text("Stats")
                     ImGui.Separator()
-                    local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                    ItemTooltip.renderStatsTooltip(showItem, ctx, { source = "inv", bag = item.bag, slot = item.slot })
+                    ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
 
