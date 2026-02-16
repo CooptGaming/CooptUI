@@ -49,15 +49,19 @@ We cannot embed the game’s Button control in ImGui. Replicate as follows:
    - Fallback: `ImGui.Dummy(24, 24)` so space is reserved and rows align; no rect/border if draw-list is unreliable.
 4. **Data**: Item TLO with slot rules above: `getSlotType(it, i)`, `it.AugSlot(i)`, `it.Item(i)` for slots 1–4; ornament from slot 5 type 20 or `it.Ornament` fallback.
 
-### Interaction (future)
+### Interaction (CoOpt UI Item Display)
 
-- **Tooltip**: Keep tooltip display-only. Optional: short hint “Open Item Display to modify augments” or a small link/button that opens the game’s Item Display (e.g. `/itemdisplay` or focus item) when the API allows.
-- **Persistent window**: If we add an “Item details” or “Augment” window that stays open, use an **InvisibleButton** or **drag-drop target** per socket so we can:
-  - Open the game’s Item Display with the item in context, or
-  - Use ImGui drag-drop + a game command/TLO to apply an augment, if such an API exists.
-- **Game window**: Use `mq.TLO.Window("ItemDisplayWindow")` and `/invoke` only to open or close the window; actual socket drag-drop stays in the game UI.
+In the **Item Display** window (persistent, tabbed), augment slot rows are interactive via the **24×24 icon** only (no separate Add/Remove buttons):
+
+- **Hover over icon**
+  - **Filled slot**: Full augment stats tooltip + hint “Right-click icon to remove augment”.
+  - **Empty slot**: “Slot N, type X (Name): Empty. Left-click to open Augment Utility and add an augment.”
+- **Left-click empty slot icon**: Opens the standalone **Augment Utility** window with that slot selected; target is the current Item Display tab. User picks a compatible augment from the utility and inserts from there.
+- **Right-click filled slot icon**: Runs the augment-utility remove-from-slot process (opens game Item Display and removes the augment; game picks distiller). Right-click is used to reduce accidental removal.
+
+The augment **name** (text right of the icon) still shows the socketed augment tooltip on hover. The standalone Augment Utility window remains the place for browsing compatible augments and inserting when opened from an empty-slot click.
 
 ### Summary
 
-- **Now**: Same row layout as default (icon left, text right), 24×24 for every slot, filled = item icon, empty = reserved 24×24 (no broken draw-list). Optionally try A_DragItem empty cell later.
-- **Later**: Interactivity (open Item Display, or drag-drop in a persistent window) when MQ/ImGui and game APIs support it.
+- **Now**: Same row layout (icon left, text right), 24×24 for every slot, filled = item icon, empty = reserved 24×24. In Item Display, icon is the single interaction target: hover = tooltip, empty left-click = open Augment Utility, filled right-click = remove.
+- **Game window**: Remove flow uses `mq.TLO.Window("ItemDisplayWindow")` and `/invoke`; actual distiller/confirmation stays in the game UI.

@@ -177,6 +177,8 @@ local uiState = {
     waitingForRemoveCursorPopulated = false, -- after remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv
     insertCursorClearTimeoutAt = nil,      -- mq.gettime() when we started polling; 5s timeout
     removeCursorPopulatedTimeoutAt = nil,
+    insertConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for insert confirmation; used for no-dialog fallback
+    removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
     pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
@@ -1820,12 +1822,14 @@ local function main()
             local ra = uiState.pendingRemoveAugment
             uiState.pendingRemoveAugment = nil
             augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
+            uiState.removeConfirmationSetAt = mq.gettime()
         end
         if uiState.pendingInsertAugment then
             local pa = uiState.pendingInsertAugment
             uiState.pendingInsertAugment = nil
             uiState.itemDisplayAugmentSlotActive = nil
             augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
+            uiState.insertConfirmationSetAt = mq.gettime()
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
@@ -2016,49 +2020,95 @@ local function main()
                 mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
             end
         end
-        -- Auto-accept augment-remove distiller confirmation when we triggered remove
-        if uiState.waitingForRemoveConfirmation then
+        -- Augment insert/remove: consistent timeouts and recovery so cursor/window don't get stuck
+        local AUGMENT_CURSOR_CLEAR_TIMEOUT_MS = 5000
+        local AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = 5000
+        local AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS = 4000
+        local AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = 6000
+
+        local itemDisplayOpen = augmentOps.isItemDisplayWindowOpen and augmentOps.isItemDisplayWindowOpen()
+        -- If user closed Item Display while we were waiting, clear state so we don't hang
+        if uiState.waitingForInsertCursorClear and not itemDisplayOpen then
+            uiState.waitingForInsertCursorClear = false
+            uiState.insertCursorClearTimeoutAt = nil
+            uiState.insertConfirmationSetAt = nil
+        end
+        if uiState.waitingForRemoveCursorPopulated and not itemDisplayOpen then
+            uiState.waitingForRemoveCursorPopulated = false
+            uiState.removeCursorPopulatedTimeoutAt = nil
+            uiState.removeConfirmationSetAt = nil
+        end
+
+        local confirmDialogOpen = false
+        do
             local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-            if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
-                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-                uiState.waitingForRemoveConfirmation = false
-                uiState.waitingForRemoveCursorPopulated = true
-                uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
-            end
+            confirmDialogOpen = confirmWnd and confirmWnd.Open and confirmWnd.Open()
+        end
+        -- Auto-accept augment-remove distiller confirmation when we triggered remove
+        if uiState.waitingForRemoveConfirmation and confirmDialogOpen then
+            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+            uiState.waitingForRemoveConfirmation = false
+            uiState.removeConfirmationSetAt = nil
+            uiState.waitingForRemoveCursorPopulated = true
+            uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
         end
         -- Auto-accept augment-insert confirmation (e.g. attuneable) when we triggered insert
-        if uiState.waitingForInsertConfirmation then
-            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-            if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
-                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-                uiState.waitingForInsertConfirmation = false
-                uiState.waitingForInsertCursorClear = true
-                uiState.insertCursorClearTimeoutAt = mq.gettime()
-            end
+        if uiState.waitingForInsertConfirmation and confirmDialogOpen then
+            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+            uiState.waitingForInsertConfirmation = false
+            uiState.insertConfirmationSetAt = nil
+            uiState.waitingForInsertCursorClear = true
+            uiState.insertCursorClearTimeoutAt = mq.gettime()
         end
-        -- After insert confirm accepted: poll until cursor clear, then close Item Display
+        -- Insert: no confirmation dialog appeared (e.g. client doesn't show one) — close window and clear state
+        if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            if not hasItemOnCursor() then
+                -- Insert likely succeeded without confirmation
+            else
+                setStatusMessage("Insert may have failed; check cursor.")
+            end
+            uiState.waitingForInsertConfirmation = false
+            uiState.insertConfirmationSetAt = nil
+        end
+        -- Remove: no confirmation dialog appeared — close window and clear state; if cursor has item, autoinv
+        if uiState.waitingForRemoveConfirmation and not confirmDialogOpen and uiState.removeConfirmationSetAt and (now - uiState.removeConfirmationSetAt) > AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            if hasItemOnCursor() then mq.cmd('/autoinv') end
+            uiState.waitingForRemoveConfirmation = false
+            uiState.removeConfirmationSetAt = nil
+            uiState.waitingForRemoveCursorPopulated = false
+            uiState.removeCursorPopulatedTimeoutAt = nil
+        end
+        -- After insert confirm accepted: poll until cursor clear, then close Item Display; on timeout close window and notify
         if uiState.waitingForInsertCursorClear then
-            local now = mq.gettime()
-            if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > 5000) then
+            if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then
+                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+                setStatusMessage("Insert timed out; check cursor.")
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
+                uiState.insertConfirmationSetAt = nil
             elseif not hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
+                uiState.insertConfirmationSetAt = nil
             end
         end
-        -- After remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv
+        -- After remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv; on timeout close window and notify
         if uiState.waitingForRemoveCursorPopulated then
-            local now = mq.gettime()
-            if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > 5000) then
+            if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > AUGMENT_CURSOR_POPULATED_TIMEOUT_MS) then
+                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+                setStatusMessage("Remove timed out; check cursor.")
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
+                uiState.removeConfirmationSetAt = nil
             elseif hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
                 mq.cmd('/autoinv')
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
+                uiState.removeConfirmationSetAt = nil
             end
         end
         if lastLootWindowState and not lootOpenNow then scanState.lastScanState.lootOpen = false; lootItems = {} end
