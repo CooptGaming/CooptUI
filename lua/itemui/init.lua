@@ -745,6 +745,8 @@ context.init({
     addItemDisplayTab = addItemDisplayTab,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
     getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
+    getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
+    itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
     getCompatibleAugments = function(entryOrItem, slotIndex)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil

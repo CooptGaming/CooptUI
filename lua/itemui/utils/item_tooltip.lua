@@ -170,13 +170,17 @@ local function itemHasOrnamentSlot(it)
 end
 
 --- Core: build augment slot lines from item TLO (slots 1-4 only; slot 5 is ornament, shown separately).
---- If item has ornament (slot 5 type 20), augment count is augSlots - 1. Returns { iconId, text } per row.
---- Uses getSlotType for type; name/icon from AugSlot(i).Name or Item(i). All indices 1-based.
+--- Uses itemHelpers.getStandardAugSlotsCountFromTLO(it) when available so CoOpt Item Display and tooltips
+--- never show phantom slots (e.g. "Slot 3" when item only has slots 1, 2 and ornament). Fallback: augSlots - 1 if ornament.
+--- Returns { iconId, text } per row. Uses getSlotType for type; name/icon from AugSlot(i).Name or Item(i). All indices 1-based.
 local function getAugmentSlotLinesFromIt(it, augSlots)
     if not it or not it.ID or it.ID() == 0 then return nil end
-    if (augSlots or 0) == 0 then return nil end
-    local hasOrnament = itemHasOrnamentSlot(it)
-    local numSlots = math.min(AUGMENT_SLOT_COUNT, hasOrnament and (augSlots - 1) or augSlots)
+    local numSlots = (it and itemHelpers.getStandardAugSlotsCountFromTLO(it)) or 0
+    if numSlots == 0 then
+        local hasOrnament = itemHasOrnamentSlot(it)
+        local raw = (augSlots or 0)
+        numSlots = math.min(AUGMENT_SLOT_COUNT, hasOrnament and (raw - 1) or raw)
+    end
     if numSlots < 1 then return nil end
     local lines = {}
     for i = 1, numSlots do
@@ -488,7 +492,7 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     end
     local itemInfoRows = getItemInfoRowCount(item)
     local statRows = getStatRowCount(item)
-    local augCount = (item.augSlots or 0) > 0 and (itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0
+    local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
     if augCount < 0 then augCount = 0 end
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     -- Use the longer column and add buffer so all stats and spell info are visible (no cut-off)

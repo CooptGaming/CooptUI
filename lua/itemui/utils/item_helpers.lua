@@ -371,6 +371,29 @@ function M.getSlotType(it, slotIndex)
     return typ
 end
 
+--- Ornament slot index (1-based) and socket type per AUGMENT_SOCKET_UI_DESIGN. Slot 5 = Ornamentation (type 20).
+local ORNAMENT_SLOT_INDEX = 5
+local ORNAMENT_SOCKET_TYPE = 20
+
+--- True if item has ornament slot (slot 5, type 20). Used to exclude ornament from "standard" augment slot count in UI.
+function M.itemHasOrnamentSlot(it)
+    if not it then return false end
+    return M.getSlotType(it, ORNAMENT_SLOT_INDEX) == ORNAMENT_SOCKET_TYPE
+end
+
+--- Count of standard augment slots (1-4 only) that actually have a socket type > 0. Iterates slots 1-4 and
+--- counts only those with getSlotType(it, i) > 0, so we never show phantom "Slot N, type 0 (empty)" rows when
+--- the game reports extra AugSlotN or when ornament (slot 5) is not reported as type 20. Ornament add/remove
+--- can be supported later as a separate flow (slot 5, type 20) since it behaves differently from augments.
+function M.getStandardAugSlotsCountFromTLO(it)
+    if not it then return 0 end
+    local n = 0
+    for i = 1, 4 do
+        if M.getSlotType(it, i) > 0 then n = n + 1 end
+    end
+    return n
+end
+
 --- Get AugType from item TLO (for augmentation items). Returns number or 0. Used to match augment to socket type.
 function M.getAugTypeFromTLO(it)
     if not it or not it.AugType then return 0 end

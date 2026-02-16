@@ -90,11 +90,13 @@ function AugmentUtilityView.render(ctx)
     ctx.theme.TextMuted(string.format("Source: %s | Bag %s, Slot %s", source == "bank" and "Bank" or "Inventory", tostring(bag), tostring(slot)))
     ImGui.Spacing()
 
-    -- Slot selector: show slots that exist on this item; optional type label when getSlotType available
+    -- Slot selector: show only standard augment slots (1-4). Ornament (slot 5, type 20) is excluded so we
+    -- don't show a phantom "Slot 3" when the item has e.g. slots 1, 2 and an ornament. Ornament add/remove
+    -- can be added later as a separate dropdown option or section (slot 5; behavior differs from augments).
     local maxSlots = 4
-    if ctx.getItemTLO and ctx.getAugSlotsCountFromTLO then
+    if ctx.getItemTLO and ctx.getStandardAugSlotsCountFromTLO then
         local it = ctx.getItemTLO(bag, slot, source)
-        local count = it and ctx.getAugSlotsCountFromTLO(it) or 0
+        local count = it and ctx.getStandardAugSlotsCountFromTLO(it) or 0
         if count > 0 then maxSlots = math.min(count, 4) end
     end
     local slotIdx = ctx.uiState.augmentUtilitySlotIndex
