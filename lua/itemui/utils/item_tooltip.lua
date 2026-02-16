@@ -339,6 +339,32 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     local itValid = it and it.ID and it.ID() ~= 0
     -- Link color for augment/ornament names (hover shows socketed item tooltip).
     local linkColor = ImVec4(0.4, 0.7, 1.0, 1.0)
+    local effects = {}
+
+    local function renderSpellInfoBlock(spellId, headerColor, headerText)
+        if not spellId or spellId <= 0 or not ctx then return end
+        ImGui.Spacing()
+        ImGui.TextColored(headerColor, headerText)
+        ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
+        ImGui.Text("ID: " .. tostring(spellId))
+        if ctx.getSpellDuration then
+            local dur = ctx.getSpellDuration(spellId)
+            if dur ~= nil then ImGui.Text("Duration: " .. tostring(dur)) end
+        end
+        if ctx.getSpellRecoveryTime then
+            local rec = ctx.getSpellRecoveryTime(spellId)
+            if rec ~= nil then ImGui.Text("RecoveryTime: " .. string.format("%.2f", rec)) end
+        end
+        if ctx.getSpellRecastTime then
+            local rt = ctx.getSpellRecastTime(spellId)
+            if rt ~= nil then ImGui.Text("RecastTime: " .. string.format("%.2f", rt)) end
+        end
+        if ctx.getSpellRange then
+            local rng = ctx.getSpellRange(spellId)
+            if rng ~= nil and rng ~= 0 then ImGui.Text("Range: " .. tostring(rng)) end
+        end
+        ImGui.PopStyleColor()
+    end
 
     -- ---- Header: Name, ID, Type (like in-game Description) ----
     local nameColor = ImVec4(0.45, 0.85, 0.45, 1.0)
@@ -587,6 +613,7 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     end
 
     -- ---- Item effects: in-game style "Effect: SpellName (Worn)" / "Focus Effect: SpellName", with Cast/Recast for clicky ----
+    -- Includes effects from the main item and from slotted augments/ornament (match default Item Display).
     if ctx and ctx.getItemSpellId and ctx.getSpellName then
         local effectLabels = { Clicky = "Clicky", Worn = "Worn", Proc = "Proc", Focus = "Focus", Spell = "Spell" }
         local focusLabel = "Focus"
@@ -601,17 +628,29 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
             local rs = r == 1 and "1 second" or (r .. " seconds")
             return ms .. " and " .. rs
         end
-        local effects = {}
-        for _, key in ipairs({"Clicky", "Worn", "Proc", "Focus", "Spell"}) do
-            local id = ctx.getItemSpellId(item, key)
-            if id and id > 0 then
-                local spellName = ctx.getSpellName(id)
-                if spellName and spellName ~= "" then
-                    local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
-                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
-                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
-                    effects[#effects + 1] = { key = key, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+        local function addEffectsFromItem(effects, it, keys)
+            for _, key in ipairs(keys) do
+                local id = ctx.getItemSpellId(it, key)
+                if id and id > 0 then
+                    local spellName = ctx.getSpellName(id)
+                    if spellName and spellName ~= "" then
+                        local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
+                        local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
+                        local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
+                        effects[#effects + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+                    end
                 end
+            end
+        end
+        local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
+        effects = {}
+        addEffectsFromItem(effects, item, effectKeys)
+        -- Add effects from slotted augments and ornament (same list as default Item Display).
+        if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
+            local numSockets = math.min(5, item.augSlots or 0)
+            for socketIndex = 1, numSockets do
+                local socketItem = getSocketItemStats(parentIt, bag, slot, source, socketIndex)
+                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
             end
         end
         if #effects > 0 then
@@ -645,6 +684,61 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
                 end
             end
             ImGui.Spacing()
+        end
+    end
+
+    -- ---- Item information (blue block: section 2; Item ID, Icon ID, Value, Ratio, Lore, Timer) ----
+    local infoBlue = ImVec4(0.45, 0.7, 1.0, 1.0)
+    local infoGreen = ImVec4(0.4, 0.9, 0.4, 1.0)
+    if not opts.socketIndex then
+        ImGui.Spacing()
+        ImGui.TextColored(infoBlue, "Item information")
+        ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.6, 0.75, 0.95, 1.0))
+        if item.id and item.id ~= 0 then ImGui.Text("Item ID: " .. tostring(item.id)) end
+        if item.icon and item.icon ~= 0 then ImGui.Text("Icon ID: " .. tostring(item.icon)) end
+        local val = item.totalValue or item.value
+        if val and val ~= 0 then
+            local valStr = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
+            ImGui.Text("Value: " .. valStr)
+        end
+        if item.damage and item.damage ~= 0 and item.itemDelay and item.itemDelay ~= 0 then
+            local ratio = item.damage / item.itemDelay
+            ImGui.Text("Ratio: " .. string.format("%.3f", ratio))
+        end
+        if itValid and ctx and ctx.getItemLoreText then
+            local loreStr = ctx.getItemLoreText(it)
+            if loreStr and loreStr ~= "" then ImGui.TextWrapped("Item Lore: " .. loreStr) end
+        end
+        if bag and slot and source and ctx and ctx.getTimerReady then
+            local ready = ctx.getTimerReady(bag, slot, source)
+            if ready == nil or ready == 0 then
+                ImGui.PopStyleColor()
+                ImGui.TextColored(infoGreen, "Item Timer: Ready")
+                ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.6, 0.75, 0.95, 1.0))
+            else
+                ImGui.Text("Item Timer: " .. tostring(math.floor(ready + 0.5)) .. "s")
+            end
+        end
+        ImGui.PopStyleColor()
+        ImGui.Spacing()
+    end
+
+    -- ---- Spell Info blocks (sections 3-6): Clicky, Proc, Worn, Focus — only if effect present ----
+    if #effects > 0 then
+        local spellInfoOrder = { "Clicky", "Proc", "Worn", "Focus" }
+        local spellInfoColors = {
+            Clicky = ImVec4(0.4, 0.9, 0.4, 1.0),
+            Proc   = ImVec4(0.9, 0.65, 0.2, 1.0),
+            Worn   = ImVec4(0.9, 0.9, 0.4, 1.0),
+            Focus  = ImVec4(0.5, 0.75, 1.0, 1.0),
+        }
+        for _, key in ipairs(spellInfoOrder) do
+            for _, e in ipairs(effects) do
+                if e.key == key and e.spellId and e.spellName then
+                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], "Spell Info for " .. key .. " effect: " .. e.spellName)
+                    break
+                end
+            end
         end
     end
 

@@ -121,6 +121,12 @@ function M.getSpellName(id)
     return name
 end
 
+--- Strip XML/STML-like tags so description text displays without raw markup. Leaves placeholder tokens (#1, @2, etc.) as-is.
+function M.stripDescriptionMarkup(str)
+    if not str or str == "" then return str end
+    return (tostring(str):gsub("<[^>]+>", ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 function M.getSpellDescription(id)
     if not id or id <= 0 then return nil end
     local cacheKey = 'spell:desc:' .. id
@@ -128,6 +134,7 @@ function M.getSpellDescription(id)
     if desc ~= nil then return desc end
     local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
     desc = s and s.Description and s.Description() or ""
+    desc = M.stripDescriptionMarkup(desc) or desc
     Cache.set(cacheKey, desc, { tier = 'L2' })
     return desc
 end
@@ -167,6 +174,68 @@ function M.getSpellRecastTime(id)
     return nil
 end
 
+--- Spell duration (raw from TLO; often ticks). Returns nil if not available. Cached.
+function M.getSpellDuration(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:duration:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s or not s.Duration then return nil end
+    local ok, raw = pcall(function() return s.Duration() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Spell recovery time (e.g. after fizzle). Returns nil if not available. Cached.
+function M.getSpellRecoveryTime(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:recoverytime:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s then return nil end
+    local fn = s.RecoveryTime or s.FizzleTime
+    if not fn then return nil end
+    local ok, raw = pcall(function() return fn() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Spell range. Returns nil if not available. Cached.
+function M.getSpellRange(id)
+    if not id or id <= 0 then return nil end
+    local cacheKey = 'spell:range:' .. id
+    local val = Cache.get(cacheKey)
+    if val ~= nil then return val end
+    local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
+    if not s or not s.Range then return nil end
+    local ok, raw = pcall(function() return s.Range() end)
+    if not ok or raw == nil then return nil end
+    local n = tonumber(raw)
+    if n then Cache.set(cacheKey, n, { tier = 'L2' }); return n end
+    return nil
+end
+
+--- Item lore text (flavor string) from item TLO. Returns string or nil. Safe to call with nil it.
+--- Tries LoreText() then Lore() if it returns a string; does not cache (caller may cache per tooltip).
+function M.getItemLoreText(it)
+    if not it then return nil end
+    local ok, val = pcall(function()
+        if it.LoreText and it.LoreText() and tostring(it.LoreText()):match("%S") then return tostring(it.LoreText()) end
+        if it.Lore then
+            local v = it.Lore()
+            if type(v) == "string" and v:match("%S") then return v end
+        end
+        return nil
+    end)
+    return (ok and val and val ~= "") and val or nil
+end
+
 --- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
 function M.getItemStatsSummary(item)
     if not item then return "" end
@@ -201,6 +270,7 @@ function M.getItemStatsSummary(item)
 end
 
 --- Lazy spell ID fetch: defers 5 TLO calls per item from scan to first display. Uses item.source for bank vs inv.
+--- When item.socketIndex is set (e.g. augment/ornament link tooltip), resolves parent TLO then parent.Item(socketIndex).
 function M.getItemSpellId(item, prop)
     if not item or not prop then return 0 end
     local key = prop:lower()
@@ -208,6 +278,11 @@ function M.getItemSpellId(item, prop)
     local src = rawget(item, "source") or "inv"
     local slotItem = M.getItemTLO(item.bag, item.slot, src)
     if not slotItem then item[key] = 0; return 0 end
+    local sock = rawget(item, "socketIndex")
+    if sock and slotItem.Item then
+        local ok, si = pcall(function() return slotItem.Item(sock) end)
+        if ok and si and si.ID and si.ID() ~= 0 then slotItem = si end
+    end
     local spellObj = slotItem and slotItem[prop]
     if not spellObj then item[key] = 0; return 0 end
     local id = 0
