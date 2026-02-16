@@ -644,7 +644,7 @@ context.init({
     getTimerReady = function(b, s) return itemHelpers.getTimerReady(b, s) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
-    drawItemIcon = function(id) icons.drawItemIcon(id) end,
+    drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
     drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
     -- Services
     theme = theme, macroBridge = macroBridge,

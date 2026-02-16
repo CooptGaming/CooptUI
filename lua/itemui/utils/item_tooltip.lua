@@ -207,7 +207,8 @@ local function getAugmentSlotLinesFromIt(it, augSlots)
         end
         -- Defensive: type 20 is ornament (slot 5); we only iterate 1-4 so this should not trigger.
         if typ ~= 20 then
-            lines[#lines + 1] = { iconId = iconId, text = line }
+            local prefix = string.format("Slot %d, type %d (%s): ", i, typ, typeName)
+            lines[#lines + 1] = { iconId = iconId, text = line, prefix = prefix, augName = augName, slotIndex = i }
         end
     end
     return lines
@@ -217,6 +218,14 @@ end
 local function getAugmentSlotLines(bag, slot, source, augSlots)
     local it = getItemTLO(bag, slot, source)
     return getAugmentSlotLinesFromIt(it, augSlots)
+end
+
+--- Build item stats table for the item in socket socketIndex of parent at (bag, slot, source). Used for link tooltips.
+local function getSocketItemStats(it, bag, slot, source, socketIndex)
+    if not it or not it.Item or not bag or not slot or not source or not socketIndex then return nil end
+    local ok, socketTLO = pcall(function() return it.Item(socketIndex) end)
+    if not ok or not socketTLO or not socketTLO.ID or socketTLO.ID() == 0 then return nil end
+    return itemHelpers.buildItemFromMQ(socketTLO, bag, slot, source, socketIndex)
 end
 
 --- Ornament name from item TLO. See getOrnamentFromIt: slot 5 type 20 first, then it.Ornament fallback.
@@ -322,12 +331,25 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
 
     -- Resolve item TLO once per hover (quick); use for class/race/slot, ornament, and augment lines.
     local it = (bag ~= nil and slot ~= nil and source) and getItemTLO(bag, slot, source) or nil
+    local parentIt = it
+    if it and opts.socketIndex and it.Item then
+        local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
+        if ok and sockIt then it = sockIt end
+    end
     local itValid = it and it.ID and it.ID() ~= 0
+    -- Link color for augment/ornament names (hover shows socketed item tooltip).
+    local linkColor = ImVec4(0.4, 0.7, 1.0, 1.0)
 
     -- ---- Header: Name, ID, Type (like in-game Description) ----
     local nameColor = ImVec4(0.45, 0.85, 0.45, 1.0)
     if not canPlayerUseItem(item, source) then
         nameColor = ImVec4(0.95, 0.35, 0.35, 1.0)
+    end
+    -- Main item icon to the left of the name (slightly larger than socket icons; socket = 24).
+    local headerIconSize = 32
+    if ctx and ctx.drawItemIcon and item.icon and item.icon > 0 then
+        pcall(function() ctx.drawItemIcon(item.icon, headerIconSize) end)
+        ImGui.SameLine()
     end
     ImGui.TextColored(nameColor, item.name or "—")
     if item.id and item.id ~= 0 then
@@ -367,7 +389,7 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
     slotStr = slotStringToDisplay(slotStr)
     if slotStr and slotStr ~= "" and slotStr ~= "—" then ImGui.Text(slotStr) end
-    -- Ornament first (match Item Display: IDW_Appearance_Socket_*). Same row layout: [24x24] + text.
+    -- Ornament first (match Item Display: IDW_Appearance_Socket_*). Same row layout: [24x24] + text. Name is a link when filled.
     if itValid then
         local ornament = getOrnamentFromIt(it)
         if ornament and ornament.name then
@@ -375,23 +397,51 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
             ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Ornament")
             drawSocketIcon(ornament.iconId)
             ImGui.SameLine()
-            ImGui.Text(ornament.name)
+            if ornament.name ~= "empty" and parentIt and not opts.socketIndex then
+                ImGui.TextColored(linkColor, ornament.name)
+                if ImGui.IsItemHovered() then
+                    local socketItem = getSocketItemStats(parentIt, bag, slot, source, ORNAMENT_SLOT_INDEX)
+                    if socketItem then
+                        ImGui.BeginTooltip()
+                        ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = ORNAMENT_SLOT_INDEX })
+                        ImGui.EndTooltip()
+                    end
+                end
+            else
+                ImGui.Text(ornament.name)
+            end
             ImGui.Spacing()
         end
     end
-    -- Augmentation slots (standard): [24x24] + text per row (IDW_Socket_Slot_#_Item + Description).
+    -- Augmentation slots (standard): [24x24] + text per row. Augment name is a link when filled (hover shows socketed item tooltip).
     local augLines = itValid and getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
     if augLines and #augLines > 0 then
         ImGui.Spacing()
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
         ImGui.Spacing()
         for _, row in ipairs(augLines) do
-            local text = (type(row) == "table" and row.text) or row
             if type(row) == "table" and row.text then
                 drawSocketIcon(row.iconId)
                 ImGui.SameLine()
+                local prefix = row.prefix or ""
+                local augName = (type(row.augName) == "string") and row.augName or ""
+                if prefix ~= "" then ImGui.Text(prefix); ImGui.SameLine() end
+                if augName ~= "empty" and parentIt and not opts.socketIndex and row.slotIndex then
+                    ImGui.TextColored(linkColor, augName)
+                    if ImGui.IsItemHovered() then
+                        local socketItem = getSocketItemStats(parentIt, bag, slot, source, row.slotIndex)
+                        if socketItem then
+                            ImGui.BeginTooltip()
+                            ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = row.slotIndex })
+                            ImGui.EndTooltip()
+                        end
+                    end
+                else
+                    ImGui.Text(augName ~= "" and augName or row.text)
+                end
+            else
+                ImGui.Text((type(row) == "table" and row.text) or tostring(row))
             end
-            ImGui.Text(text)
         end
         ImGui.Spacing()
     elseif item.augSlots and item.augSlots > 0 then

@@ -303,9 +303,9 @@ end
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
 --- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-6 per item).
---- This reduces scan from ~76 to ~30 TLO calls per item; stats/wornSlots/augSlots load on first use.
---- Optional 4th arg source: "inv" (default) or "bank"; stored on item and used by __index to resolve TLO.
-function M.buildItemFromMQ(item, bag, slot, source)
+--- Optional 5th arg socketIndex: when set, item is the socket TLO (e.g. parentIt.Item(5)); __index resolves
+--- parent via getItemTLO(bag,slot,source) then it.Item(socketIndex) for lazy stats. Used for augment/ornament link tooltips.
+function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
     if not item or not item.ID or not item.ID() or item.ID() == 0 then return nil end
     local iv = item.Value and item.Value() or 0
     local ss = item.Stack and item.Stack() or 1
@@ -315,6 +315,7 @@ function M.buildItemFromMQ(item, bag, slot, source)
     local base = {
         bag = bag, slot = slot,
         source = source or "inv",
+        socketIndex = socketIndex,
         name = item.Name and item.Name() or "",
         id = item.ID and item.ID() or 0,
         value = iv, totalValue = iv * ss, stackSize = ss, stackSizeMax = stackSizeMax,
@@ -347,7 +348,9 @@ function M.buildItemFromMQ(item, bag, slot, source)
     setmetatable(base, { __index = function(t, k)
         local b, s = t.bag, t.slot
         local src = rawget(t, "source") or "inv"
+        local sock = rawget(t, "socketIndex")
         local it = M.getItemTLO(b, s, src)
+        if sock and it and it.Item then it = it.Item(sock) end
         if k == "wornSlots" then
             local v = (it and M.getWornSlotsStringFromTLO(it)) or ""
             if not it or not it.ID or it.ID() == 0 then rawset(t, "_tlo_unavailable", true) end
