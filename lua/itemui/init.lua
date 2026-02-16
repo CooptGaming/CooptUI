@@ -51,6 +51,7 @@ local macroBridge = require('itemui.services.macro_bridge')
 local scanService = require('itemui.services.scan')
 local sellStatusService = require('itemui.services.sell_status')
 local itemOps = require('itemui.services.item_ops')
+local augmentOps = require('itemui.services.augment_ops')
 
 -- Phase 5: View modules
 local InventoryView = require('itemui.views.inventory')
@@ -60,6 +61,7 @@ local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
+local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
@@ -150,6 +152,9 @@ local uiState = {
     itemDisplayRecent = {},        -- last N (e.g. 10) of { bag, slot, source, label } for Recent dropdown
     itemDisplayLocateRequest = nil,      -- { source, bag, slot } when Locate clicked
     itemDisplayLocateRequestAt = nil,     -- os.clock() when set (clear after 3s)
+    itemDisplayAugmentSlotActive = nil,   -- 1-based slot index when "Choose augment" is active in Item Display
+    augmentUtilityWindowOpen = false, augmentUtilityWindowShouldDraw = false,
+    augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
     aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -164,6 +169,10 @@ local uiState = {
     destroyQuantityMax = 1,     -- max allowed (stack size) while pendingDestroy is set
     confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
     pendingMoveAction = nil,    -- { source = "inv"|"bank", bag, slot, destBag, destSlot, qty, row } for main loop (shift+click stack move)
+    pendingRemoveAugment = nil,   -- { bag, slot, source, slotIndex } for main loop (defer remove so ImGui frame completes)
+    waitingForRemoveConfirmation = false,  -- true after removeAugment started; main loop auto-clicks Yes on ConfirmationDialogBox
+    doAutoinvAfterRemove = false,          -- one-shot: run /autoinv next frame after we accepted remove confirmation
+    pendingInsertAugment = nil,   -- { targetItem = { id, name }, augmentItem = { bag, slot, source, name } } for main loop (defer insert; cannot delay from ImGui thread)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
     lootRunCorpsesLooted = 0,
@@ -202,6 +211,10 @@ local layoutDefaults = {
     ItemDisplayWindowY = 0,
     WidthItemDisplayPanel = 760,
     HeightItemDisplay = 520,
+    AugmentUtilityWindowX = 0,
+    AugmentUtilityWindowY = 0,
+    WidthAugmentUtilityPanel = 520,
+    HeightAugmentUtility = 480,
     WidthLootPanel = 420,
     HeightLoot = 380,
     LootWindowX = 0,
@@ -514,6 +527,15 @@ itemOps.init({
     getItemSpellId = getItemSpellId,
     scanBank = function() scanService.scanBank() end,
 })
+augmentOps.init({
+    setStatusMessage = setStatusMessage,
+    getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
+    scanInventory = function() scanService.scanInventory() end,
+    scanBank = function() scanService.scanBank() end,
+    isBankWindowOpen = isBankWindowOpen,
+    hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
+    setWaitingForRemoveConfirmation = function(v) uiState.waitingForRemoveConfirmation = v end,
+})
 local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
 local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
@@ -713,6 +735,26 @@ context.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
+    getCompatibleAugments = function(entryOrItem, slotIndex)
+        local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
+        local item = entry and entry.item or entryOrItem
+        local bag = entry and entry.bag or (entryOrItem and entryOrItem.bag)
+        local slot = entry and entry.slot or (entryOrItem and entryOrItem.slot)
+        local src = entry and entry.source or (entryOrItem and entryOrItem.source) or "inv"
+        if not item or not slotIndex then return {} end
+        local bankList = isBankWindowOpen() and bankItems or bankCache
+        return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList)
+    end,
+    insertAugment = function(targetItem, augmentItem)
+        if not targetItem or not augmentItem then return end
+        uiState.pendingInsertAugment = {
+            targetItem = { id = targetItem.id or targetItem.ID, name = targetItem.name or targetItem.Name },
+            augmentItem = { bag = augmentItem.bag, slot = augmentItem.slot, source = augmentItem.source or "inv", name = augmentItem.name or "augment" },
+        }
+    end,
+    removeAugment = function(bag, slot, source, slotIndex)
+        uiState.pendingRemoveAugment = { bag = bag, slot = slot, source = source, slotIndex = slotIndex }
+    end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
     drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
     drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
@@ -768,6 +810,12 @@ end
 local function renderItemDisplayWindow()
     local ctx = extendContext(buildViewContext())
     ItemDisplayView.render(ctx)
+end
+
+--- Augment Utility window: standalone insert/remove augments (target = current Item Display tab)
+local function renderAugmentUtilityWindow()
+    local ctx = extendContext(buildViewContext())
+    AugmentUtilityView.render(ctx)
 end
 
 --- AA window: Alt Advancement (tabs, search, train, export/import)
@@ -979,6 +1027,9 @@ local function renderUI()
         elseif uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw then
             uiState.augmentsWindowOpen = false
             uiState.augmentsWindowShouldDraw = false
+        elseif uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw then
+            uiState.augmentUtilityWindowOpen = false
+            uiState.augmentUtilityWindowShouldDraw = false
         elseif uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw then
             uiState.itemDisplayWindowOpen = false
             uiState.itemDisplayWindowShouldDraw = false
@@ -1047,6 +1098,13 @@ local function renderUI()
         if uiState.augmentsWindowOpen then setStatusMessage("Augments window opened") end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Augmentations window (Always sell / Never loot, stats on hover)"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
+        uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
+        uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
+        if uiState.augmentUtilityWindowOpen then setStatusMessage("Augment Utility opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
     if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
         ImGui.SameLine()
         if ImGui.Button("AA", ImVec2(45, 0)) then
@@ -1291,6 +1349,9 @@ local function renderUI()
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()
+    end
+    if uiState.augmentUtilityWindowShouldDraw then
+        renderAugmentUtilityWindow()
     end
     if uiState.itemDisplayWindowShouldDraw then
         renderItemDisplayWindow()
@@ -1704,6 +1765,11 @@ local function main()
             lootLoopRefs.saveSkipHistory()
         end
         processSellQueue()
+        -- One-shot: clear cursor after augment remove (run frame after we accepted confirmation)
+        if uiState.doAutoinvAfterRemove then
+            mq.cmd('/autoinv')
+            uiState.doAutoinvAfterRemove = false
+        end
         -- Handle pending quantity pickup action (non-blocking, runs in main loop)
         if uiState.pendingQuantityAction then
             local action = uiState.pendingQuantityAction
@@ -1741,6 +1807,17 @@ local function main()
             uiState.quantityPickerValue = ""
             itemOps.executeMoveAction(uiState.pendingMoveAction)
             uiState.pendingMoveAction = nil
+        end
+        if uiState.pendingRemoveAugment then
+            local ra = uiState.pendingRemoveAugment
+            uiState.pendingRemoveAugment = nil
+            augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
+        end
+        if uiState.pendingInsertAugment then
+            local pa = uiState.pendingInsertAugment
+            uiState.pendingInsertAugment = nil
+            uiState.itemDisplayAugmentSlotActive = nil
+            augmentOps.insertAugment(pa.targetItem, pa.augmentItem)
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
@@ -1929,6 +2006,16 @@ local function main()
             local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
             if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
                 mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+            end
+        end
+        -- Auto-accept augment-remove distiller confirmation when we triggered remove
+        if uiState.waitingForRemoveConfirmation then
+            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
+            if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
+                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+                uiState.waitingForRemoveConfirmation = false
+                uiState.doAutoinvAfterRemove = true  -- run /autoinv next frame once item is on cursor
+                print("\ag[ItemUI]\ax Remove augment: confirmation accepted (distiller chosen by game).")
             end
         end
         if lastLootWindowState and not lootOpenNow then scanState.lastScanState.lootOpen = false; lootItems = {} end

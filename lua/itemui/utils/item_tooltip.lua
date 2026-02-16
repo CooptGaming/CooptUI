@@ -147,22 +147,9 @@ local function getItemTLO(bag, slot, source)
     return itemHelpers.getItemTLO(bag, slot, source)
 end
 
---- Get socket type for slot index (1-based). Tries AugSlot# then AugSlot(i).Type. Returns 0 if unknown.
+--- Use item_helpers.getSlotType for socket type (shared with getCompatibleAugments).
 local function getSlotType(it, slotIndex)
-    if not it then return 0 end
-    local typ = 0
-    local acc = it["AugSlot" .. slotIndex]
-    if acc ~= nil then
-        typ = tonumber(type(acc) == "function" and acc() or acc) or 0
-    end
-    if typ == 0 then
-        local ok, aug = pcall(function() return it.AugSlot and it.AugSlot(slotIndex) end)
-        if ok and aug then
-            local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
-            typ = tonumber(t) or tonumber(tostring(t)) or 0
-        end
-    end
-    return typ
+    return itemHelpers.getSlotType(it, slotIndex)
 end
 
 --- True if item has ornament slot (slot 5, type 20). Uses 1-based slot index.
@@ -217,7 +204,8 @@ local function getAugmentSlotLinesFromIt(it, augSlots)
         end
         -- Defensive: type 20 is ornament (slot 5); we only iterate 1-4 so this should not trigger.
         if typ ~= 20 then
-            local prefix = string.format("Slot %d, type %d (%s): ", i, typ, typeName)
+            local typeNameForPrefix = (typ > 0) and (AUG_TYPE_NAMES[typ] or ("Type " .. tostring(typ))) or "empty"
+            local prefix = string.format("Slot %d, type %d (%s): ", i, typ, typeNameForPrefix)
             lines[#lines + 1] = { iconId = iconId, text = line, prefix = prefix, augName = augName, slotIndex = i }
         end
     end
@@ -882,6 +870,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
         ImGui.Spacing()
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
         ImGui.Spacing()
+        local isItemDisplayWin = opts.isItemDisplayWindow and ctx and ctx.uiState
         for _, row in ipairs(augLines) do
             if type(row) == "table" and row.text then
                 drawSocketIcon(row.iconId)
@@ -905,9 +894,67 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                 else
                     ImGui.Text(augName ~= "" and augName or row.text)
                 end
+                if isItemDisplayWin and not opts.socketIndex and row.slotIndex and ctx.removeAugment then
+                    ImGui.SameLine()
+                    if augName == "empty" or augName == "" then
+                        if ImGui.SmallButton("Add##Slot" .. tostring(row.slotIndex)) then
+                            ctx.uiState.itemDisplayAugmentSlotActive = row.slotIndex
+                        end
+                    else
+                        ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0.5, 0.2, 0.2, 0.6))
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImVec4(0.7, 0.25, 0.25, 0.9))
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImVec4(0.8, 0.3, 0.3, 1.0))
+                        if ImGui.SmallButton("Remove##Slot" .. tostring(row.slotIndex)) then
+                            ctx.removeAugment(bag, slot, source, row.slotIndex)
+                        end
+                        ImGui.PopStyleColor(3)
+                    end
+                end
             else
                 ImGui.Text((type(row) == "table" and row.text) or tostring(row))
             end
+        end
+        -- Inline compatible-augment picker when a slot is active
+        if isItemDisplayWin and ctx.uiState.itemDisplayAugmentSlotActive and ctx.getCompatibleAugments and ctx.insertAugment and opts.entry then
+            local slotIdx = ctx.uiState.itemDisplayAugmentSlotActive
+            local entry = opts.entry
+            local targetItem = entry.item
+            local candidates = ctx.getCompatibleAugments(entry, slotIdx)
+            ImGui.Spacing()
+            ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Compatible augments for Slot " .. tostring(slotIdx))
+            ImGui.Spacing()
+            if #candidates == 0 then
+                ImGui.TextColored(ImVec4(0.7, 0.6, 0.5, 1.0), "No compatible augments in inventory or bank.")
+            else
+                for _, cand in ipairs(candidates) do
+                    if ctx.drawItemIcon and cand.icon and cand.icon > 0 then
+                        pcall(function() ctx.drawItemIcon(cand.icon, 24) end)
+                    else
+                        ImGui.Dummy(ImVec2(24, 24))
+                    end
+                    ImGui.SameLine()
+                    local locStr = (cand.source or "inv") == "bank" and ("Bank " .. tostring(cand.bag) .. "/" .. tostring(cand.slot)) or ("Pack " .. tostring(cand.bag) .. "/" .. tostring(cand.slot))
+                    ImGui.Text((cand.name or "?") .. " (" .. locStr .. ")")
+                    ImGui.SameLine()
+                    local btnId = "Insert##" .. tostring(cand.id or 0) .. "_" .. tostring(cand.bag or 0) .. "_" .. tostring(cand.slot or 0)
+                    if ImGui.SmallButton(btnId) then
+                        if ctx.insertAugment(targetItem, cand) then
+                            ctx.uiState.itemDisplayAugmentSlotActive = nil
+                            if ctx.getItemStatsForTooltip and entry then
+                                local fresh = ctx.getItemStatsForTooltip({ bag = entry.bag, slot = entry.slot }, entry.source)
+                                if fresh and entry.item then
+                                    entry.item = fresh
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            ImGui.Spacing()
+            if ImGui.SmallButton("Cancel##AugmentPicker") then
+                ctx.uiState.itemDisplayAugmentSlotActive = nil
+            end
+            ImGui.Spacing()
         end
         ImGui.Spacing()
     elseif item.augSlots and item.augSlots > 0 then
