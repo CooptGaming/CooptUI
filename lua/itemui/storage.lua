@@ -215,9 +215,13 @@ end
 
 local SELL_CACHE_FILE = "sell_cache.ini"
 
+-- Chunk size for sell cache: must stay under 2048 so the expanded /call CheckFilterList "chunk" "itemName" ... line fits in MQ's parse buffer
+local SELL_CACHE_CHUNK_LEN = 1700
+
 -- Write macro-readable sell list INI (only item names with willSell == true).
+-- Chunked so each [Items] key is under SELL_CACHE_CHUNK_LEN chars (avoids buffer overflow in macro).
 -- Path: Macros/sell_config/Chars/<CharName>/sell_cache.ini
--- Format: [Meta] savedAt=... ; [Count] count=N ; [Items] 1=Name1 2=Name2 ...
+-- Format: [Meta] savedAt=... chunks=N ; [Count] count=M ; [Items] 1=name1/name2/... 2=name3/...
 local function writeSellCache(items)
     if not items or #items == 0 then return false end
     -- Guard: skip writing if no items have willSell computed (prevents empty/stale cache)
@@ -231,24 +235,44 @@ local function writeSellCache(items)
     local toSell = {}
     for _, it in ipairs(items) do
         if it.willSell and it.name then
-            local trimmed = it.name:match("^%s*(.-)%s*$")
-            if trimmed ~= "" then
-                toSell[#toSell + 1] = trimmed
+            local trimmed = (it.name or ""):match("^%s*(.-)%s*$")
+            if trimmed and trimmed ~= "" then
+                toSell[#toSell + 1] = (trimmed):gsub("\r", ""):gsub("\n", " ")
             end
         end
     end
+    if #toSell == 0 then return false end
+
+    -- Build chunks (slash-delimited names, each chunk under SELL_CACHE_CHUNK_LEN)
+    local chunks = {}
+    local current = {}
+    local currentLen = 0
+    for _, name in ipairs(toSell) do
+        local addLen = #name + (currentLen > 0 and 1 or 0)
+        if currentLen + addLen > SELL_CACHE_CHUNK_LEN and #current > 0 then
+            chunks[#chunks + 1] = table.concat(current, "/")
+            current = { name }
+            currentLen = #name
+        else
+            current[#current + 1] = name
+            currentLen = currentLen + addLen
+        end
+    end
+    if #current > 0 then
+        chunks[#chunks + 1] = table.concat(current, "/")
+    end
+
     local lines = {}
     lines[#lines + 1] = "[Meta]"
     lines[#lines + 1] = "savedAt=" .. os.time()
+    lines[#lines + 1] = "chunks=" .. #chunks
     lines[#lines + 1] = ""
     lines[#lines + 1] = "[Count]"
     lines[#lines + 1] = "count=" .. #toSell
     lines[#lines + 1] = ""
     lines[#lines + 1] = "[Items]"
-    for i, name in ipairs(toSell) do
-        -- INI value: escape only newlines; EQ item names rarely have = or ]
-        local safe = (name or ""):gsub("\r", ""):gsub("\n", " ")
-        lines[#lines + 1] = i .. "=" .. safe
+    for i, chunk in ipairs(chunks) do
+        lines[#lines + 1] = i .. "=" .. chunk
     end
     local body = table.concat(lines, "\n")
     if not file_safe.safeWrite(path, body) then return false end
