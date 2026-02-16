@@ -51,7 +51,7 @@ local STAT_TLO_MAP = {
     charges = 'Charges', range = 'Range',
     skillModValue = 'SkillModValue', skillModMax = 'SkillModMax',
     baneDMG = 'BaneDMG', baneDMGType = 'BaneDMGType',
-    deity = 'Deity', luck = 'Luck', purity = 'Purity',
+    luck = 'Luck', purity = 'Purity',
 }
 
 --- Ordered list of all stat field names (for batch iteration)
@@ -63,7 +63,7 @@ local STAT_FIELDS_SET = {}
 for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
 
 --- String-type stat fields (default to "" not 0)
-local STAT_STRING_FIELDS = { deity = true, baneDMGType = true, dmgBonusType = true }
+local STAT_STRING_FIELDS = { baneDMGType = true, dmgBonusType = true }
 
 --- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), else Me.Inventory("pack"..bag).Item(slot).
 --- Bag and slot are 1-based (same as stored on item tables). Returns nil if TLO not available.
@@ -379,6 +379,27 @@ function M.getAugTypeFromTLO(it)
     return tonumber(v) or 0
 end
 
+--- Get AugRestrictions from item TLO (for augmentation items). Returns int: 0=none, 1=Armor Only, 2=Weapons Only, etc.
+function M.getAugRestrictionsFromTLO(it)
+    if not it or not it.AugRestrictions then return 0 end
+    local ok, v = pcall(function() return it.AugRestrictions() end)
+    if not ok or not v then return 0 end
+    return tonumber(v) or 0
+end
+
+--- Expand AugType (bitmask or single type) to list of slot type IDs (1-based). Used for "This augment fits in slot types" display.
+function M.getAugTypeSlotIds(augType)
+    if not augType or augType <= 0 then return {} end
+    local list = {}
+    local bit32 = bit32
+    for slotId = 1, 24 do
+        local bit = (bit32 and bit32.lshift and bit32.lshift(1, slotId - 1)) or (2 ^ (slotId - 1))
+        local set = (augType == slotId) or (bit32 and bit32.band and bit32.band(augType, bit) ~= 0)
+        if set then list[#list + 1] = slotId end
+    end
+    return list
+end
+
 --- Check if an augment item (with augType from TLO) fits the given socket type.
 --- Socket type is from parent item's AugSlotN; augType is augmentation slot type mask from the augment.
 function M.augmentFitsSocket(augType, socketType)
@@ -449,6 +470,35 @@ function M.getClassRaceStringsFromTLO(it)
     return clsStr, raceStr
 end
 
+--- Build deity display string from item TLO (Deities()/Deity(i)). Returns "" if no deity restriction.
+function M.getDeityStringFromTLO(it)
+    if not it or not it.ID or it.ID() == 0 then return "" end
+    local nDeities = it.Deities and it.Deities()
+    if not nDeities or nDeities <= 0 then return "" end
+    local parts = {}
+    for i = 1, nDeities do
+        local ok, v = pcall(function()
+            local fn = it.Deity and it.Deity(i)
+            return (type(fn) == "function" and fn()) or fn
+        end)
+        if ok and v and tostring(v) ~= "" and tostring(v):lower() ~= "null" then
+            parts[#parts + 1] = tostring(v)
+        end
+    end
+    if #parts == 0 then
+        for i = 0, nDeities - 1 do
+            local ok, v = pcall(function()
+                local fn = it.Deity and it.Deity(i)
+                return (type(fn) == "function" and fn()) or fn
+            end)
+            if ok and v and tostring(v) ~= "" and tostring(v):lower() ~= "null" then
+                parts[#parts + 1] = tostring(v)
+            end
+        end
+    end
+    return (#parts > 0) and table.concat(parts, " ") or ""
+end
+
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
 --- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
 --- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-6 per item).
@@ -461,6 +511,7 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
     if ss < 1 then ss = 1 end
     local stackSizeMax = item.StackSize and item.StackSize() or ss
     local clsStr, raceStr = M.getClassRaceStringsFromTLO(item)
+    local deityStr = M.getDeityStringFromTLO(item)
     local base = {
         bag = bag, slot = slot,
         source = source or "inv",
@@ -488,6 +539,7 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
         tradeskills = item.Tradeskills and item.Tradeskills() or false,
         class = clsStr,
         race = raceStr,
+        deity = deityStr or "",
         requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
         recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
         instrumentType = item.InstrumentType and item.InstrumentType() or "",
@@ -517,6 +569,13 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
             if (itemType):lower() ~= "augmentation" then return nil end
             local v = (it and M.getAugTypeFromTLO(it)) or 0
             rawset(t, "augType", v)
+            return v
+        end
+        if k == "augRestrictions" then
+            local itemType = rawget(t, "type") or ""
+            if (itemType):lower() ~= "augmentation" then return nil end
+            local v = (it and M.getAugRestrictionsFromTLO(it)) or 0
+            rawset(t, "augRestrictions", v)
             return v
         end
         if not STAT_FIELDS_SET[k] then return nil end

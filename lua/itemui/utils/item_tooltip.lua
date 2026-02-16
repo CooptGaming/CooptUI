@@ -131,11 +131,22 @@ local function getItemClassRaceSlotFromTLO(bag, slot, source)
     return getItemClassRaceSlotFromIt(it)
 end
 
--- Augment slot type ID to display name (in-game style)
+-- Augment slot type ID to display name (in-game style). Extended to match default Item Display.
 local AUG_TYPE_NAMES = {
-    [1] = "General: Single", [2] = "Armor: General", [3] = "Armor: Visible", [4] = "Weapon: General",
-    [5] = "Weapon: Secondary", [6] = "General: Raid", [7] = "General: Group", [8] = "Energeian Power Source",
+    [1] = "General: Single", [2] = "General: Multiple Stat", [3] = "Armor: Visible", [4] = "Weapon: General",
+    [5] = "Weapon: Secondary", [6] = "General: Raid", [7] = "General: Group", [8] = "General: Raid",
+    [9] = "Energeian", [10] = "Crafted: Common", [11] = "Crafted: Group", [12] = "Crafted: Raid",
+    [13] = "Energeiac: Group", [14] = "Energeiac: Raid", [15] = "Crafted: Common", [16] = "Crafted: Group",
+    [17] = "Crafted: Raid", [18] = "Type 18", [19] = "Type 19",
     [20] = "Ornamentation",
+}
+
+-- Augment restriction ID to display text (0 = no restriction, omit).
+local AUG_RESTRICTION_NAMES = {
+    [1] = "Armor Only", [2] = "Weapons Only", [3] = "1H Slashing", [4] = "1H Blunt", [5] = "Piercing",
+    [6] = "Hand to Hand", [7] = "2H Slashing", [8] = "2H Blunt", [9] = "2H Piercing", [10] = "Ranged",
+    [11] = "2H Hand to Hand", [12] = "Archery", [13] = "Shields Only", [14] = "1H Slashing/1H Blunt",
+    [15] = "1H Slashing/Piercing",
 }
 
 -- Slot layout: 1-4 = augment slots, 5 = ornament (type 20). All 1-based per ITEM_INDEX_BASE.
@@ -370,7 +381,15 @@ local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts
     if itemInfoRows > 0 then left = left + 2 + itemInfoRows end
     -- All Stats section: header + spacing + rows
     if statRows > 0 then left = left + 2 + statRows end
-    -- Augmentation section: spacing + header + spacing + aug lines + spacing
+    -- Augment item only: "This Augmentation fits in slot types" + restrictions line
+    local itemTypeLower = item.type and tostring(item.type):lower() or ""
+    if itemTypeLower == "augmentation" then
+        local slotIds = itemHelpers.getAugTypeSlotIds(item.augType or 0)
+        local nSlot = (slotIds and #slotIds) or 0
+        if nSlot > 0 then left = left + 2 + nSlot + 1 end  -- spacing + header + spacing + lines + spacing
+        if item.augRestrictions and item.augRestrictions > 0 then left = left + 2 end  -- restrictions line + spacing
+    end
+    -- Augmentation slots (parent item): spacing + header + spacing + aug lines + spacing
     if augCount > 0 then left = left + 3 + augCount end
 
     -- Column 2: Item effects (header + spacing + per-effect lines), Item information, Spell Info blocks, Value, Tribute
@@ -430,6 +449,10 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
         local _ = item.augSlots
         _ = item.wornSlots
         _ = item.ac
+        if (item.type and tostring(item.type):lower()) == "augmentation" then
+            _ = item.augType
+            _ = item.augRestrictions
+        end
     end
     local it = (bag and slot and source) and getItemTLO(bag, slot, source) or nil
     local parentIt = it
@@ -862,6 +885,31 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
         ImGui.Columns(2, "##TooltipCols", false)
         ImGui.SetColumnWidth(0, colW)
         ImGui.SetColumnWidth(1, colW)
+    end
+
+    -- ---- Augment item only: "This Augmentation fits in slot types" and Restrictions ----
+    local itemTypeLower = (item.type and tostring(item.type):lower()) or ""
+    if itemTypeLower == "augmentation" then
+        local at = item.augType or 0
+        if at and at > 0 then
+            local slotIds = itemHelpers.getAugTypeSlotIds(at)
+            if slotIds and #slotIds > 0 then
+                ImGui.Spacing()
+                ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "This Augmentation fits in slot types")
+                ImGui.Spacing()
+                for _, sid in ipairs(slotIds) do
+                    local name = AUG_TYPE_NAMES[sid] or ("Type " .. tostring(sid))
+                    ImGui.Text(string.format("%d (%s)", sid, name))
+                end
+                ImGui.Spacing()
+            end
+        end
+        local ar = item.augRestrictions
+        if ar and ar > 0 then
+            local restrText = AUG_RESTRICTION_NAMES[ar] or ("Restriction " .. tostring(ar))
+            ImGui.TextColored(ImVec4(0.85, 0.7, 0.4, 1.0), "Restrictions: " .. restrText)
+            ImGui.Spacing()
+        end
     end
 
     -- ---- Augmentation slots (own section in column 1: between All Stats and Item effects) ----
