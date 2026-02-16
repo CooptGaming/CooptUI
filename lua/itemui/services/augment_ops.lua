@@ -42,11 +42,21 @@ local function resolveItemDisplayWindowName()
     return "ItemDisplayWindow"
 end
 
---- Close the game's Item Display window. Prefer DoClose (reliable on custom UIs); fallback /notify 0 close.
+--- Return true if the game's Item Display window is open (so we can skip close or clear waiting state).
+function M.isItemDisplayWindowOpen()
+    local name = resolveItemDisplayWindowName()
+    if not name or name == "" then return false end
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(name)
+    if not w or not w.Open then return false end
+    local ok, openVal = pcall(function() return w.Open() end)
+    return ok and openVal == true
+end
+
+--- Close the game's Item Display window. No-op if already closed. Prefer DoClose (reliable on custom UIs).
 function M.closeItemDisplayWindow()
+    if not M.isItemDisplayWindowOpen() then return end
     local name = resolveItemDisplayWindowName()
     if not name or name == "" then return end
-    -- DoClose is more reliable than /notify on some clients/custom UIs (same pattern as MerchantWnd in window_state.lua)
     mq.cmdf('/invoke ${Window[%s].DoClose}', name)
     mq.delay(50)
 end
