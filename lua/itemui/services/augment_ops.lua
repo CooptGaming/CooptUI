@@ -21,10 +21,37 @@ function M.init(d)
 end
 
 -- ============================================================================
--- Insert augment: put augment on cursor, then /insertaug target
+-- Insert augment: put augment on cursor, then either /insertaug target (first slot)
+-- or open Item Display and click the selected socket (slotIndex 1-based).
 -- ============================================================================
 
-function M.insertAugment(targetItem, augmentItem)
+local function resolveItemDisplayWindowName()
+    for i = 1, 6 do
+        local di = mq.TLO and mq.TLO.DisplayItem and mq.TLO.DisplayItem(i)
+        if di and di.Window then
+            local win = di.Window
+            local ok, nameVal = pcall(function()
+                if win.Name then return win.Name() end
+                return nil
+            end)
+            if ok and nameVal and type(nameVal) == "string" and nameVal ~= "" and nameVal ~= "TRUE" then
+                return nameVal
+            end
+        end
+    end
+    return "ItemDisplayWindow"
+end
+
+--- Close the game's Item Display window. Prefer DoClose (reliable on custom UIs); fallback /notify 0 close.
+function M.closeItemDisplayWindow()
+    local name = resolveItemDisplayWindowName()
+    if not name or name == "" then return end
+    -- DoClose is more reliable than /notify on some clients/custom UIs (same pattern as MerchantWnd in window_state.lua)
+    mq.cmdf('/invoke ${Window[%s].DoClose}', name)
+    mq.delay(50)
+end
+
+function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSlot, targetSource)
     if not targetItem or not augmentItem then
         if deps.setStatusMessage then deps.setStatusMessage("No target or augment selected.") end
         return false
@@ -44,12 +71,38 @@ function M.insertAugment(targetItem, augmentItem)
         if deps.setStatusMessage then deps.setStatusMessage("Clear cursor first.") end
         return false
     end
+    -- Pick up augment
     if src == "bank" then
         mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
     else
         mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
     end
     mq.delay(INSERT_DELAY_MS)
+
+    -- Specific slot: open Item Display for target item, then click that socket (game places cursor item into it)
+    if slotIndex and slotIndex >= 1 and slotIndex <= 6 and targetBag and targetSlot and targetSource then
+        local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
+        if not it or not it.Inspect then
+            if deps.setStatusMessage then deps.setStatusMessage("Could not get target item to inspect.") end
+            return false
+        end
+        it.Inspect()
+        mq.delay(REMOVE_OPEN_DELAY_MS)
+        local windowName = resolveItemDisplayWindowName()
+        local controlName = string.format("IDW_Socket_Slot_%d_Item", slotIndex)
+        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+        mq.delay(200)
+        if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
+        if deps.scanInventory then deps.scanInventory() end
+        if (targetSource or "inv") == "bank" and deps.scanBank then deps.scanBank() end
+        if src == "bank" and deps.scanBank then deps.scanBank() end
+        if deps.setStatusMessage then
+            deps.setStatusMessage(string.format("Inserted %s into slot %d", augmentItem.name or "augment", slotIndex))
+        end
+        return true
+    end
+
+    -- First-available slot: use /insertaug (no slot parameter)
     local targetId = targetItem.id or targetItem.ID
     local targetName = targetItem.name or targetItem.Name
     if targetId and targetId ~= 0 then
@@ -61,13 +114,7 @@ function M.insertAugment(targetItem, augmentItem)
         return false
     end
     mq.delay(200)
-    -- Handle confirmation dialog (e.g. attuneable)
-    local diag = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-    if diag and diag.Visible and diag.Visible() then
-        mq.delay(100)
-        mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-        mq.delay(200)
-    end
+    if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
     if deps.scanInventory then deps.scanInventory() end
     if src == "bank" and deps.scanBank then deps.scanBank() end
     if deps.setStatusMessage then

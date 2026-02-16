@@ -986,7 +986,9 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                     ImGui.SameLine()
                     local btnId = "Insert##" .. tostring(cand.id or 0) .. "_" .. tostring(cand.bag or 0) .. "_" .. tostring(cand.slot or 0)
                     if ImGui.SmallButton(btnId) then
-                        if ctx.insertAugment(targetItem, cand) then
+                        if ctx.insertAugment then
+                            local targetLoc = { bag = entry.bag, slot = entry.slot, source = entry.source or "inv" }
+                            ctx.insertAugment(targetItem, cand, slotIdx, targetLoc)
                             ctx.uiState.itemDisplayAugmentSlotActive = nil
                             if ctx.getItemStatsForTooltip and entry then
                                 local fresh = ctx.getItemStatsForTooltip({ bag = entry.bag, slot = entry.slot }, entry.source)

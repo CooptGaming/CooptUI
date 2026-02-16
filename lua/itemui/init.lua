@@ -155,6 +155,7 @@ local uiState = {
     itemDisplayAugmentSlotActive = nil,   -- 1-based slot index when "Choose augment" is active in Item Display
     augmentUtilityWindowOpen = false, augmentUtilityWindowShouldDraw = false,
     augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
+    searchFilterAugmentUtility = "",     -- filter compatible augments list by name
     aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -171,8 +172,12 @@ local uiState = {
     pendingMoveAction = nil,    -- { source = "inv"|"bank", bag, slot, destBag, destSlot, qty, row } for main loop (shift+click stack move)
     pendingRemoveAugment = nil,   -- { bag, slot, source, slotIndex } for main loop (defer remove so ImGui frame completes)
     waitingForRemoveConfirmation = false,  -- true after removeAugment started; main loop auto-clicks Yes on ConfirmationDialogBox
-    doAutoinvAfterRemove = false,          -- one-shot: run /autoinv next frame after we accepted remove confirmation
-    pendingInsertAugment = nil,   -- { targetItem = { id, name }, augmentItem = { bag, slot, source, name } } for main loop (defer insert; cannot delay from ImGui thread)
+    waitingForInsertConfirmation = false,  -- true after insertAugment started; main loop auto-clicks Yes on insert confirmation
+    waitingForInsertCursorClear = false,   -- after insert confirm accepted: poll until cursor clear, then close Item Display
+    waitingForRemoveCursorPopulated = false, -- after remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv
+    insertCursorClearTimeoutAt = nil,      -- mq.gettime() when we started polling; 5s timeout
+    removeCursorPopulatedTimeoutAt = nil,
+    pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
     lootRunCorpsesLooted = 0,
@@ -535,6 +540,7 @@ augmentOps.init({
     isBankWindowOpen = isBankWindowOpen,
     hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
     setWaitingForRemoveConfirmation = function(v) uiState.waitingForRemoveConfirmation = v end,
+    setWaitingForInsertConfirmation = function(v) uiState.waitingForInsertConfirmation = v end,
 })
 local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
@@ -735,6 +741,9 @@ context.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
+    getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
+    getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
+    getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
     getCompatibleAugments = function(entryOrItem, slotIndex)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
         local item = entry and entry.item or entryOrItem
@@ -745,11 +754,15 @@ context.init({
         local bankList = isBankWindowOpen() and bankItems or bankCache
         return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList)
     end,
-    insertAugment = function(targetItem, augmentItem)
+    insertAugment = function(targetItem, augmentItem, slotIndex, targetLocation)
         if not targetItem or not augmentItem then return end
         uiState.pendingInsertAugment = {
             targetItem = { id = targetItem.id or targetItem.ID, name = targetItem.name or targetItem.Name },
+            targetBag = targetLocation and targetLocation.bag,
+            targetSlot = targetLocation and targetLocation.slot,
+            targetSource = (targetLocation and targetLocation.source) or "inv",
             augmentItem = { bag = augmentItem.bag, slot = augmentItem.slot, source = augmentItem.source or "inv", name = augmentItem.name or "augment" },
+            slotIndex = (type(slotIndex) == "number" and slotIndex >= 1 and slotIndex <= 6) and slotIndex or nil,
         }
     end,
     removeAugment = function(bag, slot, source, slotIndex)
@@ -1765,11 +1778,6 @@ local function main()
             lootLoopRefs.saveSkipHistory()
         end
         processSellQueue()
-        -- One-shot: clear cursor after augment remove (run frame after we accepted confirmation)
-        if uiState.doAutoinvAfterRemove then
-            mq.cmd('/autoinv')
-            uiState.doAutoinvAfterRemove = false
-        end
         -- Handle pending quantity pickup action (non-blocking, runs in main loop)
         if uiState.pendingQuantityAction then
             local action = uiState.pendingQuantityAction
@@ -1817,7 +1825,7 @@ local function main()
             local pa = uiState.pendingInsertAugment
             uiState.pendingInsertAugment = nil
             uiState.itemDisplayAugmentSlotActive = nil
-            augmentOps.insertAugment(pa.targetItem, pa.augmentItem)
+            augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
         end
         -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
         if uiState.pendingQuantityPickup then
@@ -2014,8 +2022,43 @@ local function main()
             if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
                 mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
                 uiState.waitingForRemoveConfirmation = false
-                uiState.doAutoinvAfterRemove = true  -- run /autoinv next frame once item is on cursor
-                print("\ag[ItemUI]\ax Remove augment: confirmation accepted (distiller chosen by game).")
+                uiState.waitingForRemoveCursorPopulated = true
+                uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
+            end
+        end
+        -- Auto-accept augment-insert confirmation (e.g. attuneable) when we triggered insert
+        if uiState.waitingForInsertConfirmation then
+            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
+            if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
+                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+                uiState.waitingForInsertConfirmation = false
+                uiState.waitingForInsertCursorClear = true
+                uiState.insertCursorClearTimeoutAt = mq.gettime()
+            end
+        end
+        -- After insert confirm accepted: poll until cursor clear, then close Item Display
+        if uiState.waitingForInsertCursorClear then
+            local now = mq.gettime()
+            if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > 5000) then
+                uiState.waitingForInsertCursorClear = false
+                uiState.insertCursorClearTimeoutAt = nil
+            elseif not hasItemOnCursor() then
+                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+                uiState.waitingForInsertCursorClear = false
+                uiState.insertCursorClearTimeoutAt = nil
+            end
+        end
+        -- After remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv
+        if uiState.waitingForRemoveCursorPopulated then
+            local now = mq.gettime()
+            if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > 5000) then
+                uiState.waitingForRemoveCursorPopulated = false
+                uiState.removeCursorPopulatedTimeoutAt = nil
+            elseif hasItemOnCursor() then
+                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+                mq.cmd('/autoinv')
+                uiState.waitingForRemoveCursorPopulated = false
+                uiState.removeCursorPopulatedTimeoutAt = nil
             end
         end
         if lastLootWindowState and not lootOpenNow then scanState.lastScanState.lootOpen = false; lootItems = {} end
