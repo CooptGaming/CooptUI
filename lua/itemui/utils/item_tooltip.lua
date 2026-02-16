@@ -492,19 +492,38 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
 end
 
 --- Returns true if the current player can use the item (class, race, deity, level).
+--- Used internally for name color; use getCanUseInfo for canUse + reason.
 local function canPlayerUseItem(item, source)
+    local info = ItemTooltip.getCanUseInfo(item, source)
+    return info.canUse
+end
+
+--- Returns { canUse = boolean, reason = string|nil } for the current player and item.
+--- reason is only set when canUse is false (e.g. "Requires level 85", "Requires Bard").
+function ItemTooltip.getCanUseInfo(item, source)
+    local result = { canUse = true, reason = nil }
+    if not item then return result end
+    source = source or (item.source) or "inv"
     local Me = mq.TLO and mq.TLO.Me
-    if not Me or not Me.Level then return true end
+    if not Me or not Me.Level then return result end
     local myLevel = tonumber(Me.Level()) or 0
     local reqLevel = (item.requiredLevel and item.requiredLevel > 0) and item.requiredLevel or nil
-    if reqLevel and myLevel < reqLevel then return false end
+    if reqLevel and myLevel < reqLevel then
+        result.canUse = false
+        result.reason = "Requires level " .. tostring(reqLevel)
+        return result
+    end
     local myDeity = Me.Deity and Me.Deity() and tostring(Me.Deity()):lower() or ""
     if item.deity and item.deity ~= "" then
         local allowed = false
         for part in (tostring(item.deity):lower()):gmatch("%S+") do
             if part == myDeity then allowed = true break end
         end
-        if not allowed then return false end
+        if not allowed then
+            result.canUse = false
+            result.reason = "Requires deity: " .. tostring(item.deity)
+            return result
+        end
     end
     local myClass = Me.Class and tostring(Me.Class() or ""):lower() or ""
     local myRace = Me.Race and tostring(Me.Race() or ""):lower() or ""
@@ -513,16 +532,24 @@ local function canPlayerUseItem(item, source)
         for part in (tostring(item.class):lower()):gmatch("%S+") do
             if part == myClass then ok = true break end
         end
-        if not ok then return false end
+        if not ok then
+            result.canUse = false
+            result.reason = "Requires class: " .. tostring(item.class)
+            return result
+        end
     end
     if item.race and item.race ~= "" and item.race:lower() ~= "all" then
         local ok = false
         for part in (tostring(item.race):lower()):gmatch("%S+") do
             if part == myRace then ok = true break end
         end
-        if not ok then return false end
+        if not ok then
+            result.canUse = false
+            result.reason = "Requires race: " .. tostring(item.race)
+            return result
+        end
     end
-    return true
+    return result
 end
 
 --- Render item display content (two-column layout: header/stats/augs in col1, effects/info/spell/value in col2).

@@ -282,6 +282,10 @@ function SellView.render(ctx, simulateSellView)
                 local item = filteredSellItems[i]
                 if not item then goto continue end  -- safety check
                 ImGui.TableNextRow()
+                local loc = ctx.uiState.itemDisplayLocateRequest
+                if loc and loc.source == "inv" and loc.bag == item.bag and loc.slot == item.slot then
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImVec4(0.25, 0.45, 0.75, 0.45)))
+                end
                 local rid = "sell_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
                 -- Use cached row state (no INI reads per frame); Keep/Junk handlers still call add/remove + updateSellStatusForItemName
@@ -342,10 +346,7 @@ function SellView.render(ctx, simulateSellView)
                 end
                 if ImGui.BeginPopupContextItem("ItemContextSell_" .. rid) then
                     if ImGui.MenuItem("CoOp UI Item Display") then
-                        local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                        ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
-                        ctx.uiState.itemDisplayWindowOpen = true
-                        ctx.uiState.itemDisplayWindowShouldDraw = true
+                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                     end
                     if ImGui.MenuItem("Inspect") then
                         if hasCursor then ctx.removeItemFromCursor()

@@ -145,7 +145,11 @@ local uiState = {
     bankWindowOpen = false, bankWindowShouldDraw = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
     itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
-    itemDisplayItem = nil,  -- { bag, slot, source, item } when open from context menu
+    itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
+    itemDisplayActiveTabIndex = 1,  -- 1-based index into itemDisplayTabs
+    itemDisplayRecent = {},        -- last N (e.g. 10) of { bag, slot, source, label } for Recent dropdown
+    itemDisplayLocateRequest = nil,      -- { source, bag, slot } when Locate clicked
+    itemDisplayLocateRequestAt = nil,     -- os.clock() when set (clear after 3s)
     aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -572,6 +576,59 @@ local sortColumnsAPI = {
     getVisibleColumns = columns.getVisibleColumns,
 }
 
+local ITEM_DISPLAY_RECENT_MAX = 10
+local function getItemStatsForTooltipRef(item, source)
+    if not item or not item.bag or not item.slot then return item end
+    local it = itemHelpers.getItemTLO(item.bag, item.slot, source or "inv")
+    if not it or not it.ID or it.ID() == 0 then return item end
+    return itemHelpers.buildItemFromMQ(it, item.bag, item.slot, source or "inv")
+end
+local function addItemDisplayTab(item, source)
+    if not item or not item.bag or not item.slot then return end
+    source = source or "inv"
+    local showItem = getItemStatsForTooltipRef(item, source) or item
+    local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
+    if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+    -- If this item already has a tab, switch to it instead of adding a duplicate
+    for idx, tab in ipairs(uiState.itemDisplayTabs) do
+        if tab.bag == item.bag and tab.slot == item.slot and tab.source == source then
+            tab.item = showItem
+            tab.label = label
+            uiState.itemDisplayActiveTabIndex = idx
+            local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
+            local recent = uiState.itemDisplayRecent
+            for i = #recent, 1, -1 do
+                if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
+                    table.remove(recent, i)
+                    break
+                end
+            end
+            table.insert(recent, 1, recentEntry)
+            while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
+            uiState.itemDisplayWindowOpen = true
+            uiState.itemDisplayWindowShouldDraw = true
+            return
+        end
+    end
+    uiState.itemDisplayTabs[#uiState.itemDisplayTabs + 1] = {
+        bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
+    }
+    uiState.itemDisplayActiveTabIndex = #uiState.itemDisplayTabs
+    -- Recent: prepend, dedupe by bag/slot/source, cap at N
+    local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
+    local recent = uiState.itemDisplayRecent
+    for i = #recent, 1, -1 do
+        if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
+            table.remove(recent, i)
+            break
+        end
+    end
+    table.insert(recent, 1, recentEntry)
+    while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
+    uiState.itemDisplayWindowOpen = true
+    uiState.itemDisplayWindowShouldDraw = true
+end
+
 context.init({
     -- State tables
     uiState = uiState, sortState = sortState, filterState = filterState,
@@ -654,12 +711,8 @@ context.init({
     getItemLoreText = function(it) return itemHelpers.getItemLoreText(it) end,
     getTimerReady = function(b, s, src) return itemHelpers.getTimerReady(b, s, src) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
-    getItemStatsForTooltip = function(item, source)
-        if not item or not item.bag or not item.slot then return item end
-        local it = itemHelpers.getItemTLO(item.bag, item.slot, source or "inv")
-        if not it or not it.ID or it.ID() == 0 then return item end
-        return itemHelpers.buildItemFromMQ(it, item.bag, item.slot, source or "inv")
-    end,
+    getItemStatsForTooltip = getItemStatsForTooltipRef,
+    addItemDisplayTab = addItemDisplayTab,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
     drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
     drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
@@ -1241,6 +1294,14 @@ local function renderUI()
     end
     if uiState.itemDisplayWindowShouldDraw then
         renderItemDisplayWindow()
+    end
+    -- Clear Locate highlight after 3s
+    if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
+        local now = (os and os.clock and os.clock()) or 0
+        if now - uiState.itemDisplayLocateRequestAt > 3 then
+            uiState.itemDisplayLocateRequest = nil
+            uiState.itemDisplayLocateRequestAt = nil
+        end
     end
     if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
         renderAAWindow()
