@@ -235,14 +235,23 @@ function AugmentsView.render(ctx)
                     ctx.uiState.lastPickupSetThisFrame = true
                     mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
                 end
-                if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
-                    if hasCursor then ctx.removeItemFromCursor()
-                    else
-                        local Me = mq.TLO and mq.TLO.Me
-                        local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                        local tlo = pack and pack.Item and pack.Item(item.slot)
-                        if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
+                if ImGui.BeginPopupContextItem("ItemContextAugments_" .. rid) then
+                    if ImGui.MenuItem("CoOp UI Item Display") then
+                        local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
+                        ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
+                        ctx.uiState.itemDisplayWindowOpen = true
+                        ctx.uiState.itemDisplayWindowShouldDraw = true
                     end
+                    if ImGui.MenuItem("Inspect") then
+                        if hasCursor then ctx.removeItemFromCursor()
+                        else
+                            local Me = mq.TLO and mq.TLO.Me
+                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+                            local tlo = pack and pack.Item and pack.Item(item.slot)
+                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
+                        end
+                    end
+                    ImGui.EndPopup()
                 end
 
                 -- Column: Effects (only what exists)
