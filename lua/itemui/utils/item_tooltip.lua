@@ -13,16 +13,26 @@ local itemHelpers = require('itemui.utils.item_helpers')
 
 local ItemTooltip = {}
 
-local TOOLTIP_MIN_WIDTH = 540
+local TOOLTIP_MIN_WIDTH = 760  -- two columns full layout
+local TOOLTIP_COL_WIDTH = 380  -- each column at full width
+local TOOLTIP_COMPACT_WIDTH = 560  -- narrower for items with less content
+local TOOLTIP_COMPACT_COL = 280   -- column width when compact
+local TOOLTIP_LINE_HEIGHT = 18   -- ensure stats and spell info rows fit
+local TOOLTIP_PADDING = 20       -- margin so bottom content isn't cut off
+local TOOLTIP_EXTRA_ROWS = 4     -- buffer so all stats/effects are visible (no truncation)
+-- Approximate chars per line for row counting (column width ~380px)
+local CHARS_PER_LINE_NAME = 48
+local CHARS_PER_LINE_DESC = 52
 
-function ItemTooltip.beginItemTooltip()
-    -- SetNextWindowSize before BeginTooltip can cause issues in some ImGui bindings; make it optional
-    if ImGui.SetNextWindowSize then
+--- Set tooltip window size for the next BeginTooltip. Call with (width, height) from prepareTooltipContent so each item gets correct size (no reuse of previous tooltip size).
+function ItemTooltip.beginItemTooltip(width, height)
+    if ImGui.SetNextWindowSize and width and height and width > 0 and height > 0 then
         local ok = pcall(function()
-            ImGui.SetNextWindowSize(ImVec2(TOOLTIP_MIN_WIDTH, 0), ImGuiCond.Always)
+            ImGui.SetNextWindowSize(ImVec2(width, height), ImGuiCond.Always)
         end)
         if not ok then
-            -- ignore: tooltip will use default size
+            -- fallback: minimum width so two columns fit
+            pcall(function() ImGui.SetNextWindowSize(ImVec2(TOOLTIP_MIN_WIDTH, 0), ImGuiCond.Always) end)
         end
     end
     ImGui.BeginTooltip()
@@ -272,6 +282,215 @@ local function compactCol(c)
     return t
 end
 
+--- Row count for Item info block (same structure as render).
+local function getItemInfoRowCount(item)
+    local L1, L2, L3 = "%-12s %s", "%-6s %s", "%-10s %s"
+    local leftCol, midCol, rightCol = {}, {}, {}
+    local wStr = (item.weight and item.weight ~= 0) and (item.weight >= 10 and string.format("%.1f", item.weight / 10) or tostring(item.weight)) or nil
+    if formatSize(item) then leftCol[#leftCol + 1] = string.format(L1, "Size:", formatSize(item)) end
+    if wStr then leftCol[#leftCol + 1] = string.format(L1, "Weight:", wStr) end
+    if item.requiredLevel and item.requiredLevel ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Req Level:", tostring(item.requiredLevel)) end
+    if item.recommendedLevel and item.recommendedLevel ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Rec Level:", tostring(item.recommendedLevel)) end
+    if item.type and item.type ~= "" then leftCol[#leftCol + 1] = string.format(L1, "Skill:", tostring(item.type)) end
+    if item.instrumentType and item.instrumentType ~= "" then leftCol[#leftCol + 1] = string.format(L1, "Instrument:", tostring(item.instrumentType) .. ((item.instrumentMod and item.instrumentMod ~= 0) and (" " .. tostring(item.instrumentMod)) or "")) end
+    if item.range and item.range ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Range:", tostring(item.range)) end
+    if item.charges and item.charges ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Charges:", (item.charges == -1) and "Unlimited" or tostring(item.charges)) end
+    if item.skillModValue and item.skillModValue ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Skill Mod:", (item.skillModMax and item.skillModMax ~= 0) and (tostring(item.skillModValue) .. "/" .. tostring(item.skillModMax)) or tostring(item.skillModValue)) end
+    if item.baneDMG and item.baneDMG ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Bane:", tostring(item.baneDMG) .. (item.baneDMGType and item.baneDMGType ~= "" and (" " .. item.baneDMGType) or "")) end
+    if item.ac and item.ac ~= 0 then midCol[#midCol + 1] = string.format(L2, "AC:", tostring(item.ac)) end
+    if item.hp and item.hp ~= 0 then midCol[#midCol + 1] = string.format(L2, "HP:", tostring(item.hp)) end
+    if item.mana and item.mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(item.mana)) end
+    if item.endurance and item.endurance ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(item.endurance)) end
+    if item.haste and item.haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(item.haste) .. "%") end
+    local isWeapon = (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.type and item.type ~= "" and (item.type:lower():find("piercing") or item.type:lower():find("slashing") or item.type:lower():find("1h") or item.type:lower():find("2h") or item.type:lower():find("ranged")))
+    if isWeapon then
+        rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage or 0))
+        rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay or 0))
+        rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus or 0) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or ""))
+    else
+        if item.damage and item.damage ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage)) end
+        if item.itemDelay and item.itemDelay ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay)) end
+        if item.dmgBonus and item.dmgBonus ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or "")) end
+    end
+    if #leftCol == 0 and #midCol == 0 and #rightCol == 0 then return 0 end
+    return math.max(#leftCol, #midCol, #rightCol)
+end
+
+--- Row count for All Stats block (same structure as render).
+local function getStatRowCount(item)
+    local attrs = {
+        attrLine(item.str, item.heroicSTR, "Strength"),
+        attrLine(item.sta, item.heroicSTA, "Stamina"),
+        attrLine(item.int, item.heroicINT, "Intelligence"),
+        attrLine(item.wis, item.heroicWIS, "Wisdom"),
+        attrLine(item.agi, item.heroicAGI, "Agility"),
+        attrLine(item.dex, item.heroicDEX, "Dexterity"),
+        attrLine(item.cha, item.heroicCHA, "Charisma"),
+    }
+    local function resistLine(b, h, label)
+        b, h = b or 0, h or 0
+        if b == 0 and h == 0 then return nil end
+        if h > 0 then return string.format("%s: %d+%d", label, b, h) end
+        return string.format("%s: %d", label, b)
+    end
+    local resists = {
+        resistLine(item.svMagic, item.heroicSvMagic, "Magic"),
+        resistLine(item.svFire, item.heroicSvFire, "Fire"),
+        resistLine(item.svCold, item.heroicSvCold, "Cold"),
+        resistLine(item.svDisease, item.heroicSvDisease, "Disease"),
+        resistLine(item.svPoison, item.heroicSvPoison, "Poison"),
+        resistLine(item.svCorruption, item.heroicSvCorruption, "Corruption"),
+    }
+    local function cl(val, label) if (val or 0) ~= 0 then return string.format("%s: %d", label, val) end return nil end
+    local combat = {
+        cl(item.attack, "Attack"), cl(item.hpRegen, "HP Regen"), cl(item.manaRegen, "Mana Regen"),
+        cl(item.enduranceRegen, "End Regen"), cl(item.combatEffects, "Combat Eff"), cl(item.damageShield, "Dmg Shield"),
+        cl(item.damageShieldMitigation, "Dmg Shld Mit"), cl(item.accuracy, "Accuracy"), cl(item.strikeThrough, "Strike Thr"),
+        cl(item.healAmount, "Heal Amount"), cl(item.spellDamage, "Spell Dmg"), cl(item.spellShield, "Spell Shield"),
+        cl(item.shielding, "Shielding"), cl(item.dotShielding, "DoT Shield"), cl(item.avoidance, "Avoidance"),
+        cl(item.stunResist, "Stun Resist"), cl(item.clairvoyance, "Clairvoyance"), cl(item.haste, "Haste"),
+        cl(item.luck, "Luck"), cl(item.purity, "Purity"),
+    }
+    local hasAny = false
+    for _, v in ipairs(attrs) do if v then hasAny = true break end end
+    for _, v in ipairs(resists) do if v then hasAny = true break end end
+    for _, v in ipairs(combat) do if v then hasAny = true break end end
+    if not hasAny then return 0 end
+    local a, r, c = compactCol(attrs), compactCol(resists), compactCol(combat)
+    return math.max(#a, #r, #c)
+end
+
+--- Count rows in each column to match the actual tooltip layout. Returns leftRows, rightRows so height can fit the longer column.
+local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
+    -- Column 1: header (icon+name share first line; name may wrap), ID, type, stack, spacing
+    local nameLen = item.name and #tostring(item.name) or 0
+    local nameLines = nameLen > 0 and math.max(1, math.ceil(nameLen / CHARS_PER_LINE_NAME)) or 1
+    local left = nameLines
+    if item.id and item.id ~= 0 then left = left + 1 end
+    if getTypeLine(item) then left = left + 1 end
+    if (item.stackSizeMax and item.stackSizeMax > 1) or (item.stackSize and item.stackSize > 1) then left = left + 1 end
+    left = left + 1 -- spacing
+    -- Class, Race, Deity, Slot (up to 4 lines)
+    left = left + 4
+    -- Ornament block: 0 or Spacing + "Ornament" + icon+name + Spacing = 4
+    local ornament = parentIt and not opts.socketIndex and getOrnamentFromIt(parentIt)
+    if ornament and ornament.name then left = left + 4 end
+    -- Container
+    if item.container and item.container > 0 then left = left + 1 end
+    left = left + 1 -- spacing before Item info
+    -- Item info section: header + spacing + rows
+    if itemInfoRows > 0 then left = left + 2 + itemInfoRows end
+    -- All Stats section: header + spacing + rows
+    if statRows > 0 then left = left + 2 + statRows end
+    -- Augmentation section: spacing + header + spacing + aug lines + spacing
+    if augCount > 0 then left = left + 3 + augCount end
+
+    -- Column 2: Item effects (header + spacing + per-effect lines), Item information, Spell Info blocks, Value, Tribute
+    local right = 0
+    if #effects > 0 then
+        right = right + 2 -- "Item effects" + Spacing
+        for _, e in ipairs(effects) do
+            right = right + 1 -- label
+            if e.key == "Clicky" and (e.castTime ~= nil or (e.recastTime ~= nil and e.recastTime > 0)) then
+                if e.castTime ~= nil then right = right + 1 end
+                if e.recastTime ~= nil and e.recastTime > 0 then right = right + 1 end
+            end
+            if e.desc and e.desc ~= "" then
+                right = right + math.max(1, math.ceil(#e.desc / CHARS_PER_LINE_DESC)) + 1 -- TextWrapped + Spacing
+            end
+        end
+        right = right + 1 -- trailing Spacing
+    end
+    -- Item information block (only when not socket tooltip)
+    if not opts.socketIndex then
+        right = right + 2 -- Spacing + "Item information"
+        if item.id and item.id ~= 0 then right = right + 1 end
+        if item.icon and item.icon ~= 0 then right = right + 1 end
+        if (item.totalValue or item.value) and (item.totalValue or item.value) ~= 0 then right = right + 1 end
+        if item.damage and item.damage ~= 0 and item.itemDelay and item.itemDelay ~= 0 then right = right + 1 end
+        right = right + 1 -- Lore or Timer (one line)
+        if bag and slot and source then right = right + 1 end -- Timer line
+        right = right + 2 -- PopStyleColor + Spacing
+    end
+    -- Spell Info blocks: one per effect type (Clicky, Proc, Worn, Focus)
+    local spellInfoOrder = { "Clicky", "Proc", "Worn", "Focus" }
+    local seenKey = {}
+    for _, e in ipairs(effects) do seenKey[e.key] = true end
+    for _, key in ipairs(spellInfoOrder) do
+        if seenKey[key] then
+            right = right + 1 + 1 + 5 -- Spacing + header + (ID, Duration, Recovery, Recast, Range)
+        end
+    end
+    -- Value
+    if (item.totalValue or item.value) and (item.totalValue or item.value) ~= 0 then right = right + 2 end
+    -- Tribute
+    if item.tribute and item.tribute ~= 0 then right = right + 2 end
+
+    return left, right
+end
+
+--- Pre-warm item, build effects, and estimate tooltip size so each hover gets correct width/height (no reuse of previous item's size).
+--- Returns: effects (table), width (number), height (number). Pass opts.effects = effects into renderStatsTooltip to avoid building effects twice.
+function ItemTooltip.prepareTooltipContent(item, ctx, opts)
+    if not item then return {}, TOOLTIP_MIN_WIDTH, 400 end
+    opts = opts or {}
+    local source = opts.source or (item and item.source) or "inv"
+    local bag = item.bag ~= nil and item.bag or opts.bag
+    local slot = item.slot ~= nil and item.slot or opts.slot
+    -- Pre-warm lazy fields
+    if bag and slot and source then
+        local _ = item.augSlots
+        _ = item.wornSlots
+        _ = item.ac
+    end
+    local it = (bag and slot and source) and getItemTLO(bag, slot, source) or nil
+    local parentIt = it
+    if it and opts.socketIndex and it.Item then
+        local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
+        if ok and sockIt then it = sockIt end
+    end
+    local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
+    local effects = {}
+    local function addEffectsFromItem(ef, itm, keys)
+        if not ctx or not ctx.getItemSpellId or not ctx.getSpellName then return end
+        for _, key in ipairs(keys) do
+            local id = ctx.getItemSpellId(itm, key)
+            if id and id > 0 then
+                local spellName = ctx.getSpellName(id)
+                if spellName and spellName ~= "" then
+                    local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
+                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
+                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
+                    ef[#ef + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+                end
+            end
+        end
+    end
+    if ctx and ctx.getItemSpellId and ctx.getSpellName then
+        addEffectsFromItem(effects, item, effectKeys)
+        if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
+            for socketIndex = 1, math.min(5, item.augSlots or 0) do
+                local socketItem = getSocketItemStats(parentIt, bag, slot, source, socketIndex)
+                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
+            end
+        end
+    end
+    local itemInfoRows = getItemInfoRowCount(item)
+    local statRows = getStatRowCount(item)
+    local augCount = (item.augSlots or 0) > 0 and (itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0
+    if augCount < 0 then augCount = 0 end
+    local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
+    -- Use the longer column and add buffer so all stats and spell info are visible (no cut-off)
+    local lineCount = math.max(leftRows, rightRows) + TOOLTIP_EXTRA_ROWS
+    local height = math.max(300, lineCount * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING)
+    -- Use narrower width for items with less content (no effects, no augs, few rows)
+    local totalRows = leftRows + rightRows
+    local useCompact = (#effects == 0 and augCount == 0 and totalRows < 26)
+    local width = useCompact and TOOLTIP_COMPACT_WIDTH or TOOLTIP_MIN_WIDTH
+    opts.tooltipColWidth = useCompact and TOOLTIP_COMPACT_COL or TOOLTIP_COL_WIDTH
+    return effects, width, height
+end
+
 --- Returns true if the current player can use the item (class, race, deity, level).
 local function canPlayerUseItem(item, source)
     local Me = mq.TLO and mq.TLO.Me
@@ -317,6 +536,12 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     local slot = item.slot ~= nil and item.slot or opts.slot
 
     local function render()
+    -- Pre-warm lazy item fields when not using pre-built effects (so layout isn't affected by mid-draw TLO/cache)
+    if not opts.effects and item and (bag ~= nil and slot ~= nil and source) then
+        local _ = item.augSlots
+        _ = item.wornSlots
+        _ = item.ac
+    end
     -- Every socket row: [24x24 icon area] + SameLine + text (replicate default UI layout).
     -- Filled: draw item icon; empty: draw reserved 24x24 so rows align. See AUGMENT_SOCKET_UI_DESIGN.md.
     local function drawSocketIcon(iconId)
@@ -366,18 +591,56 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         ImGui.PopStyleColor()
     end
 
-    -- ---- Header: Name, ID, Type (like in-game Description) ----
+    local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
+    local function addEffectsFromItem(ef, it, keys)
+        if not ctx or not ctx.getItemSpellId or not ctx.getSpellName then return end
+        for _, key in ipairs(keys) do
+            local id = ctx.getItemSpellId(it, key)
+            if id and id > 0 then
+                local spellName = ctx.getSpellName(id)
+                if spellName and spellName ~= "" then
+                    local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
+                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
+                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
+                    ef[#ef + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+                end
+            end
+        end
+    end
+    if opts.effects then
+        effects = opts.effects
+    elseif ctx and ctx.getItemSpellId and ctx.getSpellName then
+        effects = {}
+        addEffectsFromItem(effects, item, effectKeys)
+        if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
+            for socketIndex = 1, math.min(5, item.augSlots or 0) do
+                local socketItem = getSocketItemStats(parentIt, bag, slot, source, socketIndex)
+                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
+            end
+        end
+    end
+
+    local colW = (opts.tooltipColWidth and opts.tooltipColWidth > 0) and opts.tooltipColWidth or TOOLTIP_COL_WIDTH
+    ImGui.Columns(2, "##TooltipCols", false)
+    ImGui.SetColumnWidth(0, colW)
+    ImGui.SetColumnWidth(1, colW)
+    if ImGui.BeginChild then
+        ImGui.BeginChild("##TooltipCol1", ImVec2(colW, 0), false)
+    end
+
+    -- ---- Column 1: Header (name, ID, type) then Class, Race, Slot, Deity, Ornament, Container, Item info, All Stats, Augmentation slots ----
     local nameColor = ImVec4(0.45, 0.85, 0.45, 1.0)
     if not canPlayerUseItem(item, source) then
         nameColor = ImVec4(0.95, 0.35, 0.35, 1.0)
     end
-    -- Main item icon to the left of the name (slightly larger than socket icons; socket = 24).
     local headerIconSize = 32
     if ctx and ctx.drawItemIcon and item.icon and item.icon > 0 then
         pcall(function() ctx.drawItemIcon(item.icon, headerIconSize) end)
         ImGui.SameLine()
     end
-    ImGui.TextColored(nameColor, item.name or "—")
+    ImGui.PushStyleColor(ImGuiCol.Text, nameColor)
+    ImGui.TextWrapped(item.name or "—")
+    ImGui.PopStyleColor()
     if item.id and item.id ~= 0 then
         ImGui.TextColored(ImVec4(0.55, 0.55, 0.6, 1.0), "ID: " .. tostring(item.id))
     end
@@ -390,7 +653,7 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     end
     ImGui.Spacing()
 
-    -- ---- Class, Race, Slot, Deity, Ornament, Augment slots, Container (top section, above Item info) ----
+    -- Class, Race, Slot, Deity, Ornament, Container, Item info, All Stats, Augmentation slots
     local cls, race, slotStr = "—", "—", ""
     if itValid then
         local ok, c, r, s = pcall(getItemClassRaceSlotFromIt, it)
@@ -438,40 +701,6 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
             end
             ImGui.Spacing()
         end
-    end
-    -- Augmentation slots (standard): [24x24] + text per row. Augment name is a link when filled (hover shows socketed item tooltip).
-    local augLines = itValid and getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
-    if augLines and #augLines > 0 then
-        ImGui.Spacing()
-        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
-        ImGui.Spacing()
-        for _, row in ipairs(augLines) do
-            if type(row) == "table" and row.text then
-                drawSocketIcon(row.iconId)
-                ImGui.SameLine()
-                local prefix = row.prefix or ""
-                local augName = (type(row.augName) == "string") and row.augName or ""
-                if prefix ~= "" then ImGui.Text(prefix); ImGui.SameLine() end
-                if augName ~= "empty" and parentIt and not opts.socketIndex and row.slotIndex then
-                    ImGui.TextColored(linkColor, augName)
-                    if ImGui.IsItemHovered() then
-                        local socketItem = getSocketItemStats(parentIt, bag, slot, source, row.slotIndex)
-                        if socketItem then
-                            ImGui.BeginTooltip()
-                            ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = row.slotIndex })
-                            ImGui.EndTooltip()
-                        end
-                    end
-                else
-                    ImGui.Text(augName ~= "" and augName or row.text)
-                end
-            else
-                ImGui.Text((type(row) == "table" and row.text) or tostring(row))
-            end
-        end
-        ImGui.Spacing()
-    elseif item.augSlots and item.augSlots > 0 then
-        ImGui.Text("Augment slots: " .. tostring(item.augSlots))
     end
     if item.container and item.container > 0 then
         local capStr = item.sizeCapacity and item.sizeCapacity > 0 and (SIZE_NAMES[item.sizeCapacity] or tostring(item.sizeCapacity)) or nil
@@ -533,6 +762,10 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         end
         ImGui.Columns(1)
         ImGui.Spacing()
+        -- Restore 2-column layout so remaining column 1 content stays left
+        ImGui.Columns(2, "##TooltipCols", false)
+        ImGui.SetColumnWidth(0, colW)
+        ImGui.SetColumnWidth(1, colW)
     end
 
     -- ---- All Stats: Primary (base+heroic), Resistances, Combat/utility ----
@@ -610,53 +843,73 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         end
         ImGui.Columns(1)
         ImGui.Spacing()
+        -- Restore 2-column layout so Augmentation slots and then column 2 stay correct
+        ImGui.Columns(2, "##TooltipCols", false)
+        ImGui.SetColumnWidth(0, colW)
+        ImGui.SetColumnWidth(1, colW)
     end
 
-    -- ---- Item effects: in-game style "Effect: SpellName (Worn)" / "Focus Effect: SpellName", with Cast/Recast for clicky ----
-    -- Includes effects from the main item and from slotted augments/ornament (match default Item Display).
-    if ctx and ctx.getItemSpellId and ctx.getSpellName then
-        local effectLabels = { Clicky = "Clicky", Worn = "Worn", Proc = "Proc", Focus = "Focus", Spell = "Spell" }
-        local focusLabel = "Focus"
-        local function formatRecastDelay(sec)
-            if sec == nil or sec < 0 then return nil end
-            local s = math.floor(sec + 0.5)
-            if s < 60 then return s == 1 and "1 second" or (s .. " seconds") end
-            local m = math.floor(s / 60)
-            local r = s % 60
-            if r == 0 then return m == 1 and "1 minute" or (m .. " minutes") end
-            local ms = m == 1 and "1 minute" or (m .. " minutes")
-            local rs = r == 1 and "1 second" or (r .. " seconds")
-            return ms .. " and " .. rs
-        end
-        local function addEffectsFromItem(effects, it, keys)
-            for _, key in ipairs(keys) do
-                local id = ctx.getItemSpellId(it, key)
-                if id and id > 0 then
-                    local spellName = ctx.getSpellName(id)
-                    if spellName and spellName ~= "" then
-                        local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
-                        local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
-                        local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
-                        effects[#effects + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+    -- ---- Augmentation slots (own section in column 1: between All Stats and Item effects) ----
+    local augLines = itValid and getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
+    if augLines and #augLines > 0 then
+        ImGui.Spacing()
+        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
+        ImGui.Spacing()
+        for _, row in ipairs(augLines) do
+            if type(row) == "table" and row.text then
+                drawSocketIcon(row.iconId)
+                ImGui.SameLine()
+                local prefix = row.prefix or ""
+                local augName = (type(row.augName) == "string") and row.augName or ""
+                if prefix ~= "" then ImGui.Text(prefix); ImGui.SameLine() end
+                if augName ~= "empty" and parentIt and not opts.socketIndex and row.slotIndex then
+                    ImGui.TextColored(linkColor, augName)
+                    if ImGui.IsItemHovered() then
+                        local socketItem = getSocketItemStats(parentIt, bag, slot, source, row.slotIndex)
+                        if socketItem then
+                            ImGui.BeginTooltip()
+                            ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = row.slotIndex })
+                            ImGui.EndTooltip()
+                        end
                     end
+                else
+                    ImGui.Text(augName ~= "" and augName or row.text)
                 end
+            else
+                ImGui.Text((type(row) == "table" and row.text) or tostring(row))
             end
         end
-        local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
-        effects = {}
-        addEffectsFromItem(effects, item, effectKeys)
-        -- Add effects from slotted augments and ornament (same list as default Item Display).
-        if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
-            local numSockets = math.min(5, item.augSlots or 0)
-            for socketIndex = 1, numSockets do
-                local socketItem = getSocketItemStats(parentIt, bag, slot, source, socketIndex)
-                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
-            end
-        end
-        if #effects > 0 then
-            ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Item effects")
-            ImGui.Spacing()
-            for _, e in ipairs(effects) do
+        ImGui.Spacing()
+    elseif item.augSlots and item.augSlots > 0 then
+        ImGui.Spacing()
+        ImGui.Text("Augment slots: " .. tostring(item.augSlots))
+        ImGui.Spacing()
+    end
+
+    if ImGui.EndChild then ImGui.EndChild() end
+    ImGui.NextColumn()
+    if ImGui.BeginChild then
+        ImGui.BeginChild("##TooltipCol2", ImVec2(colW, 0), false)
+    end
+
+    -- ---- Column 2: Item effects, Item information, Spell Info blocks, Value & Tribute ----
+    local effectLabels = { Clicky = "Clicky", Worn = "Worn", Proc = "Proc", Focus = "Focus", Spell = "Spell" }
+    local focusLabel = "Focus"
+    local function formatRecastDelay(sec)
+        if sec == nil or sec < 0 then return nil end
+        local s = math.floor(sec + 0.5)
+        if s < 60 then return s == 1 and "1 second" or (s .. " seconds") end
+        local m = math.floor(s / 60)
+        local r = s % 60
+        if r == 0 then return m == 1 and "1 minute" or (m .. " minutes") end
+        local ms = m == 1 and "1 minute" or (m .. " minutes")
+        local rs = r == 1 and "1 second" or (r .. " seconds")
+        return ms .. " and " .. rs
+    end
+    if #effects > 0 then
+        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Item effects")
+        ImGui.Spacing()
+        for _, e in ipairs(effects) do
                 local label
                 if e.key == focusLabel then
                     label = "Focus Effect: " .. e.spellName
@@ -682,9 +935,8 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
                     ImGui.PopStyleColor()
                     ImGui.Spacing()
                 end
-            end
-            ImGui.Spacing()
         end
+        ImGui.Spacing()
     end
 
     -- ---- Item information (blue block: section 2; Item ID, Icon ID, Value, Ratio, Lore, Timer) ----
@@ -753,6 +1005,9 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Tribute")
         ImGui.Text(tostring(item.tribute))
     end
+
+    if ImGui.EndChild then ImGui.EndChild() end
+    ImGui.Columns(1)
     end -- close render()
     local ok = pcall(render)
     if not ok then
