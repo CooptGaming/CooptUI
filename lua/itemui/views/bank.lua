@@ -372,7 +372,7 @@ function BankView.render(ctx)
                                 end
                             end
                             if ImGui.BeginPopupContextItem("ItemContextBank_" .. rid) then
-                                if ImGui.MenuItem("Item Display") then
+                                if ImGui.MenuItem("CoOp UI Item Display") then
                                     local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "bank")) or item
                                     ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "bank", item = showItem }
                                     ctx.uiState.itemDisplayWindowOpen = true

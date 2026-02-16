@@ -688,8 +688,11 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                 if ImGui.IsItemHovered() then
                     local socketItem = getSocketItemStats(parentIt, bag, slot, source, ORNAMENT_SLOT_INDEX)
                     if socketItem then
-                        ImGui.BeginTooltip()
-                        ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = ORNAMENT_SLOT_INDEX })
+                        local socketOpts = { source = source, bag = bag, slot = slot, socketIndex = ORNAMENT_SLOT_INDEX }
+                        local nestEffects, nestW, nestH = ItemTooltip.prepareTooltipContent(socketItem, ctx, socketOpts)
+                        socketOpts.effects = nestEffects
+                        ItemTooltip.beginItemTooltip(nestW, nestH)
+                        ItemTooltip.renderStatsTooltip(socketItem, ctx, socketOpts)
                         ImGui.EndTooltip()
                     end
                 end
@@ -864,8 +867,11 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                     if ImGui.IsItemHovered() then
                         local socketItem = getSocketItemStats(parentIt, bag, slot, source, row.slotIndex)
                         if socketItem then
-                            ImGui.BeginTooltip()
-                            ItemTooltip.renderStatsTooltip(socketItem, ctx, { source = source, bag = bag, slot = slot, socketIndex = row.slotIndex })
+                            local socketOpts = { source = source, bag = bag, slot = slot, socketIndex = row.slotIndex }
+                            local nestEffects, nestW, nestH = ItemTooltip.prepareTooltipContent(socketItem, ctx, socketOpts)
+                            socketOpts.effects = nestEffects
+                            ItemTooltip.beginItemTooltip(nestW, nestH)
+                            ItemTooltip.renderStatsTooltip(socketItem, ctx, socketOpts)
                             ImGui.EndTooltip()
                         end
                     end

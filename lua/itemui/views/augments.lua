@@ -236,7 +236,7 @@ function AugmentsView.render(ctx)
                     mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
                 end
                 if ImGui.BeginPopupContextItem("ItemContextAugments_" .. rid) then
-                    if ImGui.MenuItem("Item Display") then
+                    if ImGui.MenuItem("CoOp UI Item Display") then
                         local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
                         ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
                         ctx.uiState.itemDisplayWindowOpen = true

@@ -73,7 +73,7 @@ function ItemDisplayView.render(ctx)
     -- Content: scrollable child with shared item display content
     if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
         if not itemDisplayItem or not itemDisplayItem.item then
-            ImGui.TextColored(ImVec4(0.7, 0.7, 0.7, 1.0), "No item selected. Right-click an item and choose \"Item Display\" to open.")
+            ImGui.TextColored(ImVec4(0.7, 0.7, 0.7, 1.0), "No item selected. Right-click an item and choose \"CoOp UI Item Display\" to open.")
         else
             local showItem = itemDisplayItem.item
             local opts = {
