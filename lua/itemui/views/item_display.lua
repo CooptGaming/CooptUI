@@ -30,6 +30,8 @@ local function renderOneItemContent(ctx, entry)
         source = source,
         bag = entry.bag,
         slot = entry.slot,
+        isItemDisplayWindow = true,
+        entry = entry,
     }
     local effects, _w, _h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
     opts.effects = effects

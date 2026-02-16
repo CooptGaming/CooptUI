@@ -91,6 +91,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
     if d.HeightItemDisplay then layoutDefaults.HeightItemDisplay = tonumber(d.HeightItemDisplay) or layoutDefaults.HeightItemDisplay end
+    if d.AugmentUtilityWindowX then layoutDefaults.AugmentUtilityWindowX = tonumber(d.AugmentUtilityWindowX) or layoutDefaults.AugmentUtilityWindowX end
+    if d.AugmentUtilityWindowY then layoutDefaults.AugmentUtilityWindowY = tonumber(d.AugmentUtilityWindowY) or layoutDefaults.AugmentUtilityWindowY end
+    if d.WidthAugmentUtilityPanel then layoutDefaults.WidthAugmentUtilityPanel = tonumber(d.WidthAugmentUtilityPanel) or layoutDefaults.WidthAugmentUtilityPanel end
+    if d.HeightAugmentUtility then layoutDefaults.HeightAugmentUtility = tonumber(d.HeightAugmentUtility) or layoutDefaults.HeightAugmentUtility end
     if d.WidthLootPanel then layoutDefaults.WidthLootPanel = tonumber(d.WidthLootPanel) or layoutDefaults.WidthLootPanel end
     if d.HeightLoot then layoutDefaults.HeightLoot = tonumber(d.HeightLoot) or layoutDefaults.HeightLoot end
     if d.LootWindowX then layoutDefaults.LootWindowX = tonumber(d.LootWindowX) or layoutDefaults.LootWindowX end
@@ -283,6 +287,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("ItemDisplayWindowY=" .. tostring(layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY) .. "\n")
         f:write("WidthItemDisplayPanel=" .. tostring(layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel) .. "\n")
         f:write("HeightItemDisplay=" .. tostring(layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay) .. "\n")
+        f:write("AugmentUtilityWindowX=" .. tostring(layoutConfig.AugmentUtilityWindowX or layoutDefaults.AugmentUtilityWindowX) .. "\n")
+        f:write("AugmentUtilityWindowY=" .. tostring(layoutConfig.AugmentUtilityWindowY or layoutDefaults.AugmentUtilityWindowY) .. "\n")
+        f:write("WidthAugmentUtilityPanel=" .. tostring(layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel) .. "\n")
+        f:write("HeightAugmentUtility=" .. tostring(layoutConfig.HeightAugmentUtility or layoutDefaults.HeightAugmentUtility) .. "\n")
         f:write("WidthLootPanel=" .. tostring(layoutConfig.WidthLootPanel or layoutDefaults.WidthLootPanel) .. "\n")
         f:write("HeightLoot=" .. tostring(layoutConfig.HeightLoot or layoutDefaults.HeightLoot) .. "\n")
         f:write("LootWindowX=" .. tostring(layoutConfig.LootWindowX or layoutDefaults.LootWindowX) .. "\n")
@@ -454,6 +462,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
     layoutDefaults.HeightItemDisplay = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay
+    layoutDefaults.AugmentUtilityWindowX = layoutConfig.AugmentUtilityWindowX or layoutDefaults.AugmentUtilityWindowX
+    layoutDefaults.AugmentUtilityWindowY = layoutConfig.AugmentUtilityWindowY or layoutDefaults.AugmentUtilityWindowY
+    layoutDefaults.WidthAugmentUtilityPanel = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel
+    layoutDefaults.HeightAugmentUtility = layoutConfig.HeightAugmentUtility or layoutDefaults.HeightAugmentUtility
     layoutDefaults.WidthAAPanel = layoutConfig.WidthAAPanel or layoutDefaults.WidthAAPanel
     layoutDefaults.HeightAA = layoutConfig.HeightAA or layoutDefaults.HeightAA
     layoutDefaults.AAWindowX = layoutConfig.AAWindowX or layoutDefaults.AAWindowX
@@ -521,6 +533,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
             f:write("HeightItemDisplay=" .. tostring(layoutDefaults.HeightItemDisplay or 520) .. "\n")
+            f:write("AugmentUtilityWindowX=" .. tostring(layoutDefaults.AugmentUtilityWindowX or 0) .. "\n")
+            f:write("AugmentUtilityWindowY=" .. tostring(layoutDefaults.AugmentUtilityWindowY or 0) .. "\n")
+            f:write("WidthAugmentUtilityPanel=" .. tostring(layoutDefaults.WidthAugmentUtilityPanel or 520) .. "\n")
+            f:write("HeightAugmentUtility=" .. tostring(layoutDefaults.HeightAugmentUtility or 480) .. "\n")
             f:write("WidthAAPanel=" .. layoutDefaults.WidthAAPanel .. "\n")
             f:write("HeightAA=" .. layoutDefaults.HeightAA .. "\n")
             f:write("AAWindowX=" .. layoutDefaults.AAWindowX .. "\n")
@@ -582,6 +598,10 @@ function LayoutUtils.resetLayoutToDefault()
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
     layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel
     layoutConfig.HeightItemDisplay = layoutDefaults.HeightItemDisplay
+    layoutConfig.AugmentUtilityWindowX = layoutDefaults.AugmentUtilityWindowX
+    layoutConfig.AugmentUtilityWindowY = layoutDefaults.AugmentUtilityWindowY
+    layoutConfig.WidthAugmentUtilityPanel = layoutDefaults.WidthAugmentUtilityPanel
+    layoutConfig.HeightAugmentUtility = layoutDefaults.HeightAugmentUtility
     layoutConfig.WidthAAPanel = layoutDefaults.WidthAAPanel
     layoutConfig.HeightAA = layoutDefaults.HeightAA
     layoutConfig.AAWindowX = layoutDefaults.AAWindowX
@@ -648,6 +668,10 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
         layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)
         layoutConfig.HeightItemDisplay = LayoutUtils.loadLayoutValue(layout, "HeightItemDisplay", layoutDefaults.HeightItemDisplay)
+        layoutConfig.AugmentUtilityWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowX", layoutDefaults.AugmentUtilityWindowX)
+        layoutConfig.AugmentUtilityWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowY", layoutDefaults.AugmentUtilityWindowY)
+        layoutConfig.WidthAugmentUtilityPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentUtilityPanel", layoutDefaults.WidthAugmentUtilityPanel)
+        layoutConfig.HeightAugmentUtility = LayoutUtils.loadLayoutValue(layout, "HeightAugmentUtility", layoutDefaults.HeightAugmentUtility)
         layoutConfig.WidthLootPanel = LayoutUtils.loadLayoutValue(layout, "WidthLootPanel", layoutDefaults.WidthLootPanel)
         layoutConfig.HeightLoot = LayoutUtils.loadLayoutValue(layout, "HeightLoot", layoutDefaults.HeightLoot)
         layoutConfig.LootWindowX = LayoutUtils.loadLayoutValue(layout, "LootWindowX", layoutDefaults.LootWindowX)
@@ -748,6 +772,10 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
     layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)
     layoutConfig.HeightItemDisplay = LayoutUtils.loadLayoutValue(layout, "HeightItemDisplay", layoutDefaults.HeightItemDisplay)
+    layoutConfig.AugmentUtilityWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowX", layoutDefaults.AugmentUtilityWindowX)
+    layoutConfig.AugmentUtilityWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowY", layoutDefaults.AugmentUtilityWindowY)
+    layoutConfig.WidthAugmentUtilityPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentUtilityPanel", layoutDefaults.WidthAugmentUtilityPanel)
+    layoutConfig.HeightAugmentUtility = LayoutUtils.loadLayoutValue(layout, "HeightAugmentUtility", layoutDefaults.HeightAugmentUtility)
     layoutConfig.WidthLootPanel = LayoutUtils.loadLayoutValue(layout, "WidthLootPanel", layoutDefaults.WidthLootPanel)
     layoutConfig.HeightLoot = LayoutUtils.loadLayoutValue(layout, "HeightLoot", layoutDefaults.HeightLoot)
     layoutConfig.LootWindowX = LayoutUtils.loadLayoutValue(layout, "LootWindowX", layoutDefaults.LootWindowX)

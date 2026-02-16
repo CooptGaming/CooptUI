@@ -353,6 +353,80 @@ function M.getAugSlotsCountFromTLO(it)
     return n
 end
 
+--- Get socket type for slot index (1-based). Tries AugSlot# then AugSlot(i).Type. Returns 0 if unknown.
+function M.getSlotType(it, slotIndex)
+    if not it then return 0 end
+    local typ = 0
+    local acc = it["AugSlot" .. slotIndex]
+    if acc ~= nil then
+        typ = tonumber(type(acc) == "function" and acc() or acc) or 0
+    end
+    if typ == 0 then
+        local ok, aug = pcall(function() return it.AugSlot and it.AugSlot(slotIndex) end)
+        if ok and aug then
+            local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
+            typ = tonumber(t) or tonumber(tostring(t)) or 0
+        end
+    end
+    return typ
+end
+
+--- Get AugType from item TLO (for augmentation items). Returns number or 0. Used to match augment to socket type.
+function M.getAugTypeFromTLO(it)
+    if not it or not it.AugType then return 0 end
+    local ok, v = pcall(function() return it.AugType() end)
+    if not ok or not v then return 0 end
+    return tonumber(v) or 0
+end
+
+--- Check if an augment item (with augType from TLO) fits the given socket type.
+--- Socket type is from parent item's AugSlotN; augType is augmentation slot type mask from the augment.
+function M.augmentFitsSocket(augType, socketType)
+    if not socketType or socketType <= 0 then return false end
+    if not augType or augType <= 0 then return false end
+    -- AugType can be a single type or a bitmask; try both
+    if augType == socketType then return true end
+    -- Bitmask: socket type 1 = bit 0, etc. (Lua 5.1 has no <<; use bit32 or 2^n)
+    local bit
+    if bit32 and bit32.lshift then
+        bit = bit32.lshift(1, socketType - 1)
+    else
+        bit = 2 ^ (socketType - 1)
+    end
+    if bit32 and bit32.band and bit32.band(augType, bit) ~= 0 then return true end
+    return false
+end
+
+--- Build list of compatible augments for a given item and slot from inventory + bank.
+--- parentItem must have bag, slot, source; slotIndex is 1-based (1-6, ornament 5 optional).
+--- Returns array of item tables (same shape as scan) that are type Augmentation and fit the socket.
+function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inventoryItems, bankItemsOrCache)
+    if not parentItem or not slotIndex or slotIndex < 1 or slotIndex > 6 then return {} end
+    local b, s, src = bag or parentItem.bag, slot or parentItem.slot, source or parentItem.source or "inv"
+    local it = M.getItemTLO(b, s, src)
+    if not it or not it.ID or it.ID() == 0 then return {} end
+    local socketType = M.getSlotType(it, slotIndex)
+    if not socketType or socketType <= 0 then return {} end
+    -- Ornament (20): could allow ornament-type augments; for now include in same logic
+    local candidates = {}
+    local function addCandidate(itemRow)
+        if not itemRow or (itemRow.type or ""):lower() ~= "augmentation" then return end
+        local augIt = M.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
+        if not augIt or not augIt.AugType then return end
+        local augType = M.getAugTypeFromTLO(augIt)
+        if M.augmentFitsSocket(augType, socketType) then
+            candidates[#candidates + 1] = itemRow
+        end
+    end
+    if inventoryItems then
+        for _, row in ipairs(inventoryItems) do addCandidate(row) end
+    end
+    if bankItemsOrCache then
+        for _, row in ipairs(bankItemsOrCache) do addCandidate(row) end
+    end
+    return candidates
+end
+
 --- Build class and race display strings from item TLO (Classes()/Class(i), Races()/Race(i)).
 function M.getClassRaceStringsFromTLO(it)
     if not it or not it.ID or it.ID() == 0 then return "", "" end
@@ -436,6 +510,13 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
             local v = (it and M.getAugSlotsCountFromTLO(it)) or 0
             if not it or not it.ID or it.ID() == 0 then rawset(t, "_tlo_unavailable", true) end
             rawset(t, "augSlots", v)
+            return v
+        end
+        if k == "augType" then
+            local itemType = rawget(t, "type") or ""
+            if (itemType):lower() ~= "augmentation" then return nil end
+            local v = (it and M.getAugTypeFromTLO(it)) or 0
+            rawset(t, "augType", v)
             return v
         end
         if not STAT_FIELDS_SET[k] then return nil end
