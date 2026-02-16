@@ -309,6 +309,21 @@ function SellView.render(ctx, simulateSellView)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
+                if ImGui.BeginPopupContextItem("ItemContextSellIcon_" .. rid) then
+                    if ImGui.MenuItem("CoOp UI Item Display") then
+                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                    end
+                    if ImGui.MenuItem("Inspect") then
+                        if hasCursor then ctx.removeItemFromCursor()
+                        else
+                            local Me = mq.TLO and mq.TLO.Me
+                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+                            local tlo = pack and pack.Item and pack.Item(item.slot)
+                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
+                        end
+                    end
+                    ImGui.EndPopup()
+                end
                 -- Column 2: Sell Keep Junk buttons
                 ImGui.TableNextColumn()
                 ctx.theme.PushDeleteButton()
@@ -344,20 +359,8 @@ function SellView.render(ctx, simulateSellView)
                     ctx.uiState.lastPickupSetThisFrame = true
                     mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
                 end
-                if ImGui.BeginPopupContextItem("ItemContextSell_" .. rid) then
-                    if ImGui.MenuItem("CoOp UI Item Display") then
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                    end
-                    if ImGui.MenuItem("Inspect") then
-                        if hasCursor then ctx.removeItemFromCursor()
-                        else
-                            local Me = mq.TLO and mq.TLO.Me
-                            local pack = Me and Me.Inventory and Me.Inventory("pack"..item.bag)
-                            local tlo = pack and pack.Item and pack.Item(item.slot)
-                            if tlo and tlo.ID and tlo.ID() and tlo.ID()>0 and tlo.Inspect then tlo.Inspect() end
-                        end
-                    end
-                    ImGui.EndPopup()
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                 end
                 ImGui.TableNextColumn()
                 -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank

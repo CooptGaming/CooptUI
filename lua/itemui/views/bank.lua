@@ -375,22 +375,9 @@ function BankView.render(ctx)
                                     end
                                 end
                             end
-                            if ImGui.BeginPopupContextItem("ItemContextBank_" .. rid) then
-                                if ImGui.MenuItem("CoOp UI Item Display") then
-                                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
-                                end
-                                if ImGui.MenuItem("Inspect") then
-                                    if hasCursor then ctx.removeItemFromCursor()
-                                    else
-                                        local Me = mq.TLO and mq.TLO.Me
-                                        local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                        local sz = bn and bn.Container and bn.Container()
-                                        local it = (bn and sz and sz>0) and (bn.Item and bn.Item(item.slot)) or bn
-                                        if it and it.ID and it.ID() and it.ID()>0 and it.Inspect then it.Inspect() end
-                                    end
-                                end
-                                ImGui.EndPopup()
-                            end
+                        end
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
                         end
                     elseif colKey == "Icon" then
                         if ctx.drawItemIcon then
@@ -408,6 +395,23 @@ function BankView.render(ctx)
                             ImGui.Separator()
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                             ImGui.EndTooltip()
+                        end
+                        if ImGui.BeginPopupContextItem("ItemContextBankIcon_" .. rid) then
+                            local hasCursor = ctx.hasItemOnCursor()
+                            if ImGui.MenuItem("CoOp UI Item Display") then
+                                if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
+                            end
+                            if ImGui.MenuItem("Inspect") then
+                                if hasCursor then ctx.removeItemFromCursor()
+                                else
+                                    local Me = mq.TLO and mq.TLO.Me
+                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
+                                    local sz = bn and bn.Container and bn.Container()
+                                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(item.slot)) or bn
+                                    if it and it.ID and it.ID() and it.ID() > 0 and it.Inspect then it.Inspect() end
+                                end
+                            end
+                            ImGui.EndPopup()
                         end
                     elseif colKey == "Status" then
                         local statusText, willSell = "", false

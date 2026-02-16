@@ -277,14 +277,8 @@ function InventoryView.render(ctx, bankOpen)
                                 end
                             end
                         end
-                        if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
-                            if ctx.hasItemOnCursor() then ctx.removeItemFromCursor()
-                            else
-                                local Me = mq.TLO and mq.TLO.Me
-                                local pack = Me and Me.Inventory and Me.Inventory("pack"..item.bag)
-                                local tlo = pack and pack.Item and pack.Item(item.slot)
-                                if tlo and tlo.ID and tlo.ID() and tlo.ID()>0 and tlo.Inspect then tlo.Inspect() end
-                            end
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                         end
                     elseif colKey == "Clicky" then
                         local cid = ctx.getItemSpellId(item, "Clicky")
