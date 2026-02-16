@@ -119,19 +119,49 @@ Sub Main
 /declare useSellCache bool outer FALSE
 /if (${sellCacheCount} > 0) /varset useSellCache TRUE
 /declare sellCacheNames string outer
+/declare sellCacheNames2 string outer
+/declare sellCacheNames3 string outer
+/declare sellCacheNames4 string outer
+/declare sellCacheNames5 string outer
+/declare sellCacheNames6 string outer
+/declare sellCacheNames7 string outer
+/declare sellCacheNames8 string outer
+/declare sellCacheNames9 string outer
+/declare sellCacheNames10 string outer
+/declare sellCacheChunks int outer 1
 
 | ------------------------------------------------- |
 | LOAD CONFIGURATION                                |
 | ------------------------------------------------- |
 /call LoadConfig FALSE
 
-| Build in-memory sell cache list (one string, slash-delimited) for fast lookup
+| Build in-memory sell cache: chunked format (ItemUI writes [Items] 1=name/name/... 2=...) or legacy one-key-per-item
 /if (${useSellCache} && ${sellCacheCount} > 0) {
-    /varset sellCacheNames ${Ini[${sellCachePath},Items,1]}
-    /declare ci int local 2
-    /for ci 2 to ${sellCacheCount}
-        /varset sellCacheNames ${sellCacheNames}/${Ini[${sellCachePath},Items,${ci}]}
-    /next ci
+    /varset sellCacheChunks ${Ini[${sellCachePath},Meta,chunks,0]}
+    /if (${sellCacheChunks} >= 1) {
+        /varset sellCacheNames ${Ini[${sellCachePath},Items,1]}
+        /if (${sellCacheChunks} >= 2) /varset sellCacheNames2 ${Ini[${sellCachePath},Items,2]}
+        /if (${sellCacheChunks} >= 3) /varset sellCacheNames3 ${Ini[${sellCachePath},Items,3]}
+        /if (${sellCacheChunks} >= 4) /varset sellCacheNames4 ${Ini[${sellCachePath},Items,4]}
+        /if (${sellCacheChunks} >= 5) /varset sellCacheNames5 ${Ini[${sellCachePath},Items,5]}
+        /if (${sellCacheChunks} >= 6) /varset sellCacheNames6 ${Ini[${sellCachePath},Items,6]}
+        /if (${sellCacheChunks} >= 7) /varset sellCacheNames7 ${Ini[${sellCachePath},Items,7]}
+        /if (${sellCacheChunks} >= 8) /varset sellCacheNames8 ${Ini[${sellCachePath},Items,8]}
+        /if (${sellCacheChunks} >= 9) /varset sellCacheNames9 ${Ini[${sellCachePath},Items,9]}
+        /if (${sellCacheChunks} >= 10) /varset sellCacheNames10 ${Ini[${sellCachePath},Items,10]}
+    } else {
+        | Legacy format: one key per item; build single string (may hit 2048 limit with many items)
+        /varset sellCacheNames ${Ini[${sellCachePath},Items,1]}
+        /declare ci int local 2
+        /for ci 2 to ${sellCacheCount}
+            /varset sellCacheNames ${sellCacheNames}/${Ini[${sellCachePath},Items,${ci}]}
+        /next ci
+        /declare bufferWarnLen int local 1740
+        /if (${sellCacheNames.Length} > ${bufferWarnLen}) {
+            /echo \arBUFFER WARNING (sell): Sell cache list is ${sellCacheNames.Length} chars (85%% limit=1740).
+            /echo \arExceeding 2048 chars can crash to desktop. Run ItemUI to refresh; it will write a chunked cache.
+        }
+    }
 }
 
 | Handle load command (verbose mode)
@@ -295,10 +325,19 @@ sub EvaluateItem(int bag, int slot)
     
     | =========================================== |
     | SELL CACHE (ItemUI): only sell if in list  |
-    | (in-memory lookup via sellCacheNames)      |
+    | (chunked to avoid 2048 buffer overflow)    |
     | =========================================== |
     /if (${useSellCache}) {
         /call CheckFilterList "${sellCacheNames}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 2) /call CheckFilterList "${sellCacheNames2}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 3) /call CheckFilterList "${sellCacheNames3}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 4) /call CheckFilterList "${sellCacheNames4}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 5) /call CheckFilterList "${sellCacheNames5}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 6) /call CheckFilterList "${sellCacheNames6}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 7) /call CheckFilterList "${sellCacheNames7}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 8) /call CheckFilterList "${sellCacheNames8}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 9) /call CheckFilterList "${sellCacheNames9}" "${itemName}" FALSE TRUE
+        /if (!${shouldSell} && ${sellCacheChunks} >= 10) /call CheckFilterList "${sellCacheNames10}" "${itemName}" FALSE TRUE
         /if (${shouldSell}) {
             /if (${countOnly}) {
                 /call CountSellItem
