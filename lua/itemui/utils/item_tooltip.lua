@@ -525,17 +525,14 @@ local function canPlayerUseItem(item, source)
     return true
 end
 
---- Render full item tooltip matching in-game Item Display. Shows every property.
---- Runs content in pcall so binding/API errors do not leave tooltip stack inconsistent.
-function ItemTooltip.renderStatsTooltip(item, ctx, opts)
+--- Render item display content (two-column layout: header/stats/augs in col1, effects/info/spell/value in col2).
+--- Used by both the on-hover tooltip and the CoOpt Item Display window. Does not call BeginTooltip/EndTooltip.
+function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     if not item then return end
     opts = opts or {}
     local source = opts.source or (item and item.source) or "inv"
-    -- Use bag/slot from item or opts so tooltip works when getItemStatsForTooltip returns an object without bag/slot
     local bag = item.bag ~= nil and item.bag or opts.bag
     local slot = item.slot ~= nil and item.slot or opts.slot
-
-    local function render()
     -- Pre-warm lazy item fields when not using pre-built effects (so layout isn't affected by mid-draw TLO/cache)
     if not opts.effects and item and (bag ~= nil and slot ~= nil and source) then
         local _ = item.augSlots
@@ -1008,8 +1005,15 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
 
     if ImGui.EndChild then ImGui.EndChild() end
     ImGui.Columns(1)
-    end -- close render()
-    local ok = pcall(render)
+end
+
+--- Render full item tooltip matching in-game Item Display. Shows every property.
+--- Runs content in pcall so binding/API errors do not leave tooltip stack inconsistent.
+--- Caller must call BeginTooltip before and EndTooltip after.
+function ItemTooltip.renderStatsTooltip(item, ctx, opts)
+    if not item then return end
+    opts = opts or {}
+    local ok = pcall(function() ItemTooltip.renderItemDisplayContent(item, ctx, opts) end)
     if not ok then
         ImGui.Text("Item stats")
     end

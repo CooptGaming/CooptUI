@@ -60,6 +60,7 @@ local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
+local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
 
@@ -143,6 +144,8 @@ local uiState = {
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
+    itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
+    itemDisplayItem = nil,  -- { bag, slot, source, item } when open from context menu
     aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -191,6 +194,10 @@ local layoutDefaults = {
     HeightAugments = 500,
     AugmentsWindowX = 0,
     AugmentsWindowY = 0,
+    ItemDisplayWindowX = 0,
+    ItemDisplayWindowY = 0,
+    WidthItemDisplayPanel = 760,
+    HeightItemDisplay = 520,
     WidthLootPanel = 420,
     HeightLoot = 380,
     LootWindowX = 0,
@@ -647,6 +654,12 @@ context.init({
     getItemLoreText = function(it) return itemHelpers.getItemLoreText(it) end,
     getTimerReady = function(b, s, src) return itemHelpers.getTimerReady(b, s, src) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
+    getItemStatsForTooltip = function(item, source)
+        if not item or not item.bag or not item.slot then return item end
+        local it = itemHelpers.getItemTLO(item.bag, item.slot, source or "inv")
+        if not it or not it.ID or it.ID() == 0 then return item end
+        return itemHelpers.buildItemFromMQ(it, item.bag, item.slot, source or "inv")
+    end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
     drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
     drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
@@ -696,6 +709,12 @@ end
 local function renderAugmentsWindow()
     local ctx = extendContext(buildViewContext())
     AugmentsView.render(ctx)
+end
+
+--- Item Display window: persistent window with same content as on-hover tooltip (stats, augments, effects, etc.)
+local function renderItemDisplayWindow()
+    local ctx = extendContext(buildViewContext())
+    ItemDisplayView.render(ctx)
 end
 
 --- AA window: Alt Advancement (tabs, search, train, export/import)
@@ -907,6 +926,9 @@ local function renderUI()
         elseif uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw then
             uiState.augmentsWindowOpen = false
             uiState.augmentsWindowShouldDraw = false
+        elseif uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw then
+            uiState.itemDisplayWindowOpen = false
+            uiState.itemDisplayWindowShouldDraw = false
         else
             ImGui.SetKeyboardFocusHere(-1)  -- release keyboard focus so game gets input after close
             shouldDraw = false
@@ -1216,6 +1238,9 @@ local function renderUI()
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()
+    end
+    if uiState.itemDisplayWindowShouldDraw then
+        renderItemDisplayWindow()
     end
     if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
         renderAAWindow()

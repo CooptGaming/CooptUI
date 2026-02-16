@@ -362,6 +362,12 @@ function InventoryView.render(ctx, bankOpen)
                                     if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
                                 end
                             end
+                            if ImGui.MenuItem("Item Display") then
+                                local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
+                                ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
+                                ctx.uiState.itemDisplayWindowOpen = true
+                                ctx.uiState.itemDisplayWindowShouldDraw = true
+                            end
                             ImGui.Separator()
                             if ctx.applySellListChange then
                                 if inKeep then

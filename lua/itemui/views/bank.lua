@@ -371,15 +371,24 @@ function BankView.render(ctx)
                                     end
                                 end
                             end
-                            if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
-                                if hasCursor then ctx.removeItemFromCursor()
-                                else
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                    local sz = bn and bn.Container and bn.Container()
-                                    local it = (bn and sz and sz>0) and (bn.Item and bn.Item(item.slot)) or bn
-                                    if it and it.ID and it.ID() and it.ID()>0 and it.Inspect then it.Inspect() end
+                            if ImGui.BeginPopupContextItem("ItemContextBank_" .. rid) then
+                                if ImGui.MenuItem("Item Display") then
+                                    local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "bank")) or item
+                                    ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "bank", item = showItem }
+                                    ctx.uiState.itemDisplayWindowOpen = true
+                                    ctx.uiState.itemDisplayWindowShouldDraw = true
                                 end
+                                if ImGui.MenuItem("Inspect") then
+                                    if hasCursor then ctx.removeItemFromCursor()
+                                    else
+                                        local Me = mq.TLO and mq.TLO.Me
+                                        local bn = Me and Me.Bank and Me.Bank(item.bag)
+                                        local sz = bn and bn.Container and bn.Container()
+                                        local it = (bn and sz and sz>0) and (bn.Item and bn.Item(item.slot)) or bn
+                                        if it and it.ID and it.ID() and it.ID()>0 and it.Inspect then it.Inspect() end
+                                    end
+                                end
+                                ImGui.EndPopup()
                             end
                         end
                     elseif colKey == "Icon" then
