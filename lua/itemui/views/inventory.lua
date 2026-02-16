@@ -243,6 +243,10 @@ function InventoryView.render(ctx, bankOpen)
                 local item = filtered[i]
                 if not item then goto continue end
                 ImGui.TableNextRow()
+                local loc = ctx.uiState.itemDisplayLocateRequest
+                if loc and loc.source == "inv" and loc.bag == item.bag and loc.slot == item.slot then
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImVec4(0.25, 0.45, 0.75, 0.45)))
+                end
                 local rid = "inv_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
                 for _, colDef in ipairs(visibleCols) do
@@ -273,14 +277,8 @@ function InventoryView.render(ctx, bankOpen)
                                 end
                             end
                         end
-                        if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
-                            if ctx.hasItemOnCursor() then ctx.removeItemFromCursor()
-                            else
-                                local Me = mq.TLO and mq.TLO.Me
-                                local pack = Me and Me.Inventory and Me.Inventory("pack"..item.bag)
-                                local tlo = pack and pack.Item and pack.Item(item.slot)
-                                if tlo and tlo.ID and tlo.ID() and tlo.ID()>0 and tlo.Inspect then tlo.Inspect() end
-                            end
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                         end
                     elseif colKey == "Clicky" then
                         local cid = ctx.getItemSpellId(item, "Clicky")
@@ -363,10 +361,7 @@ function InventoryView.render(ctx, bankOpen)
                                 end
                             end
                             if ImGui.MenuItem("CoOp UI Item Display") then
-                                local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                                ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
-                                ctx.uiState.itemDisplayWindowOpen = true
-                                ctx.uiState.itemDisplayWindowShouldDraw = true
+                                if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                             end
                             ImGui.Separator()
                             if ctx.applySellListChange then

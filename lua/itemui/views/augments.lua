@@ -224,23 +224,9 @@ function AugmentsView.render(ctx)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
-
-                -- Column: Name
-                ImGui.TableNextColumn()
-                local dn = item.name or ""
-                if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
-                ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0, 0))
-                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
-                    ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
-                    ctx.uiState.lastPickupSetThisFrame = true
-                    mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
-                end
-                if ImGui.BeginPopupContextItem("ItemContextAugments_" .. rid) then
+                if ImGui.BeginPopupContextItem("ItemContextAugmentsIcon_" .. rid) then
                     if ImGui.MenuItem("CoOp UI Item Display") then
-                        local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                        ctx.uiState.itemDisplayItem = { bag = item.bag, slot = item.slot, source = "inv", item = showItem }
-                        ctx.uiState.itemDisplayWindowOpen = true
-                        ctx.uiState.itemDisplayWindowShouldDraw = true
+                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                     end
                     if ImGui.MenuItem("Inspect") then
                         if hasCursor then ctx.removeItemFromCursor()
@@ -252,6 +238,20 @@ function AugmentsView.render(ctx)
                         end
                     end
                     ImGui.EndPopup()
+                end
+
+                -- Column: Name
+                ImGui.TableNextColumn()
+                local dn = item.name or ""
+                if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
+                ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0, 0))
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
+                    ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
+                    ctx.uiState.lastPickupSetThisFrame = true
+                    mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
+                end
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
                 end
 
                 -- Column: Effects (only what exists)
