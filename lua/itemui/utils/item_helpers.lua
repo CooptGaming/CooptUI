@@ -65,8 +65,10 @@ for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
 --- String-type stat fields (default to "" not 0)
 local STAT_STRING_FIELDS = { baneDMGType = true, dmgBonusType = true }
 
---- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), "corpse" uses Corpse.Item(slot), else Me.Inventory("pack"..bag).Item(slot).
---- Bag and slot are 1-based (same as stored on item tables). For corpse, bag is ignored and slot is corpse loot slot (1-based). Returns nil if TLO not available.
+--- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), "corpse" uses Corpse.Item(slot),
+--- "equipped" uses InvSlot(slot) for slot 0-22 (0-based equipment slots), else Me.Inventory("pack"..bag).Item(slot).
+--- Bag and slot are 1-based (same as stored on item tables) for inv/bank. For corpse, bag is ignored and slot is corpse loot slot (1-based).
+--- For equipped, bag is ignored and slot is 0-based equipment slot index (0-22). Returns nil if TLO not available.
 function M.getItemTLO(bag, slot, source)
     if source == "bank" then
         local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
@@ -76,6 +78,57 @@ function M.getItemTLO(bag, slot, source)
         local corpse = mq.TLO and mq.TLO.Corpse
         if not corpse or not corpse.Item then return nil end
         return corpse.Item(slot or 0)
+    elseif source == "equipped" then
+        -- Equipment slots 0-22 (0-based). Try Me.Inventory(slot) first (returns item); else InvSlot(slot).Item (property or method).
+        local slotIndex = tonumber(slot)
+        if slotIndex == nil or slotIndex < 0 or slotIndex > 22 then return nil end
+        local Me = mq.TLO and mq.TLO.Me
+        if not Me or not Me.Inventory then return nil end
+        -- 1) Me.Inventory(slotIndex) or Me.Inventory[slotIndex] or Me.Inventory(slotName) may return the item directly
+        local function isItem(obj)
+            if not obj or not obj.ID then return false end
+            local ok, id = pcall(function() return obj.ID() end)
+            return ok and id and id ~= 0
+        end
+        local ok1, direct = pcall(function()
+            local inv = Me.Inventory(slotIndex)
+            if isItem(inv) then return inv end
+            return nil
+        end)
+        if ok1 and direct then return direct end
+        -- Some Lua bindings use Me.Inventory[slotIndex] (bracket index)
+        local okB, invB = pcall(function() return Me.Inventory[slotIndex] end)
+        if okB and invB and isItem(invB) then return invB end
+        local slotNames = {
+            [0] = "charm", [1] = "leftear", [2] = "head", [3] = "face", [4] = "rightear",
+            [5] = "neck", [6] = "shoulder", [7] = "arms", [8] = "back", [9] = "leftwrist",
+            [10] = "rightwrist", [11] = "ranged", [12] = "hands", [13] = "mainhand", [14] = "offhand",
+            [15] = "leftfinger", [16] = "rightfinger", [17] = "chest", [18] = "legs", [19] = "feet",
+            [20] = "waist", [21] = "powersource", [22] = "ammo",
+        }
+        local name = slotNames[slotIndex]
+        if name then
+            local ok2, byName = pcall(function()
+                local inv = Me.Inventory(name)
+                if isItem(inv) then return inv end
+                return nil
+            end)
+            if ok2 and byName then return byName end
+        end
+        -- 2) InvSlot(slotIndex): .Item may be property or method
+        local ok3, slotObj = pcall(function()
+            return mq.TLO and mq.TLO.InvSlot and mq.TLO.InvSlot(slotIndex)
+        end)
+        if not ok3 or not slotObj or not slotObj.Item then return nil end
+        local item = nil
+        if type(slotObj.Item) == "function" then
+            local ok4, res = pcall(function() return slotObj.Item() end)
+            if ok4 and res then item = res end
+        else
+            item = slotObj.Item
+        end
+        if not isItem(item) then return nil end
+        return item
     else
         local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
         if not pack then return nil end
