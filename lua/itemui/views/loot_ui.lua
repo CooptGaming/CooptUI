@@ -7,6 +7,7 @@ local mq = require('mq')
 require('ImGui')
 local ProgressBar = require('itemui.components.progressbar')
 local ItemUtils = require('mq.ItemUtils')
+local ItemTooltip = require('itemui.utils.item_tooltip')
 
 local LootUIView = {}
 
@@ -188,11 +189,51 @@ function LootUIView.render(ctx)
             ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "MYTHICAL")
             ImGui.SameLine()
             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), " NoDrop/NoTrade")
+            local iconHover = false
             if ctx.drawItemIcon and alert.iconId and alert.iconId > 0 then
                 ctx.drawItemIcon(alert.iconId)
+                iconHover = ImGui.IsItemHovered()
                 ImGui.SameLine()
             end
             ImGui.TextColored(theme.ToVec4(theme.Colors.Header), alert.itemName or "")
+            local nameHover = ImGui.IsItemHovered()
+            -- Hover tooltip: resolve item from corpse when corpse is open so user can see full description before Take/Pass
+            if iconHover or nameHover then
+                local corpse = mq.TLO and mq.TLO.Corpse
+                local itemsCount = corpse and corpse.Items and (corpse.Items() or 0)
+                local corpseSlot = nil
+                if corpse and itemsCount and itemsCount > 0 and alert.itemName and alert.itemName ~= "" then
+                    for i = 1, itemsCount do
+                        local it = corpse.Item and corpse.Item(i)
+                        local n = it and it.Name and it.Name()
+                        if n and tostring(n) == alert.itemName then
+                            corpseSlot = i
+                            break
+                        end
+                    end
+                end
+                if corpseSlot and ctx.getItemStatsForTooltip then
+                    local showItem = ctx.getItemStatsForTooltip({ bag = 0, slot = corpseSlot }, "corpse")
+                    if showItem and showItem.name then
+                        local opts = { source = "corpse", bag = 0, slot = corpseSlot }
+                        local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
+                        opts.effects = effects
+                        ItemTooltip.beginItemTooltip(w, h)
+                        ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                        ImGui.EndTooltip()
+                    else
+                        ImGui.BeginTooltip()
+                        ImGui.Text(alert.itemName or "—")
+                        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Open the corpse to see full description.")
+                        ImGui.EndTooltip()
+                    end
+                else
+                    ImGui.BeginTooltip()
+                    ImGui.Text(alert.itemName or "—")
+                    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Open the corpse loot window to see full description.")
+                    ImGui.EndTooltip()
+                end
+            end
             if alert.corpseName and alert.corpseName ~= "" then
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Corpse: " .. alert.corpseName)
             end

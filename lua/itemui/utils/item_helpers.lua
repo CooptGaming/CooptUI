@@ -65,13 +65,17 @@ for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
 --- String-type stat fields (default to "" not 0)
 local STAT_STRING_FIELDS = { baneDMGType = true, dmgBonusType = true }
 
---- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), else Me.Inventory("pack"..bag).Item(slot).
---- Bag and slot are 1-based (same as stored on item tables). Returns nil if TLO not available.
+--- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), "corpse" uses Corpse.Item(slot), else Me.Inventory("pack"..bag).Item(slot).
+--- Bag and slot are 1-based (same as stored on item tables). For corpse, bag is ignored and slot is corpse loot slot (1-based). Returns nil if TLO not available.
 function M.getItemTLO(bag, slot, source)
     if source == "bank" then
         local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
         if not bn then return nil end
         return bn.Item and bn.Item(slot or 0)
+    elseif source == "corpse" then
+        local corpse = mq.TLO and mq.TLO.Corpse
+        if not corpse or not corpse.Item then return nil end
+        return corpse.Item(slot or 0)
     else
         local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
         if not pack then return nil end
