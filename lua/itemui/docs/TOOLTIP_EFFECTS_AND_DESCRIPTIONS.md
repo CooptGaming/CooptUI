@@ -30,9 +30,11 @@ The in-game Item Display can show **STML** (styled markup) with light blue, gree
 
 Spell descriptions from the TLO sometimes contain **placeholders** such as `#1`, `#3`, `@2`, `%z` (e.g. “#3 damage initially and between #2 and @2 damage every six seconds for %z”). The **game client** replaces these with actual values (level, duration, etc.) in its UI.
 
-- **MQ Spell TLO** typically exposes the raw description string with placeholders, not the client’s resolved values.
-- We do **not** replace placeholders ourselves (would require spell formula/level context and game data we don’t have in this layer). The tooltip shows the description **as returned** after tag stripping.
-- If a future MQ or plugin API exposes resolved effect slot values or a “description with values” string, we can switch to that for the tooltip.
+- **MQ Spell TLO** exposes the raw description string with placeholders. We **substitute** them using spell effect data from the same TLO:
+  - **#n** → `Spell.Base(n)` (primary value for effect slot n, 1-based).
+  - **@n** and **$n** → `Spell.Base2(n)` (second value for slot n); lone **$** is treated as **$1**.
+  - **%z** → spell duration formatted as **H:MM:SS** (duration in ticks × 6 = seconds).
+- Substitution runs in `getSpellDescription()` after tag stripping; the result is cached under `spell:desc:<id>` so both the on-hover tooltip and CoOpt UI Item Display get resolved text. If the spell object or any effect access fails, the description is shown with placeholders unchanged.
 
 ---
 
@@ -49,5 +51,5 @@ Spell descriptions from the TLO sometimes contain **placeholders** such as `#1`,
 |--------------------|----------|
 | Augment effects    | Included in the same “Item effects” list as the main item; socket items resolved via `socketIndex`. |
 | STML / colors      | Tags stripped so only plain text is shown; no colored segments. |
-| Placeholders       | Shown as-is; no substitution unless the API later provides resolved values. |
+| Placeholders       | Resolved from spell effect slots (Base/Base2) and duration when possible; otherwise shown as-is. |
 | Item info / Spell Info | Blue item block (ID, Icon, Value, Ratio, Lore, Timer); green Clicky and yellow Worn Spell Info blocks with cached spell stats. |

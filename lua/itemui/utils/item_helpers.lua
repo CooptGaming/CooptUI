@@ -127,6 +127,116 @@ function M.stripDescriptionMarkup(str)
     return (tostring(str):gsub("<[^>]+>", ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+--- True if string contains description placeholders: %z, #n, @n, $n or lone $.
+local function hasPlaceholders(str)
+    if not str or str == "" then return false end
+    local s = tostring(str)
+    return s:find("%%z") or s:find("#%d+") or s:find("@%d+") or s:find("$%d*")
+end
+
+--- Format spell duration (ticks, 6 sec per tick) as H:MM:SS for %z placeholder.
+local function formatDurationTicks(ticks)
+    local t = tonumber(ticks)
+    if not t or t < 0 then return "" end
+    local seconds = math.floor(t * 6)
+    local h = math.floor(seconds / 3600)
+    local m = math.floor((seconds % 3600) / 60)
+    local s = seconds % 60
+    return string.format("%d:%02d:%02d", h, m, s)
+end
+
+--- Build substitution table for description placeholders from spell TLO. Returns table or nil on error.
+--- Keys: #n, @n, $n (1-based effect index), $ (same as $1), %z (formatted duration).
+--- For proc damage (Attrib 0): @n uses Max(n) when non-zero; #n uses formula 22 + spell_level*2 capped by Max when Attrib=0.
+local function buildDescriptionSubstitutionTable(spell)
+    if not spell then return nil end
+    local t = {}
+    local ok, numEffects = pcall(function()
+        local n = spell.NumEffects and spell.NumEffects()
+        return (n and tonumber(n)) or 0
+    end)
+    if not ok or not numEffects then numEffects = 0 end
+    local spellLevel
+    ok, spellLevel = pcall(function()
+        local fn = spell.Level and spell.Level()
+        return fn and tonumber(fn)
+    end)
+    if not ok or not spellLevel then spellLevel = 28 end
+    for n = 1, numEffects do
+        local attr
+        ok, attr = pcall(function()
+            local fn = spell.Attrib and spell.Attrib(n)
+            return fn and fn()
+        end)
+        local attribNum = (ok and attr ~= nil) and tonumber(attr) or nil
+        local b, b2, maxVal
+        ok, b = pcall(function()
+            local fn = spell.Base and spell.Base(n)
+            return fn and fn()
+        end)
+        ok, b2 = pcall(function()
+            local fn = spell.Base2 and spell.Base2(n)
+            return fn and fn()
+        end)
+        ok, maxVal = pcall(function()
+            local fn = spell.Max and spell.Max(n)
+            return fn and fn()
+        end)
+        local numMax = (ok and maxVal ~= nil) and tonumber(maxVal) or nil
+        -- #n: for damage/heal (Attrib 0) use formula 22 + spell_level*2 capped by Max; else Base with abs.
+        local dispB
+        if attribNum == 0 and numMax and numMax > 0 then
+            local formulaVal = 22 + spellLevel * 2
+            formulaVal = math.min(numMax, math.max(0, formulaVal))
+            dispB = tostring(formulaVal)
+            t["#" .. n] = dispB
+        else
+            local numB = tonumber(b)
+            dispB = (numB ~= nil) and tostring(math.abs(numB)) or (b ~= nil and tostring(b) or "")
+            t["#" .. n] = (ok and b ~= nil) and dispB or ""
+        end
+        -- @n and $n: use Max(n) when non-zero (proc damage), else Base2(n).
+        local s2
+        if numMax and numMax ~= 0 then
+            s2 = tostring(math.abs(numMax))
+        else
+            local numB2 = tonumber(b2)
+            s2 = (ok and b2 ~= nil) and ((numB2 ~= nil) and tostring(math.abs(numB2)) or tostring(b2)) or ""
+        end
+        t["@" .. n] = s2
+        t["$" .. n] = s2
+    end
+    if t["$1"] ~= nil then t["$"] = t["$1"] else t["$"] = "" end
+    local rawDuration
+    ok, rawDuration = pcall(function()
+        return spell.Duration and spell.Duration()
+    end)
+    if ok and rawDuration ~= nil then
+        t["%z"] = formatDurationTicks(rawDuration)
+    else
+        t["%z"] = ""
+    end
+    return t
+end
+
+--- Replace placeholder keys in str with values from subst. Keys replaced longest-first so $1 before $.
+local function applyDescriptionSubstitution(str, subst)
+    if not str or not subst then return str end
+    local keys = {}
+    for k in pairs(subst) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b) return #a > #b end)
+    local out = tostring(str)
+    for _, key in ipairs(keys) do
+        local val = subst[key]
+        if val ~= nil then
+            -- Escape all Lua pattern magic so key is matched literally (e.g. $ must not mean end-of-string).
+            local pattern = key:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+            out = out:gsub(pattern, val)
+        end
+    end
+    return out
+end
+
 function M.getSpellDescription(id)
     if not id or id <= 0 then return nil end
     local cacheKey = 'spell:desc:' .. id
@@ -135,6 +245,13 @@ function M.getSpellDescription(id)
     local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
     desc = s and s.Description and s.Description() or ""
     desc = M.stripDescriptionMarkup(desc) or desc
+    local placeholderParserEnabled = true
+    if placeholderParserEnabled and hasPlaceholders(desc) and s then
+        local ok, subst = pcall(buildDescriptionSubstitutionTable, s)
+        if ok and subst and next(subst) then
+            desc = applyDescriptionSubstitution(desc, subst)
+        end
+    end
     Cache.set(cacheKey, desc, { tier = 'L2' })
     return desc
 end
