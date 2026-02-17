@@ -371,6 +371,29 @@ function M.getSlotType(it, slotIndex)
     return typ
 end
 
+--- Ornament slot index (1-based) and socket type per AUGMENT_SOCKET_UI_DESIGN. Slot 5 = Ornamentation (type 20).
+local ORNAMENT_SLOT_INDEX = 5
+local ORNAMENT_SOCKET_TYPE = 20
+
+--- True if item has ornament slot (slot 5, type 20). Used to exclude ornament from "standard" augment slot count in UI.
+function M.itemHasOrnamentSlot(it)
+    if not it then return false end
+    return M.getSlotType(it, ORNAMENT_SLOT_INDEX) == ORNAMENT_SOCKET_TYPE
+end
+
+--- Count of standard augment slots (1-4 only) that actually have a socket type > 0. Iterates slots 1-4 and
+--- counts only those with getSlotType(it, i) > 0, so we never show phantom "Slot N, type 0 (empty)" rows when
+--- the game reports extra AugSlotN or when ornament (slot 5) is not reported as type 20. Ornament add/remove
+--- can be supported later as a separate flow (slot 5, type 20) since it behaves differently from augments.
+function M.getStandardAugSlotsCountFromTLO(it)
+    if not it then return 0 end
+    local n = 0
+    for i = 1, 4 do
+        if M.getSlotType(it, i) > 0 then n = n + 1 end
+    end
+    return n
+end
+
 --- Get AugType from item TLO (for augmentation items). Returns number or 0. Used to match augment to socket type.
 function M.getAugTypeFromTLO(it)
     if not it or not it.AugType then return 0 end
@@ -398,6 +421,57 @@ function M.getAugTypeSlotIds(augType)
         if set then list[#list + 1] = slotId end
     end
     return list
+end
+
+--- Classify parent item TLO as weapon/shield/armor and optional weapon subtype for augment restriction checks.
+--- Returns isWeapon (boolean), isShield (boolean), typeLower (string).
+local function parentItemClassify(it)
+    if not it then return false, false, "" end
+    local typeStr = ""
+    if it.Type then
+        local ok, v = pcall(function() return it.Type() end)
+        if ok and v then typeStr = tostring(v):lower() end
+    end
+    local dmg = 0
+    if it.Damage then local ok, v = pcall(function() return it.Damage() end); if ok and v then dmg = tonumber(v) or 0 end end
+    local delay = 0
+    if it.ItemDelay then local ok, v = pcall(function() return it.ItemDelay() end); if ok and v then delay = tonumber(v) or 0 end end
+    local isWeapon = (dmg and dmg ~= 0) or (delay and delay ~= 0) or (typeStr ~= "" and (typeStr:find("piercing") or typeStr:find("slashing") or typeStr:find("1h") or typeStr:find("2h") or typeStr:find("ranged")))
+    local isShield = typeStr ~= "" and typeStr:find("shield")
+    return isWeapon, isShield, typeStr
+end
+
+--- True if the augment's AugRestrictions allow the parent item. Restriction 0 = none; 1 = Armor Only;
+--- 2 = Weapons Only; 3-15 = specific weapon/shield types. Uses parent TLO Type/Damage/ItemDelay for consistency with tooltip.
+function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
+    if not augRestrictionId or augRestrictionId == 0 then return true end
+    if not parentIt then return false end
+    local isWeapon, isShield, typeLower = parentItemClassify(parentIt)
+    -- 1 = Armor Only: parent must not be weapon (armor or shield ok)
+    if augRestrictionId == 1 then return not isWeapon end
+    -- 2 = Weapons Only
+    if augRestrictionId == 2 then return isWeapon end
+    -- 13 = Shields Only
+    if augRestrictionId == 13 then return isShield end
+    -- 3-12, 14-15: weapon subtype; parent must be weapon and type string match
+    if augRestrictionId >= 3 and augRestrictionId <= 15 then
+        if not isWeapon then return false end
+        if not typeLower or typeLower == "" then return false end
+        if augRestrictionId == 3 then return typeLower:find("1h", 1, true) and typeLower:find("slashing", 1, true) end
+        if augRestrictionId == 4 then return typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true) end
+        if augRestrictionId == 5 then return typeLower:find("piercing", 1, true) end
+        if augRestrictionId == 6 then return typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
+        if augRestrictionId == 7 then return typeLower:find("2h", 1, true) and typeLower:find("slashing", 1, true) end
+        if augRestrictionId == 8 then return typeLower:find("2h", 1, true) and typeLower:find("blunt", 1, true) end
+        if augRestrictionId == 9 then return typeLower:find("2h", 1, true) and typeLower:find("piercing", 1, true) end
+        if augRestrictionId == 10 then return typeLower:find("ranged", 1, true) end
+        if augRestrictionId == 11 then return typeLower:find("2h", 1, true) and typeLower:find("hand to hand", 1, true) end
+        if augRestrictionId == 12 then return typeLower:find("archery", 1, true) end
+        if augRestrictionId == 14 then return typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("blunt", 1, true)) end
+        if augRestrictionId == 15 then return typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("piercing", 1, true)) end
+        return true
+    end
+    return true
 end
 
 --- Check if an augment item (with augType from TLO) fits the given socket type.
@@ -435,9 +509,10 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
         local augIt = M.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
         if not augIt or not augIt.AugType then return end
         local augType = M.getAugTypeFromTLO(augIt)
-        if M.augmentFitsSocket(augType, socketType) then
-            candidates[#candidates + 1] = itemRow
-        end
+        if not M.augmentFitsSocket(augType, socketType) then return end
+        local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
+        if not M.augmentRestrictionAllowsParent(it, augRestrictions) then return end
+        candidates[#candidates + 1] = itemRow
     end
     if inventoryItems then
         for _, row in ipairs(inventoryItems) do addCandidate(row) end
