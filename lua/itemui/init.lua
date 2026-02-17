@@ -57,6 +57,7 @@ local augmentOps = require('itemui.services.augment_ops')
 local InventoryView = require('itemui.views.inventory')
 local SellView = require('itemui.views.sell')
 local BankView = require('itemui.views.bank')
+local EquipmentView = require('itemui.views.equipment')
 local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local LootUIView = require('itemui.views.loot_ui')
@@ -836,6 +837,12 @@ local function renderBankWindow()
     BankView.render(ctx)
 end
 
+-- Render equipment companion window (separate from main UI)
+local function renderEquipmentWindow()
+    local ctx = extendContext(buildViewContext())
+    EquipmentView.render(ctx)
+end
+
 --- Augments window: pop-out like Bank (Always sell / Never loot, compact table, icon+stats on hover)
 local function renderAugmentsWindow()
     local ctx = extendContext(buildViewContext())
@@ -1057,6 +1064,9 @@ local function renderUI()
             uiState.quantityPickerValue = ""
         elseif uiState.configWindowOpen then
             uiState.configWindowOpen = false
+        elseif uiState.equipmentWindowOpen and uiState.equipmentWindowShouldDraw then
+            uiState.equipmentWindowOpen = false
+            uiState.equipmentWindowShouldDraw = false
         elseif uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
             uiState.bankWindowOpen = false
             uiState.bankWindowShouldDraw = false
@@ -1153,6 +1163,13 @@ local function renderUI()
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
     end
+    ImGui.SameLine()
+    if ImGui.Button("Equipment", ImVec2(75, 0)) then
+        uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
+        uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
+        if uiState.equipmentWindowOpen then setStatusMessage("Equipment Companion opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
     ImGui.SameLine(ImGui.GetWindowWidth() - 68)
     local bankOnline = isBankWindowOpen()
     if bankOnline then
@@ -1385,6 +1402,7 @@ local function renderUI()
     if uiState.equipmentWindowShouldDraw then
         refreshEquipmentCache()
     end
+    renderEquipmentWindow()
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()
