@@ -156,6 +156,7 @@ local uiState = {
     augmentUtilityWindowOpen = false, augmentUtilityWindowShouldDraw = false,
     augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
     searchFilterAugmentUtility = "",     -- filter compatible augments list by name
+    augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
     aaWindowOpen = false, aaWindowShouldDraw = false,
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,

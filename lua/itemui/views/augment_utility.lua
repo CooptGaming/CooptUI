@@ -132,9 +132,34 @@ function AugmentUtilityView.render(ctx)
         local entry = { bag = bag, slot = slot, source = source, item = targetItem }
         local candidates = ctx.getCompatibleAugments(entry, slotIdx)
 
+        -- Filter to augments current character can use when option is on
+        local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
+        local filteredByUse = {}
+        if onlyShowUsable then
+            for _, cand in ipairs(candidates) do
+                local info = ItemTooltip.getCanUseInfo(cand, cand.source or "inv")
+                if info and info.canUse then filteredByUse[#filteredByUse + 1] = cand end
+            end
+        else
+            filteredByUse = candidates
+        end
+
         ctx.theme.TextHeader("Compatible augments")
         ImGui.SameLine()
-        ctx.theme.TextInfo(string.format("(%d)", #candidates))
+        if onlyShowUsable and #filteredByUse < #candidates then
+            ctx.theme.TextInfo(string.format("(%d usable, %d total)", #filteredByUse, #candidates))
+        else
+            ctx.theme.TextInfo(string.format("(%d)", #filteredByUse))
+        end
+        ImGui.SameLine()
+        -- Persist checkbox state: support both single-return (new state) and two-return (changed, newState) bindings
+        local cb1, cb2 = ImGui.Checkbox("Only show usable by me##AU_OnlyUsable", ctx.uiState.augmentUtilityOnlyShowUsable)
+        ctx.uiState.augmentUtilityOnlyShowUsable = (cb2 ~= nil) and cb2 or cb1
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Filter list to augments your current character can use (class, race, deity, level)")
+            ImGui.EndTooltip()
+        end
         ImGui.SameLine()
         if ImGui.Button("Refresh##AugmentUtility", ImVec2(70, 0)) then
             if ctx.setStatusMessage then ctx.setStatusMessage("Scanning...") end
@@ -160,7 +185,7 @@ function AugmentUtilityView.render(ctx)
 
         local searchLower = (ctx.uiState.searchFilterAugmentUtility or ""):lower()
         local filtered = {}
-        for _, cand in ipairs(candidates) do
+        for _, cand in ipairs(filteredByUse) do
             if searchLower == "" or (cand.name or ""):lower():find(searchLower, 1, true) then
                 filtered[#filtered + 1] = cand
             end
@@ -170,17 +195,51 @@ function AugmentUtilityView.render(ctx)
             if #filtered == 0 then
                 if #candidates == 0 then
                     ctx.theme.TextMuted("No compatible augments in inventory or bank.")
+                elseif onlyShowUsable and #filteredByUse == 0 then
+                    ctx.theme.TextMuted("No augments you can use in this slot.")
+                    ImGui.TextWrapped("Uncheck \"Only show usable by me\" to see all compatible augments (e.g. for another character).")
                 else
                     ctx.theme.TextMuted("No compatible augments match your search.")
                 end
             else
-                local tableFlags = ctx.uiState.tableFlags or 0
+                local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
                 if ImGui.BeginTable("ItemUI_AugmentUtility", 4, tableFlags) then
                     ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 32, 0)
-                    ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 0)
-                    ImGui.TableSetupColumn("Location", ImGuiTableColumnFlags.WidthFixed, 100, 0)
-                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 0)
+                    ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
+                    ImGui.TableSetupColumn("Clicky", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
+                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 3)
                     ImGui.TableHeadersRow()
+
+                    -- Read sort spec and sort filtered list (columns 1 = Name, 2 = Clicky)
+                    local sortSpecs = ImGui.TableGetSortSpecs()
+                    if sortSpecs and sortSpecs.SpecsDirty and sortSpecs.SpecsCount > 0 then
+                        local spec = sortSpecs:Specs(1)
+                        if spec then
+                            ctx.uiState.augmentUtilitySortColumn = spec.ColumnIndex
+                            ctx.uiState.augmentUtilitySortDirection = spec.SortDirection
+                        end
+                        sortSpecs.SpecsDirty = false
+                    end
+                    local sortCol = (ctx.uiState.augmentUtilitySortColumn ~= nil) and ctx.uiState.augmentUtilitySortColumn or 1
+                    local sortDir = ctx.uiState.augmentUtilitySortDirection or ImGuiSortDirection.Ascending
+                    local asc = (sortDir == ImGuiSortDirection.Ascending)
+                    local function getClickyName(c)
+                        if not c or not c.clicky or c.clicky <= 0 then return "" end
+                        return (ctx.getSpellName and ctx.getSpellName(c.clicky)) or ""
+                    end
+                    if sortCol == 1 or sortCol == 2 then
+                        table.sort(filtered, function(a, b)
+                            local av, bv
+                            if sortCol == 1 then
+                                av = (a.name or ""):lower()
+                                bv = (b.name or ""):lower()
+                            else
+                                av = getClickyName(a):lower()
+                                bv = getClickyName(b):lower()
+                            end
+                            if asc then return av < bv else return av > bv end
+                        end)
+                    end
 
                     local clipper = ImGuiListClipper.new()
                     clipper:Begin(#filtered)
@@ -211,7 +270,7 @@ function AugmentUtilityView.render(ctx)
                                 ImGui.EndTooltip()
                             end
 
-                            -- Name
+                            -- Name + compact class/race/deity line
                             ImGui.TableNextColumn()
                             ImGui.Text(cand.name or "?")
                             if ImGui.IsItemHovered() then
@@ -219,13 +278,22 @@ function AugmentUtilityView.render(ctx)
                                 ImGui.Text(cand.name or "?")
                                 ImGui.EndTooltip()
                             end
+                            local subParts = {}
+                            if cand.class and cand.class ~= "" then subParts[#subParts + 1] = tostring(cand.class) end
+                            if cand.race and cand.race ~= "" then subParts[#subParts + 1] = tostring(cand.race) end
+                            if cand.deity and cand.deity ~= "" then subParts[#subParts + 1] = tostring(cand.deity) end
+                            if #subParts > 0 then
+                                ctx.theme.TextMuted(table.concat(subParts, " | "))
+                            end
 
-                            -- Location
+                            -- Clicky (spell name or —)
                             ImGui.TableNextColumn()
-                            local locStr = (cand.source or "inv") == "bank"
-                                and ("Bank " .. tostring(cand.bag) .. "/" .. tostring(cand.slot))
-                                or ("Pack " .. tostring(cand.bag) .. "/" .. tostring(cand.slot))
-                            ctx.theme.TextMuted(locStr)
+                            local clickyStr = getClickyName(cand)
+                            if clickyStr and clickyStr ~= "" then
+                                ImGui.Text(clickyStr)
+                            else
+                                ctx.theme.TextMuted("—")
+                            end
 
                             -- Insert button (themed)
                             ImGui.TableNextColumn()
