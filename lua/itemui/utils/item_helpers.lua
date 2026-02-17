@@ -490,6 +490,14 @@ local SLOT_DISPLAY_NAMES = {
     [15] = "Ring", [16] = "Ring", [17] = "Chest", [18] = "Legs", [19] = "Feet",
     [20] = "Waist", [21] = "Power", [22] = "Ammo",
 }
+
+--- Return display label for equipment slot 0-22 (e.g. "Primary", "Charm"). For Equipment Companion grid labels.
+function M.getEquipmentSlotLabel(slotIndex)
+    local n = tonumber(slotIndex)
+    if n == nil or n < 0 or n > 22 then return nil end
+    return SLOT_DISPLAY_NAMES[n]
+end
+
 local function slotIndexToDisplayName(s)
     if s == nil or s == "" then return nil end
     local n = tonumber(s)

@@ -103,6 +103,8 @@ local C = {
 -- State
 local isOpen, shouldDraw, terminate = true, false, false
 local inventoryItems, bankItems, lootItems = {}, {}, {}
+-- Equipment cache: index 1..23 maps to slot 0..22; each entry nil or item table from buildItemFromMQ(..., 0, slotIndex, "equipped")
+local equipmentCache = {}
 local transferStampPath, lastTransferStamp = nil, 0
 local lastInventoryWindowState, lastBankWindowState, lastMerchantState, lastLootWindowState = false, false, false, false
 -- Stats tab priming: only on first inventory open after ItemUI start, so AC/ATK/Weight load once
@@ -145,6 +147,7 @@ local uiState = {
     searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
+    equipmentWindowOpen = false, equipmentWindowShouldDraw = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
     itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
     itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
@@ -526,6 +529,19 @@ local function maybeScanBank(bankOpen) scanService.maybeScanBank(bankOpen) end
 local function maybeScanSellItems(merchOpen) scanService.maybeScanSellItems(merchOpen) end
 local function maybeScanLootItems(lootOpen) scanService.maybeScanLootItems(lootOpen) end
 
+-- Equipment cache: refresh when Equipment Companion window is visible (Phase 2). Slots 0-22; cache index = slotIndex + 1.
+local function refreshEquipmentCache()
+    for slotIndex = 0, 22 do
+        local it = itemHelpers.getItemTLO(0, slotIndex, "equipped")
+        local ok, id = pcall(function() return it and it.ID and it.ID() end)
+        if not ok or not id or id == 0 then
+            equipmentCache[slotIndex + 1] = nil
+        else
+            equipmentCache[slotIndex + 1] = buildItemFromMQ(it, 0, slotIndex, "equipped")
+        end
+    end
+end
+
 -- Item operations: init and local aliases (delegated to services/item_ops.lua)
 itemOps.init({
     inventoryItems = inventoryItems, bankItems = bankItems, sellItems = sellItems, lootItems = lootItems, bankCache = bankCache,
@@ -666,7 +682,7 @@ context.init({
     layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
     -- Data tables
     inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
-    sellItems = sellItems, bankCache = bankCache,
+    sellItems = sellItems, bankCache = bankCache, equipmentCache = equipmentCache,
     -- Config
     configLootLists = configLootLists, config = config,
     columnAutofitWidths = columnAutofitWidths, availableColumns = availableColumns,
@@ -683,6 +699,7 @@ context.init({
     maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
     maybeScanLootItems = maybeScanLootItems,
     ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
+    refreshEquipmentCache = refreshEquipmentCache,
     -- Config cache (event-driven: views emit events, sell_status subscribes)
     invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
     invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
@@ -749,6 +766,7 @@ context.init({
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
     itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
+    getEquipmentSlotLabel = function(slotIndex) return itemHelpers.getEquipmentSlotLabel(slotIndex) end,
     getCompatibleAugments = function(entryOrItem, slotIndex)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
         local item = entry and entry.item or entryOrItem
@@ -1364,6 +1382,9 @@ local function renderUI()
         ConfigView.render(ctx)
     end
 
+    if uiState.equipmentWindowShouldDraw then
+        refreshEquipmentCache()
+    end
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()
