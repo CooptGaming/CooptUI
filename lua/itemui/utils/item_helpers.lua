@@ -537,6 +537,38 @@ function M.getWornSlotsStringFromTLO(it)
     return (#parts > 0) and table.concat(parts, ", ") or ""
 end
 
+--- Get set of worn slot indices (0-22) for an item TLO. Returns table slotIndex -> true, or "all" if item can be worn in all slots (WornSlots >= 20).
+function M.getWornSlotIndicesFromTLO(it)
+    if not it or not it.WornSlots or not it.WornSlot then return {} end
+    local nSlots = it.WornSlots()
+    if not nSlots or nSlots <= 0 then return {} end
+    if nSlots >= 20 then return "all" end
+    local set = {}
+    for i = 1, nSlots do
+        local s = it.WornSlot(i)
+        local idx = (s ~= nil and s ~= "") and tonumber(tostring(s)) or nil
+        if idx ~= nil and idx >= 0 and idx <= 22 then set[idx] = true end
+    end
+    return set
+end
+
+--- True if the augment's worn-slot restriction allows the parent item. Augment can restrict which equipment slot
+--- the parent item is worn in (e.g. "Legs Only", "Wrist Only"). Parent must be wearable in at least one slot
+--- that the augment allows; if augment allows "All", any parent is ok.
+function M.augmentWornSlotAllowsParent(parentIt, augIt)
+    if not parentIt then return false end
+    local augSlots = M.getWornSlotIndicesFromTLO(augIt)
+    if augSlots == "all" then return true end
+    if type(augSlots) ~= "table" or not next(augSlots) then return true end
+    local parentSlots = M.getWornSlotIndicesFromTLO(parentIt)
+    if parentSlots == "all" then return true end
+    if type(parentSlots) ~= "table" or not next(parentSlots) then return false end
+    for idx, _ in pairs(parentSlots) do
+        if augSlots[idx] then return true end
+    end
+    return false
+end
+
 --- Count augment slots: AugSlot1-6 return slot type (int); 0 = no slot, >0 = has slot.
 function M.getAugSlotsCountFromTLO(it)
     if not it then return 0 end
@@ -639,6 +671,31 @@ local function parentItemClassify(it)
     return isWeapon, isShield, typeStr
 end
 
+--- Returns isWeapon (boolean), parentDamage (number), parentDelay (number) for ranking (e.g. augment damage as % of weapon).
+function M.getParentWeaponInfo(it)
+    if not it then return false, 0, 0 end
+    local dmg, delay = 0, 0
+    if it.Damage then local ok, v = pcall(function() return it.Damage() end); if ok and v then dmg = tonumber(v) or 0 end end
+    if it.ItemDelay then local ok, v = pcall(function() return it.ItemDelay() end); if ok and v then delay = tonumber(v) or 0 end end
+    local isWeapon = parentItemClassify(it)
+    return isWeapon, dmg, delay
+end
+
+--- Returns baseStatKeys, heroicStatKeys for augment ranking (single source of truth with STAT_TLO_MAP).
+function M.getStatKeysForRanking()
+    local baseKeys, heroicKeys = {}, {}
+    for field, _ in pairs(STAT_TLO_MAP) do
+        if STAT_STRING_FIELDS[field] then
+            -- skip string-only fields for numeric sum
+        elseif field:sub(1, 7) == "heroic" then
+            heroicKeys[#heroicKeys + 1] = field
+        else
+            baseKeys[#baseKeys + 1] = field
+        end
+    end
+    return baseKeys, heroicKeys
+end
+
 --- True if the augment's AugRestrictions allow the parent item. Restriction 0 = none; 1 = Armor Only;
 --- 2 = Weapons Only; 3-15 = specific weapon/shield types. Uses parent TLO Type/Damage/ItemDelay for consistency with tooltip.
 function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
@@ -691,25 +748,33 @@ function M.augmentFitsSocket(augType, socketType)
 end
 
 --- Build list of compatible augments for a given item and slot from inventory + bank.
+--- An augment is recommended only if (1) it can fit the open slot, then (2) it passes all qualifications.
 --- parentItem must have bag, slot, source; slotIndex is 1-based (1-6, ornament 5 optional).
---- Returns array of item tables (same shape as scan) that are type Augmentation and fit the socket.
-function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inventoryItems, bankItemsOrCache)
+--- canUseFilter: optional function(itemRow) -> boolean; when provided, only augments that pass
+--- (class, race, deity, level for current player) are included.
+--- Returns array of item tables (same shape as scan) that are type Augmentation and fully compatible.
+function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inventoryItems, bankItemsOrCache, canUseFilter)
     if not parentItem or not slotIndex or slotIndex < 1 or slotIndex > 6 then return {} end
     local b, s, src = bag or parentItem.bag, slot or parentItem.slot, source or parentItem.source or "inv"
     local it = M.getItemTLO(b, s, src)
     if not it or not it.ID or it.ID() == 0 then return {} end
     local socketType = M.getSlotType(it, slotIndex)
     if not socketType or socketType <= 0 then return {} end
-    -- Ornament (20): could allow ornament-type augments; for now include in same logic
     local candidates = {}
     local function addCandidate(itemRow)
         if not itemRow or (itemRow.type or ""):lower() ~= "augmentation" then return end
         local augIt = M.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
         if not augIt or not augIt.AugType then return end
+        local augId = (type(augIt.ID) == "function" and augIt.ID()) or augIt.ID
+        if not augId or augId == 0 then return end
+        -- Step 1: Can it actually fit into the open slot? (socket type must match)
         local augType = M.getAugTypeFromTLO(augIt)
         if not M.augmentFitsSocket(augType, socketType) then return end
+        -- Step 2: Qualifications (restrictions, equipment slot, character use)
         local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
         if not M.augmentRestrictionAllowsParent(it, augRestrictions) then return end
+        if not M.augmentWornSlotAllowsParent(it, augIt) then return end
+        if type(canUseFilter) == "function" and not canUseFilter(itemRow) then return end
         candidates[#candidates + 1] = itemRow
     end
     if inventoryItems then

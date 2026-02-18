@@ -930,7 +930,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                 local isEmpty = (augName == "empty" or augName == "")
                 ImGui.PushID("AugSlot" .. tostring(row.slotIndex or 0) .. "_" .. tostring(bag or "") .. "_" .. tostring(slot or ""))
                 drawSocketIcon(row.iconId)
-                -- Icon hover and click (Item Display only): hover = tooltip; empty left-click = open Augment Utility; filled right-click = remove
+                -- Icon hover and click (Item Display only): hover = tooltip; left-click = open Augment Utility to this socket (add or replace); filled right-click = remove
                 if isItemDisplayWin and row.slotIndex and bag and slot and source and ctx.uiState then
                     if ImGui.IsItemHovered() then
                         if not isEmpty then
@@ -942,7 +942,8 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                                 ItemTooltip.beginItemTooltip(nestW, nestH)
                                 ItemTooltip.renderStatsTooltip(socketItem, ctx, socketOpts)
                                 ImGui.Spacing()
-                                ImGui.TextColored(ImVec4(0.7, 0.6, 0.5, 1.0), "Right-click icon to remove augment")
+                                ImGui.TextColored(ImVec4(0.7, 0.6, 0.5, 1.0), "Left-click: open Augment Utility to this socket (replace augment)")
+                                ImGui.TextColored(ImVec4(0.7, 0.6, 0.5, 1.0), "Right-click: remove augment")
                                 ImGui.EndTooltip()
                             end
                         else
@@ -952,7 +953,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                             ImGui.EndTooltip()
                         end
                     end
-                    if isEmpty and ImGui.IsItemClicked(ImGuiMouseButton.Left) then
+                    if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
                         ctx.uiState.augmentUtilitySlotIndex = row.slotIndex
                         ctx.uiState.augmentUtilityWindowOpen = true
                         ctx.uiState.augmentUtilityWindowShouldDraw = true
