@@ -774,9 +774,10 @@ context.init({
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
     itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
+    getParentWeaponInfo = function(it) return itemHelpers.getParentWeaponInfo(it) end,
     getEquipmentSlotLabel = function(slotIndex) return itemHelpers.getEquipmentSlotLabel(slotIndex) end,
     getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
-    getCompatibleAugments = function(entryOrItem, slotIndex)
+    getCompatibleAugments = function(entryOrItem, slotIndex, options)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
         local item = entry and entry.item or entryOrItem
         local bag = entry and entry.bag or (entryOrItem and entryOrItem.bag)
@@ -784,7 +785,8 @@ context.init({
         local src = entry and entry.source or (entryOrItem and entryOrItem.source) or "inv"
         if not item or not slotIndex then return {} end
         local bankList = isBankWindowOpen() and bankItems or bankCache
-        return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList)
+        local canUseFilter = (options and type(options.canUseFilter) == "function") and options.canUseFilter or nil
+        return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList, canUseFilter)
     end,
     insertAugment = function(targetItem, augmentItem, slotIndex, targetLocation)
         if not targetItem or not augmentItem then return end

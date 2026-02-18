@@ -6,6 +6,7 @@
 
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local augmentRanking = require('itemui.utils.augment_ranking')
 
 local AugmentUtilityView = {}
 
@@ -130,26 +131,23 @@ function AugmentUtilityView.render(ctx)
         ImGui.Spacing()
     else
         local entry = { bag = bag, slot = slot, source = source, item = targetItem }
-        local candidates = ctx.getCompatibleAugments(entry, slotIdx)
-
-        -- Filter to augments current character can use when option is on
         local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
-        local filteredByUse = {}
-        if onlyShowUsable then
-            for _, cand in ipairs(candidates) do
-                local info = ItemTooltip.getCanUseInfo(cand, cand.source or "inv")
-                if info and info.canUse then filteredByUse[#filteredByUse + 1] = cand end
-            end
-        else
-            filteredByUse = candidates
-        end
+        -- Apply socket type + augment restrictions + (when on) class/race/deity/level in one place so list is strict before ranking
+        local canUseFilter = onlyShowUsable and function(i)
+            local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
+            return info and info.canUse
+        end or nil
+        -- List is already restricted to: fits slot, restrictions, equipment slot, and (when on) class/race/deity/level
+        local candidates = ctx.getCompatibleAugments(entry, slotIdx, { canUseFilter = canUseFilter })
+        local filteredByUse = candidates
 
         ctx.theme.TextHeader("Compatible augments")
         ImGui.SameLine()
-        if onlyShowUsable and #filteredByUse < #candidates then
-            ctx.theme.TextInfo(string.format("(%d usable, %d total)", #filteredByUse, #candidates))
-        else
-            ctx.theme.TextInfo(string.format("(%d)", #filteredByUse))
+        ctx.theme.TextInfo(string.format("(%d)", #filteredByUse))
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Only augments that fit this slot and pass all qualifications (restrictions, equipment slot, class/race/deity/level) are listed.")
+            ImGui.EndTooltip()
         end
         ImGui.SameLine()
         -- Persist checkbox state: support both single-return (new state) and two-return (changed, newState) bindings
@@ -191,6 +189,18 @@ function AugmentUtilityView.render(ctx)
             end
         end
 
+        -- Score each candidate, then assign rank position (1 = best)
+        local parentContext = { bag = bag, slot = slot, source = source }
+        local rankConfig = augmentRanking.getDefaultConfig()
+        for _, cand in ipairs(filtered) do
+            local s = augmentRanking.scoreAugment(cand, parentContext, ctx, rankConfig)
+            cand._rankScore = (type(s) == "number") and s or 0
+        end
+        table.sort(filtered, function(a, b) return (a._rankScore or 0) > (b._rankScore or 0) end)
+        for i, cand in ipairs(filtered) do
+            cand._rankPosition = i
+        end
+
         if ImGui.BeginChild("##AugmentUtilityList", ImVec2(0, -72), true) then
             if #filtered == 0 then
                 if #candidates == 0 then
@@ -203,14 +213,15 @@ function AugmentUtilityView.render(ctx)
                 end
             else
                 local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
-                if ImGui.BeginTable("ItemUI_AugmentUtility", 4, tableFlags) then
+                if ImGui.BeginTable("ItemUI_AugmentUtility", 5, tableFlags) then
                     ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 32, 0)
-                    ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
-                    ImGui.TableSetupColumn("Clicky", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
-                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 3)
+                    ImGui.TableSetupColumn("Rank", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 48, 1)
+                    ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
+                    ImGui.TableSetupColumn("Clicky", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 3)
+                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 4)
                     ImGui.TableHeadersRow()
 
-                    -- Read sort spec and sort filtered list (columns 1 = Name, 2 = Clicky)
+                    -- Read sort spec and sort filtered list (1 = Rank, 2 = Name, 3 = Clicky)
                     local sortSpecs = ImGui.TableGetSortSpecs()
                     if sortSpecs and sortSpecs.SpecsDirty and sortSpecs.SpecsCount > 0 then
                         local spec = sortSpecs:Specs(1)
@@ -220,24 +231,34 @@ function AugmentUtilityView.render(ctx)
                         end
                         sortSpecs.SpecsDirty = false
                     end
+                    -- Default: sort by Rank ascending (1 = best, first)
                     local sortCol = (ctx.uiState.augmentUtilitySortColumn ~= nil) and ctx.uiState.augmentUtilitySortColumn or 1
-                    local sortDir = ctx.uiState.augmentUtilitySortDirection or ImGuiSortDirection.Ascending
+                    local sortDir = ctx.uiState.augmentUtilitySortDirection
+                    if sortDir == nil then
+                        sortDir = ImGuiSortDirection.Ascending
+                        ctx.uiState.augmentUtilitySortDirection = sortDir
+                    end
                     local asc = (sortDir == ImGuiSortDirection.Ascending)
                     local function getClickyName(c)
                         if not c or not c.clicky or c.clicky <= 0 then return "" end
                         return (ctx.getSpellName and ctx.getSpellName(c.clicky)) or ""
                     end
-                    if sortCol == 1 or sortCol == 2 then
+                    if sortCol == 1 or sortCol == 2 or sortCol == 3 then
                         table.sort(filtered, function(a, b)
                             local av, bv
                             if sortCol == 1 then
+                                av = (a._rankPosition or 9999)
+                                bv = (b._rankPosition or 9999)
+                                if asc then return av < bv else return av > bv end
+                            elseif sortCol == 2 then
                                 av = (a.name or ""):lower()
                                 bv = (b.name or ""):lower()
+                                if asc then return av < bv else return av > bv end
                             else
                                 av = getClickyName(a):lower()
                                 bv = getClickyName(b):lower()
+                                if asc then return av < bv else return av > bv end
                             end
-                            if asc then return av < bv else return av > bv end
                         end)
                     end
 
@@ -267,6 +288,15 @@ function AugmentUtilityView.render(ctx)
                                 ImGui.Text("Stats")
                                 ImGui.Separator()
                                 ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                                ImGui.EndTooltip()
+                            end
+
+                            -- Rank (1 = best)
+                            ImGui.TableNextColumn()
+                            ImGui.Text(tostring(cand._rankPosition or 0))
+                            if ImGui.IsItemHovered() then
+                                ImGui.BeginTooltip()
+                                ImGui.Text("Rank (1 = best)")
                                 ImGui.EndTooltip()
                             end
 
