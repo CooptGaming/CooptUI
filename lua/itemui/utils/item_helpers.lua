@@ -498,6 +498,22 @@ function M.getEquipmentSlotLabel(slotIndex)
     return SLOT_DISPLAY_NAMES[n]
 end
 
+-- Slot names for /itemnotify <name> leftmouseup (MQ2 equipment slot names).
+local SLOT_NAMES_ITEMNOTIFY = {
+    [0] = "charm", [1] = "leftear", [2] = "head", [3] = "face", [4] = "rightear",
+    [5] = "neck", [6] = "shoulder", [7] = "arms", [8] = "back", [9] = "leftwrist",
+    [10] = "rightwrist", [11] = "ranged", [12] = "hands", [13] = "mainhand", [14] = "offhand",
+    [15] = "leftfinger", [16] = "rightfinger", [17] = "chest", [18] = "legs", [19] = "feet",
+    [20] = "waist", [21] = "powersource", [22] = "ammo",
+}
+
+--- Return MQ2 slot name for equipment slot 0-22 for use with /itemnotify <name> leftmouseup (pickup, equip, put-back).
+function M.getEquipmentSlotNameForItemNotify(slotIndex)
+    local n = tonumber(slotIndex)
+    if n == nil or n < 0 or n > 22 then return nil end
+    return SLOT_NAMES_ITEMNOTIFY[n]
+end
+
 local function slotIndexToDisplayName(s)
     if s == nil or s == "" then return nil end
     local n = tonumber(s)

@@ -480,13 +480,37 @@ function M.executeMoveAction(action)
     end
 end
 
+--- Put item on cursor into first free inventory slot. Clears lastPickup so "put back" is no longer to previous location.
+--- Returns true if cursor had item and a free slot was found and used.
+function M.putCursorInBags()
+    if not M.hasItemOnCursor() then return false end
+    local ib, is_ = findFirstFreeInvSlot()
+    if not ib or not is_ then
+        if deps.setStatusMessage then deps.setStatusMessage("No free inventory slot") end
+        return false
+    end
+    mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
+    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    if deps.setStatusMessage then deps.setStatusMessage("Put in bags") end
+    if deps.scanInventory then deps.scanInventory() end
+    return true
+end
+
 function M.removeItemFromCursor()
     if not M.hasItemOnCursor() then return false end
-    if deps.uiState.lastPickup.bag and deps.uiState.lastPickup.slot then
-        if deps.uiState.lastPickup.source == "bank" then
-            mq.cmdf('/itemnotify in bank%d %d leftmouseup', deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot)
+    local lp = deps.uiState.lastPickup
+    if lp and (lp.bag ~= nil or lp.slot ~= nil) and lp.slot ~= nil then
+        if lp.source == "bank" then
+            mq.cmdf('/itemnotify in bank%d %d leftmouseup', lp.bag, lp.slot)
+        elseif lp.source == "equipped" then
+            local slotName = deps.getEquipmentSlotNameForItemNotify and deps.getEquipmentSlotNameForItemNotify(lp.slot)
+            if slotName then
+                mq.cmdf('/itemnotify %s leftmouseup', slotName)
+            else
+                mq.cmd('/autoinv')
+            end
         else
-            mq.cmdf('/itemnotify in pack%d %d leftmouseup', deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot)
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', lp.bag, lp.slot)
         end
         deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
     else

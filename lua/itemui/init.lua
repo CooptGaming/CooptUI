@@ -550,7 +550,9 @@ itemOps.init({
     sellStatus = sellStatusService, isBankWindowOpen = isBankWindowOpen, isMerchantWindowOpen = isMerchantWindowOpen,
     invalidateSortCache = invalidateSortCache, setStatusMessage = setStatusMessage, storage = storage,
     getItemSpellId = getItemSpellId,
+    getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
     scanBank = function() scanService.scanBank() end,
+    scanInventory = function() scanService.scanInventory() end,
 })
 augmentOps.init({
     setStatusMessage = setStatusMessage,
@@ -565,6 +567,7 @@ augmentOps.init({
 local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
 local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
+local function putCursorInBags() return itemOps.putCursorInBags() end
 
 -- Single path for sell list changes: update INI, rows, and stored inventory so all views stay in sync
 local function applySellListChange(itemName, inKeep, inJunk)
@@ -626,13 +629,14 @@ local sortColumnsAPI = {
 
 local ITEM_DISPLAY_RECENT_MAX = 10
 local function getItemStatsForTooltipRef(item, source)
-    if not item or not item.bag or not item.slot then return item end
-    local it = itemHelpers.getItemTLO(item.bag, item.slot, source or "inv")
+    if not item or item.slot == nil then return item end
+    local bag = (item.bag ~= nil) and item.bag or 0
+    local it = itemHelpers.getItemTLO(bag, item.slot, source or "inv")
     if not it or not it.ID or it.ID() == 0 then return item end
-    return itemHelpers.buildItemFromMQ(it, item.bag, item.slot, source or "inv")
+    return itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
 end
 local function addItemDisplayTab(item, source)
-    if not item or not item.bag or not item.slot then return end
+    if not item or item.slot == nil then return end
     source = source or "inv"
     local showItem = getItemStatsForTooltipRef(item, source) or item
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
@@ -720,6 +724,7 @@ context.init({
     -- Item ops (module direct)
     hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
     removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
+    putCursorInBags = function() return itemOps.putCursorInBags() end,
     moveBankToInv = function(b, s) return itemOps.moveBankToInv(b, s) end,
     moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
@@ -768,6 +773,7 @@ context.init({
     itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
     getEquipmentSlotLabel = function(slotIndex) return itemHelpers.getEquipmentSlotLabel(slotIndex) end,
+    getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
     getCompatibleAugments = function(entryOrItem, slotIndex)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
         local item = entry and entry.item or entryOrItem
@@ -1325,6 +1331,9 @@ local function renderUI()
         ImGui.TextColored(ImVec4(0.95,0.75,0.2,1), "Cursor: " .. cn)
         if ImGui.Button("Clear cursor", ImVec2(90,0)) then removeItemFromCursor() end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Put item back to last location or use /autoinv"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.Button("Put in bags", ImVec2(90,0)) then putCursorInBags() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Place item in first free inventory slot"); ImGui.EndTooltip() end
         ImGui.SameLine()
         ImGui.TextColored(ImVec4(0.55,0.55,0.55,1), "Right-click to put back")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Right-click anywhere on this window to put the item back"); ImGui.EndTooltip() end

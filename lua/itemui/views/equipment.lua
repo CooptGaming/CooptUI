@@ -173,6 +173,12 @@ function EquipmentView.render(ctx)
                         end
                     end
                     if ImGui.IsItemHovered() then
+                        -- Use normal tooltip/popup background (slot's ChildBg would otherwise make tooltip grey)
+                        local didPushTooltipBg = false
+                        if ImGuiCol.ChildBg and ImGuiCol.PopupBg and ImGui.GetStyleColorVec4 then
+                            local popupBg = ImGui.GetStyleColorVec4(ImGuiCol.PopupBg)
+                            if popupBg then ImGui.PushStyleColor(ImGuiCol.ChildBg, popupBg); didPushTooltipBg = true end
+                        end
                         if item and item.name then
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = slotIndex, source = "equipped" }, "equipped")) or item
                             local opts = { source = "equipped", bag = 0, slot = slotIndex }
@@ -187,6 +193,36 @@ function EquipmentView.render(ctx)
                             ImGui.BeginTooltip()
                             ImGui.Text(slotLabel .. " (empty)")
                             ImGui.EndTooltip()
+                        end
+                        if didPushTooltipBg then ImGui.PopStyleColor() end
+                    end
+                    -- Phase 4: right-click equipped item opens Item Display
+                    if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) and hasItem and item then
+                        local displayItem = { bag = 0, slot = slotIndex }
+                        if item.name then displayItem.name = item.name end
+                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(displayItem, "equipped") end
+                    end
+                    -- Phase 2: left-click pickup (no cursor) or drop/swap (has cursor)
+                    if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+                        local slotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(slotIndex)
+                        if slotName then
+                            local hasCursor = ctx.hasItemOnCursor and ctx.hasItemOnCursor()
+                            if not hasCursor and hasItem then
+                                ctx.uiState.lastPickup.bag = 0
+                                ctx.uiState.lastPickup.slot = slotIndex
+                                ctx.uiState.lastPickup.source = "equipped"
+                                ctx.uiState.lastPickupSetThisFrame = true
+                                mq.cmdf('/itemnotify %s leftmouseup', slotName)
+                                if ctx.setStatusMessage then ctx.setStatusMessage("Picked up (equipment)") end
+                            elseif hasCursor then
+                                mq.cmdf('/itemnotify %s leftmouseup', slotName)
+                                ctx.uiState.lastPickup.bag = 0
+                                ctx.uiState.lastPickup.slot = slotIndex
+                                ctx.uiState.lastPickup.source = "equipped"
+                                ctx.uiState.lastPickupSetThisFrame = true
+                                if ctx.setStatusMessage then ctx.setStatusMessage("Equipped or swapped") end
+                            end
+                            if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
                         end
                     end
                 end
