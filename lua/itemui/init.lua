@@ -57,6 +57,7 @@ local augmentOps = require('itemui.services.augment_ops')
 local InventoryView = require('itemui.views.inventory')
 local SellView = require('itemui.views.sell')
 local BankView = require('itemui.views.bank')
+local EquipmentView = require('itemui.views.equipment')
 local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local LootUIView = require('itemui.views.loot_ui')
@@ -103,6 +104,8 @@ local C = {
 -- State
 local isOpen, shouldDraw, terminate = true, false, false
 local inventoryItems, bankItems, lootItems = {}, {}, {}
+-- Equipment cache: index 1..23 maps to slot 0..22; each entry nil or item table from buildItemFromMQ(..., 0, slotIndex, "equipped")
+local equipmentCache = {}
 local transferStampPath, lastTransferStamp = nil, 0
 local lastInventoryWindowState, lastBankWindowState, lastMerchantState, lastLootWindowState = false, false, false, false
 -- Stats tab priming: only on first inventory open after ItemUI start, so AC/ATK/Weight load once
@@ -145,6 +148,7 @@ local uiState = {
     searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
+    equipmentWindowOpen = false, equipmentWindowShouldDraw = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
     itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
     itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
@@ -181,6 +185,8 @@ local uiState = {
     insertConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for insert confirmation; used for no-dialog fallback
     removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
     pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
+    equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
+    deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
     lootRunCorpsesLooted = 0,
@@ -526,6 +532,19 @@ local function maybeScanBank(bankOpen) scanService.maybeScanBank(bankOpen) end
 local function maybeScanSellItems(merchOpen) scanService.maybeScanSellItems(merchOpen) end
 local function maybeScanLootItems(lootOpen) scanService.maybeScanLootItems(lootOpen) end
 
+-- Equipment cache: refresh when Equipment Companion window is visible (Phase 2). Slots 0-22; cache index = slotIndex + 1.
+local function refreshEquipmentCache()
+    for slotIndex = 0, 22 do
+        local it = itemHelpers.getItemTLO(0, slotIndex, "equipped")
+        local ok, id = pcall(function() return it and it.ID and it.ID() end)
+        if not ok or not id or id == 0 then
+            equipmentCache[slotIndex + 1] = nil
+        else
+            equipmentCache[slotIndex + 1] = buildItemFromMQ(it, 0, slotIndex, "equipped")
+        end
+    end
+end
+
 -- Item operations: init and local aliases (delegated to services/item_ops.lua)
 itemOps.init({
     inventoryItems = inventoryItems, bankItems = bankItems, sellItems = sellItems, lootItems = lootItems, bankCache = bankCache,
@@ -533,7 +552,9 @@ itemOps.init({
     sellStatus = sellStatusService, isBankWindowOpen = isBankWindowOpen, isMerchantWindowOpen = isMerchantWindowOpen,
     invalidateSortCache = invalidateSortCache, setStatusMessage = setStatusMessage, storage = storage,
     getItemSpellId = getItemSpellId,
+    getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
     scanBank = function() scanService.scanBank() end,
+    scanInventory = function() scanService.scanInventory() end,
 })
 augmentOps.init({
     setStatusMessage = setStatusMessage,
@@ -548,6 +569,7 @@ augmentOps.init({
 local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
 local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
+local function putCursorInBags() return itemOps.putCursorInBags() end
 
 -- Single path for sell list changes: update INI, rows, and stored inventory so all views stay in sync
 local function applySellListChange(itemName, inKeep, inJunk)
@@ -609,13 +631,14 @@ local sortColumnsAPI = {
 
 local ITEM_DISPLAY_RECENT_MAX = 10
 local function getItemStatsForTooltipRef(item, source)
-    if not item or not item.bag or not item.slot then return item end
-    local it = itemHelpers.getItemTLO(item.bag, item.slot, source or "inv")
+    if not item or item.slot == nil then return item end
+    local bag = (item.bag ~= nil) and item.bag or 0
+    local it = itemHelpers.getItemTLO(bag, item.slot, source or "inv")
     if not it or not it.ID or it.ID() == 0 then return item end
-    return itemHelpers.buildItemFromMQ(it, item.bag, item.slot, source or "inv")
+    return itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
 end
 local function addItemDisplayTab(item, source)
-    if not item or not item.bag or not item.slot then return end
+    if not item or item.slot == nil then return end
     source = source or "inv"
     local showItem = getItemStatsForTooltipRef(item, source) or item
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
@@ -666,7 +689,7 @@ context.init({
     layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
     -- Data tables
     inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
-    sellItems = sellItems, bankCache = bankCache,
+    sellItems = sellItems, bankCache = bankCache, equipmentCache = equipmentCache,
     -- Config
     configLootLists = configLootLists, config = config,
     columnAutofitWidths = columnAutofitWidths, availableColumns = availableColumns,
@@ -683,6 +706,7 @@ context.init({
     maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
     maybeScanLootItems = maybeScanLootItems,
     ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
+    refreshEquipmentCache = refreshEquipmentCache,
     -- Config cache (event-driven: views emit events, sell_status subscribes)
     invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
     invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
@@ -702,6 +726,7 @@ context.init({
     -- Item ops (module direct)
     hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
     removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
+    putCursorInBags = function() return itemOps.putCursorInBags() end,
     moveBankToInv = function(b, s) return itemOps.moveBankToInv(b, s) end,
     moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
@@ -749,6 +774,8 @@ context.init({
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
     itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
+    getEquipmentSlotLabel = function(slotIndex) return itemHelpers.getEquipmentSlotLabel(slotIndex) end,
+    getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
     getCompatibleAugments = function(entryOrItem, slotIndex)
         local entry = type(entryOrItem) == "table" and entryOrItem.bag and entryOrItem.slot and entryOrItem.item and entryOrItem or nil
         local item = entry and entry.item or entryOrItem
@@ -816,6 +843,12 @@ local BANK_WINDOW_HEIGHT = 600
 local function renderBankWindow()
     local ctx = extendContext(buildViewContext())
     BankView.render(ctx)
+end
+
+-- Render equipment companion window (separate from main UI)
+local function renderEquipmentWindow()
+    local ctx = extendContext(buildViewContext())
+    EquipmentView.render(ctx)
 end
 
 --- Augments window: pop-out like Bank (Always sell / Never loot, compact table, icon+stats on hover)
@@ -1039,6 +1072,9 @@ local function renderUI()
             uiState.quantityPickerValue = ""
         elseif uiState.configWindowOpen then
             uiState.configWindowOpen = false
+        elseif uiState.equipmentWindowOpen and uiState.equipmentWindowShouldDraw then
+            uiState.equipmentWindowOpen = false
+            uiState.equipmentWindowShouldDraw = false
         elseif uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
             uiState.bankWindowOpen = false
             uiState.bankWindowShouldDraw = false
@@ -1135,6 +1171,13 @@ local function renderUI()
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
     end
+    ImGui.SameLine()
+    if ImGui.Button("Equipment", ImVec2(75, 0)) then
+        uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
+        uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
+        if uiState.equipmentWindowOpen then setStatusMessage("Equipment Companion opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
     ImGui.SameLine(ImGui.GetWindowWidth() - 68)
     local bankOnline = isBankWindowOpen()
     if bankOnline then
@@ -1291,6 +1334,9 @@ local function renderUI()
         if ImGui.Button("Clear cursor", ImVec2(90,0)) then removeItemFromCursor() end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Put item back to last location or use /autoinv"); ImGui.EndTooltip() end
         ImGui.SameLine()
+        if ImGui.Button("Put in bags", ImVec2(90,0)) then putCursorInBags() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Place item in first free inventory slot"); ImGui.EndTooltip() end
+        ImGui.SameLine()
         ImGui.TextColored(ImVec4(0.55,0.55,0.55,1), "Right-click to put back")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Right-click anywhere on this window to put the item back"); ImGui.EndTooltip() end
     end
@@ -1364,6 +1410,19 @@ local function renderUI()
         ConfigView.render(ctx)
     end
 
+    if uiState.equipmentWindowShouldDraw then
+        refreshEquipmentCache()
+        local now = mq.gettime()
+        if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
+            refreshEquipmentCache()
+            uiState.equipmentDeferredRefreshAt = nil
+        end
+    end
+    if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
+        scanInventory()
+        uiState.deferredInventoryScanAt = nil
+    end
+    renderEquipmentWindow()
     renderBankWindow()
     if uiState.augmentsWindowShouldDraw then
         renderAugmentsWindow()

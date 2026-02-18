@@ -58,9 +58,15 @@ function InventoryView.render(ctx, bankOpen)
         local totalValue = ctx.perfCache.invTotalValue
         ctx.theme.TextInfo(string.format("Items: %d / %d", used, totalSlots))
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Items in bags / total bag and container slots"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() and ctx.hasItemOnCursor() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+            if ctx.putCursorInBags then ctx.putCursorInBags() end
+        end
         ImGui.SameLine()
         ctx.theme.TextMuted(string.format("Total value: %s", ItemUtils.formatValue(totalValue)))
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Total vendor value of all items in inventory"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() and ctx.hasItemOnCursor() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+            if ctx.putCursorInBags then ctx.putCursorInBags() end
+        end
     end
     ImGui.Separator()
     
@@ -259,6 +265,15 @@ function InventoryView.render(ctx, bankOpen)
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                             if ImGui.GetIO().KeyShift and bankOpen then
                                 ctx.moveInvToBank(item.bag, item.slot)
+                            elseif ctx.hasItemOnCursor() then
+                                -- Phase 3: drop cursor item into this row's slot (place or swap)
+                                mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
+                                ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = nil, nil, nil
+                                if ctx.setStatusMessage then ctx.setStatusMessage("Dropped in pack") end
+                                if ctx.maybeScanInventory then ctx.maybeScanInventory() end
+                                if ctx.invalidateSortCache then ctx.invalidateSortCache("inv") end
+                                -- Deferred scan so list shows new item after game applies move
+                                ctx.uiState.deferredInventoryScanAt = mq.gettime() + 120
                             elseif not ctx.hasItemOnCursor() then
                                 if item.stackSize and item.stackSize > 1 then
                                     ctx.uiState.pendingQuantityPickup = {
