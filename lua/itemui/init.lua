@@ -185,6 +185,8 @@ local uiState = {
     insertConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for insert confirmation; used for no-dialog fallback
     removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
     pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
+    equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
+    deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
     lootRunCorpsesLooted = 0,
@@ -1410,6 +1412,15 @@ local function renderUI()
 
     if uiState.equipmentWindowShouldDraw then
         refreshEquipmentCache()
+        local now = mq.gettime()
+        if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
+            refreshEquipmentCache()
+            uiState.equipmentDeferredRefreshAt = nil
+        end
+    end
+    if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
+        scanInventory()
+        uiState.deferredInventoryScanAt = nil
     end
     renderEquipmentWindow()
     renderBankWindow()

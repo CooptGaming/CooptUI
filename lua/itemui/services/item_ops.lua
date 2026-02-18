@@ -493,6 +493,8 @@ function M.putCursorInBags()
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
     if deps.setStatusMessage then deps.setStatusMessage("Put in bags") end
     if deps.scanInventory then deps.scanInventory() end
+    -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
+    deps.uiState.deferredInventoryScanAt = mq.gettime() + 120
     return true
 end
 

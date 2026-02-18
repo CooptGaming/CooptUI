@@ -272,6 +272,8 @@ function InventoryView.render(ctx, bankOpen)
                                 if ctx.setStatusMessage then ctx.setStatusMessage("Dropped in pack") end
                                 if ctx.maybeScanInventory then ctx.maybeScanInventory() end
                                 if ctx.invalidateSortCache then ctx.invalidateSortCache("inv") end
+                                -- Deferred scan so list shows new item after game applies move
+                                ctx.uiState.deferredInventoryScanAt = mq.gettime() + 120
                             elseif not ctx.hasItemOnCursor() then
                                 if item.stackSize and item.stackSize > 1 then
                                     ctx.uiState.pendingQuantityPickup = {

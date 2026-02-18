@@ -223,6 +223,8 @@ function EquipmentView.render(ctx)
                                 if ctx.setStatusMessage then ctx.setStatusMessage("Equipped or swapped") end
                             end
                             if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
+                            -- Deferred refresh so icon updates after game applies swap (same-frame refresh may still see old state)
+                            ctx.uiState.equipmentDeferredRefreshAt = mq.gettime() + 120
                         end
                     end
                 end
