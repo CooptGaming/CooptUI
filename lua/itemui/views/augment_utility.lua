@@ -40,7 +40,10 @@ function AugmentUtilityView.render(ctx)
     ctx.uiState.augmentUtilityWindowOpen = winOpen
     ctx.uiState.augmentUtilityWindowShouldDraw = winOpen
 
-    if not winOpen then ImGui.End(); return end
+    if not winOpen then
+        ctx.uiState.removeAllQueue = nil  -- Phase 1: window closed
+        ImGui.End(); return
+    end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
@@ -365,6 +368,26 @@ function AugmentUtilityView.render(ctx)
             ImGui.EndTooltip()
         end
     end
+    -- Phase 1: Remove All (queue filled slots; one scan when queue finishes)
+    local filledSlots = (ctx.getFilledStandardAugmentSlotIndices and ctx.getFilledStandardAugmentSlotIndices(bag, slot, source)) or {}
+    local canRemoveAll = #filledSlots > 0
+    if not canRemoveAll then ImGui.BeginDisabled() end
+    ImGui.SameLine()
+    if ctx.theme then ctx.theme.PushDeleteButton() end
+    if ImGui.SmallButton("Remove All##AU") and canRemoveAll then
+        ctx.uiState.removeAllQueue = { bag = bag, slot = slot, source = source or "inv", slotIndices = filledSlots }
+    end
+    if ctx.theme then ctx.theme.PopButtonColors() end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        if canRemoveAll then
+            ImGui.Text("Remove augments from all filled slots on this item (one at a time).")
+        else
+            ImGui.Text("No augments to remove on this item.")
+        end
+        ImGui.EndTooltip()
+    end
+    if not canRemoveAll then ImGui.EndDisabled() end
 
     ImGui.End()
 end

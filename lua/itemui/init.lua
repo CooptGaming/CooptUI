@@ -187,6 +187,7 @@ local uiState = {
     insertConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for insert confirmation; used for no-dialog fallback
     removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
     pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
+    removeAllQueue = nil,         -- Phase 1: { bag, slot, source, slotIndices } when Remove All active; one scan when queue empty
     equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
     deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     -- Loot UI (separate window; open only on Esc or Close)
@@ -445,6 +446,7 @@ local function closeCompanionWindow(name)
         uiState.itemDisplayWindowShouldDraw = false
         uiState.itemDisplayTabs = {}
         uiState.itemDisplayActiveTabIndex = 1
+        uiState.removeAllQueue = nil  -- Phase 1: target changed
     elseif name == "aa" then
         uiState.aaWindowOpen = false
         uiState.aaWindowShouldDraw = false
@@ -732,6 +734,7 @@ local function addItemDisplayTab(item, source)
             tab.item = showItem
             tab.label = label
             uiState.itemDisplayActiveTabIndex = idx
+            uiState.removeAllQueue = nil  -- Phase 1: tab switched
             local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
             local recent = uiState.itemDisplayRecent
             for i = #recent, 1, -1 do
@@ -752,6 +755,7 @@ local function addItemDisplayTab(item, source)
         bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
     }
     uiState.itemDisplayActiveTabIndex = #uiState.itemDisplayTabs
+    uiState.removeAllQueue = nil  -- Phase 1: new tab added
     -- Recent: prepend, dedupe by bag/slot/source, cap at N
     local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
     local recent = uiState.itemDisplayRecent
@@ -864,6 +868,10 @@ context.init({
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
     getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
+    getFilledStandardAugmentSlotIndices = function(bag, slot, source)
+        local it = itemHelpers.getItemTLO(bag, slot, source or "inv")
+        return it and itemHelpers.getFilledStandardAugmentSlotIndices(it) or {}
+    end,
     itemHasOrnamentSlot = function(it) return itemHelpers.itemHasOrnamentSlot(it) end,
     getSlotType = function(it, slotIndex) return itemHelpers.getSlotType(it, slotIndex) end,
     getParentWeaponInfo = function(it) return itemHelpers.getParentWeaponInfo(it) end,
@@ -2009,6 +2017,14 @@ local function main()
             itemOps.executeMoveAction(uiState.pendingMoveAction)
             uiState.pendingMoveAction = nil
         end
+        -- Phase 1: start first remove from Remove All queue when idle (no pending/waiting remove)
+        if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0
+            and not uiState.pendingRemoveAugment and not uiState.waitingForRemoveConfirmation and not uiState.waitingForRemoveCursorPopulated then
+            local q = uiState.removeAllQueue
+            local slotIndex = table.remove(q.slotIndices, 1)
+            uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
+            if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
+        end
         if uiState.pendingRemoveAugment then
             local ra = uiState.pendingRemoveAugment
             uiState.pendingRemoveAugment = nil
@@ -2317,11 +2333,19 @@ local function main()
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
                 uiState.removeConfirmationSetAt = nil
-                -- Phase 0: single scan at completion (skip if more remove-all steps queued)
-                if not (uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0) then
+                -- Phase 1: if more Remove All steps queued, pop next; else Phase 0 single scan at completion
+                if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0 then
+                    local q = uiState.removeAllQueue
+                    local slotIndex = table.remove(q.slotIndices, 1)
+                    uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
+                    if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
+                else
+                    local hadRemoveAll = (uiState.removeAllQueue ~= nil)
+                    if uiState.removeAllQueue then uiState.removeAllQueue = nil end
                     scanInventory()
                     if isBankWindowOpen() then scanBank() end
                     refreshActiveItemDisplayTab()
+                    if hadRemoveAll and setStatusMessage then setStatusMessage("Remove all done.") end
                 end
             elseif hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
@@ -2329,11 +2353,19 @@ local function main()
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
                 uiState.removeConfirmationSetAt = nil
-                -- Phase 0: single scan at completion (skip if more remove-all steps queued)
-                if not (uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0) then
+                -- Phase 1: if more Remove All steps queued, pop next; else Phase 0 single scan at completion
+                if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0 then
+                    local q = uiState.removeAllQueue
+                    local slotIndex = table.remove(q.slotIndices, 1)
+                    uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
+                    if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
+                else
+                    local hadRemoveAll = (uiState.removeAllQueue ~= nil)
+                    if uiState.removeAllQueue then uiState.removeAllQueue = nil end
                     scanInventory()
                     if isBankWindowOpen() then scanBank() end
                     refreshActiveItemDisplayTab()
+                    if hadRemoveAll and setStatusMessage then setStatusMessage("Remove all done.") end
                 end
             end
         end
