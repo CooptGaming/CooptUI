@@ -103,9 +103,7 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
         mq.delay(200)
         if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
-        if deps.scanInventory then deps.scanInventory() end
-        if (targetSource or "inv") == "bank" and deps.scanBank then deps.scanBank() end
-        if src == "bank" and deps.scanBank then deps.scanBank() end
+        -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
         if deps.setStatusMessage then
             deps.setStatusMessage(string.format("Inserted %s into slot %d", augmentItem.name or "augment", slotIndex))
         end
@@ -125,8 +123,7 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
     end
     mq.delay(200)
     if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
-    if deps.scanInventory then deps.scanInventory() end
-    if src == "bank" and deps.scanBank then deps.scanBank() end
+    -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
     if deps.setStatusMessage then
         deps.setStatusMessage(string.format("Inserted %s", augmentItem.name or "augment"))
     end
@@ -181,8 +178,7 @@ function M.removeAugment(bag, slot, source, slotIndex)
     if deps.setWaitingForRemoveConfirmation then
         deps.setWaitingForRemoveConfirmation(true)
     end
-    if deps.scanInventory then deps.scanInventory() end
-    if source == "bank" and deps.scanBank then deps.scanBank() end
+    -- Phase 0: no mid-op scan; main loop runs one scan when remove completes (cursor has item)
     if deps.setStatusMessage then
         deps.setStatusMessage(string.format("Remove augment from slot %d (check game window for dialogs)", slotIndex))
     end

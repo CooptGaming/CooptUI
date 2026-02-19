@@ -40,7 +40,11 @@ function AugmentUtilityView.render(ctx)
     ctx.uiState.augmentUtilityWindowOpen = winOpen
     ctx.uiState.augmentUtilityWindowShouldDraw = winOpen
 
-    if not winOpen then ImGui.End(); return end
+    if not winOpen then
+        ctx.uiState.removeAllQueue = nil   -- Phase 1: window closed
+        ctx.uiState.optimizeQueue = nil   -- Phase 2: window closed
+        ImGui.End(); return
+    end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
@@ -119,6 +123,52 @@ function AugmentUtilityView.render(ctx)
     end
     ctx.uiState.augmentUtilitySlotIndex = slotIdx
     ImGui.Spacing()
+
+    -- Phase 2: Build optimize plan once (used by Optimize button in Remove section). Requires getCompatibleAugments.
+    -- When bank is closed: use only inventory augments. When bank is open: use inventory + bank.
+    local optimizeSteps = {}
+    local canOptimize = false
+    if ctx.getCompatibleAugments and ctx.getFilledStandardAugmentSlotIndices then
+        local bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
+        local entry = { bag = bag, slot = slot, source = source, item = targetItem }
+        local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
+        local canUseFilter = onlyShowUsable and function(i)
+            local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
+            return info and info.canUse
+        end or nil
+        local filledSlotsAU = ctx.getFilledStandardAugmentSlotIndices(bag, slot, source) or {}
+        local filledSetAU = {}
+        for _, idx in ipairs(filledSlotsAU) do filledSetAU[idx] = true end
+        local emptySlotsAU = {}
+        for i = 1, maxSlots do if not filledSetAU[i] then emptySlotsAU[#emptySlotsAU + 1] = i end end
+        local function usedKeyAU(a) return tostring(a.bag or 0) .. "_" .. tostring(a.slot or 0) .. "_" .. (a.source or "inv") end
+        local usedAU = {}
+        local parentContextAU = { bag = bag, slot = slot, source = source }
+        local rankConfigAU = augmentRanking.getDefaultConfig()
+        for _, si in ipairs(emptySlotsAU) do
+            local compat = ctx.getCompatibleAugments(entry, si, { canUseFilter = canUseFilter })
+            if not bankOpen then
+                local invOnly = {}
+                for _, c in ipairs(compat) do
+                    if (c.source or "inv") ~= "bank" then invOnly[#invOnly + 1] = c end
+                end
+                compat = invOnly
+            end
+            local available = {}
+            for _, c in ipairs(compat) do if not usedAU[usedKeyAU(c)] then available[#available + 1] = c end end
+            if #available > 0 then
+                for _, c in ipairs(available) do
+                    local sc = augmentRanking.scoreAugment(c, parentContextAU, ctx, rankConfigAU)
+                    c._optScore = (type(sc) == "number") and sc or 0
+                end
+                table.sort(available, function(a, b) return (a._optScore or 0) > (b._optScore or 0) end)
+                local best = available[1]
+                usedAU[usedKeyAU(best)] = true
+                optimizeSteps[#optimizeSteps + 1] = { slotIndex = si, augmentItem = best }
+            end
+        end
+        canOptimize = #optimizeSteps > 0
+    end
 
     -- Compatible augments: header + search + Refresh + table with tooltips
     if not ctx.getCompatibleAugments then
@@ -328,10 +378,7 @@ function AugmentUtilityView.render(ctx)
                                 if ctx.insertAugment then
                                     local targetLoc = { bag = tab.bag, slot = tab.slot, source = tab.source or "inv" }
                                     ctx.insertAugment(targetItem, cand, slotIdx, targetLoc)
-                                    if ctx.getItemStatsForTooltip and tab then
-                                        local fresh = ctx.getItemStatsForTooltip({ bag = tab.bag, slot = tab.slot }, tab.source)
-                                        if fresh then tab.item = fresh end
-                                    end
+                                    -- Phase 0: main loop runs one scan when insert completes and refreshes tab.item
                                 end
                             end
                             ctx.theme.PopButtonColors()
@@ -367,6 +414,58 @@ function AugmentUtilityView.render(ctx)
             ImGui.Text("Opens game Item Display and removes augment from this slot (game picks distiller).")
             ImGui.EndTooltip()
         end
+    end
+    -- Phase 1: Remove All (queue filled slots; one scan when queue finishes)
+    local filledSlots = (ctx.getFilledStandardAugmentSlotIndices and ctx.getFilledStandardAugmentSlotIndices(bag, slot, source)) or {}
+    local canRemoveAll = #filledSlots > 0
+    if not canRemoveAll then ImGui.BeginDisabled() end
+    ImGui.SameLine()
+    if ctx.theme then ctx.theme.PushDeleteButton() end
+    if ImGui.SmallButton("Remove All##AU") and canRemoveAll then
+        ctx.uiState.removeAllQueue = { bag = bag, slot = slot, source = source or "inv", slotIndices = filledSlots, total = #filledSlots }
+    end
+    if ctx.theme then ctx.theme.PopButtonColors() end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        if canRemoveAll then
+            ImGui.Text("Remove augments from all filled slots on this item (one at a time).")
+        else
+            ImGui.Text("No augments to remove on this item.")
+        end
+        ImGui.EndTooltip()
+    end
+    if not canRemoveAll then ImGui.EndDisabled() end
+    -- Phase 3.1: progress while Remove All is running
+    if ctx.uiState.removeAllQueue and ctx.uiState.removeAllQueue.slotIndices and ctx.uiState.removeAllQueue.total then
+        local rem = ctx.uiState.removeAllQueue
+        ImGui.SameLine()
+        ctx.theme.TextInfo(string.format("Removing %d/%d", #rem.slotIndices, rem.total))
+    end
+
+    -- Phase 2: Fill empty slots with best augments (whole-item action, grouped with Remove)
+    ImGui.Spacing()
+    ctx.theme.TextHeader("Fill empty slots")
+    ImGui.SameLine()
+    if not canOptimize then ImGui.BeginDisabled() end
+    if ImGui.Button("Fill with best##AU", ImVec2(100, 0)) and canOptimize then
+        ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = optimizeSteps, total = #optimizeSteps }
+    end
+    if not canOptimize then ImGui.EndDisabled() end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        if canOptimize then
+            ImGui.Text("Fill all empty augment slots with the top-ranked compatible augments (best first; each used at most once).")
+            ImGui.Text("Uses inventory only when bank is closed; includes bank when open.")
+        else
+            ImGui.Text("No empty slots or no compatible augments available to fill them.")
+        end
+        ImGui.EndTooltip()
+    end
+    -- Phase 3.1: progress while Optimize is running
+    if ctx.uiState.optimizeQueue and ctx.uiState.optimizeQueue.steps and ctx.uiState.optimizeQueue.total then
+        local oq = ctx.uiState.optimizeQueue
+        ImGui.SameLine()
+        ctx.theme.TextInfo(string.format("Optimizing %d/%d", #oq.steps, oq.total))
     end
 
     ImGui.End()

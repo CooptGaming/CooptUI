@@ -611,6 +611,23 @@ function M.itemHasOrnamentSlot(it)
     return M.getSlotType(it, ORNAMENT_SLOT_INDEX) == ORNAMENT_SOCKET_TYPE
 end
 
+--- Return list of 1-based standard augment slot indices (1-4) that currently have an augment (it.Item(i) ID > 0).
+--- Used by Augment Utility "Remove All" to know which slots to queue. Slots 1-4 only; ornament (5) excluded.
+function M.getFilledStandardAugmentSlotIndices(it)
+    if not it or not it.Item then return {} end
+    local out = {}
+    for i = 1, 4 do
+        local ok, sock = pcall(function() return it.Item(i) end)
+        if ok and sock and sock.ID then
+            local okId, idVal = pcall(function() return sock.ID() end)
+            if not okId then idVal = (type(sock.ID) == "function" and sock.ID()) or sock.ID end
+            local idNum = tonumber(idVal)
+            if idNum and idNum > 0 then out[#out + 1] = i end
+        end
+    end
+    return out
+end
+
 --- Count of standard augment slots (1-4 only) that actually have a socket type > 0. Iterates slots 1-4 and
 --- counts only those with getSlotType(it, i) > 0, so we never show phantom "Slot N, type 0 (empty)" rows when
 --- the game reports extra AugSlotN or when ornament (slot 5) is not reported as type 20. Ornament add/remove
