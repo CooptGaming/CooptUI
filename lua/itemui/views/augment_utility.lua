@@ -125,9 +125,11 @@ function AugmentUtilityView.render(ctx)
     ImGui.Spacing()
 
     -- Phase 2: Build optimize plan once (used by Optimize button in Remove section). Requires getCompatibleAugments.
+    -- When bank is closed: use only inventory augments. When bank is open: use inventory + bank.
     local optimizeSteps = {}
     local canOptimize = false
     if ctx.getCompatibleAugments and ctx.getFilledStandardAugmentSlotIndices then
+        local bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
         local entry = { bag = bag, slot = slot, source = source, item = targetItem }
         local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
         local canUseFilter = onlyShowUsable and function(i)
@@ -145,6 +147,13 @@ function AugmentUtilityView.render(ctx)
         local rankConfigAU = augmentRanking.getDefaultConfig()
         for _, si in ipairs(emptySlotsAU) do
             local compat = ctx.getCompatibleAugments(entry, si, { canUseFilter = canUseFilter })
+            if not bankOpen then
+                local invOnly = {}
+                for _, c in ipairs(compat) do
+                    if (c.source or "inv") ~= "bank" then invOnly[#invOnly + 1] = c end
+                end
+                compat = invOnly
+            end
             local available = {}
             for _, c in ipairs(compat) do if not usedAU[usedKeyAU(c)] then available[#available + 1] = c end end
             if #available > 0 then
@@ -413,7 +422,7 @@ function AugmentUtilityView.render(ctx)
     ImGui.SameLine()
     if ctx.theme then ctx.theme.PushDeleteButton() end
     if ImGui.SmallButton("Remove All##AU") and canRemoveAll then
-        ctx.uiState.removeAllQueue = { bag = bag, slot = slot, source = source or "inv", slotIndices = filledSlots }
+        ctx.uiState.removeAllQueue = { bag = bag, slot = slot, source = source or "inv", slotIndices = filledSlots, total = #filledSlots }
     end
     if ctx.theme then ctx.theme.PopButtonColors() end
     if ImGui.IsItemHovered() then
@@ -426,6 +435,12 @@ function AugmentUtilityView.render(ctx)
         ImGui.EndTooltip()
     end
     if not canRemoveAll then ImGui.EndDisabled() end
+    -- Phase 3.1: progress while Remove All is running
+    if ctx.uiState.removeAllQueue and ctx.uiState.removeAllQueue.slotIndices and ctx.uiState.removeAllQueue.total then
+        local rem = ctx.uiState.removeAllQueue
+        ImGui.SameLine()
+        ctx.theme.TextInfo(string.format("Removing %d/%d", #rem.slotIndices, rem.total))
+    end
 
     -- Phase 2: Fill empty slots with best augments (whole-item action, grouped with Remove)
     ImGui.Spacing()
@@ -433,17 +448,24 @@ function AugmentUtilityView.render(ctx)
     ImGui.SameLine()
     if not canOptimize then ImGui.BeginDisabled() end
     if ImGui.Button("Fill with best##AU", ImVec2(100, 0)) and canOptimize then
-        ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = optimizeSteps }
+        ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = optimizeSteps, total = #optimizeSteps }
     end
     if not canOptimize then ImGui.EndDisabled() end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
         if canOptimize then
-            ImGui.Text("Fill all empty augment slots on this item with the top-ranked compatible augments (best first; each augment used at most once).")
+            ImGui.Text("Fill all empty augment slots with the top-ranked compatible augments (best first; each used at most once).")
+            ImGui.Text("Uses inventory only when bank is closed; includes bank when open.")
         else
             ImGui.Text("No empty slots or no compatible augments available to fill them.")
         end
         ImGui.EndTooltip()
+    end
+    -- Phase 3.1: progress while Optimize is running
+    if ctx.uiState.optimizeQueue and ctx.uiState.optimizeQueue.steps and ctx.uiState.optimizeQueue.total then
+        local oq = ctx.uiState.optimizeQueue
+        ImGui.SameLine()
+        ctx.theme.TextInfo(string.format("Optimizing %d/%d", #oq.steps, oq.total))
     end
 
     ImGui.End()
