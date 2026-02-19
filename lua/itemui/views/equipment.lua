@@ -42,15 +42,11 @@ local EQUIPMENT_ROW_LENGTHS = { 4, 2, 2, 2, 2, 4, 3, 4 }
 function EquipmentView.render(ctx)
     if not ctx.uiState.equipmentWindowShouldDraw then return end
 
-    -- Position (saved or default; when Inventory Companion opens we sync to left with Always)
+    -- Position: use saved position from last close (same as other companion windows)
     local eqX = ctx.layoutConfig.EquipmentWindowX or 0
     local eqY = ctx.layoutConfig.EquipmentWindowY or 0
     if eqX ~= 0 or eqY ~= 0 then
-        local posCond = (ctx.uiState.equipmentPositionToLeftThisFrame and ImGuiCond.Always) or ImGuiCond.FirstUseEver
-        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), posCond)
-        if ctx.uiState.equipmentPositionToLeftThisFrame then
-            ctx.uiState.equipmentPositionToLeftThisFrame = false
-        end
+        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), ImGuiCond.FirstUseEver)
     end
 
     local w = ctx.layoutConfig.WidthEquipmentPanel or EQUIPMENT_WINDOW_WIDTH

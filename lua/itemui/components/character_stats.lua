@@ -81,6 +81,7 @@ local SCRIPT_AA_RARITIES = {
 local SCRIPT_AA_FULL_NAMES = {
     "Script of Lost Memories", "Enhanced Script of Lost Memories", "Rare Script of Lost Memories", "Epic Script of Lost Memories", "Legendary Script of Lost Memories",
     "Script of Planar Power", "Enhanced Script of Planar Power", "Rare Script of Planar Power", "Epic Script of Planar Power", "Legendary Script of Planar Power",
+    "Script of Rebirthed Memories", "Enhanced Script of Rebirthed Memories", "Rare Script of Rebirthed Memories", "Epic Script of Rebirthed Memories", "Legendary Script of Rebirthed Memories",
 }
 local SCRIPT_AA_BY_NAME = {}
 do

@@ -6,8 +6,8 @@
     Version: see coopui.version (SCRIPTTRACKER)
     Dependencies: mq2lua, ImGui
 
-    Tracks Lost and Planar scripts in inventory; shows counts and total AA value.
-    Script types: Lost Memories, Planar Power
+    Tracks Lost, Planar, and Rebirthed scripts in inventory; shows counts and total AA value.
+    Script types: Lost Memories, Planar Power, Rebirthed Memories
     Tiers (AA each): normal(1), Enhanced(2), Rare(3), Epic(4), Legendary(5)
 
     Usage: /lua run scripttracker
@@ -30,7 +30,7 @@ local RARITY_ROWS = {
     { label = "Legendary", tierKey = "legendary", aa = 5 },
 }
 
--- Script definitions: { suffix = "Lost Memories"|"Planar Power", tier = prefix, aa = value }
+-- Script definitions: { suffix = "Lost Memories"|"Planar Power"|"Rebirthed Memories", tier = prefix, aa = value }
 local SCRIPT_DEFS = {
     { suffix = "Lost Memories", tier = "", aa = 1 },
     { suffix = "Lost Memories", tier = "Enhanced ", aa = 2 },
@@ -42,6 +42,11 @@ local SCRIPT_DEFS = {
     { suffix = "Planar Power", tier = "Rare ", aa = 3 },
     { suffix = "Planar Power", tier = "Epic ", aa = 4 },
     { suffix = "Planar Power", tier = "Legendary ", aa = 5 },
+    { suffix = "Rebirthed Memories", tier = "", aa = 1 },
+    { suffix = "Rebirthed Memories", tier = "Enhanced ", aa = 2 },
+    { suffix = "Rebirthed Memories", tier = "Rare ", aa = 3 },
+    { suffix = "Rebirthed Memories", tier = "Epic ", aa = 4 },
+    { suffix = "Rebirthed Memories", tier = "Legendary ", aa = 5 },
 }
 
 -- State
@@ -84,13 +89,13 @@ end
 -- ============================================================================
 
 local function getScriptKey(suffix, tier)
-    local typeKey = (suffix == "Lost Memories") and "Lost" or "Planar"
+    local typeKey = (suffix == "Lost Memories") and "Lost" or (suffix == "Planar Power") and "Planar" or "Rebirthed"
     local tierKey = (tier == "") and "normal" or tier:lower():gsub(" ", "")
     return typeKey .. ":" .. tierKey
 end
 
 local function getDisplayLabel(suffix, tier)
-    local typeShort = (suffix == "Lost Memories") and "Lost" or "Planar"
+    local typeShort = (suffix == "Lost Memories") and "Lost" or (suffix == "Planar Power") and "Planar" or "Rebirthed"
     local tierLabel = (tier == "") and "Normal" or tier:gsub("^%s*(.-)%s*$", "%1")
     return typeShort .. " " .. tierLabel
 end
@@ -207,7 +212,8 @@ local function renderUI()
         for _, row in ipairs(RARITY_ROWS) do
             local lostKey = "Lost:" .. row.tierKey
             local planarKey = "Planar:" .. row.tierKey
-            local count = (scriptCounts[lostKey] or 0) + (scriptCounts[planarKey] or 0)
+            local rebirthedKey = "Rebirthed:" .. row.tierKey
+            local count = (scriptCounts[lostKey] or 0) + (scriptCounts[planarKey] or 0) + (scriptCounts[rebirthedKey] or 0)
             local aaVal = row.aa * count
             ImGui.TableNextRow()
             ImGui.TableNextColumn()
@@ -267,7 +273,7 @@ end
 
 local function main()
     print(string.format("\ag[ScriptTracker]\ax AA Script Tracker v%s loaded", VERSION))
-    print("\ag[ScriptTracker]\ax Type /scripttracker to toggle. Tracks Lost & Planar scripts.")
+    print("\ag[ScriptTracker]\ax Type /scripttracker to toggle. Tracks Lost, Planar & Rebirthed scripts.")
 
     mq.bind('/scripttracker', handleCommand)
     mq.imgui.init('ScriptTracker', renderUI)

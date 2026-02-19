@@ -149,7 +149,6 @@ local uiState = {
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
     equipmentWindowOpen = false, equipmentWindowShouldDraw = false,
-    equipmentPositionToLeftPending = false, equipmentPositionToLeftThisFrame = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
     itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
     itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
@@ -1213,25 +1212,18 @@ local function renderUI()
         layoutConfig.BankWindowY = bankY
     end
 
-    -- When Inventory Companion opens, position Equipment window to the left (once we have main window position)
-    if uiState.equipmentPositionToLeftPending and uiState.equipmentWindowShouldDraw and uiState.itemUIPositionX and uiState.itemUIPositionY and itemUIWidth then
-        local eqW = layoutConfig.WidthEquipmentPanel or 220
-        local gap = 10
-        layoutConfig.EquipmentWindowX = uiState.itemUIPositionX - eqW - gap
-        layoutConfig.EquipmentWindowY = uiState.itemUIPositionY
-        uiState.equipmentPositionToLeftPending = false
-        uiState.equipmentPositionToLeftThisFrame = true
-        layoutUtils.scheduleLayoutSave()
-    end
-
     -- Default layout: position companions relative to hub (Inventory Companion) when they have no saved position (0,0)
-    -- Bank stays as-is (synced right of hub). Equipment already placed left of hub above.
+    -- Bank stays as-is (synced right of hub).
     local hubX, hubY = uiState.itemUIPositionX, uiState.itemUIPositionY
     local hubW, hubH = itemUIWidth, (ImGui.GetWindowSize and select(2, ImGui.GetWindowSize())) or 450
     local defGap = 10
     local eqW = layoutConfig.WidthEquipmentPanel or 220
     local eqH = layoutConfig.HeightEquipment or 380
     if hubX and hubY and hubW then
+        if uiState.equipmentWindowShouldDraw and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
+            layoutConfig.EquipmentWindowX = hubX - eqW - defGap
+            layoutConfig.EquipmentWindowY = hubY
+        end
         if uiState.itemDisplayWindowShouldDraw and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
             layoutConfig.ItemDisplayWindowX = hubX + hubW + defGap
             layoutConfig.ItemDisplayWindowY = hubY
@@ -1616,7 +1608,6 @@ local function handleCommand(...)
             isOpen = true; loadLayoutConfig(); maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
             uiState.equipmentWindowOpen = true
             uiState.equipmentWindowShouldDraw = true
-            uiState.equipmentPositionToLeftPending = true
             recordCompanionWindowOpened("equipment")
         else
             closeGameInventoryIfOpen()
@@ -1629,7 +1620,6 @@ local function handleCommand(...)
         maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
         uiState.equipmentWindowOpen = true
         uiState.equipmentWindowShouldDraw = true
-        uiState.equipmentPositionToLeftPending = true
         recordCompanionWindowOpened("equipment")
     elseif cmd == "hide" then
         shouldDraw, isOpen = false, false
@@ -2166,7 +2156,6 @@ local function main()
                 if bankJustOpened then recordCompanionWindowOpened("bank") end
                 uiState.equipmentWindowOpen = true
                 uiState.equipmentWindowShouldDraw = true
-                uiState.equipmentPositionToLeftPending = true
                 recordCompanionWindowOpened("equipment")
                 -- Run only the scan that triggered show; defer others to next frame for faster first paint
                 if bankJustOpened then
@@ -2193,7 +2182,6 @@ local function main()
             uiState.bankWindowShouldDraw = true
             uiState.equipmentWindowOpen = true
             uiState.equipmentWindowShouldDraw = true
-            uiState.equipmentPositionToLeftPending = true
             recordCompanionWindowOpened("bank")
             recordCompanionWindowOpened("equipment")
             maybeScanBank(bankOpen)
