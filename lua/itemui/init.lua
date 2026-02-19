@@ -188,6 +188,7 @@ local uiState = {
     removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
     pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
     removeAllQueue = nil,         -- Phase 1: { bag, slot, source, slotIndices } when Remove All active; one scan when queue empty
+    optimizeQueue = nil,          -- Phase 2: { targetLoc, steps = { { slotIndex, augmentItem }, ... } }; one scan when steps empty
     equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
     deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     -- Loot UI (separate window; open only on Esc or Close)
@@ -446,7 +447,8 @@ local function closeCompanionWindow(name)
         uiState.itemDisplayWindowShouldDraw = false
         uiState.itemDisplayTabs = {}
         uiState.itemDisplayActiveTabIndex = 1
-        uiState.removeAllQueue = nil  -- Phase 1: target changed
+        uiState.removeAllQueue = nil   -- Phase 1: target changed
+        uiState.optimizeQueue = nil    -- Phase 2: target changed
     elseif name == "aa" then
         uiState.aaWindowOpen = false
         uiState.aaWindowShouldDraw = false
@@ -734,7 +736,8 @@ local function addItemDisplayTab(item, source)
             tab.item = showItem
             tab.label = label
             uiState.itemDisplayActiveTabIndex = idx
-            uiState.removeAllQueue = nil  -- Phase 1: tab switched
+            uiState.removeAllQueue = nil   -- Phase 1: tab switched
+            uiState.optimizeQueue = nil    -- Phase 2: tab switched
             local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
             local recent = uiState.itemDisplayRecent
             for i = #recent, 1, -1 do
@@ -755,7 +758,8 @@ local function addItemDisplayTab(item, source)
         bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
     }
     uiState.itemDisplayActiveTabIndex = #uiState.itemDisplayTabs
-    uiState.removeAllQueue = nil  -- Phase 1: new tab added
+    uiState.removeAllQueue = nil   -- Phase 1: new tab added
+    uiState.optimizeQueue = nil    -- Phase 2: new tab added
     -- Recent: prepend, dedupe by bag/slot/source, cap at N
     local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
     local recent = uiState.itemDisplayRecent
@@ -2031,6 +2035,25 @@ local function main()
             augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
             uiState.removeConfirmationSetAt = mq.gettime()
         end
+        -- Phase 2: start first insert from Optimize queue when idle (no pending/waiting insert)
+        if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
+            and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear then
+            local oq = uiState.optimizeQueue
+            local step = table.remove(oq.steps, 1)
+            if step and step.slotIndex and step.augmentItem then
+                local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+                local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
+                uiState.pendingInsertAugment = {
+                    targetItem = targetItem,
+                    targetBag = oq.targetLoc.bag,
+                    targetSlot = oq.targetLoc.slot,
+                    targetSource = oq.targetLoc.source or "inv",
+                    augmentItem = step.augmentItem,
+                    slotIndex = step.slotIndex,
+                }
+                uiState.insertConfirmationSetAt = mq.gettime()
+            end
+        end
         if uiState.pendingInsertAugment then
             local pa = uiState.pendingInsertAugment
             uiState.pendingInsertAugment = nil
@@ -2306,22 +2329,60 @@ local function main()
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
                 uiState.insertConfirmationSetAt = nil
-                -- Phase 0: single scan at completion (skip if more optimize steps queued)
-                if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                -- Phase 2: if more Optimize steps queued, pop next; else Phase 0 single scan at completion
+                if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
+                    local oq = uiState.optimizeQueue
+                    local step = table.remove(oq.steps, 1)
+                    if step and step.slotIndex and step.augmentItem then
+                        local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+                        local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
+                        uiState.pendingInsertAugment = {
+                            targetItem = targetItem,
+                            targetBag = oq.targetLoc.bag,
+                            targetSlot = oq.targetLoc.slot,
+                            targetSource = oq.targetLoc.source or "inv",
+                            augmentItem = step.augmentItem,
+                            slotIndex = step.slotIndex,
+                        }
+                    end
+                    if #oq.steps == 0 then uiState.optimizeQueue = nil end
+                else
+                    local hadOptimize = (uiState.optimizeQueue ~= nil)
+                    if uiState.optimizeQueue then uiState.optimizeQueue = nil end
                     scanInventory()
                     if isBankWindowOpen() then scanBank() end
                     refreshActiveItemDisplayTab()
+                    if hadOptimize and setStatusMessage then setStatusMessage("Optimize complete.") end
                 end
             elseif not hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
                 uiState.insertConfirmationSetAt = nil
-                -- Phase 0: single scan at completion (skip if more optimize steps queued)
-                if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                -- Phase 2: if more Optimize steps queued, pop next; else Phase 0 single scan at completion
+                if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
+                    local oq = uiState.optimizeQueue
+                    local step = table.remove(oq.steps, 1)
+                    if step and step.slotIndex and step.augmentItem then
+                        local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+                        local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
+                        uiState.pendingInsertAugment = {
+                            targetItem = targetItem,
+                            targetBag = oq.targetLoc.bag,
+                            targetSlot = oq.targetLoc.slot,
+                            targetSource = oq.targetLoc.source or "inv",
+                            augmentItem = step.augmentItem,
+                            slotIndex = step.slotIndex,
+                        }
+                    end
+                    if #oq.steps == 0 then uiState.optimizeQueue = nil end
+                else
+                    local hadOptimize = (uiState.optimizeQueue ~= nil)
+                    if uiState.optimizeQueue then uiState.optimizeQueue = nil end
                     scanInventory()
                     if isBankWindowOpen() then scanBank() end
                     refreshActiveItemDisplayTab()
+                    if hadOptimize and setStatusMessage then setStatusMessage("Optimize complete.") end
                 end
             end
         end
