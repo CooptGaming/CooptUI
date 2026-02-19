@@ -279,16 +279,7 @@ function AAView.render(ctx)
     ctx.uiState.aaWindowShouldDraw = winOpen
 
     if not winOpen then ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        if selectedAAName then
-            selectedAAName = nil
-        else
-            ctx.uiState.aaWindowOpen = false
-            ctx.uiState.aaWindowShouldDraw = false
-        end
-        ImGui.End()
-        return
-    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
     -- Enter = Train selected (if trainable)

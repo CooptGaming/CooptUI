@@ -38,8 +38,8 @@ function SellView.render(ctx, simulateSellView)
         ctx.theme.TextMuted("/macro sell confirm")
     end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Sell", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.scanInventory(); ctx.scanSellItems(); ctx.setStatusMessage("Refreshed") end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory and sell list"); ImGui.EndTooltip() end
+    if ImGui.Button("Refresh##Sell", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
     ImGui.SameLine()
     ctx.uiState.showOnlySellable = ImGui.Checkbox("Show only sellable", ctx.uiState.showOnlySellable)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Hide items that won't be sold"); ImGui.EndTooltip() end

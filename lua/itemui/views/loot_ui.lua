@@ -44,12 +44,7 @@ function LootUIView.render(ctx)
         ImGui.End()
         return
     end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        uiState.lootUIOpen = false
-        LootUIView.closeAndClearState(ctx)
-        ImGui.End()
-        return
-    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
     -- Persist window size when resized (window is always resizable)

@@ -25,8 +25,8 @@ function InventoryView.render(ctx, bankOpen)
     if ImGui.Button("X##InvSearchClear2", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Inv", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.scanInventory(); ctx.setStatusMessage("Refreshed") end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory"); ImGui.EndTooltip() end
+    if ImGui.Button("Refresh##Inv", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
     ImGui.SameLine()
     ctx.theme.TextMuted(string.format("Last: %s", os.date("%H:%M:%S", ctx.perfCache.lastScanTimeInv/1000)))
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Last inventory scan time"); ImGui.EndTooltip() end

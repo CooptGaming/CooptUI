@@ -83,13 +83,13 @@ function ItemDisplayView.render(ctx)
     ctx.uiState.itemDisplayWindowOpen = winOpen
     ctx.uiState.itemDisplayWindowShouldDraw = winOpen
 
-    if not winOpen then ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        ctx.uiState.itemDisplayWindowOpen = false
-        ctx.uiState.itemDisplayWindowShouldDraw = false
+    if not winOpen then
+        ctx.uiState.itemDisplayTabs = {}
+        ctx.uiState.itemDisplayActiveTabIndex = 1
         ImGui.End()
         return
     end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
     if not ctx.uiState.uiLocked then

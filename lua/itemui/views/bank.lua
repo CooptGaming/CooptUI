@@ -80,12 +80,7 @@ function BankView.render(ctx)
     ctx.uiState.bankWindowShouldDraw = winOpen
     
     if not winOpen then ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then 
-        ctx.uiState.bankWindowOpen = false
-        ctx.uiState.bankWindowShouldDraw = false
-        ImGui.End()
-        return 
-    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
     
     -- Save window size when resized (if unlocked)
