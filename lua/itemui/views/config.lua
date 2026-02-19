@@ -1027,7 +1027,7 @@ local function renderConfigWindow()
     local ok = ImGui.Begin("CoOpt UI Settings##ItemUIConfig", uiState.configWindowOpen)
     uiState.configWindowOpen = ok
     if not ok then uiState.configNeedsLoad = true; ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then uiState.configWindowOpen = false; ImGui.End(); return end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if uiState.configNeedsLoad then loadConfigCache(); uiState.configNeedsLoad = false end
 
     -- B4: Smart defaults for new users — detect first run (no sell_flags.ini)

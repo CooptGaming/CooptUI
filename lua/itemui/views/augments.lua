@@ -69,12 +69,7 @@ function AugmentsView.render(ctx)
     ctx.uiState.augmentsWindowShouldDraw = winOpen
 
     if not winOpen then ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        ctx.uiState.augmentsWindowOpen = false
-        ctx.uiState.augmentsWindowShouldDraw = false
-        ImGui.End()
-        return
-    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
     -- Save size/position when changed

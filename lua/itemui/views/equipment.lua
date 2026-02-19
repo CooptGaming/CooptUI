@@ -42,11 +42,15 @@ local EQUIPMENT_ROW_LENGTHS = { 4, 2, 2, 2, 2, 4, 3, 4 }
 function EquipmentView.render(ctx)
     if not ctx.uiState.equipmentWindowShouldDraw then return end
 
-    -- Position (Phase 4 will add sync; use saved or default)
+    -- Position (saved or default; when Inventory Companion opens we sync to left with Always)
     local eqX = ctx.layoutConfig.EquipmentWindowX or 0
     local eqY = ctx.layoutConfig.EquipmentWindowY or 0
     if eqX ~= 0 or eqY ~= 0 then
-        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), ImGuiCond.FirstUseEver)
+        local posCond = (ctx.uiState.equipmentPositionToLeftThisFrame and ImGuiCond.Always) or ImGuiCond.FirstUseEver
+        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), posCond)
+        if ctx.uiState.equipmentPositionToLeftThisFrame then
+            ctx.uiState.equipmentPositionToLeftThisFrame = false
+        end
     end
 
     local w = ctx.layoutConfig.WidthEquipmentPanel or EQUIPMENT_WINDOW_WIDTH
@@ -65,12 +69,7 @@ function EquipmentView.render(ctx)
     ctx.uiState.equipmentWindowShouldDraw = winOpen
 
     if not winOpen then ImGui.End(); return end
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        ctx.uiState.equipmentWindowOpen = false
-        ctx.uiState.equipmentWindowShouldDraw = false
-        ImGui.End()
-        return
-    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
     -- Save size when resized (if unlocked)

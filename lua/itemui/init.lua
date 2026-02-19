@@ -149,6 +149,7 @@ local uiState = {
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
     equipmentWindowOpen = false, equipmentWindowShouldDraw = false,
+    equipmentPositionToLeftPending = false, equipmentPositionToLeftThisFrame = false,
     augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
     itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
     itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
@@ -162,6 +163,7 @@ local uiState = {
     searchFilterAugmentUtility = "",     -- filter compatible augments list by name
     augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
     aaWindowOpen = false, aaWindowShouldDraw = false,
+    companionWindowOpenedAt = {},  -- LIFO Esc: name -> mq.gettime() when opened
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
@@ -418,6 +420,76 @@ local function setStatusMessage(msg) itemHelpers.setStatusMessage(msg) end
 local function getItemSpellId(item, prop) return itemHelpers.getItemSpellId(item, prop) end
 local function getSpellName(id) return itemHelpers.getSpellName(id) end
 
+-- Companion windows: LIFO close order (record open time; Esc closes most recently opened)
+local function recordCompanionWindowOpened(name)
+    uiState.companionWindowOpenedAt = uiState.companionWindowOpenedAt or {}
+    uiState.companionWindowOpenedAt[name] = mq.gettime()
+end
+local function closeCompanionWindow(name)
+    if name == "config" then
+        uiState.configWindowOpen = false
+    elseif name == "equipment" then
+        uiState.equipmentWindowOpen = false
+        uiState.equipmentWindowShouldDraw = false
+    elseif name == "bank" then
+        uiState.bankWindowOpen = false
+        uiState.bankWindowShouldDraw = false
+    elseif name == "augments" then
+        uiState.augmentsWindowOpen = false
+        uiState.augmentsWindowShouldDraw = false
+    elseif name == "augmentUtility" then
+        uiState.augmentUtilityWindowOpen = false
+        uiState.augmentUtilityWindowShouldDraw = false
+    elseif name == "itemDisplay" then
+        uiState.itemDisplayWindowOpen = false
+        uiState.itemDisplayWindowShouldDraw = false
+        uiState.itemDisplayTabs = {}
+        uiState.itemDisplayActiveTabIndex = 1
+    elseif name == "aa" then
+        uiState.aaWindowOpen = false
+        uiState.aaWindowShouldDraw = false
+    elseif name == "loot" then
+        uiState.lootUIOpen = false
+        uiState.lootRunLootedList = {}
+        uiState.lootRunLootedItems = {}
+        uiState.lootRunCorpsesLooted = 0
+        uiState.lootRunTotalCorpses = 0
+        uiState.lootRunCurrentCorpse = ""
+        uiState.lootRunFinished = false
+        uiState.lootMythicalAlert = nil
+        uiState.lootMythicalDecisionStartAt = nil
+        uiState.lootMythicalFeedback = nil
+        uiState.lootRunTotalValue = 0
+        uiState.lootRunTributeValue = 0
+        uiState.lootRunBestItemName = ""
+        uiState.lootRunBestItemValue = 0
+    end
+    if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+end
+local function getMostRecentlyOpenedCompanion()
+    local at = uiState.companionWindowOpenedAt
+    if not at then return nil end
+    local candidates = {
+        { "config", uiState.configWindowOpen },
+        { "equipment", uiState.equipmentWindowOpen and uiState.equipmentWindowShouldDraw },
+        { "bank", uiState.bankWindowOpen and uiState.bankWindowShouldDraw },
+        { "augments", uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw },
+        { "augmentUtility", uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw },
+        { "itemDisplay", uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw },
+        { "aa", uiState.aaWindowOpen and uiState.aaWindowShouldDraw },
+        { "loot", uiState.lootUIOpen },
+    }
+    local bestName, bestT = nil, -1
+    for _, c in ipairs(candidates) do
+        local nam, open = c[1], c[2]
+        if open and at[nam] and at[nam] > bestT then
+            bestT = at[nam]
+            bestName = nam
+        end
+    end
+    return bestName
+end
+
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
 sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C })
 local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
@@ -661,6 +733,7 @@ local function addItemDisplayTab(item, source)
             while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
             uiState.itemDisplayWindowOpen = true
             uiState.itemDisplayWindowShouldDraw = true
+            recordCompanionWindowOpened("itemDisplay")
             return
         end
     end
@@ -681,6 +754,7 @@ local function addItemDisplayTab(item, source)
     while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
     uiState.itemDisplayWindowOpen = true
     uiState.itemDisplayWindowShouldDraw = true
+    recordCompanionWindowOpened("itemDisplay")
 end
 
 context.init({
@@ -703,6 +777,13 @@ context.init({
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
+    refreshAllScans = function()
+        scanInventory()
+        if isBankWindowOpen() then scanBank() end
+        if isMerchantWindowOpen() then scanSellItems() end
+        if isLootWindowOpen() then scanLootItems() end
+        setStatusMessage("Refreshed")
+    end,
     maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
     maybeScanLootItems = maybeScanLootItems,
     ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
@@ -889,6 +970,7 @@ local function renderLootWindow()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
+            recordCompanionWindowOpened("loot")
         end
         mq.cmd('/macro loot current')
     end
@@ -896,6 +978,7 @@ local function renderLootWindow()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
+            recordCompanionWindowOpened("loot")
         end
         mq.cmd('/macro loot')
     end
@@ -1067,37 +1150,25 @@ local function renderUI()
         ImGui.End()
         return
     end
-    -- Layered Esc: close topmost overlay first, then main UI
+    -- Layered Esc: close pending picker, then most recently opened companion (LIFO), then main UI
     if ImGui.IsKeyPressed(ImGuiKey.Escape) then
         if uiState.pendingQuantityPickup then
             uiState.pendingQuantityPickup = nil
             uiState.quantityPickerValue = ""
-        elseif uiState.configWindowOpen then
-            uiState.configWindowOpen = false
-        elseif uiState.equipmentWindowOpen and uiState.equipmentWindowShouldDraw then
-            uiState.equipmentWindowOpen = false
-            uiState.equipmentWindowShouldDraw = false
-        elseif uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-            uiState.bankWindowOpen = false
-            uiState.bankWindowShouldDraw = false
-        elseif uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw then
-            uiState.augmentsWindowOpen = false
-            uiState.augmentsWindowShouldDraw = false
-        elseif uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw then
-            uiState.augmentUtilityWindowOpen = false
-            uiState.augmentUtilityWindowShouldDraw = false
-        elseif uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw then
-            uiState.itemDisplayWindowOpen = false
-            uiState.itemDisplayWindowShouldDraw = false
         else
-            ImGui.SetKeyboardFocusHere(-1)  -- release keyboard focus so game gets input after close
-            shouldDraw = false
-            isOpen = false
-            uiState.configWindowOpen = false
-            closeGameInventoryIfOpen()
-            closeGameMerchantIfOpen()  -- clean close: also close default merchant UI when in sell view
-            ImGui.End()
-            return
+            local mostRecent = getMostRecentlyOpenedCompanion()
+            if mostRecent then
+                closeCompanionWindow(mostRecent)
+            else
+                ImGui.SetKeyboardFocusHere(-1)  -- release keyboard focus so game gets input after close
+                shouldDraw = false
+                isOpen = false
+                uiState.configWindowOpen = false
+                closeGameInventoryIfOpen()
+                closeGameMerchantIfOpen()  -- clean close: also close default merchant UI when in sell view
+                ImGui.End()
+                return
+            end
         end
     end
     if not winVis then ImGui.End(); return end
@@ -1119,12 +1190,59 @@ local function renderUI()
         layoutConfig.BankWindowY = bankY
     end
 
-    -- Header: Lock/Unlock (top left), Refresh, Settings
+    -- When Inventory Companion opens, position Equipment window to the left (once we have main window position)
+    if uiState.equipmentPositionToLeftPending and uiState.equipmentWindowShouldDraw and uiState.itemUIPositionX and uiState.itemUIPositionY and itemUIWidth then
+        local eqW = layoutConfig.WidthEquipmentPanel or 220
+        local gap = 10
+        layoutConfig.EquipmentWindowX = uiState.itemUIPositionX - eqW - gap
+        layoutConfig.EquipmentWindowY = uiState.itemUIPositionY
+        uiState.equipmentPositionToLeftPending = false
+        uiState.equipmentPositionToLeftThisFrame = true
+        layoutUtils.scheduleLayoutSave()
+    end
+
+    -- Header: left = Equipment, AA, Augment Utility, Filter; right = Settings, Pin (Lock), Bank
+    if ImGui.Button("Equipment", ImVec2(75, 0)) then
+        uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
+        uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
+        if uiState.equipmentWindowOpen then recordCompanionWindowOpened("equipment"); setStatusMessage("Equipment Companion opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
+        if ImGui.Button("AA", ImVec2(45, 0)) then
+            uiState.aaWindowOpen = not uiState.aaWindowOpen
+            uiState.aaWindowShouldDraw = uiState.aaWindowOpen
+            if uiState.aaWindowOpen then
+                recordCompanionWindowOpened("aa")
+                if aa_data.shouldRefresh() then aa_data.refresh() end
+                setStatusMessage("Alt Advancement window opened")
+            end
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+    end
+    if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
+        uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
+        uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
+        if uiState.augmentUtilityWindowOpen then recordCompanionWindowOpened("augmentUtility"); setStatusMessage("Augment Utility opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Filter", ImVec2(55, 0)) then
+        uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
+        uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
+        if uiState.augmentsWindowOpen then recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
+    ImGui.SameLine(ImGui.GetWindowWidth() - 210)
+    if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; recordCompanionWindowOpened("config") end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
+    ImGui.SameLine()
     local prevLocked = uiState.uiLocked
     uiState.uiLocked = ImGui.Checkbox("##Lock", uiState.uiLocked)
-    if prevLocked ~= uiState.uiLocked then 
+    if prevLocked ~= uiState.uiLocked then
         saveLayoutToFile()
-        -- Save current window size when locking
         if uiState.uiLocked then
             local w, h = ImGui.GetWindowSize()
             if curView == "Inventory" then layoutConfig.WidthInventory = w; layoutConfig.Height = h
@@ -1134,53 +1252,8 @@ local function renderUI()
             saveLayoutToFile()
         end
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.uiLocked and "UI Locked - Click to unlock and allow resizing" or "UI Unlocked - Click to lock and prevent resizing"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.uiLocked and "Pin: UI locked (click to unlock and resize)" or "Pin: UI unlocked (click to lock)"); ImGui.EndTooltip() end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Header", ImVec2(80,0)) then
-        scanInventory()
-        if isBankWindowOpen() then scanBank() end
-        if isMerchantWindowOpen() then scanSellItems() end
-        if isLootWindowOpen() then scanLootItems() end
-        setStatusMessage("Refreshed")
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), and sell list"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Augments", ImVec2(75, 0)) then
-        uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
-        uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-        if uiState.augmentsWindowOpen then setStatusMessage("Augments window opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Augmentations window (Always sell / Never loot, stats on hover)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
-        uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
-        uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
-        if uiState.augmentUtilityWindowOpen then setStatusMessage("Augment Utility opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
-    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
-        ImGui.SameLine()
-        if ImGui.Button("AA", ImVec2(45, 0)) then
-            uiState.aaWindowOpen = not uiState.aaWindowOpen
-            uiState.aaWindowShouldDraw = uiState.aaWindowOpen
-            if uiState.aaWindowOpen then
-                if aa_data.shouldRefresh() then aa_data.refresh() end
-                setStatusMessage("Alt Advancement window opened")
-            end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
-    end
-    ImGui.SameLine()
-    if ImGui.Button("Equipment", ImVec2(75, 0)) then
-        uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
-        uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
-        if uiState.equipmentWindowOpen then setStatusMessage("Equipment Companion opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
-    ImGui.SameLine(ImGui.GetWindowWidth() - 68)
     local bankOnline = isBankWindowOpen()
     if bankOnline then
         ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0.2, 0.65, 0.2, 1))
@@ -1194,7 +1267,7 @@ local function renderUI()
     if ImGui.Button("Bank", ImVec2(60, 0)) then
         uiState.bankWindowOpen = not uiState.bankWindowOpen
         uiState.bankWindowShouldDraw = uiState.bankWindowOpen
-        if uiState.bankWindowOpen and bankOnline then maybeScanBank(bankOnline) end
+        if uiState.bankWindowOpen then recordCompanionWindowOpened("bank"); if bankOnline then maybeScanBank(bankOnline) end end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(bankOnline and "Open or close the bank window. Bank is online." or "Open or close the bank window. Bank is offline."); ImGui.EndTooltip() end
     ImGui.PopStyleColor(3)
@@ -1231,6 +1304,7 @@ local function renderUI()
                 uiState.setupStep = 3
                 uiState.bankWindowOpen = true
                 uiState.bankWindowShouldDraw = true
+                recordCompanionWindowOpened("bank")
                 print("\ag[ItemUI]\ax Saved Sell layout. Step 3: Open the bank window and resize it, then Save & finish.")
             end
         elseif uiState.setupStep == 3 then
@@ -1488,6 +1562,10 @@ local function handleCommand(...)
             -- If inv closed, open it so /inv and I key give same behavior (inv open + fresh scan)
             if not invO then mq.cmd('/keypress inventory'); invO = true end
             isOpen = true; loadLayoutConfig(); maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
+            uiState.equipmentWindowOpen = true
+            uiState.equipmentWindowShouldDraw = true
+            uiState.equipmentPositionToLeftPending = true
+            recordCompanionWindowOpened("equipment")
         else
             closeGameInventoryIfOpen()
         end
@@ -1497,6 +1575,10 @@ local function handleCommand(...)
         local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
         loadLayoutConfig()
         maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
+        uiState.equipmentWindowOpen = true
+        uiState.equipmentWindowShouldDraw = true
+        uiState.equipmentPositionToLeftPending = true
+        recordCompanionWindowOpened("equipment")
     elseif cmd == "hide" then
         shouldDraw, isOpen = false, false
         closeGameInventoryIfOpen()
@@ -1514,6 +1596,7 @@ local function handleCommand(...)
     elseif cmd == "config" then
         uiState.configWindowOpen = true
         uiState.configNeedsLoad = true
+        recordCompanionWindowOpened("config")
         shouldDraw = true
         isOpen = true
         print("\ag[ItemUI]\ax Config window opened.")
@@ -1565,6 +1648,7 @@ local function main()
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
+            recordCompanionWindowOpened("loot")
         end
         mq.cmd('/macro loot')
     end)
@@ -1690,6 +1774,7 @@ local function main()
             if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
                 uiState.lootUIOpen = true
                 uiState.lootRunFinished = false
+                recordCompanionWindowOpened("loot")
             end
             if lootMacState.lastRunning and not lootMacRunning then
                 lootMacState.pendingScan = true
@@ -1721,6 +1806,7 @@ local function main()
                             uiState.lootMythicalDecisionStartAt = nil
                         end
                         uiState.lootUIOpen = true
+                        recordCompanionWindowOpened("loot")
                     end
                 end
             end
@@ -1825,6 +1911,7 @@ local function main()
                                 uiState.lootMythicalDecisionStartAt = nil
                             end
                             uiState.lootUIOpen = true
+                            recordCompanionWindowOpened("loot")
                         else
                             uiState.lootMythicalAlert = nil
                             uiState.lootMythicalDecisionStartAt = nil
@@ -1997,6 +2084,11 @@ local function main()
                 loadLayoutConfig()
                 uiState.bankWindowOpen = bankJustOpened
                 uiState.bankWindowShouldDraw = uiState.bankWindowOpen
+                if bankJustOpened then recordCompanionWindowOpened("bank") end
+                uiState.equipmentWindowOpen = true
+                uiState.equipmentWindowShouldDraw = true
+                uiState.equipmentPositionToLeftPending = true
+                recordCompanionWindowOpened("equipment")
                 -- Run only the scan that triggered show; defer others to next frame for faster first paint
                 if bankJustOpened then
                     maybeScanBank(bankOpen)
@@ -2020,6 +2112,11 @@ local function main()
             loadLayoutConfig()
             uiState.bankWindowOpen = true
             uiState.bankWindowShouldDraw = true
+            uiState.equipmentWindowOpen = true
+            uiState.equipmentWindowShouldDraw = true
+            uiState.equipmentPositionToLeftPending = true
+            recordCompanionWindowOpened("bank")
+            recordCompanionWindowOpened("equipment")
             maybeScanBank(bankOpen)
             deferredScanNeeded.inventory = invOpen
             deferredScanNeeded.sell = merchOpen
@@ -2075,6 +2172,7 @@ local function main()
             local lootMacRunning = (mn == "loot" or mn == "loot.mac")
             if not lootMacRunning and not uiState.suppressWhenLootMac then
                 uiState.lootUIOpen = true
+                recordCompanionWindowOpened("loot")
             end
         end
         -- Auto-accept no-drop valuable item confirmation when loot window open
