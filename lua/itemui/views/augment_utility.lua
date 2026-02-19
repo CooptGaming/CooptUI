@@ -328,10 +328,7 @@ function AugmentUtilityView.render(ctx)
                                 if ctx.insertAugment then
                                     local targetLoc = { bag = tab.bag, slot = tab.slot, source = tab.source or "inv" }
                                     ctx.insertAugment(targetItem, cand, slotIdx, targetLoc)
-                                    if ctx.getItemStatsForTooltip and tab then
-                                        local fresh = ctx.getItemStatsForTooltip({ bag = tab.bag, slot = tab.slot }, tab.source)
-                                        if fresh then tab.item = fresh end
-                                    end
+                                    -- Phase 0: main loop runs one scan when insert completes and refreshes tab.item
                                 end
                             end
                             ctx.theme.PopButtonColors()

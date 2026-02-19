@@ -709,6 +709,17 @@ local function getItemStatsForTooltipRef(item, source)
     if not it or not it.ID or it.ID() == 0 then return item end
     return itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
 end
+--- Phase 0: refresh active Item Display tab's item from TLO (call after scan when augment insert/remove completes).
+local function refreshActiveItemDisplayTab()
+    local tabs = uiState.itemDisplayTabs
+    if not tabs or #tabs == 0 then return end
+    local aidx = uiState.itemDisplayActiveTabIndex or 1
+    if aidx < 1 or aidx > #tabs then return end
+    local tab = tabs[aidx]
+    if not tab or tab.bag == nil or tab.slot == nil then return end
+    local fresh = getItemStatsForTooltipRef({ bag = tab.bag, slot = tab.slot }, tab.source or "inv")
+    if fresh then tab.item = fresh end
+end
 local function addItemDisplayTab(item, source)
     if not item or item.slot == nil then return end
     source = source or "inv"
@@ -2279,11 +2290,23 @@ local function main()
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
                 uiState.insertConfirmationSetAt = nil
+                -- Phase 0: single scan at completion (skip if more optimize steps queued)
+                if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                    scanInventory()
+                    if isBankWindowOpen() then scanBank() end
+                    refreshActiveItemDisplayTab()
+                end
             elseif not hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
                 uiState.waitingForInsertCursorClear = false
                 uiState.insertCursorClearTimeoutAt = nil
                 uiState.insertConfirmationSetAt = nil
+                -- Phase 0: single scan at completion (skip if more optimize steps queued)
+                if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                    scanInventory()
+                    if isBankWindowOpen() then scanBank() end
+                    refreshActiveItemDisplayTab()
+                end
             end
         end
         -- After remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv; on timeout close window and notify
@@ -2294,12 +2317,24 @@ local function main()
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
                 uiState.removeConfirmationSetAt = nil
+                -- Phase 0: single scan at completion (skip if more remove-all steps queued)
+                if not (uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0) then
+                    scanInventory()
+                    if isBankWindowOpen() then scanBank() end
+                    refreshActiveItemDisplayTab()
+                end
             elseif hasItemOnCursor() then
                 if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
                 mq.cmd('/autoinv')
                 uiState.waitingForRemoveCursorPopulated = false
                 uiState.removeCursorPopulatedTimeoutAt = nil
                 uiState.removeConfirmationSetAt = nil
+                -- Phase 0: single scan at completion (skip if more remove-all steps queued)
+                if not (uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0) then
+                    scanInventory()
+                    if isBankWindowOpen() then scanBank() end
+                    refreshActiveItemDisplayTab()
+                end
             end
         end
         if lastLootWindowState and not lootOpenNow then scanState.lastScanState.lootOpen = false; lootItems = {} end
