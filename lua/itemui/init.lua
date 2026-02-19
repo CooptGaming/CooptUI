@@ -1201,6 +1201,35 @@ local function renderUI()
         layoutUtils.scheduleLayoutSave()
     end
 
+    -- Default layout: position companions relative to hub (Inventory Companion) when they have no saved position (0,0)
+    -- Bank stays as-is (synced right of hub). Equipment already placed left of hub above.
+    local hubX, hubY = uiState.itemUIPositionX, uiState.itemUIPositionY
+    local hubW, hubH = itemUIWidth, (ImGui.GetWindowSize and select(2, ImGui.GetWindowSize())) or 450
+    local defGap = 10
+    local eqW = layoutConfig.WidthEquipmentPanel or 220
+    local eqH = layoutConfig.HeightEquipment or 380
+    if hubX and hubY and hubW then
+        if uiState.itemDisplayWindowShouldDraw and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
+            layoutConfig.ItemDisplayWindowX = hubX + hubW + defGap
+            layoutConfig.ItemDisplayWindowY = hubY
+        end
+        if uiState.augmentsWindowShouldDraw and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
+            local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
+            layoutConfig.AugmentsWindowX = hubX - aw - defGap
+            layoutConfig.AugmentsWindowY = hubY + eqH + defGap
+        end
+        if uiState.augmentUtilityWindowShouldDraw and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
+            local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or 520
+            layoutConfig.AugmentUtilityWindowX = hubX - auw - defGap
+            layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
+        end
+        if uiState.aaWindowShouldDraw and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
+            local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or 520
+            layoutConfig.AAWindowX = hubX + hubW + defGap
+            layoutConfig.AAWindowY = hubY + idH + defGap
+        end
+    end
+
     -- Header: left = Equipment, AA, Augment Utility, Filter; right = Settings, Pin (Lock), Bank
     if ImGui.Button("Equipment", ImVec2(75, 0)) then
         uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
