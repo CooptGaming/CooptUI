@@ -130,14 +130,10 @@ function BankView.render(ctx)
     ImGui.Separator()
     
     -- Search
-    ImGui.Text("Search:")
-    ImGui.SameLine()
-    ImGui.SetNextItemWidth(120)
-    ctx.uiState.searchFilterBank, _ = ImGui.InputText("##BankSearch", ctx.uiState.searchFilterBank)
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter bank items by name"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("X##BankSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterBank = "" end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
+    do
+        local ch, txt = ctx.renderSearchLine("BankSearch", ctx.uiState.searchFilterBank, 120, "Filter bank items by name")
+        if ch then ctx.uiState.searchFilterBank = txt end
+    end
     if bankOpen then
         ImGui.SameLine()
         if ImGui.Button("Refresh##Bank", ImVec2(60, 0)) then ctx.setStatusMessage("Scanning bank..."); ctx.scanBank(); ctx.setStatusMessage("Bank refreshed") end

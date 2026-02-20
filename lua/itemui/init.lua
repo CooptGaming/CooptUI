@@ -44,6 +44,7 @@ local CharacterStats = require('itemui.components.character_stats')
 -- Phase 3: Filter system modules
 local filterService = require('itemui.services.filter_service')
 local searchbar = require('itemui.components.searchbar')
+local searchLine = require('itemui.components.search_line')
 local filtersComponent = require('itemui.components.filters')
 
 -- Phase 5: Macro integration service
@@ -873,6 +874,15 @@ context.init({
     sortColumns = sortColumnsAPI,
     getSortedList = function(cache, filtered, sortKey, sortDir, validity, viewName, sortCols)
         return tableCache.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, sortCols or sortColumnsAPI)
+    end,
+    -- Phase 5: shared search line and themed progress bar
+    renderSearchLine = function(id, state, width, tooltip)
+        return searchLine.render(id, state, width, tooltip)
+    end,
+    renderThemedProgressBar = function(fraction, size, overlay)
+        theme.PushProgressBarColors()
+        ImGui.ProgressBar(fraction, size or ImVec2(-1, 24), overlay or "")
+        theme.PopProgressBarColors()
     end,
     getColumnKeyByIndex = columns.getColumnKeyByIndex, autofitColumns = columns.autofitColumns,
     -- Item helpers (module direct)

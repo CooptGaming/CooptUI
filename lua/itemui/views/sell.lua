@@ -44,14 +44,10 @@ function SellView.render(ctx, simulateSellView)
     ctx.uiState.showOnlySellable = ImGui.Checkbox("Show only sellable", ctx.uiState.showOnlySellable)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Hide items that won't be sold"); ImGui.EndTooltip() end
     ImGui.SameLine()
-    ImGui.Text("Search:")
-    ImGui.SameLine()
-    ImGui.SetNextItemWidth(160)
-    ctx.uiState.searchFilterInv, _ = ImGui.InputText("##InvSearch", ctx.uiState.searchFilterInv)
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter items by name"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("X##InvSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
+    do
+        local ch, txt = ctx.renderSearchLine("InvSearchSell", ctx.uiState.searchFilterInv, 160, "Filter items by name")
+        if ch then ctx.uiState.searchFilterInv = txt end
+    end
     ImGui.Separator()
     
     -- Sell progress bar: prominent placement when sell.mac is running (visible in sell view)
@@ -76,15 +72,12 @@ function SellView.render(ctx, simulateSellView)
             ctx.sellMacState.smoothedFrac = math.min(1, math.max(0, ctx.sellMacState.smoothedFrac))
             -- Fixed-size child to prevent layout shift (reduces flashing)
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
-                ctx.theme.PushProgressBarColors()
                 if total > 0 then
-                    -- Fixed-width format to prevent layout shift when numbers change (reduces flashing)
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
-                    ImGui.ProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
+                    ctx.renderThemedProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
                 else
                     ctx.theme.TextSuccess("Sell macro running...")
                 end
-                ctx.theme.PopProgressBarColors()
             end
             ImGui.EndChild()
             ImGui.Separator()
