@@ -176,6 +176,15 @@ local function PopProgressBarColors()
     ImGui.PopStyleColor(1)
 end
 
+--- Draw a themed progress bar (push colors, draw, pop). Single path for Sell/Loot UI (Phase 5).
+--- fraction: 0..1, size: ImVec2, overlay: optional string (e.g. "15 / 20").
+local function RenderProgressBar(fraction, size, overlay)
+    ensureImGui()
+    PushProgressBarColors()
+    ImGui.ProgressBar(fraction, size, overlay or "")
+    PopProgressBarColors()
+end
+
 return {
     ToVec4 = ToVec4,
     Colors = Colors,
@@ -192,4 +201,5 @@ return {
     PopButtonColors = PopButtonColors,
     PushProgressBarColors = PushProgressBarColors,
     PopProgressBarColors = PopProgressBarColors,
+    RenderProgressBar = RenderProgressBar,
 }

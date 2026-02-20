@@ -359,7 +359,7 @@ function AAView.render(ctx)
     ImGui.SameLine()
     if ImGui.Button("X##AAClearSearch", ImVec2(22, 0)) then searchText = ""; searchTextApplied = ""; sortCache.key = "" end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##AA", ImVec2(70, 0)) then ctx.refreshAA(); ctx.setStatusMessage("AA list refreshed") end
+    ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
     ImGui.SameLine()
     ctx.theme.TextMuted(ctx.getAALastRefreshTime and ("Last: " .. os.date("%H:%M:%S", (ctx.getAALastRefreshTime() or 0) / 1000)) or "")
     ImGui.Spacing()

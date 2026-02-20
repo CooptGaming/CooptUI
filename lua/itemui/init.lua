@@ -44,8 +44,8 @@ local CharacterStats = require('itemui.components.character_stats')
 -- Phase 3: Filter system modules
 local filterService = require('itemui.services.filter_service')
 local searchbar = require('itemui.components.searchbar')
-local searchLine = require('itemui.components.search_line')
 local filtersComponent = require('itemui.components.filters')
+local ui_common = require('itemui.components.ui_common')
 
 -- Phase 5: Macro integration service
 local macroBridge = require('itemui.services.macro_bridge')
@@ -825,6 +825,7 @@ context.init({
     -- UI helpers (always present so views can call without guards)
     setStatusMessage = setStatusMessage or function() end,
     closeItemUI = closeItemUI,
+    renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     -- Layout (module direct)
     saveLayoutToFile = function() layoutUtils.saveLayoutToFile() end,
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
@@ -874,15 +875,6 @@ context.init({
     sortColumns = sortColumnsAPI,
     getSortedList = function(cache, filtered, sortKey, sortDir, validity, viewName, sortCols)
         return tableCache.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, sortCols or sortColumnsAPI)
-    end,
-    -- Phase 5: shared search line and themed progress bar
-    renderSearchLine = function(id, state, width, tooltip)
-        return searchLine.render(id, state, width, tooltip)
-    end,
-    renderThemedProgressBar = function(fraction, size, overlay)
-        theme.PushProgressBarColors()
-        ImGui.ProgressBar(fraction, size or ImVec2(-1, 24), overlay or "")
-        theme.PopProgressBarColors()
     end,
     getColumnKeyByIndex = columns.getColumnKeyByIndex, autofitColumns = columns.autofitColumns,
     -- Item helpers (module direct)

@@ -5,7 +5,6 @@
 
 local mq = require('mq')
 require('ImGui')
-local ProgressBar = require('itemui.components.progressbar')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
@@ -287,7 +286,8 @@ function LootUIView.render(ctx)
         local total = uiState.lootRunTotalCorpses or 0
         local current = uiState.lootRunCorpsesLooted or 0
         local fraction = (total > 0) and (current / total) or 0
-        ctx.renderThemedProgressBar(fraction, ImVec2(-1, 24), string.format("%d / %d", current, total > 0 and total or 0))
+        local overlay = string.format("%d / %d", current, total > 0 and total or 0)
+        theme.RenderProgressBar(fraction, ImVec2(-1, 24), overlay)
         ImGui.Separator()
     end
 

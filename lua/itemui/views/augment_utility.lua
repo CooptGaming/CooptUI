@@ -204,17 +204,10 @@ function AugmentUtilityView.render(ctx)
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
-        if ImGui.Button("Refresh##AugmentUtility", ImVec2(70, 0)) then
-            ctx.setStatusMessage("Scanning...")
+        ctx.renderRefreshButton(ctx, "Refresh##AugmentUtility", "Rescan inventory and bank for compatible augments", function()
             if ctx.scanInventory then ctx.scanInventory() end
             if source == "bank" and ctx.scanBank then ctx.scanBank() end
-            ctx.setStatusMessage("Refreshed")
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Rescan inventory and bank for compatible augments")
-            ImGui.EndTooltip()
-        end
+        end, { messageBefore = "Scanning...", messageAfter = "Refreshed" })
         ImGui.SameLine()
         ImGui.Text("Search:")
         ImGui.SameLine()

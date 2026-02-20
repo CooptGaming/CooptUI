@@ -38,16 +38,19 @@ function SellView.render(ctx, simulateSellView)
         ctx.theme.TextMuted("/macro sell confirm")
     end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Sell", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
+    ctx.renderRefreshButton(ctx, "Refresh##Sell", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
     ctx.uiState.showOnlySellable = ImGui.Checkbox("Show only sellable", ctx.uiState.showOnlySellable)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Hide items that won't be sold"); ImGui.EndTooltip() end
     ImGui.SameLine()
-    do
-        local ch, txt = ctx.renderSearchLine("InvSearchSell", ctx.uiState.searchFilterInv, 160, "Filter items by name")
-        if ch then ctx.uiState.searchFilterInv = txt end
-    end
+    ImGui.Text("Search:")
+    ImGui.SameLine()
+    ImGui.SetNextItemWidth(160)
+    ctx.uiState.searchFilterInv, _ = ImGui.InputText("##InvSearch", ctx.uiState.searchFilterInv)
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter items by name"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("X##InvSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.Separator()
     
     -- Sell progress bar: prominent placement when sell.mac is running (visible in sell view)
@@ -74,7 +77,7 @@ function SellView.render(ctx, simulateSellView)
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                 if total > 0 then
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
-                    ctx.renderThemedProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
+                    ctx.theme.RenderProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
                 else
                     ctx.theme.TextSuccess("Sell macro running...")
                 end

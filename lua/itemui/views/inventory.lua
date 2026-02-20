@@ -16,13 +16,16 @@ local InventoryView = {}
 -- Params: context table containing all necessary state and functions from init.lua
 function InventoryView.render(ctx, bankOpen)
     -- Gameplay view: bag, slot, weight, flags; Shift+click to move when bank open
-    do
-        local ch, txt = ctx.renderSearchLine("InvSearch", ctx.uiState.searchFilterInv, 180, "Filter items by name")
-        if ch then ctx.uiState.searchFilterInv = txt end
-    end
+    ImGui.Text("Search:")
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Inv", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
+    ImGui.SetNextItemWidth(180)
+    ctx.uiState.searchFilterInv, _ = ImGui.InputText("##InvSearch", ctx.uiState.searchFilterInv)
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter items by name"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("X##InvSearchClear2", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    ctx.renderRefreshButton(ctx, "Refresh##Inv", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
     ctx.theme.TextMuted(string.format("Last: %s", os.date("%H:%M:%S", ctx.perfCache.lastScanTimeInv/1000)))
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Last inventory scan time"); ImGui.EndTooltip() end

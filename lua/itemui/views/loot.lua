@@ -22,10 +22,7 @@ function LootView.render(ctx)
     
     ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Header), lootMacRunning and "Corpse Loot (macro)" or "Corpse Loot")
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Loot", ImVec2(70, 0)) then 
-        ctx.scanLootItems(); ctx.setStatusMessage("Loot refreshed") 
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan corpse items"); ImGui.EndTooltip() end
+    ctx.renderRefreshButton(ctx, "Refresh##Loot", "Rescan corpse items", function() ctx.scanLootItems() end, { messageAfter = "Loot refreshed" })
     ImGui.SameLine()
     if ImGui.Button("Done", ImVec2(70, 0)) then
         mq.cmd('/notify LootWnd DoneButton leftmouseup')

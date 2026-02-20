@@ -104,10 +104,7 @@ function AugmentsView.render(ctx)
     ImGui.SameLine()
     ctx.theme.TextInfo(string.format("(%d in inventory)", #augments))
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Augments", ImVec2(70, 0)) then
-        ctx.setStatusMessage("Scanning..."); ctx.scanInventory(); ctx.setStatusMessage("Refreshed")
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory"); ImGui.EndTooltip() end
+    ctx.renderRefreshButton(ctx, "Refresh##Augments", "Rescan inventory", function() ctx.scanInventory() end, { messageBefore = "Scanning...", messageAfter = "Refreshed" })
     ImGui.SameLine()
     ImGui.Text("Search:")
     ImGui.SameLine()
