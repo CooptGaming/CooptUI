@@ -811,6 +811,26 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     end
 
     -- ---- All Stats: Primary (base+heroic), Resistances, Combat/utility ----
+    local itemTypeLower = (item.type and tostring(item.type):lower()) or ""
+    -- For augments: re-fetch Shielding, DamShield, HPRegen from TLO and rawset on this table so they always show.
+    -- (Some augments e.g. Barbed Dragon Bones, Jade Prism had stats in TLO but not in the table we render from.)
+    -- If more augment stats are missing in future, add that TLO name here and use rawget/fallback in combat array.
+    if itemTypeLower == "augmentation" and bag and slot and source then
+        local it = getItemTLO(bag, slot, source)
+        if it and it.ID and it.ID() and it.ID() ~= 0 then
+            local try = function(tlo, name)
+                local acc = tlo[name] or tlo[name:lower()]
+                if acc and type(acc) == "function" then local ok, v = pcall(acc); if ok and v then return v end end
+                return nil
+            end
+            local v1 = try(it, "Shielding")
+            local v2 = try(it, "DamShield")
+            local v3 = try(it, "HPRegen")
+            if v1 ~= nil then rawset(item, "shielding", tonumber(v1) or v1) end
+            if v2 ~= nil then rawset(item, "damageShield", tonumber(v2) or v2) end
+            if v3 ~= nil then rawset(item, "hpRegen", tonumber(v3) or v3) end
+        end
+    end
     local attrs = {
         attrLine(item.str, item.heroicSTR, "Strength"),
         attrLine(item.sta, item.heroicSTA, "Stamina"),
@@ -834,22 +854,29 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
         resistLine(item.svPoison, item.heroicSvPoison, "Poison"),
         resistLine(item.svCorruption, item.heroicSvCorruption, "Corruption"),
     }
-    local function cl(val, label) if (val or 0) ~= 0 then return string.format("%s: %d", label, val) end return nil end
+    local function cl(val, label) if (tonumber(val) or 0) ~= 0 then return string.format("%s: %d", label, tonumber(val) or val or 0) end return nil end
+    -- Prefer raw table values for augment stats (batch stores here; ensure we read same table)
+    local sh = rawget(item, "shielding")
+    local ds = rawget(item, "damageShield")
+    local hr = rawget(item, "hpRegen")
+    if sh == nil then sh = item.shielding end
+    if ds == nil then ds = item.damageShield end
+    if hr == nil then hr = item.hpRegen end
     -- Order combat stats to match in-game Item Display right column, then remaining
     local combat = {
         cl(item.attack, "Attack"),
-        cl(item.hpRegen, "HP Regen"),
+        cl(hr, "HP Regen"),
         cl(item.manaRegen, "Mana Regen"),
         cl(item.enduranceRegen, "End Regen"),
         cl(item.combatEffects, "Combat Eff"),
-        cl(item.damageShield, "Dmg Shield"),
+        cl(ds, "Dmg Shield"),
         cl(item.damageShieldMitigation, "Dmg Shld Mit"),
         cl(item.accuracy, "Accuracy"),
         cl(item.strikeThrough, "Strike Thr"),
         cl(item.healAmount, "Heal Amount"),
         cl(item.spellDamage, "Spell Dmg"),
         cl(item.spellShield, "Spell Shield"),
-        cl(item.shielding, "Shielding"),
+        cl(sh, "Shielding"),
         cl(item.dotShielding, "DoT Shield"),
         cl(item.avoidance, "Avoidance"),
         cl(item.stunResist, "Stun Resist"),
@@ -862,28 +889,36 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     for _, v in ipairs(attrs) do if v then hasAnyStat = true break end end
     for _, v in ipairs(resists) do if v then hasAnyStat = true break end end
     for _, v in ipairs(combat) do if v then hasAnyStat = true break end end
+    -- Augments with only combat stats (e.g. Shielding, Dmg Shield, HP Regen): ensure we show them even if hasAnyStat missed
+    local augmentSparseStats = itemTypeLower == "augmentation" and ((tonumber(sh) or 0) ~= 0 or (tonumber(ds) or 0) ~= 0 or (tonumber(hr) or 0) ~= 0)
+    if augmentSparseStats and not hasAnyStat then hasAnyStat = true end
     if hasAnyStat then
-        -- Values at top, placeholders at bottom. Use compact columns (non-nil only) so row count = longest column's value count (no placeholders in longest col).
         local placeholder = " "
         local a, r, c = compactCol(attrs), compactCol(resists), compactCol(combat)
-        local maxRows = math.max(#a, #r, #c)
-        local statsFlat = {}
-        for row = 1, maxRows do
-            statsFlat[#statsFlat + 1] = a[row] or placeholder
-            statsFlat[#statsFlat + 1] = r[row] or placeholder
-            statsFlat[#statsFlat + 1] = c[row] or placeholder
-        end
+        -- Only use single-column when literally only combat has content (so we don't hide attrs/resists on other items)
+        local onlyCombat = (#a == 0 and #r == 0 and #c > 0)
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "All Stats")
         ImGui.Spacing()
-        ImGui.Columns(3, "##StatsCols", false)
-        ImGui.SetColumnWidth(0, colW1)
-        ImGui.SetColumnWidth(1, colW2)
-        ImGui.SetColumnWidth(2, colW3)
-        for i = 1, #statsFlat do
-            if statsFlat[i] ~= placeholder then ImGui.Text(statsFlat[i]) end
-            ImGui.NextColumn()
+        if onlyCombat then
+            for _, line in ipairs(c) do ImGui.Text(line) end
+        else
+            local maxRows = math.max(#a, #r, #c)
+            local statsFlat = {}
+            for row = 1, maxRows do
+                statsFlat[#statsFlat + 1] = a[row] or placeholder
+                statsFlat[#statsFlat + 1] = r[row] or placeholder
+                statsFlat[#statsFlat + 1] = c[row] or placeholder
+            end
+            ImGui.Columns(3, "##StatsCols", false)
+            ImGui.SetColumnWidth(0, colW1)
+            ImGui.SetColumnWidth(1, colW2)
+            ImGui.SetColumnWidth(2, colW3)
+            for i = 1, #statsFlat do
+                if statsFlat[i] ~= placeholder then ImGui.Text(statsFlat[i]) end
+                ImGui.NextColumn()
+            end
+            ImGui.Columns(1)
         end
-        ImGui.Columns(1)
         ImGui.Spacing()
         -- Restore 2-column layout so Augmentation slots and then column 2 stay correct
         ImGui.Columns(2, "##TooltipCols", false)
