@@ -97,6 +97,7 @@ function EquipmentView.render(ctx)
 
     -- Grid: paper-doll order; rows 2-5 are [icon] [blank] [blank] [icon] (full width)
     local cache = ctx.equipmentCache or {}
+    local hasCursor = ctx.hasItemOnCursor()  -- Phase 2: use frame cache (set once per frame in main loop)
     local idx = 1
     local maxCols = 4
     for row = 1, #EQUIPMENT_ROW_LENGTHS do
@@ -201,21 +202,20 @@ function EquipmentView.render(ctx)
                     if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                         local slotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(slotIndex)
                         if slotName then
-                            local hasCursor = ctx.hasItemOnCursor and ctx.hasItemOnCursor()
                             if not hasCursor and hasItem then
                                 ctx.uiState.lastPickup.bag = 0
                                 ctx.uiState.lastPickup.slot = slotIndex
                                 ctx.uiState.lastPickup.source = "equipped"
                                 ctx.uiState.lastPickupSetThisFrame = true
                                 mq.cmdf('/itemnotify %s leftmouseup', slotName)
-                                if ctx.setStatusMessage then ctx.setStatusMessage("Picked up (equipment)") end
+                                ctx.setStatusMessage("Picked up (equipment)")
                             elseif hasCursor then
                                 mq.cmdf('/itemnotify %s leftmouseup', slotName)
                                 ctx.uiState.lastPickup.bag = 0
                                 ctx.uiState.lastPickup.slot = slotIndex
                                 ctx.uiState.lastPickup.source = "equipped"
                                 ctx.uiState.lastPickupSetThisFrame = true
-                                if ctx.setStatusMessage then ctx.setStatusMessage("Equipped or swapped") end
+                                ctx.setStatusMessage("Equipped or swapped")
                             end
                             if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
                             -- Deferred refresh so icon updates after game applies swap (same-frame refresh may still see old state)

@@ -480,18 +480,62 @@ function M.executeMoveAction(action)
     end
 end
 
+-- ============================================================================
+-- Phase 4: shared pickup/drop/hide helpers for item-table views
+-- ============================================================================
+
+--- Return true if this row should be hidden (item is on cursor or just picked up from this slot).
+function M.shouldHideRowForCursor(item, source)
+    if not item or not source then return false end
+    local lp = deps.uiState.lastPickup
+    if not lp or lp.source ~= source then return false end
+    if lp.bag ~= item.bag or lp.slot ~= item.slot then return false end
+    return true
+end
+
+--- Initiate pickup from a slot (inv or bank). Sets lastPickup and runs /itemnotify. Call from view on left-click when no cursor.
+function M.pickupFromSlot(bag, slot, source)
+    if not bag or not slot or (source ~= "inv" and source ~= "bank") then return end
+    deps.uiState.lastPickup.bag = bag
+    deps.uiState.lastPickup.slot = slot
+    deps.uiState.lastPickup.source = source
+    deps.uiState.lastPickupSetThisFrame = true
+    if source == "inv" then
+        mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
+    else
+        mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
+    end
+end
+
+--- Drop cursor item into a slot (inv or bank). Clears lastPickup, invalidates cache, schedules deferred scan for inv.
+function M.dropAtSlot(bag, slot, source)
+    if not bag or not slot or (source ~= "inv" and source ~= "bank") then return end
+    if source == "inv" then
+        mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
+    else
+        mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
+    end
+    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.invalidateSortCache(source == "inv" and "inv" or "bank")
+    if source == "inv" then
+        if deps.maybeScanInventory then deps.maybeScanInventory() end
+        deps.uiState.deferredInventoryScanAt = mq.gettime() + 120
+        if deps.setStatusMessage then deps.setStatusMessage("Dropped in pack") end
+    end
+end
+
 --- Put item on cursor into first free inventory slot. Clears lastPickup so "put back" is no longer to previous location.
 --- Returns true if cursor had item and a free slot was found and used.
 function M.putCursorInBags()
     if not M.hasItemOnCursor() then return false end
     local ib, is_ = findFirstFreeInvSlot()
     if not ib or not is_ then
-        if deps.setStatusMessage then deps.setStatusMessage("No free inventory slot") end
+        deps.setStatusMessage("No free inventory slot")
         return false
     end
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    if deps.setStatusMessage then deps.setStatusMessage("Put in bags") end
+    deps.setStatusMessage("Put in bags")
     if deps.scanInventory then deps.scanInventory() end
     -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
     deps.uiState.deferredInventoryScanAt = mq.gettime() + 120

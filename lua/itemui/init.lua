@@ -73,6 +73,7 @@ local theme = require('itemui.utils.theme')
 local columns = require('itemui.utils.columns')
 local columnConfig = require('itemui.utils.column_config')
 local sortUtils = require('itemui.utils.sort')
+local tableCache = require('itemui.utils.table_cache')
 local windowState = require('itemui.utils.window_state')
 local itemHelpers = require('itemui.utils.item_helpers')
 local icons = require('itemui.utils.icons')
@@ -166,10 +167,12 @@ local uiState = {
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
-    pendingQuantityPickup = nil, pendingQuantityAction = nil,
+    pendingQuantityPickup = nil, pendingQuantityPickupTimeoutAt = nil,  -- timeout: clear picker if user never completes (Phase 1 reliability)
+    pendingQuantityAction = nil,
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
     lastPickupSetThisFrame = false,  -- true when a view set lastPickup this frame (don't clear until next frame so item hides)
     hadItemOnCursorLastFrame = false,
+    hasItemOnCursorThisFrame = nil,  -- Phase 2: set once per frame to avoid repeated TLO.Cursor() calls
     pendingDestroy = nil,       -- { bag, slot, name, stackSize } when Delete clicked and confirm required
     pendingDestroyAction = nil, -- { bag, slot, name, qty } for main loop to call performDestroyItem (qty = whole stack when confirm skipped)
     destroyQuantityValue = "",  -- quantity input for destroy dialog (1..stackSize)
@@ -189,6 +192,7 @@ local uiState = {
     removeAllQueue = nil,         -- Phase 1: { bag, slot, source, slotIndices } when Remove All active; one scan when queue empty
     optimizeQueue = nil,          -- Phase 2: { targetLoc, steps = { { slotIndex, augmentItem }, ... } }; one scan when steps empty
     equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
+    equipmentLastRefreshAt = nil,          -- Phase 2: last time we refreshed equipment cache (throttle to ~every 400ms instead of every frame)
     deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
@@ -506,10 +510,11 @@ local function saveLayoutToFile() layoutUtils.saveLayoutToFile() end
 local function loadLayoutConfig() layoutUtils.loadLayoutConfig() end
 local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutForView(view, w, h, bankPanelW) end
 
-local function invalidateSortCache(view)
+-- sortOnly: when true (inv only), do not clear invTotalSlots/invTotalValue so "Items: x/y" and total value don't force recompute
+local function invalidateSortCache(view, sortOnly)
     local c = view == "inv" and perfCache.inv or view == "sell" and perfCache.sell or view == "bank" and perfCache.bank or view == "loot" and perfCache.loot
     if c then c.key = nil end
-    if view == "inv" then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true end
+    if view == "inv" and not sortOnly then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true end
 end
 
 -- Window state queries (delegated to utils/window_state.lua)
@@ -630,6 +635,7 @@ itemOps.init({
     getEquipmentSlotNameForItemNotify = function(slotIndex) return itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex) end,
     scanBank = function() scanService.scanBank() end,
     scanInventory = function() scanService.scanInventory() end,
+    maybeScanInventory = maybeScanInventory,
 })
 augmentOps.init({
     setStatusMessage = setStatusMessage,
@@ -642,7 +648,10 @@ augmentOps.init({
     setWaitingForInsertConfirmation = function(v) uiState.waitingForInsertConfirmation = v end,
 })
 local function processSellQueue() itemOps.processSellQueue() end
-local function hasItemOnCursor() return itemOps.hasItemOnCursor() end
+local function hasItemOnCursor()
+    if uiState.hasItemOnCursorThisFrame ~= nil then return uiState.hasItemOnCursorThisFrame end
+    return itemOps.hasItemOnCursor()
+end
 local function removeItemFromCursor() return itemOps.removeItemFromCursor() end
 local function putCursorInBags() return itemOps.putCursorInBags() end
 
@@ -790,8 +799,10 @@ context.init({
     configLootFlags = configLootFlags, configLootValues = configLootValues,
     configLootSorting = configLootSorting, configEpicClasses = configEpicClasses,
     EPIC_CLASSES = rules.EPIC_CLASSES,
-    -- Window state
+    -- Window state (prefer flat API for consistency)
     windowState = windowStateAPI,
+    isBankWindowOpen = isBankWindowOpen,
+    isMerchantWindowOpen = isMerchantWindowOpen,
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
@@ -810,8 +821,9 @@ context.init({
     invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
     invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
     loadConfigCache = loadConfigCache,
-    -- UI helpers
-    setStatusMessage = setStatusMessage, closeItemUI = closeItemUI,
+    -- UI helpers (always present so views can call without guards)
+    setStatusMessage = setStatusMessage or function() end,
+    closeItemUI = closeItemUI,
     -- Layout (module direct)
     saveLayoutToFile = function() layoutUtils.saveLayoutToFile() end,
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
@@ -822,12 +834,18 @@ context.init({
     getFixedColumns = function(v) return layoutUtils.getFixedColumns(v) end,
     toggleFixedColumn = function(v, k) return layoutUtils.toggleFixedColumn(v, k) end,
     isColumnInFixedSet = function(v, k) return layoutUtils.isColumnInFixedSet(v, k) end,
-    -- Item ops (module direct)
-    hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
+    -- Item ops (module direct; always present so views can call without guards; Phase 2: use frame cache when set)
+    hasItemOnCursor = function()
+        if uiState.hasItemOnCursorThisFrame ~= nil then return uiState.hasItemOnCursorThisFrame end
+        return itemOps.hasItemOnCursor()
+    end,
     removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
     putCursorInBags = function() return itemOps.putCursorInBags() end,
     moveBankToInv = function(b, s) return itemOps.moveBankToInv(b, s) end,
     moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
+    shouldHideRowForCursor = function(item, source) return itemOps.shouldHideRowForCursor(item, source) end,
+    pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end,
+    dropAtSlot = function(bag, slot, source) return itemOps.dropAtSlot(bag, slot, source) end,
     queueItemForSelling = function(d) return itemOps.queueItemForSelling(d) end,
     updateSellStatusForItemName = function(n, k, j) itemOps.updateSellStatusForItemName(n, k, j) end,
     applySellListChange = applySellListChange,
@@ -851,8 +869,11 @@ context.init({
     augmentLists = augmentListAPI,
     addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
     isInLootSkipList = isInLootSkipList,
-    -- Sort/columns
+    -- Sort/columns (Phase 3: shared sort+cache helper)
     sortColumns = sortColumnsAPI,
+    getSortedList = function(cache, filtered, sortKey, sortDir, validity, viewName, sortCols)
+        return tableCache.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, sortCols or sortColumnsAPI)
+    end,
     getColumnKeyByIndex = columns.getColumnKeyByIndex, autofitColumns = columns.autofitColumns,
     -- Item helpers (module direct)
     getSpellName = function(id) return itemHelpers.getSpellName(id) end,
@@ -1176,6 +1197,7 @@ local function renderUI()
     if ImGui.IsKeyPressed(ImGuiKey.Escape) then
         if uiState.pendingQuantityPickup then
             uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
             uiState.quantityPickerValue = ""
         else
             local mostRecent = getMostRecentlyOpenedCompanion()
@@ -1194,6 +1216,9 @@ local function renderUI()
         end
     end
     if not winVis then ImGui.End(); return end
+
+    -- Phase 2: cache cursor state once per frame so main loop and views don't call TLO.Cursor() repeatedly
+    uiState.hasItemOnCursorThisFrame = itemOps.hasItemOnCursor()
 
     -- Track ItemUI window position and size (for bank sync and EQ item-display grid)
     if not uiState.alignToContext then
@@ -1387,6 +1412,7 @@ local function renderUI()
                     pickup = uiState.pendingQuantityPickup
                 }
                 uiState.pendingQuantityPickup = nil
+                uiState.pendingQuantityPickupTimeoutAt = nil
                 uiState.quantityPickerValue = ""
             else
                 setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
@@ -1418,6 +1444,7 @@ local function renderUI()
                         pickup = uiState.pendingQuantityPickup
                     }
                     uiState.pendingQuantityPickup = nil
+                    uiState.pendingQuantityPickupTimeoutAt = nil
                     uiState.quantityPickerValue = ""
                 else
                     setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
@@ -1432,12 +1459,14 @@ local function renderUI()
                 pickup = uiState.pendingQuantityPickup
             }
             uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
             uiState.quantityPickerValue = ""
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up maximum quantity"); ImGui.EndTooltip() end
         ImGui.SameLine()
         if ImGui.Button("Cancel", ImVec2(60, 0)) then
             uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
             uiState.quantityPickerValue = ""
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Cancel quantity selection"); ImGui.EndTooltip() end
@@ -1464,7 +1493,11 @@ local function renderUI()
         removeItemFromCursor()
     end
     -- Clear lastPickup when cursor is empty so the item shows back in the list. Don't clear the same frame we set it (lastPickupSetThisFrame) or we'd clear before the game has put the item on cursor.
+    -- When cursor becomes empty after having had an item (e.g. user equipped it), schedule a scan so the list updates and the row disappears instead of reappearing.
     if not hasItemOnCursor() and not uiState.lastPickupSetThisFrame then
+        if uiState.lastPickup and (uiState.lastPickup.bag ~= nil or uiState.lastPickup.slot ~= nil) then
+            uiState.deferredInventoryScanAt = mq.gettime() + 120
+        end
         uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
     end
     if not hasItemOnCursor() then
@@ -1530,13 +1563,22 @@ local function renderUI()
         ConfigView.render(ctx)
     end
 
+    -- Phase 2: refresh equipment cache only on deferred timer or when stale (~400ms), not every frame
     if uiState.equipmentWindowShouldDraw then
-        refreshEquipmentCache()
         local now = mq.gettime()
+        local shouldRefresh = false
         if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
-            refreshEquipmentCache()
             uiState.equipmentDeferredRefreshAt = nil
+            shouldRefresh = true
+        elseif not uiState.equipmentLastRefreshAt or (now - uiState.equipmentLastRefreshAt) > 400 then
+            shouldRefresh = true
         end
+        if shouldRefresh then
+            refreshEquipmentCache()
+            uiState.equipmentLastRefreshAt = now
+        end
+    else
+        uiState.equipmentLastRefreshAt = nil  -- so next open we refresh
     end
     if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
         scanInventory()
@@ -2002,11 +2044,13 @@ local function main()
             local pd = uiState.pendingDestroyAction
             uiState.pendingDestroyAction = nil
             uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
             uiState.quantityPickerValue = ""
             itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
         end
         if uiState.pendingMoveAction then
             uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
             uiState.quantityPickerValue = ""
             itemOps.executeMoveAction(uiState.pendingMoveAction)
             uiState.pendingMoveAction = nil
@@ -2051,8 +2095,15 @@ local function main()
             augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
             uiState.insertConfirmationSetAt = mq.gettime()
         end
-        -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed
+        -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed or timeout
         if uiState.pendingQuantityPickup then
+            local now = mq.gettime()
+            if uiState.pendingQuantityPickupTimeoutAt and now >= uiState.pendingQuantityPickupTimeoutAt then
+                uiState.pendingQuantityPickup = nil
+                uiState.pendingQuantityPickupTimeoutAt = nil
+                uiState.quantityPickerValue = ""
+                setStatusMessage("Quantity picker cancelled")
+            else
             local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
             local qtyWndOpen = qtyWnd and qtyWnd.Open and qtyWnd.Open() or false
             local hasCursor = hasItemOnCursor()
@@ -2074,12 +2125,15 @@ local function main()
                 if not itemExists then
                     -- Item was picked up, clear pending
                     uiState.pendingQuantityPickup = nil
+                    uiState.pendingQuantityPickupTimeoutAt = nil
                     uiState.quantityPickerValue = ""
                 end
             elseif hasCursor then
                 -- Item is on cursor, clear pending (user picked it up manually)
                 uiState.pendingQuantityPickup = nil
+                uiState.pendingQuantityPickupTimeoutAt = nil
                 uiState.quantityPickerValue = ""
+            end
             end
         end
         local invWndLoop = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")

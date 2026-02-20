@@ -63,22 +63,22 @@ end
 
 function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSlot, targetSource)
     if not targetItem or not augmentItem then
-        if deps.setStatusMessage then deps.setStatusMessage("No target or augment selected.") end
+        deps.setStatusMessage("No target or augment selected.")
         return false
     end
     local src = (augmentItem.source or "inv"):lower()
     local bag = augmentItem.bag or 0
     local slot = augmentItem.slot or 0
     if bag <= 0 or slot <= 0 then
-        if deps.setStatusMessage then deps.setStatusMessage("Invalid augment location.") end
+        deps.setStatusMessage("Invalid augment location.")
         return false
     end
     if src == "bank" and deps.isBankWindowOpen and not deps.isBankWindowOpen() then
-        if deps.setStatusMessage then deps.setStatusMessage("Open bank first to use augment from bank.") end
+        deps.setStatusMessage("Open bank first to use augment from bank.")
         return false
     end
     if deps.hasItemOnCursor and deps.hasItemOnCursor() then
-        if deps.setStatusMessage then deps.setStatusMessage("Clear cursor first.") end
+        deps.setStatusMessage("Clear cursor first.")
         return false
     end
     -- Pick up augment
@@ -93,7 +93,7 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
     if slotIndex and slotIndex >= 1 and slotIndex <= 6 and targetBag and targetSlot and targetSource then
         local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
         if not it or not it.Inspect then
-            if deps.setStatusMessage then deps.setStatusMessage("Could not get target item to inspect.") end
+            deps.setStatusMessage("Could not get target item to inspect.")
             return false
         end
         it.Inspect()
@@ -104,9 +104,7 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         mq.delay(200)
         if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
         -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
-        if deps.setStatusMessage then
-            deps.setStatusMessage(string.format("Inserted %s into slot %d", augmentItem.name or "augment", slotIndex))
-        end
+        deps.setStatusMessage(string.format("Inserted %s into slot %d", augmentItem.name or "augment", slotIndex))
         return true
     end
 
@@ -118,15 +116,13 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
     elseif targetName and targetName ~= "" then
         mq.cmdf('/insertaug "%s"', targetName:gsub('"', '\\"'):sub(1, 64))
     else
-        if deps.setStatusMessage then deps.setStatusMessage("Target item has no ID or name.") end
+        deps.setStatusMessage("Target item has no ID or name.")
         return false
     end
     mq.delay(200)
     if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
     -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
-    if deps.setStatusMessage then
-        deps.setStatusMessage(string.format("Inserted %s", augmentItem.name or "augment"))
-    end
+    deps.setStatusMessage(string.format("Inserted %s", augmentItem.name or "augment"))
     return true
 end
 
@@ -136,12 +132,12 @@ end
 
 function M.removeAugment(bag, slot, source, slotIndex)
     if not bag or not slot or not source or not slotIndex or slotIndex < 1 or slotIndex > 6 then
-        if deps.setStatusMessage then deps.setStatusMessage("Invalid slot for remove.") end
+        deps.setStatusMessage("Invalid slot for remove.")
         return false
     end
     local it = deps.getItemTLO and deps.getItemTLO(bag, slot, source)
     if not it or not it.Inspect then
-        if deps.setStatusMessage then deps.setStatusMessage("Could not get item to inspect.") end
+        deps.setStatusMessage("Could not get item to inspect.")
         return false
     end
     it.Inspect()
@@ -179,9 +175,7 @@ function M.removeAugment(bag, slot, source, slotIndex)
         deps.setWaitingForRemoveConfirmation(true)
     end
     -- Phase 0: no mid-op scan; main loop runs one scan when remove completes (cursor has item)
-    if deps.setStatusMessage then
-        deps.setStatusMessage(string.format("Remove augment from slot %d (check game window for dialogs)", slotIndex))
-    end
+    deps.setStatusMessage(string.format("Remove augment from slot %d (check game window for dialogs)", slotIndex))
     return true
 end
 

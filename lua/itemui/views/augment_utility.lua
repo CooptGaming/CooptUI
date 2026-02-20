@@ -205,10 +205,10 @@ function AugmentUtilityView.render(ctx)
         end
         ImGui.SameLine()
         if ImGui.Button("Refresh##AugmentUtility", ImVec2(70, 0)) then
-            if ctx.setStatusMessage then ctx.setStatusMessage("Scanning...") end
+            ctx.setStatusMessage("Scanning...")
             if ctx.scanInventory then ctx.scanInventory() end
             if source == "bank" and ctx.scanBank then ctx.scanBank() end
-            if ctx.setStatusMessage then ctx.setStatusMessage("Refreshed") end
+            ctx.setStatusMessage("Refreshed")
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()

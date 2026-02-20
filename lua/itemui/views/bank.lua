@@ -21,7 +21,7 @@ local BANK_WINDOW_HEIGHT = 600
 function BankView.render(ctx)
     if not ctx.uiState.bankWindowShouldDraw then return end
     
-    local bankOpen = ctx.windowState and ctx.windowState.isBankWindowOpen and ctx.windowState.isBankWindowOpen()
+    local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
     ctx.ensureBankCacheFromStorage()
     local list = bankOpen and ctx.bankItems or ctx.bankCache
     
@@ -152,10 +152,7 @@ function BankView.render(ctx)
     local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
     for _, item in ipairs(list) do
         if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
-            -- Hide item from list while it is on cursor or we just initiated pickup (lastPickup set on click; game may not have cursor yet for a frame)
-            if lp and lp.source == "bank" and lp.bag and lp.slot and item.bag == lp.bag and item.slot == lp.slot then
-                -- skip this item
-            else
+            if not ctx.shouldHideRowForCursor(item, "bank") then
                 table.insert(filteredBank, item)
             end
         end
@@ -279,49 +276,19 @@ function BankView.render(ctx)
             ImGui.EndPopup()
         end
         
-        -- Sort cache: skip sort when key/dir/filter/list unchanged
+        -- Sort cache (Phase 3: shared getSortedList helper)
         local bankSortKey = (ctx.sortState.bankColumn and type(ctx.sortState.bankColumn) == "string" and ctx.sortState.bankColumn) or "Name"
         local bankSortDir = ctx.sortState.bankDirection or ImGuiSortDirection.Ascending
         local bankFilterStr = ctx.uiState.searchFilterBank or ""
-        -- Invalidate cache when lastPickup is set (use list with item hidden). Also invalidate when lastPickup just cleared so we don't use a cache built without the item.
         local bankHidingNow = not not (lp and lp.source == "bank" and lp.bag and lp.slot)
-        local bankCacheValid = ctx.perfCache.bank.key == bankSortKey and ctx.perfCache.bank.dir == bankSortDir and ctx.perfCache.bank.filter == bankFilterStr and ctx.perfCache.bank.n == #list and ctx.perfCache.bank.nFiltered == #filteredBank and #ctx.perfCache.bank.sorted > 0 and (ctx.perfCache.bank.hidingSlot == bankHidingNow)
-        if not bankCacheValid and bankSortKey ~= "" then
-            local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(bankSortKey)
-            -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
-            local Sort = ctx.sortColumns
-            local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filteredBank, bankSortKey, "Bank")
-            if decorated then
-                local bankDir = ctx.sortState.bankDirection or ImGuiSortDirection.Ascending
-                table.sort(decorated, function(a, b)
-                    local av, bv = a.key, b.key
-                    if isNumeric then
-                        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                        if an ~= bn then
-                            if bankDir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                        end
-                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                        if bankDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                    else
-                        local as, bs = tostring(av or ""), tostring(bv or "")
-                        if as ~= bs then
-                            if bankDir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                        end
-                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                        if bankDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                    end
-                end)
-                Sort.undecorate(decorated, filteredBank)
-            end
-            ctx.perfCache.bank.key, ctx.perfCache.bank.dir, ctx.perfCache.bank.filter = bankSortKey, bankSortDir, bankFilterStr
-            ctx.perfCache.bank.n, ctx.perfCache.bank.nFiltered, ctx.perfCache.bank.sorted = #list, #filteredBank, filteredBank
-            ctx.perfCache.bank.hidingSlot = bankHidingNow
-        else
-            filteredBank = ctx.perfCache.bank.sorted
-        end
-        
+        local validity = {
+            filter = bankFilterStr,
+            hidingSlot = bankHidingNow,
+            fullListLen = #list,
+            nFiltered = #filteredBank,
+        }
+        filteredBank = ctx.getSortedList(ctx.perfCache.bank, filteredBank, bankSortKey, bankSortDir, validity, "Bank", ctx.sortColumns)
+
         local nBank = #filteredBank
         local clipperBank = ImGuiListClipper.new()
         clipperBank:Begin(nBank)
@@ -348,7 +315,6 @@ function BankView.render(ctx)
                         if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
                         ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
                         if bankOpen then
-                            local hasCursor = ctx.hasItemOnCursor()
                             if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                                 if ImGui.GetIO().KeyShift then
                                     ctx.moveBankToInv(item.bag, item.slot)
@@ -361,12 +327,11 @@ function BankView.render(ctx)
                                             maxQty = item.stackSize,
                                             itemName = item.name
                                         }
+                                        ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + 60000  -- 60s timeout (Phase 1)
                                         ctx.uiState.quantityPickerValue = tostring(item.stackSize)
                                         ctx.uiState.quantityPickerMax = item.stackSize
                                     else
-                                        ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "bank"
-                                        ctx.uiState.lastPickupSetThisFrame = true
-                                        mq.cmdf('/itemnotify in bank%d %d leftmouseup', item.bag, item.slot)
+                                        ctx.pickupFromSlot(item.bag, item.slot, "bank")
                                     end
                                 end
                             end
@@ -392,7 +357,6 @@ function BankView.render(ctx)
                             ImGui.EndTooltip()
                         end
                         if ImGui.BeginPopupContextItem("ItemContextBankIcon_" .. rid) then
-                            local hasCursor = ctx.hasItemOnCursor()
                             if ImGui.MenuItem("CoOp UI Item Display") then
                                 if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
                             end

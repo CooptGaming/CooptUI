@@ -241,9 +241,7 @@ function AugmentsView.render(ctx)
                 if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
                 ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0, 0))
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
-                    ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
-                    ctx.uiState.lastPickupSetThisFrame = true
-                    mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
+                    ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                     if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
