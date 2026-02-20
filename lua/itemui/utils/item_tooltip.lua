@@ -305,6 +305,7 @@ local function getItemInfoRowCount(item)
     if item.mana and item.mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(item.mana)) end
     if item.endurance and item.endurance ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(item.endurance)) end
     if item.haste and item.haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(item.haste) .. "%") end
+    if item.purity and item.purity ~= 0 then midCol[#midCol + 1] = string.format(L2, "Purity:", tostring(item.purity)) end
     local isWeapon = (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.type and item.type ~= "" and (item.type:lower():find("piercing") or item.type:lower():find("slashing") or item.type:lower():find("1h") or item.type:lower():find("2h") or item.type:lower():find("ranged")))
     if isWeapon then
         rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage or 0))
@@ -351,8 +352,8 @@ local function getStatRowCount(item)
         cl(item.damageShieldMitigation, "Dmg Shld Mit"), cl(item.accuracy, "Accuracy"), cl(item.strikeThrough, "Strike Thr"),
         cl(item.healAmount, "Heal Amount"), cl(item.spellDamage, "Spell Dmg"), cl(item.spellShield, "Spell Shield"),
         cl(item.shielding, "Shielding"), cl(item.dotShielding, "DoT Shield"), cl(item.avoidance, "Avoidance"),
-        cl(item.stunResist, "Stun Resist"), cl(item.clairvoyance, "Clairvoyance"), cl(item.haste, "Haste"),
-        cl(item.luck, "Luck"), cl(item.purity, "Purity"),
+        cl(item.stunResist, "Stun Resist"), cl(item.clairvoyance, "Clairvoyance"),
+        cl(item.luck, "Luck"),
     }
     local hasAny = false
     for _, v in ipairs(attrs) do if v then hasAny = true break end end
@@ -770,6 +771,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     if item.mana and item.mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(item.mana)) end
     if item.endurance and item.endurance ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(item.endurance)) end
     if item.haste and item.haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(item.haste) .. "%") end
+    if item.purity and item.purity ~= 0 then midCol[#midCol + 1] = string.format(L2, "Purity:", tostring(item.purity)) end
     -- Weapon block: always show Base Dmg, Delay, Dmg Bon when item has weapon stats (match in-game Item Display)
     local isWeapon = (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.type and item.type ~= "" and (item.type:lower():find("piercing") or item.type:lower():find("slashing") or item.type:lower():find("1h") or item.type:lower():find("2h") or item.type:lower():find("ranged")))
     if isWeapon then
@@ -881,9 +883,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
         cl(item.avoidance, "Avoidance"),
         cl(item.stunResist, "Stun Resist"),
         cl(item.clairvoyance, "Clairvoyance"),
-        cl(item.haste, "Haste"),
         cl(item.luck, "Luck"),
-        cl(item.purity, "Purity"),
     }
     local hasAnyStat = false
     for _, v in ipairs(attrs) do if v then hasAnyStat = true break end end
