@@ -25,8 +25,7 @@ function InventoryView.render(ctx, bankOpen)
     if ImGui.Button("X##InvSearchClear2", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Inv", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
+    ctx.renderRefreshButton(ctx, "Refresh##Inv", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
     ctx.theme.TextMuted(string.format("Last: %s", os.date("%H:%M:%S", ctx.perfCache.lastScanTimeInv/1000)))
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Last inventory scan time"); ImGui.EndTooltip() end
@@ -189,58 +188,25 @@ function InventoryView.render(ctx, bankOpen)
         local filtered = {}
         for _, it in ipairs(ctx.inventoryItems) do
             if ctx.uiState.searchFilterInv == "" or (it.name or ""):lower():find((ctx.uiState.searchFilterInv or ""):lower(), 1, true) then
-                -- Hide item from list while it is on cursor or we just initiated pickup (lastPickup set on click; game may not have cursor yet for a frame)
-                if lp and lp.source == "inv" and lp.bag and lp.slot and it.bag == lp.bag and it.slot == lp.slot then
-                    -- skip this item
-                else
+                if not ctx.shouldHideRowForCursor(it, "inv") then
                     table.insert(filtered, it)
                 end
             end
         end
         
-        -- Sort cache: skip sort when key/dir/filter/list unchanged; use sortState (persisted) for column/dir
+        -- Sort cache (Phase 3: shared getSortedList helper)
         local sortKey = (ctx.sortState.invColumn and type(ctx.sortState.invColumn) == "string" and ctx.sortState.invColumn) or "Name"
         local sortDir = ctx.sortState.invDirection or ImGuiSortDirection.Ascending
         local filterStr = ctx.uiState.searchFilterInv or ""
-        -- Invalidate cache when lastPickup is set so we use the filtered list (with picked-up item hidden). Also invalidate when lastPickup just cleared so we don't use a cache built without the item.
         local hidingNow = not not (lp and lp.source == "inv" and lp.bag and lp.slot)
-        local cacheValid = ctx.perfCache.inv.key == sortKey and ctx.perfCache.inv.dir == sortDir and ctx.perfCache.inv.filter == filterStr and ctx.perfCache.inv.n == #ctx.inventoryItems and ctx.perfCache.inv.scanTime == ctx.perfCache.lastScanTimeInv and #ctx.perfCache.inv.sorted > 0 and (ctx.perfCache.inv.hidingSlot == hidingNow)
-        if not cacheValid and sortKey ~= "" then
-            local isNumeric = ctx.sortColumns and ctx.sortColumns.isNumericColumn and ctx.sortColumns.isNumericColumn(sortKey)
-            -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
-            local Sort = ctx.sortColumns
-            local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filtered, sortKey, "Inventory")
-            if decorated then
-                local invDir = ctx.sortState.invDirection or ImGuiSortDirection.Ascending
-                table.sort(decorated, function(a, b)
-                    local av, bv = a.key, b.key
-                    if isNumeric then
-                        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                        if an ~= bn then
-                            if invDir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                        end
-                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                        if invDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                    else
-                        local as, bs = tostring(av or ""), tostring(bv or "")
-                        if as ~= bs then
-                            if invDir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                        end
-                        local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                        local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                        if invDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                    end
-                end)
-                Sort.undecorate(decorated, filtered)
-            end
-            ctx.perfCache.inv.key, ctx.perfCache.inv.dir, ctx.perfCache.inv.filter = sortKey, sortDir, filterStr
-            ctx.perfCache.inv.n, ctx.perfCache.inv.scanTime, ctx.perfCache.inv.sorted = #ctx.inventoryItems, ctx.perfCache.lastScanTimeInv, filtered
-            ctx.perfCache.inv.hidingSlot = hidingNow
-        elseif cacheValid then
-            filtered = ctx.perfCache.inv.sorted
-        end
-        
+        local validity = {
+            filter = filterStr,
+            hidingSlot = hidingNow,
+            fullListLen = #ctx.inventoryItems,
+            scanTime = ctx.perfCache.lastScanTimeInv,
+        }
+        filtered = ctx.getSortedList(ctx.perfCache.inv, filtered, sortKey, sortDir, validity, "Inventory", ctx.sortColumns)
+
         local nInv = #filtered
         local clipperInv = ImGuiListClipper.new()
         clipperInv:Begin(nInv)
@@ -265,16 +231,9 @@ function InventoryView.render(ctx, bankOpen)
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                             if ImGui.GetIO().KeyShift and bankOpen then
                                 ctx.moveInvToBank(item.bag, item.slot)
-                            elseif ctx.hasItemOnCursor() then
-                                -- Phase 3: drop cursor item into this row's slot (place or swap)
-                                mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
-                                ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = nil, nil, nil
-                                if ctx.setStatusMessage then ctx.setStatusMessage("Dropped in pack") end
-                                if ctx.maybeScanInventory then ctx.maybeScanInventory() end
-                                if ctx.invalidateSortCache then ctx.invalidateSortCache("inv") end
-                                -- Deferred scan so list shows new item after game applies move
-                                ctx.uiState.deferredInventoryScanAt = mq.gettime() + 120
-                            elseif not ctx.hasItemOnCursor() then
+                            elseif hasCursor then
+                                ctx.dropAtSlot(item.bag, item.slot, "inv")
+                            elseif not hasCursor then
                                 if item.stackSize and item.stackSize > 1 then
                                     ctx.uiState.pendingQuantityPickup = {
                                         bag = item.bag,
@@ -283,12 +242,11 @@ function InventoryView.render(ctx, bankOpen)
                                         maxQty = item.stackSize,
                                         itemName = item.name
                                     }
+                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + 60000  -- 60s timeout (Phase 1)
                                     ctx.uiState.quantityPickerValue = tostring(item.stackSize)
                                     ctx.uiState.quantityPickerMax = item.stackSize
                                 else
-                                    ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
-                                    ctx.uiState.lastPickupSetThisFrame = true
-                                    mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
+                                    ctx.pickupFromSlot(item.bag, item.slot, "inv")
                                 end
                             end
                         end
@@ -366,7 +324,7 @@ function InventoryView.render(ctx, bankOpen)
                             local inAugmentNeverLoot = isAugment and ctx.augmentLists and ctx.augmentLists.isInAugmentNeverLootList and ctx.augmentLists.isInAugmentNeverLootList(nameKey)
 
                             if ImGui.MenuItem("Inspect") then
-                                if ctx.hasItemOnCursor() then
+                                if hasCursor then
                                     ctx.removeItemFromCursor()
                                 else
                                     local Me = mq.TLO and mq.TLO.Me

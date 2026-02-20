@@ -17,7 +17,7 @@ local SellView = {}
 function SellView.render(ctx, simulateSellView)
     -- Sell view: filters and columns tuned for selling
     if #ctx.sellItems == 0 then
-        local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, (ctx.windowState and ctx.windowState.isBankWindowOpen and ctx.windowState.isBankWindowOpen()), (ctx.windowState and ctx.windowState.isMerchantWindowOpen and ctx.windowState.isMerchantWindowOpen())
+        local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, (ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false), (ctx.isMerchantWindowOpen and ctx.isMerchantWindowOpen() or false)
         ctx.maybeScanInventory(invO); ctx.maybeScanSellItems(merchO)
     end
     
@@ -38,8 +38,7 @@ function SellView.render(ctx, simulateSellView)
         ctx.theme.TextMuted("/macro sell confirm")
     end
     ImGui.SameLine()
-    if ImGui.Button("Refresh##Sell", ImVec2(70, 0)) then ctx.setStatusMessage("Scanning..."); ctx.refreshAllScans() end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Rescan inventory, bank (if open), sell list, and loot"); ImGui.EndTooltip() end
+    ctx.renderRefreshButton(ctx, "Refresh##Sell", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
     ctx.uiState.showOnlySellable = ImGui.Checkbox("Show only sellable", ctx.uiState.showOnlySellable)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Hide items that won't be sold"); ImGui.EndTooltip() end
@@ -76,15 +75,12 @@ function SellView.render(ctx, simulateSellView)
             ctx.sellMacState.smoothedFrac = math.min(1, math.max(0, ctx.sellMacState.smoothedFrac))
             -- Fixed-size child to prevent layout shift (reduces flashing)
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
-                ctx.theme.PushProgressBarColors()
                 if total > 0 then
-                    -- Fixed-width format to prevent layout shift when numbers change (reduces flashing)
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
-                    ImGui.ProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
+                    ctx.theme.RenderProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
                 else
                     ctx.theme.TextSuccess("Sell macro running...")
                 end
-                ctx.theme.PopProgressBarColors()
             end
             ImGui.EndChild()
             ImGui.Separator()
@@ -137,8 +133,7 @@ function SellView.render(ctx, simulateSellView)
         local passFilter = true
         if ctx.uiState.showOnlySellable and not item.willSell then passFilter = false end
         if passFilter and searchLower ~= "" and not (item.name or ""):lower():find(searchLower, 1, true) then passFilter = false end
-        -- Hide item from list while it is on cursor or we just initiated pickup (lastPickup set on click; game may not have cursor yet for a frame)
-        if passFilter and lp and lp.source == "inv" and lp.bag and lp.slot and item.bag == lp.bag and item.slot == lp.slot then passFilter = false end
+        if passFilter and ctx.shouldHideRowForCursor(item, "inv") then passFilter = false end
         if passFilter then table.insert(filteredSellItems, item) end
     end
     
@@ -227,53 +222,19 @@ function SellView.render(ctx, simulateSellView)
             ImGui.EndPopup()
         end
         
-        -- Sort cache: skip sort when key/dir/filter/list unchanged
+        -- Sort cache (Phase 3: shared getSortedList helper)
         local sellSortKey = type(ctx.sortState.sellColumn) == "string" and ctx.sortState.sellColumn or (type(ctx.sortState.sellColumn) == "number" and ctx.sortState.sellColumn or "")
         local sellSortDir = ctx.sortState.sellDirection or ImGuiSortDirection.Ascending
-        -- Invalidate cache when lastPickup is set (use list with item hidden). Also invalidate when lastPickup just cleared so we don't use a cache built without the item.
         local sellHidingNow = not not (lp and lp.source == "inv" and lp.bag and lp.slot)
-        local sellCacheValid = ctx.perfCache.sell.key == sellSortKey and ctx.perfCache.sell.dir == sellSortDir and ctx.perfCache.sell.filter == searchLower and ctx.perfCache.sell.showOnly == ctx.uiState.showOnlySellable and ctx.perfCache.sell.n == #ctx.sellItems and ctx.perfCache.sell.nFiltered == #filteredSellItems and #ctx.perfCache.sell.sorted > 0 and (ctx.perfCache.sell.hidingSlot == sellHidingNow)
-        if not sellCacheValid then
-            local Sort = ctx.sortColumns
-            if type(ctx.sortState.sellColumn) == "string" then
-                local sortKey = ctx.sortState.sellColumn
-                local isNumeric = (sortKey == "Value" or sortKey == "Stack")
-                -- Schwartzian transform: pre-compute keys O(n) then sort by cached keys
-                local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filteredSellItems, sortKey, "Sell")
-                if decorated then
-                    local sellDir = ctx.sortState.sellDirection or ImGuiSortDirection.Ascending
-                    table.sort(decorated, function(a, b)
-                        local av, bv = a.key, b.key
-                        if isNumeric then
-                            local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-                            if an ~= bn then
-                                if sellDir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
-                            end
-                            local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                            local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                            if sellDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                        else
-                            local as, bs = tostring(av or ""), tostring(bv or "")
-                            if as ~= bs then
-                                if sellDir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-                            end
-                            local ta = (a.item and ((a.item.bag or 0) * 1000 + (a.item.slot or 0))) or 0
-                            local tb = (b.item and ((b.item.bag or 0) * 1000 + (b.item.slot or 0))) or 0
-                            if sellDir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
-                        end
-                    end)
-                    Sort.undecorate(decorated, filteredSellItems)
-                end
-            elseif type(ctx.sortState.sellColumn) == "number" and ctx.sortState.sellColumn >= 3 and ctx.sortState.sellColumn <= 7 then
-                table.sort(filteredSellItems, Sort.makeComparator(Sort.getSellSortVal, ctx.sortState.sellColumn, ctx.sortState.sellDirection, {5, 6}))
-            end
-            ctx.perfCache.sell.key, ctx.perfCache.sell.dir, ctx.perfCache.sell.filter = sellSortKey, sellSortDir, searchLower
-            ctx.perfCache.sell.showOnly, ctx.perfCache.sell.n, ctx.perfCache.sell.nFiltered, ctx.perfCache.sell.sorted = ctx.uiState.showOnlySellable, #ctx.sellItems, #filteredSellItems, filteredSellItems
-            ctx.perfCache.sell.hidingSlot = sellHidingNow
-        else
-            filteredSellItems = ctx.perfCache.sell.sorted
-        end
-        
+        local validity = {
+            filter = searchLower,
+            hidingSlot = sellHidingNow,
+            fullListLen = #ctx.sellItems,
+            nFiltered = #filteredSellItems,
+            showOnly = ctx.uiState.showOnlySellable,
+        }
+        filteredSellItems = ctx.getSortedList(ctx.perfCache.sell, filteredSellItems, sellSortKey, sellSortDir, validity, "Sell", ctx.sortColumns)
+
         local n = #filteredSellItems
         local clipper = ImGuiListClipper.new()
         clipper:Begin(n)
@@ -355,9 +316,7 @@ function SellView.render(ctx, simulateSellView)
                 if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
                 ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
-                    ctx.uiState.lastPickup.bag, ctx.uiState.lastPickup.slot, ctx.uiState.lastPickup.source = item.bag, item.slot, "inv"
-                    ctx.uiState.lastPickupSetThisFrame = true
-                    mq.cmdf('/itemnotify in pack%d %d leftmouseup', item.bag, item.slot)
+                    ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                     if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
