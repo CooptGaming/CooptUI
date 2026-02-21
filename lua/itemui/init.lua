@@ -138,7 +138,7 @@ local uiState = {
     itemDisplayActiveTabIndex = 1,  -- 1-based index into itemDisplayTabs
     itemDisplayRecent = {},        -- last N (e.g. 10) of { bag, slot, source, label } for Recent dropdown
     itemDisplayLocateRequest = nil,      -- { source, bag, slot } when Locate clicked
-    itemDisplayLocateRequestAt = nil,     -- os.clock() when set (clear after 3s)
+    itemDisplayLocateRequestAt = nil,     -- mq.gettime() ms when set (clear after 3s)
     itemDisplayAugmentSlotActive = nil,   -- 1-based slot index when "Choose augment" is active in Item Display
     augmentUtilityWindowOpen = false, augmentUtilityWindowShouldDraw = false,
     augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility

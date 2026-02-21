@@ -348,6 +348,10 @@ function M.render(refs)
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
+            if uiState.lootUIOpen and (layoutConfig.LootWindowX or 0) == 0 and (layoutConfig.LootWindowY or 0) == 0 then
+                layoutConfig.LootWindowX = hubX + hubW + defGap
+                layoutConfig.LootWindowY = hubY
+            end
         end
 
         if ImGui.Button("Equipment", ImVec2(75, 0)) then
@@ -666,8 +670,9 @@ function M.render(refs)
             renderItemDisplayWindow(refs)
         end
         if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
-            local now = (os and os.clock and os.clock()) or 0
-            if now - uiState.itemDisplayLocateRequestAt > constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC then
+            local now = mq.gettime()
+            local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
+            if now - uiState.itemDisplayLocateRequestAt > clearMs then
                 uiState.itemDisplayLocateRequest = nil
                 uiState.itemDisplayLocateRequestAt = nil
             end
