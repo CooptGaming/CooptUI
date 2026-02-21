@@ -348,6 +348,10 @@ function M.render(refs)
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
+            if uiState.lootUIOpen and (layoutConfig.LootWindowX or 0) == 0 and (layoutConfig.LootWindowY or 0) == 0 then
+                layoutConfig.LootWindowX = hubX + hubW + defGap
+                layoutConfig.LootWindowY = hubY
+            end
         end
 
         if ImGui.Button("Equipment", ImVec2(75, 0)) then
@@ -377,12 +381,12 @@ function M.render(refs)
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
         ImGui.SameLine()
-        if ImGui.Button("Filter", ImVec2(55, 0)) then
+        if ImGui.Button("Reroll Mgr", ImVec2(80, 0)) then
             uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
             uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
+            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Reroll Manager opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Manager (augment and mythical 10-for-1 exchange, protect items)"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
         if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
@@ -666,8 +670,9 @@ function M.render(refs)
             renderItemDisplayWindow(refs)
         end
         if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
-            local now = (os and os.clock and os.clock()) or 0
-            if now - uiState.itemDisplayLocateRequestAt > constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC then
+            local now = mq.gettime()
+            local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
+            if now - uiState.itemDisplayLocateRequestAt > clearMs then
                 uiState.itemDisplayLocateRequest = nil
                 uiState.itemDisplayLocateRequestAt = nil
             end

@@ -5,6 +5,7 @@
     Locate, Refresh, Recent.
 --]]
 
+local mq = require('mq')
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
@@ -207,7 +208,7 @@ function ItemDisplayView.render(ctx)
             ImGui.Spacing()
             if ImGui.SmallButton("Locate##ItemDisplay") then
                 ctx.uiState.itemDisplayLocateRequest = { source = tab.source, bag = tab.bag, slot = tab.slot }
-                ctx.uiState.itemDisplayLocateRequestAt = (os and os.clock and os.clock()) or 0
+                ctx.uiState.itemDisplayLocateRequestAt = mq.gettime()
             end
             ImGui.SameLine()
             if ImGui.SmallButton("Refresh##ItemDisplay") then

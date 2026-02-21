@@ -60,6 +60,7 @@ M.TIMING = {
     LOOT_POLL_MS_IDLE = 1000,
     LOOT_DEFER_MS = 2000,
     LOOT_MYTHICAL_DECISION_SEC = 300,
+    REROLL_RESCAN_DELAY_MS = 2000,   -- Reroll Manager
 
     -- Quantity picker / item ops
     QUANTITY_PICKUP_TIMEOUT_MS = 60000,
@@ -117,6 +118,7 @@ M.UI = {
     ITEM_NAME_TRUNCATE_LEN = 37,
     FAILED_LIST_TRUNCATE_LEN = 60,
     FAILED_LIST_DISPLAY_MAX = 57,
+    REROLL_PROGRESS_BAR_HEIGHT = 20,   -- Reroll Manager
 }
 
 -- ---------------------------------------------------------------------------
@@ -125,6 +127,7 @@ M.UI = {
 M.LIMITS = {
     MAX_BANK_SLOTS = 24,
     MAX_INVENTORY_BAGS = 10,
+    REROLL_REQUIRED_COUNT = 10,   -- Reroll: items needed per exchange
     STATUS_MSG_MAX_LEN = 72,
     LOOT_HISTORY_MAX = 200,
     ITEM_DISPLAY_RECENT_MAX = 10,
