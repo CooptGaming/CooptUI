@@ -285,4 +285,5 @@ return {
     parseList = parseList,
     joinList = joinList,
     sanitizeItemName = sanitizeItemName,
+    isValidFilterEntry = isValidFilterEntry,
 }

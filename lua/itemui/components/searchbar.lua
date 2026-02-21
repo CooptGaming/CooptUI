@@ -31,14 +31,16 @@
         end
 --]]
 
+local mq = require('mq')
 local ImGui = require('ImGui')
 local filterService = require('itemui.services.filter_service')
+local constants = require('itemui.constants')
 
 local SearchBar = {
     _debounceTimers = {},  -- { view = { text, timestamp } }
-    _debounceDelay = 300,  -- ms
+    _debounceDelay = constants.TIMING.SEARCH_DEBOUNCE_MS,
     _searchHistory = {},   -- { view = { searches } }
-    _maxHistorySize = 5,
+    _maxHistorySize = constants.LIMITS.SEARCH_HISTORY_MAX,
 }
 
 local addToHistory
@@ -71,7 +73,7 @@ function SearchBar.render(options)
         -- Update debounce timer
         SearchBar._debounceTimers[view] = {
             text = newText,
-            timestamp = os.clock() * 1000  -- Convert to ms
+            timestamp = mq.gettime()
         }
         
         -- Add to history if not empty and different from last
@@ -151,7 +153,7 @@ function SearchBar.shouldApplyFilter(view, currentText)
     end
     
     -- Check if enough time has passed
-    local now = os.clock() * 1000
+    local now = mq.gettime()
     local elapsed = now - timer.timestamp
     
     if elapsed >= SearchBar._debounceDelay then
@@ -183,7 +185,7 @@ function SearchBar.renderCompact(options)
         
         SearchBar._debounceTimers[view] = {
             text = newText,
-            timestamp = os.clock() * 1000
+            timestamp = mq.gettime()
         }
     end
     

@@ -8,12 +8,12 @@
 local mq = require('mq')
 local config = require('itemui.config')
 local file_safe = require('itemui.utils.file_safe')
+local constants = require('itemui.constants')
 
 local LayoutUtils = {}
 
--- Constants
-local LAYOUT_INI = "itemui_layout.ini"
-local LAYOUT_SECTION = "Layout"
+local LAYOUT_INI = constants.LAYOUT_INI
+local LAYOUT_SECTION = constants.LAYOUT_SECTION
 
 -- Module interface: Initialize layout utils with dependencies
 -- Params: layoutDefaults, layoutConfig, uiState, sortState, filterState, columnVisibility, perfCache, constants, availableColumns
@@ -302,7 +302,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
-        f:write("WidthConfig=" .. tostring(layoutConfig.WidthConfig or 520) .. "\n")
+        f:write("WidthConfig=" .. tostring(layoutConfig.WidthConfig or constants.VIEWS.WidthConfig) .. "\n")
         f:write("HeightConfig=" .. tostring(layoutConfig.HeightConfig or 420) .. "\n")
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
@@ -532,10 +532,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
-            f:write("HeightItemDisplay=" .. tostring(layoutDefaults.HeightItemDisplay or 520) .. "\n")
+            f:write("HeightItemDisplay=" .. tostring(layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay) .. "\n")
             f:write("AugmentUtilityWindowX=" .. tostring(layoutDefaults.AugmentUtilityWindowX or 0) .. "\n")
             f:write("AugmentUtilityWindowY=" .. tostring(layoutDefaults.AugmentUtilityWindowY or 0) .. "\n")
-            f:write("WidthAugmentUtilityPanel=" .. tostring(layoutDefaults.WidthAugmentUtilityPanel or 520) .. "\n")
+            f:write("WidthAugmentUtilityPanel=" .. tostring(layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel) .. "\n")
             f:write("HeightAugmentUtility=" .. tostring(layoutDefaults.HeightAugmentUtility or 480) .. "\n")
             f:write("WidthAAPanel=" .. layoutDefaults.WidthAAPanel .. "\n")
             f:write("HeightAA=" .. layoutDefaults.HeightAA .. "\n")
@@ -683,7 +683,7 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
-        layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", 520)
+        layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
         layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
@@ -787,7 +787,7 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
-    layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", 520)
+    layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
     layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
     uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)

@@ -7,13 +7,10 @@ local mq = require('mq')
 require('ImGui')
 local config = require('itemui.config')
 
+local constants = require('itemui.constants')
 local AAView = {}
 
 local TAB_NAMES = { "General", "Archetype", "Class", "Special" }
-local AA_WINDOW_WIDTH = 640
-local AA_WINDOW_HEIGHT = 520
-local SEARCH_DEBOUNCE_MS = 180
-local IMPORT_DELAY_MS = 250
 
 -- Module-local state (search, debounce, selection, import state)
 local searchText = ""
@@ -72,7 +69,8 @@ local function buildSortKey(ctx, filtered)
     local col = ctx.sortState.aaColumn or "Title"
     local dir = ctx.sortState.aaDirection or ImGuiSortDirection.Ascending
     local tab = ctx.sortState.aaTab or 1
-    return string.format("%s|%d|%d|%s|%d", col, dir, tab, searchTextApplied or "", #filtered)
+    local cp = canPurchaseOnly and "1" or "0"
+    return string.format("%s|%d|%d|%s|%d|%s", col, dir, tab, searchTextApplied or "", #filtered, cp)
 end
 
 local function getSortedList(ctx, filtered)
@@ -263,8 +261,8 @@ function AAView.render(ctx)
     if ax and ay and (ax ~= 0 or ay ~= 0) then
         ImGui.SetNextWindowPos(ImVec2(ax, ay), ImGuiCond.FirstUseEver)
     end
-    local w = layoutConfig.WidthAAPanel or AA_WINDOW_WIDTH
-    local h = layoutConfig.HeightAA or AA_WINDOW_HEIGHT
+    local w = layoutConfig.WidthAAPanel or constants.VIEWS.WidthAAPanel
+    local h = layoutConfig.HeightAA or constants.VIEWS.HeightAA
     if w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
@@ -328,7 +326,7 @@ function AAView.render(ctx)
 
     -- Debounce search
     local now = mq.gettime()
-    if now - searchDebounceAt >= SEARCH_DEBOUNCE_MS then
+    if now - searchDebounceAt >= constants.TIMING.AA_SEARCH_DEBOUNCE_MS then
         searchTextApplied = searchText
         searchDebounceAt = now
     end
@@ -379,7 +377,7 @@ function AAView.render(ctx)
             local name = colNames[i]
             local flags = (name == "Title") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
             if name == sortCol then flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort) end
-            local w = (name == "Cur/Max") and 60 or (name == "Cost") and 45 or (name == "Category") and 120 or 0
+            local w = (name == "Cur/Max") and constants.UI.AA_COL_CURMAX_WIDTH or (name == "Cost") and constants.UI.AA_COL_COST_WIDTH or (name == "Category") and constants.UI.AA_COL_CATEGORY_WIDTH or 0
             ImGui.TableSetupColumn(name, flags, w, i)
         end
         ImGui.TableSetupScrollFreeze(0, 1)

@@ -134,7 +134,7 @@ end
 
 -- Check if macro is running
 local function isMacroRunning(macroName)
-    local macro = mq.TLO.Macro
+    local macro = mq.TLO and mq.TLO.Macro
     if not macro then return false end
     
     -- Check if Running is a valid function before calling

@@ -9,6 +9,7 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local constants = require('itemui.constants')
 
 local InventoryView = {}
 
@@ -75,8 +76,15 @@ function InventoryView.render(ctx, bankOpen)
     if nCols == 0 then nCols = 1; visibleCols = {{key = "Name", label = "Name", numeric = false}} end
     
     if ImGui.BeginTable("ItemUI_InvGameplay", nCols, ctx.uiState.tableFlags) then
+        -- Use a stable hash of the column key as UserID so ImGui can persist across visibility changes
+        local function simpleHash(str)
+            local h = 0
+            for i = 1, #str do
+                h = (h * 31 + string.byte(str, i)) % 2147483647
+            end
+            return h
+        end
         -- Setup columns with stable user IDs based on column key hash or index
-        -- This allows ImGui to track and persist column order independently
         local sortCol = (ctx.sortState.invColumn and type(ctx.sortState.invColumn) == "string" and ctx.sortState.invColumn) or "Name"
         for i, colDef in ipairs(visibleCols) do
             local flags = (colDef.key == "Name") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
@@ -103,27 +111,12 @@ function InventoryView.render(ctx, bankOpen)
                     else width = 80 end
                 end
             end
-            -- Use a stable hash of the column key as UserID so ImGui can persist across visibility changes
-            local function simpleHash(str)
-                local h = 0
-                for i = 1, #str do
-                    h = (h * 31 + string.byte(str, i)) % 2147483647
-                end
-                return h
-            end
             local userID = simpleHash(colDef.key)
             ImGui.TableSetupColumn(colDef.label, flags, width, userID)
         end
         ImGui.TableSetupScrollFreeze(0, 1)
         
         -- Build column mapping: UserID (hash of column key) -> column key
-        local function simpleHash(str)
-            local h = 0
-            for i = 1, #str do
-                h = (h * 31 + string.byte(str, i)) % 2147483647
-            end
-            return h
-        end
         local colKeyByUserID = {}
         for i, colDef in ipairs(visibleCols) do
             colKeyByUserID[simpleHash(colDef.key)] = colDef.key
@@ -242,7 +235,7 @@ function InventoryView.render(ctx, bankOpen)
                                         maxQty = item.stackSize,
                                         itemName = item.name
                                     }
-                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + 60000  -- 60s timeout (Phase 1)
+                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
                                     ctx.uiState.quantityPickerValue = tostring(item.stackSize)
                                     ctx.uiState.quantityPickerMax = item.stackSize
                                 else

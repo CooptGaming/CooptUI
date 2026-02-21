@@ -10,11 +10,8 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
+local constants = require('itemui.constants')
 local BankView = {}
-
--- Constants
-local BANK_WINDOW_WIDTH = 520
-local BANK_WINDOW_HEIGHT = 600
 
 -- Module interface: render bank window
 -- Params: context table containing all necessary state and functions from init.lua
@@ -48,10 +45,10 @@ function BankView.render(ctx)
                 local invW = tonumber(invWnd.Width and invWnd.Width()) or 0
                 if invX and invY and invW > 0 then
                     -- ItemUI position = InventoryWindow.X + InventoryWindow.Width + spacing
-                    local itemUIX = invX + invW + 10
+                    local itemUIX = invX + invW + constants.UI.WINDOW_GAP
                     local itemUIY = invY
-                    local itemUIW = ctx.layoutConfig.WidthInventory or 600
-                    local calculatedX = itemUIX + itemUIW + 10
+                    local itemUIW = ctx.layoutConfig.WidthInventory or constants.VIEWS.WidthInventory
+                    local calculatedX = itemUIX + itemUIW + constants.UI.WINDOW_GAP
                     ImGui.SetNextWindowPos(ImVec2(calculatedX, itemUIY), ImGuiCond.FirstUseEver)
                     -- Save this calculated position for future use
                     ctx.layoutConfig.BankWindowX = calculatedX
@@ -63,8 +60,8 @@ function BankView.render(ctx)
     end
     
     -- Window size
-    local w = ctx.layoutConfig.WidthBankPanel or BANK_WINDOW_WIDTH
-    local h = ctx.layoutConfig.HeightBank or BANK_WINDOW_HEIGHT
+    local w = ctx.layoutConfig.WidthBankPanel or constants.VIEWS.WidthBankPanel
+    local h = ctx.layoutConfig.HeightBank or constants.VIEWS.HeightBank
     if w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
@@ -323,7 +320,7 @@ function BankView.render(ctx)
                                             maxQty = item.stackSize,
                                             itemName = item.name
                                         }
-                                        ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + 60000  -- 60s timeout (Phase 1)
+                                        ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
                                         ctx.uiState.quantityPickerValue = tostring(item.stackSize)
                                         ctx.uiState.quantityPickerMax = item.stackSize
                                     else

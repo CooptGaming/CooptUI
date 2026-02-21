@@ -7,11 +7,9 @@
 
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local constants = require('itemui.constants')
 
 local ItemDisplayView = {}
-
-local ITEM_DISPLAY_WINDOW_WIDTH = 760
-local ITEM_DISPLAY_WINDOW_HEIGHT = 520
 
 --- Draw "Can I use?" banner + full item tooltip content for one tab entry.
 --- entry = { bag, slot, source, item, label }
@@ -68,8 +66,8 @@ function ItemDisplayView.render(ctx)
         ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.FirstUseEver)
     end
 
-    local w = layoutConfig.WidthItemDisplayPanel or ITEM_DISPLAY_WINDOW_WIDTH
-    local h = layoutConfig.HeightItemDisplay or ITEM_DISPLAY_WINDOW_HEIGHT
+    local w = layoutConfig.WidthItemDisplayPanel or constants.VIEWS.WidthItemDisplayPanel
+    local h = layoutConfig.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
     if w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
@@ -115,7 +113,7 @@ function ItemDisplayView.render(ctx)
         local closeIndices = {}
         local style = ImGui.GetStyle()
         local framePadX = (style and style.FramePadding and style.FramePadding.x) or 4
-        local availX = 400
+        local availX = constants.UI.ITEM_DISPLAY_AVAIL_X
         do
             local ax, ay = ImGui.GetContentRegionAvail()
             if type(ax) == "number" and ax > 0 then availX = ax end
@@ -126,7 +124,7 @@ function ItemDisplayView.render(ctx)
         for i, tab in ipairs(tabs) do
             local tabLabel = tab.label or ("Item " .. tostring(i))
             local isSelected = (activeIdx == i)
-            local tw = 120
+            local tw = constants.UI.ITEM_DISPLAY_TAB_LABEL_WIDTH
             do
                 local cw, ch = ImGui.CalcTextSize(tabLabel)
                 if type(cw) == "number" then tw = cw

@@ -5,6 +5,7 @@
 --]]
 
 local mq = require('mq')
+local constants = require('itemui.constants')
 
 local M = {}
 local deps  -- set by init()
@@ -49,21 +50,21 @@ function M.processSellQueue()
         isSelling = false
         return
     end
-    mq.delay(200)
+    mq.delay(constants.TIMING.ITEM_OPS_DELAY_INITIAL_MS)
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
-    mq.delay(300)
+    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS)
     local selected = false
     for i = 1, 10 do
         local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
         if wnd and wnd.Text and wnd.Text() == itemName then selected = true; break end
-        mq.delay(100)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
     end
     if not selected then
         isSelling = false
         return
     end
     mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
-    mq.delay(300)
+    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS)
     for i = 1, 15 do
         local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
         local sel = (wnd and wnd.Text and wnd.Text()) or ""
@@ -71,7 +72,7 @@ function M.processSellQueue()
             local v = pack and pack.Item and pack.Item(slotNum)
             if not v or not v.ID or not v.ID() or v.ID() == 0 then break end
         end
-        mq.delay(100)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
     end
     M.removeItemFromInventoryBySlot(bagNum, slotNum)
     M.removeItemFromSellItemsBySlot(bagNum, slotNum)
@@ -431,7 +432,7 @@ function M.executeMoveAction(action)
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
     if w and w.Open and w.Open() then
         mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
-        mq.delay(150)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
     end
     if action.source == "inv" then
         mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
@@ -440,19 +441,19 @@ function M.executeMoveAction(action)
     end
     local qty = (action.qty and action.qty > 0) and action.qty or 1
     if qty > 1 then
-        mq.delay(300, function()
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS, function()
             local ww = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
             return ww and ww.Open and ww.Open()
         end)
         local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
         if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
             mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
-            mq.delay(150)
+            mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
             mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-            mq.delay(100)
+            mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
         end
     else
-        mq.delay(100)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
     end
     if action.source == "inv" then
         mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.destBag, action.destSlot)
@@ -519,7 +520,7 @@ function M.dropAtSlot(bag, slot, source)
     deps.invalidateSortCache(source == "inv" and "inv" or "bank")
     if source == "inv" then
         if deps.maybeScanInventory then deps.maybeScanInventory() end
-        deps.uiState.deferredInventoryScanAt = mq.gettime() + 120
+        deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
         if deps.setStatusMessage then deps.setStatusMessage("Dropped in pack") end
     end
 end
@@ -538,7 +539,7 @@ function M.putCursorInBags()
     deps.setStatusMessage("Put in bags")
     if deps.scanInventory then deps.scanInventory() end
     -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
-    deps.uiState.deferredInventoryScanAt = mq.gettime() + 120
+    deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
     return true
 end
 
@@ -573,7 +574,7 @@ local function closeQuantityWndIfOpen()
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
     if w and w.Open and w.Open() then
         mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
-        mq.delay(150)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
     end
 end
 
@@ -584,18 +585,18 @@ function M.performDestroyItem(bag, slot, itemName, qty)
     qty = (qty and qty > 0) and math.floor(qty) or 1
     closeQuantityWndIfOpen()
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
-    mq.delay(300, function()
+    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS, function()
         local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
         return w and w.Open and w.Open()
     end)
     local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
     if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
         mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
-        mq.delay(150)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
         mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-        mq.delay(100)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
     else
-        mq.delay(100)
+        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
     end
     mq.cmd('/destroy')
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil

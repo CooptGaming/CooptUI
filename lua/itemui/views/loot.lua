@@ -17,7 +17,7 @@ function LootView.render(ctx)
     ctx.maybeScanLootItems(true)
     
     -- Macro.Name may return "loot" or "loot.mac" depending on MQ version
-    local lootMacName = (mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or ""):lower()) or ""
+    local lootMacName = ((mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""):lower()
     local lootMacRunning = (lootMacName == "loot" or lootMacName == "loot.mac")
     
     ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Header), lootMacRunning and "Corpse Loot (macro)" or "Corpse Loot")

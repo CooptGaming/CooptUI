@@ -12,8 +12,14 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local events = require('itemui.core.events')
 
 local AugmentsView = {}
+
+-- Cached "Never loot" set (augment skip list); invalidated on CONFIG_LOOT_CHANGED
+local cachedAugmentNeverLootSet = {}
+local augmentNeverLootCacheValid = false
+events.on(events.EVENTS.CONFIG_LOOT_CHANGED, function() augmentNeverLootCacheValid = false end)
 
 local AUGMENT_TYPE = "Augmentation"
 local AUGMENTS_WINDOW_WIDTH = 560
@@ -132,12 +138,15 @@ function AugmentsView.render(ctx)
         return
     end
 
-    -- Build a set of "Never loot" (augment-only skip list) names from cached config.
-    local augmentNeverLootSet = {}
-    if ctx.configLootLists and ctx.configLootLists.augmentSkipExact then
-        for _, name in ipairs(ctx.configLootLists.augmentSkipExact) do
-            if name and name ~= "" then augmentNeverLootSet[name] = true end
+    -- Use cached "Never loot" set; rebuild when invalidated by CONFIG_LOOT_CHANGED.
+    if not augmentNeverLootCacheValid then
+        cachedAugmentNeverLootSet = {}
+        if ctx.configLootLists and ctx.configLootLists.augmentSkipExact then
+            for _, name in ipairs(ctx.configLootLists.augmentSkipExact) do
+                if name and name ~= "" then cachedAugmentNeverLootSet[name] = true end
+            end
         end
+        augmentNeverLootCacheValid = true
     end
 
     -- Compact table: Icon (stats on hover) | Name | Effects | Value | Always sell | Never loot (Name, Effects, Value sortable)
@@ -196,7 +205,7 @@ function AugmentsView.render(ctx)
 
                 local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
                 local actualInAugmentAlwaysSell = ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(nameKey) or false
-                local actualInAugmentNeverLoot = augmentNeverLootSet[nameKey] == true
+                local actualInAugmentNeverLoot = cachedAugmentNeverLootSet[nameKey] == true
 
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()

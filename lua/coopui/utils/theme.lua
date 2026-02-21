@@ -57,6 +57,13 @@ local Colors = {
         Hover  = { 0.8, 0.35, 0.35, 1 },
         Active = { 0.6, 0.2, 0.2, 1 },
     },
+    HP          = { 0.9, 0.3, 0.3, 1 },
+    MP          = { 0.3, 0.5, 0.9, 1 },
+    Endurance   = { 0.5, 0.7, 0.3, 1 },
+    Combat      = { 0.8, 0.6, 0.2, 1 },
+    Utility     = { 0.6, 0.8, 0.6, 1 },
+    SectionHead = { 0.85, 0.85, 0.7, 1 },
+    Highlight   = { 0.9, 0.85, 0.4, 1 },
 }
 
 --- Draw text with Info color.

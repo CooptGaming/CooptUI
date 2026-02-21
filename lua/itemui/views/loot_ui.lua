@@ -8,10 +8,8 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
+local constants = require('itemui.constants')
 local LootUIView = {}
-
-local LOOT_UI_WIDTH = 420
-local LOOT_UI_HEIGHT = 380
 
 --- Clear Loot UI in-memory state and optionally clear session/alert INI (call on Esc or Close).
 --- ctx.clearLootUIState() is provided by init.lua
@@ -27,8 +25,8 @@ function LootUIView.render(ctx)
     local theme = ctx.theme
     local layoutConfig = ctx.layoutConfig or {}
 
-    local w = layoutConfig.WidthLootPanel or LOOT_UI_WIDTH
-    local h = layoutConfig.HeightLoot or LOOT_UI_HEIGHT
+    local w = layoutConfig.WidthLootPanel or constants.VIEWS.WidthLootPanel
+    local h = layoutConfig.HeightLoot or constants.VIEWS.HeightLoot
     if w and h and w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
@@ -46,13 +44,13 @@ function LootUIView.render(ctx)
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
-    -- Persist window size when resized (window is always resizable)
+    -- Persist window size when resized (debounced via scheduleLayoutSave)
     local cw, ch = ImGui.GetWindowSize()
     if cw and ch and cw > 0 and ch > 0 then
         local prevW, prevH = layoutConfig.WidthLootPanel or 0, layoutConfig.HeightLoot or 0
         layoutConfig.WidthLootPanel = cw
         layoutConfig.HeightLoot = ch
-        if (prevW ~= cw or prevH ~= ch) and ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+        if (prevW ~= cw or prevH ~= ch) then ctx.scheduleLayoutSave() end
     end
 
     theme.TextHeader("Loot")
@@ -151,13 +149,13 @@ function LootUIView.render(ctx)
     -- Mythical feedback: brief "You chose: Take" / "Passed — left on corpse" after Take/Pass
     local feedback = uiState.lootMythicalFeedback
     if feedback and feedback.message and feedback.showUntil then
-        local now = (os.clock and os.clock()) or 0
+        local now = mq.gettime()
         if now >= feedback.showUntil then
             uiState.lootMythicalFeedback = nil
         else
             ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Success))
             ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
-            if ImGui.BeginChild("MythicalFeedbackCard", ImVec2(-1, 52), true) then
+            if ImGui.BeginChild("MythicalFeedbackCard", ImVec2(-1, constants.UI.LOOT_FEEDBACK_CARD_HEIGHT), true) then
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Success), feedback.message)
             end
             ImGui.EndChild()
@@ -177,8 +175,8 @@ function LootUIView.render(ctx)
         ImGui.PushStyleColor(ImGuiCol.ChildBg, ImVec4(amberBg[1], amberBg[2], amberBg[3], amberBg[4]))
         ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 4)
-        local cardH = 152
-        if pending then cardH = 172 end
+        local cardH = constants.UI.LOOT_MYTHICAL_CARD_HEIGHT
+        if pending then cardH = constants.UI.LOOT_MYTHICAL_CARD_HEIGHT_PENDING end
         if ImGui.BeginChild("MythicalAlertCard", ImVec2(-1, cardH), true) then
             ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "MYTHICAL")
             ImGui.SameLine()
@@ -235,10 +233,10 @@ function LootUIView.render(ctx)
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Found: " .. alert.timestamp)
             end
             if pending then
-                local remainSec = 300
+                local remainSec = constants.TIMING.LOOT_MYTHICAL_DECISION_SEC
                 local startAt = uiState.lootMythicalDecisionStartAt
                 if startAt and type(startAt) == "number" then
-                    remainSec = math.max(0, 300 - ((os.time and os.time() or 0) - startAt))
+                    remainSec = math.max(0, constants.TIMING.LOOT_MYTHICAL_DECISION_SEC - ((os.time and os.time() or 0) - startAt))
                 end
                 local mins = math.floor(remainSec / 60)
                 local secs = math.floor(remainSec % 60)
@@ -320,12 +318,12 @@ function LootUIView.render(ctx)
         end
         ImGui.Text(string.format("Looted (%d items):", n))
         local tableFlags = ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollY + ImGuiTableFlags.RowBg
-        if ImGui.BeginChild("LootedList", ImVec2(-1, -40), true) then
+            if ImGui.BeginChild("LootedList", ImVec2(-1, -constants.UI.LOOT_CURRENT_TABLE_FOOTER), true) then
             if ImGui.BeginTable("LootedItemsTable", 4, tableFlags) then
-                ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 28, 0)
+                ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_NUM_WIDTH, 0)
                 ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 1)
-                ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, 72, 2)
-                ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 90, 3)
+                ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_VALUE_WIDTH, 2)
+                ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_STATUS_WIDTH, 3)
                 ImGui.TableSetupScrollFreeze(0, 1)
                 ImGui.TableHeadersRow()
                 for i, row in ipairs(itemsForTable) do
@@ -373,7 +371,7 @@ function LootUIView.render(ctx)
         ImGui.Text(string.format("Recently looted (%d entries, newest last):", #hist))
         if #hist > 0 then
             local tableFlags = ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollY + ImGuiTableFlags.RowBg
-            if ImGui.BeginChild("LootHistoryList", ImVec2(-1, -50), true) then
+            if ImGui.BeginChild("LootHistoryList", ImVec2(-1, -constants.UI.LOOT_HISTORY_FOOTER_HEIGHT), true) then
                 if ImGui.BeginTable("LootHistoryTable", 4, tableFlags) then
                     ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 28, 0)
                     ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 1)
@@ -399,8 +397,8 @@ function LootUIView.render(ctx)
                     end
                     ImGui.EndTable()
                 end
-                ImGui.EndChild()
             end
+            ImGui.EndChild()
         else
             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "No history yet. Loot runs with items will appear here.")
         end
@@ -435,11 +433,11 @@ function LootUIView.render(ctx)
         ImGui.Text(string.format("Skipped (unique: %d, total: %d):", #uniqueList, #sk))
         if #uniqueList > 0 then
             local tableFlags = ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollY + ImGuiTableFlags.RowBg
-            if ImGui.BeginChild("SkipHistoryList", ImVec2(-1, -50), true) then
+            if ImGui.BeginChild("SkipHistoryList", ImVec2(-1, -constants.UI.LOOT_HISTORY_FOOTER_HEIGHT), true) then
                 if ImGui.BeginTable("SkipHistoryTable", 4, tableFlags) then
                     ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 28, 0)
                     ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 1)
-                    ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.WidthFixed, 120, 2)
+                    ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_REASON_WIDTH, 2)
                     ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 44, 3)
                     ImGui.TableSetupScrollFreeze(0, 1)
                     ImGui.TableHeadersRow()
@@ -460,8 +458,8 @@ function LootUIView.render(ctx)
                     end
                     ImGui.EndTable()
                 end
-                ImGui.EndChild()
             end
+            ImGui.EndChild()
         else
             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "No skip history yet. Items skipped by loot.mac will appear here.")
         end

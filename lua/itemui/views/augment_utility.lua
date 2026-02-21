@@ -8,10 +8,8 @@ require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local augmentRanking = require('itemui.utils.augment_ranking')
 
+local constants = require('itemui.constants')
 local AugmentUtilityView = {}
-
-local WINDOW_WIDTH = 560
-local WINDOW_HEIGHT = 520
 
 function AugmentUtilityView.render(ctx)
     if not ctx.uiState.augmentUtilityWindowShouldDraw then return end
@@ -25,8 +23,8 @@ function AugmentUtilityView.render(ctx)
         ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.FirstUseEver)
     end
 
-    local w = layoutConfig.WidthAugmentUtilityPanel or WINDOW_WIDTH
-    local h = layoutConfig.HeightAugmentUtility or WINDOW_HEIGHT
+    local w = layoutConfig.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
+    local h = layoutConfig.HeightAugmentUtility or constants.VIEWS.HeightAugmentUtility
     if w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
     end
