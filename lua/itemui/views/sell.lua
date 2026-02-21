@@ -17,7 +17,10 @@ local SellView = {}
 function SellView.render(ctx, simulateSellView)
     -- Sell view: filters and columns tuned for selling
     if #ctx.sellItems == 0 then
-        local invO, bankO, merchO = (mq.TLO.Window("InventoryWindow") and mq.TLO.Window("InventoryWindow").Open()) or false, (ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false), (ctx.isMerchantWindowOpen and ctx.isMerchantWindowOpen() or false)
+        local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+        local invO = (invWnd and invWnd.Open and invWnd.Open()) or false
+        local bankO = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
+        local merchO = (ctx.isMerchantWindowOpen and ctx.isMerchantWindowOpen()) or false
         ctx.maybeScanInventory(invO); ctx.maybeScanSellItems(merchO)
     end
     
@@ -55,7 +58,7 @@ function SellView.render(ctx, simulateSellView)
     
     -- Sell progress bar: prominent placement when sell.mac is running (visible in sell view)
     do
-        local macroName = mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""
+        local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
         local mn = macroName:lower()
         -- Macro.Name may return "sell" or "sell.mac" depending on MQ version
         local sellMacRunning = (mn == "sell" or mn == "sell.mac")

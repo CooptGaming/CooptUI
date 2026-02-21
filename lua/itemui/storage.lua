@@ -14,8 +14,8 @@ local INVENTORY_FILE = "inventory.lua"
 local BANK_FILE = "bank.lua"
 
 local function getCharName()
-    local me = mq.TLO.Me
-    return me and me.Name and me.Name() or ""
+    local me = mq.TLO and mq.TLO.Me
+    return (me and me.Name and me.Name()) or ""
 end
 
 local function getCharFolder()

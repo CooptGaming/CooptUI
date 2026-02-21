@@ -13,14 +13,7 @@ local readLootListValue = config.readLootListValue
 local readListValue = config.readListValue
 local writeSharedINIValue = config.writeSharedINIValue
 local MAX_INI_CHUNK_LEN = config.MAX_INI_CHUNK_LEN or 2000
-
---- Filter out null/nil placeholders that shouldn't be in filter lists
-local function isValidFilterEntry(t)
-    if not t or t == "" then return false end
-    local lower = t:lower()
-    if lower == "null" or lower == "nil" then return false end
-    return true
-end
+local isValidFilterEntry = config.isValidFilterEntry
 
 --- Normalize item name for epic list lookup: trim and collapse multiple spaces so INI list matches game names.
 local function normalizeItemName(s)

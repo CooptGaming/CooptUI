@@ -27,11 +27,11 @@
 --]]
 
 local mq = require('mq')
-require('ImGui')
 local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
+local context_builder = require('itemui.context_builder')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
@@ -53,6 +53,7 @@ local scanService = require('itemui.services.scan')
 local sellStatusService = require('itemui.services.sell_status')
 local itemOps = require('itemui.services.item_ops')
 local augmentOps = require('itemui.services.augment_ops')
+local mainLoop = require('itemui.services.main_loop')
 
 -- Phase 5: View modules
 local InventoryView = require('itemui.views.inventory')
@@ -67,6 +68,7 @@ local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
+local MainWindow = require('itemui.views.main_window')
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
@@ -78,30 +80,10 @@ local tableCache = require('itemui.utils.table_cache')
 local windowState = require('itemui.utils.window_state')
 local itemHelpers = require('itemui.utils.item_helpers')
 local icons = require('itemui.utils.icons')
+local constants = require('itemui.constants')
 
--- Constants (consolidated for Lua 200-local limit)
-local C = {
-    VERSION = CoopVersion.ITEMUI,
-    MAX_BANK_SLOTS = 24,
-    MAX_INVENTORY_BAGS = 10,
-    LAYOUT_INI = "itemui_layout.ini",
-    PROFILE_ENABLED = true,   -- Set false to disable performance logging
-    PROFILE_THRESHOLD_MS = 30,  -- Only log when operation exceeds this (ms)
-    UPVALUE_DEBUG = false,  -- Set true to log upvalue counts on startup
-    LAYOUT_SECTION = "Layout",
-    STATUS_MSG_SECS = 4,
-    STATUS_MSG_MAX_LEN = 72,
-    PERSIST_SAVE_INTERVAL_MS = 60000,
-    FOOTER_HEIGHT = 52,
-    TIMER_READY_CACHE_TTL_MS = 1500,
-    LAYOUT_SAVE_DEBOUNCE_MS = 600,
-    LOOT_PENDING_SCAN_DELAY_MS = 2500,   -- Delay before background scan after loot macro finish
-    GET_CHANGED_BAGS_THROTTLE_MS = 600,   -- Min ms between getChangedBags() calls; skip fingerprinting when within window (unless inventoryBagsDirty)
-    SELL_FAILED_DISPLAY_MS = 15000,      -- How long to show failed-items notice after sell macro
-    STORED_INV_CACHE_TTL_MS = 2000,      -- TTL for storedInvByName cache (getSellStatusForItem / computeAndAttachSellStatus)
-    LOOP_DELAY_VISIBLE_MS = 33,          -- Main loop delay when UI visible (~30 FPS)
-    LOOP_DELAY_HIDDEN_MS = 100,           -- Main loop delay when UI hidden
-}
+-- Constants: built from constants module (timing, UI, limits); C table kept for init/layout/main_loop compatibility
+local C = constants.buildC(CoopVersion.ITEMUI)
 
 -- State
 local isOpen, shouldDraw, terminate = true, false, false
@@ -113,7 +95,6 @@ local lastInventoryWindowState, lastBankWindowState, lastMerchantState, lastLoot
 -- Stats tab priming: only on first inventory open after ItemUI start, so AC/ATK/Weight load once
 local statsTabPrimeState, statsTabPrimeAt = nil, 0
 local statsTabPrimedThisSession = false  -- true after we've done the one-time Stats tab prime
-local STATS_TAB_PRIME_MS = 250  -- time to leave Stats tab visible so game populates values
 -- Sort/layout caches (consolidated for Lua 200-local limit)
 local perfCache = {
     inv = { key = "", dir = 0, filter = "", n = 0, scanTime = 0, sorted = {} },
@@ -215,45 +196,32 @@ local uiState = {
     corpseLootedHidden = true,  -- toggle for Show/Hide looted corpses (troubleshooting)
 }
 
--- Layout from setup (itemui_layout.ini): sizes per view; bank adds to base when open
-local layoutDefaults = {
-    WidthInventory = 600,
-    Height = 450,
-    WidthSell = 780,
-    WidthLoot = 560,
-    WidthBankPanel = 520,
-    HeightBank = 600,
-    BankWindowX = 0,
-    BankWindowY = 0,
-    WidthAugmentsPanel = 560,
-    HeightAugments = 500,
-    AugmentsWindowX = 0,
-    AugmentsWindowY = 0,
-    ItemDisplayWindowX = 0,
-    ItemDisplayWindowY = 0,
-    WidthItemDisplayPanel = 760,
-    HeightItemDisplay = 520,
-    AugmentUtilityWindowX = 0,
-    AugmentUtilityWindowY = 0,
-    WidthAugmentUtilityPanel = 520,
-    HeightAugmentUtility = 480,
-    WidthLootPanel = 420,
-    HeightLoot = 380,
-    LootWindowX = 0,
-    LootWindowY = 0,
-    LootUIFirstTipSeen = 0,
-    WidthAAPanel = 640,
-    HeightAA = 520,
-    AAWindowX = 0,
-    AAWindowY = 0,
-    ShowAAWindow = 1,
-    AABackupPath = "",  -- empty = use CONFIG_PATH (Macros/sell_config)
-    AlignToContext = 1,  -- Enable snap to Inventory by default
-    UILocked = 1,
-    SyncBankWindow = 1,
-    SuppressWhenLootMac = 0,  -- 0 = Loot UI opens when looting (default); 1 = suppress Loot UI during looting
-    ConfirmBeforeDelete = 1, -- Show confirmation dialog before destroying an item (1 = yes, 0 = no)
-}
+-- Layout from setup (itemui_layout.ini): sizes per view; dimensions from constants.VIEWS
+local layoutDefaults = {}
+do
+    local V = constants.VIEWS
+    for k, v in pairs(V) do layoutDefaults[k] = v end
+    layoutDefaults.BankWindowX = 0
+    layoutDefaults.BankWindowY = 0
+    layoutDefaults.AugmentsWindowX = 0
+    layoutDefaults.AugmentsWindowY = 0
+    layoutDefaults.ItemDisplayWindowX = 0
+    layoutDefaults.ItemDisplayWindowY = 0
+    layoutDefaults.AugmentUtilityWindowX = 0
+    layoutDefaults.AugmentUtilityWindowY = 0
+    layoutDefaults.LootWindowX = 0
+    layoutDefaults.LootWindowY = 0
+    layoutDefaults.LootUIFirstTipSeen = 0
+    layoutDefaults.AAWindowX = 0
+    layoutDefaults.AAWindowY = 0
+    layoutDefaults.ShowAAWindow = 1
+    layoutDefaults.AABackupPath = ""
+    layoutDefaults.AlignToContext = 1
+    layoutDefaults.UILocked = 1
+    layoutDefaults.SyncBankWindow = 1
+    layoutDefaults.SuppressWhenLootMac = 0
+    layoutDefaults.ConfirmBeforeDelete = 1
+end
 local layoutConfig = {}  -- filled by loadLayoutConfig()
 
 -- Column config: owned by itemui.utils.column_config (definitions, visibility, autofit widths)
@@ -322,20 +290,20 @@ layoutUtils.init({
     availableColumns = availableColumns
 })
 local sellItems = {}  -- inventory + sell status when merchant open
-local sellMacState = { lastRunning = false, failedItems = {}, failedCount = 0, showFailedUntil = 0, smoothedFrac = 0 }
+local sellMacState = { lastRunning = false, pendingScan = false, finishedAt = 0, failedItems = {}, failedCount = 0, showFailedUntil = 0, smoothedFrac = 0 }
 local lootMacState = { lastRunning = false, pendingScan = false, finishedAt = 0 }  -- detect loot macro finish for background inventory scan
 -- Pack loot loop state into one table to stay under Lua 60-upvalue limit for main()
 local lootLoopRefs = {
-    pollMs = 500,
-    pollMsIdle = 1000,   -- when Loot UI open but macro not running (O9: slower poll)
+    pollMs = constants.TIMING.LOOT_POLL_MS,
+    pollMsIdle = constants.TIMING.LOOT_POLL_MS_IDLE,
     pollAt = 0,
-    deferMs = 2000,
+    deferMs = constants.TIMING.LOOT_DEFER_MS,
     saveHistoryAt = 0,
     saveSkipAt = 0,
-    sellStatusCap = 30,
-    pendingSession = false,  -- defer session table build by one frame when macro stops
+    sellStatusCap = constants.LIMITS.LOOT_SELL_STATUS_CAP,
+    pendingSession = false,
 }
-local LOOT_HISTORY_MAX = 200
+local LOOT_HISTORY_MAX = constants.LIMITS.LOOT_HISTORY_MAX
 local LOOT_HISTORY_DELIM = "\1"  -- ASCII 1 (safe in INI values; avoids | or tab in item names)
 local function loadLootHistoryFromFile()
     if not config.getLootConfigFile then return end
@@ -399,6 +367,9 @@ local function saveSkipHistoryToFile()
 end
 lootLoopRefs.saveLootHistory = saveLootHistoryToFile
 lootLoopRefs.saveSkipHistory = saveSkipHistoryToFile
+local function clearLootItems()
+    for i = #lootItems, 1, -1 do lootItems[i] = nil end
+end
 local bankCache = {}
 -- Scan state (shared with itemui.services.scan): one table to stay under local/upvalue limits
 local scanState = {
@@ -714,7 +685,6 @@ local sortColumnsAPI = {
     getVisibleColumns = columns.getVisibleColumns,
 }
 
-local ITEM_DISPLAY_RECENT_MAX = 10
 local function getItemStatsForTooltipRef(item, source)
     if not item or item.slot == nil then return item end
     local bag = (item.bag ~= nil) and item.bag or 0
@@ -756,7 +726,7 @@ local function addItemDisplayTab(item, source)
                 end
             end
             table.insert(recent, 1, recentEntry)
-            while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
+            while #recent > constants.LIMITS.ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
             uiState.itemDisplayWindowOpen = true
             uiState.itemDisplayWindowShouldDraw = true
             recordCompanionWindowOpened("itemDisplay")
@@ -779,13 +749,13 @@ local function addItemDisplayTab(item, source)
         end
     end
     table.insert(recent, 1, recentEntry)
-    while #recent > ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
+    while #recent > constants.LIMITS.ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
     uiState.itemDisplayWindowOpen = true
     uiState.itemDisplayWindowShouldDraw = true
     recordCompanionWindowOpened("itemDisplay")
 end
 
-context.init({
+context_builder.init({
     -- State tables
     uiState = uiState, sortState = sortState, filterState = filterState,
     layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
@@ -878,6 +848,7 @@ context.init({
     end,
     getColumnKeyByIndex = columns.getColumnKeyByIndex, autofitColumns = columns.autofitColumns,
     -- Item helpers (module direct)
+    formatCurrency = function(copper) return itemHelpers.formatCurrency(copper) end,
     getSpellName = function(id) return itemHelpers.getSpellName(id) end,
     getSpellDescription = function(id) return itemHelpers.getSpellDescription(id) end,
     getSpellCastTime = function(id) return itemHelpers.getSpellCastTime(id) end,
@@ -934,686 +905,48 @@ context.init({
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
-local function buildViewContext() return context.build() end
-local function extendContext(ctx) return context.extend(ctx) end
 context.logUpvalueCounts(C)
 
-local function renderInventoryContent()
-    local merchOpen = isMerchantWindowOpen()
-    local bankOpen = isBankWindowOpen()
-    local lootOpen = isLootWindowOpen()
-    -- Allow simulated sell view during setup mode step 2
-    local simulateSellView = (uiState.setupMode and uiState.setupStep == 2)
+local mainWindowRefs = {
+    getShouldDraw = function() return shouldDraw end,
+    setShouldDraw = function(v) shouldDraw = v end,
+    getOpen = function() return isOpen end,
+    setOpen = function(v) isOpen = v end,
+    layoutConfig = layoutConfig,
+    layoutDefaults = layoutDefaults,
+    saveLayoutToFile = saveLayoutToFile,
+    saveLayoutForView = saveLayoutForView,
+    getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanion,
+    closeCompanionWindow = closeCompanionWindow,
+    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
+    recordCompanionWindowOpened = recordCompanionWindowOpened,
+    setStatusMessage = setStatusMessage,
+    CharacterStats = CharacterStats,
+    hasItemOnCursor = hasItemOnCursor,
+    removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
+    putCursorInBags = function() return itemOps.putCursorInBags() end,
+    theme = theme,
+    uiState = uiState,
+    sellMacState = sellMacState,
+    C = C,
+    mq = mq,
+    refreshEquipmentCache = refreshEquipmentCache,
+    scanInventory = scanInventory,
+    isMerchantWindowOpen = isMerchantWindowOpen,
+    isBankWindowOpen = isBankWindowOpen,
+    isLootWindowOpen = isLootWindowOpen,
+    itemOps = itemOps,
+    loadLootHistoryFromFile = loadLootHistoryFromFile,
+    loadSkipHistoryFromFile = loadSkipHistoryFromFile,
+    lootLoopRefs = lootLoopRefs,
+    config = config,
+    sellItems = sellItems,
+    maybeScanInventory = maybeScanInventory,
+    maybeScanSellItems = maybeScanSellItems,
+    maybeScanBank = maybeScanBank,
+}
 
-    -- Loot view disabled: loot macro uses default EQ loot UI. To re-enable, change to: if lootOpen then
-    if false then
-        local ctx = extendContext(buildViewContext())
-        LootView.render(ctx)
-        return
-    end
-
-    if merchOpen or simulateSellView then
-        -- Phase 5: Use SellView module
-        local ctx = extendContext(buildViewContext())
-        SellView.render(ctx, simulateSellView)
-    else
-        -- Phase 5: Use InventoryView module
-        local ctx = extendContext(buildViewContext())
-        InventoryView.render(ctx, bankOpen)
-    end
-end
-
---- Bank window: separate window showing live data when connected, historic cache when not.
-local BANK_WINDOW_WIDTH = 520
-local BANK_WINDOW_HEIGHT = 600
-
--- Render bank window (separate from main UI)
-local function renderBankWindow()
-    local ctx = extendContext(buildViewContext())
-    BankView.render(ctx)
-end
-
--- Render equipment companion window (separate from main UI)
-local function renderEquipmentWindow()
-    local ctx = extendContext(buildViewContext())
-    EquipmentView.render(ctx)
-end
-
---- Augments window: pop-out like Bank (Always sell / Never loot, compact table, icon+stats on hover)
-local function renderAugmentsWindow()
-    local ctx = extendContext(buildViewContext())
-    AugmentsView.render(ctx)
-end
-
---- Item Display window: persistent window with same content as on-hover tooltip (stats, augments, effects, etc.)
-local function renderItemDisplayWindow()
-    local ctx = extendContext(buildViewContext())
-    ItemDisplayView.render(ctx)
-end
-
---- Augment Utility window: standalone insert/remove augments (target = current Item Display tab)
-local function renderAugmentUtilityWindow()
-    local ctx = extendContext(buildViewContext())
-    AugmentUtilityView.render(ctx)
-end
-
---- AA window: Alt Advancement (tabs, search, train, export/import)
-local function renderAAWindow()
-    local ctx = buildViewContext()
-    ctx.refreshAA = function() aa_data.refresh() end
-    ctx.getAAList = function() return aa_data.getList() end
-    ctx.getAAPointsSummary = function() return aa_data.getPointsSummary() end
-    ctx.shouldRefreshAA = function() return aa_data.shouldRefresh() end
-    ctx.getAALastRefreshTime = function() return aa_data.getLastRefreshTime() end
-    AAView.render(ctx)
-end
-
---- Loot UI window: progress and session summary (only when lootUIOpen; close on Esc or Close)
-local function renderLootWindow()
-    local ctx = extendContext(buildViewContext())
-    ctx.runLootCurrent = function()
-        if not uiState.suppressWhenLootMac then
-            uiState.lootUIOpen = true
-            uiState.lootRunFinished = false
-            recordCompanionWindowOpened("loot")
-        end
-        mq.cmd('/macro loot current')
-    end
-    ctx.runLootAll = function()
-        if not uiState.suppressWhenLootMac then
-            uiState.lootUIOpen = true
-            uiState.lootRunFinished = false
-            recordCompanionWindowOpened("loot")
-        end
-        mq.cmd('/macro loot')
-    end
-    ctx.clearLootUIMythicalAlert = function()
-        uiState.lootMythicalAlert = nil
-        uiState.lootMythicalDecisionStartAt = nil
-        uiState.lootMythicalFeedback = nil
-        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-        if path and path ~= "" then
-            mq.cmdf('/ini "%s" Alert decision "skip"', path)
-            mq.cmdf('/ini "%s" Alert itemName ""', path)
-            mq.cmdf('/ini "%s" Alert corpseName ""', path)
-            mq.cmdf('/ini "%s" Alert itemLink ""', path)
-        end
-    end
-    ctx.setMythicalDecision = function(decision)
-        if decision ~= "loot" and decision ~= "skip" then return end
-        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-        if path and path ~= "" then
-            mq.cmdf('/ini "%s" Alert decision "%s"', path, decision)
-        end
-    end
-    ctx.mythicalTake = function()
-        local alert = uiState.lootMythicalAlert
-        if not alert then return end
-        local name = alert.itemName or ""
-        local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
-        if mq.TLO.Me.Grouped and (name ~= "" or link) then
-            if link then mq.cmdf('/g Taking %s — looting.', link) else mq.cmdf('/g Taking %s — looting.', name) end
-        end
-        ctx.setMythicalDecision("loot")
-        uiState.lootMythicalFeedback = { message = "You chose: Take", showUntil = (os.clock and os.clock() or 0) + 2 }
-        uiState.lootMythicalAlert = nil
-        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-        if path and path ~= "" then
-            mq.cmdf('/ini "%s" Alert itemName ""', path)
-            mq.cmdf('/ini "%s" Alert corpseName ""', path)
-            mq.cmdf('/ini "%s" Alert itemLink ""', path)
-        end
-    end
-    ctx.mythicalPass = function()
-        local alert = uiState.lootMythicalAlert
-        if not alert then return end
-        local name = alert.itemName or ""
-        local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
-        if mq.TLO.Me.Grouped and (name ~= "" or link) then
-            if link then mq.cmdf('/g Passing on %s — someone else can loot.', link) else mq.cmdf('/g Passing on %s — someone else can loot.', name) end
-        end
-        ctx.setMythicalDecision("skip")
-        uiState.lootMythicalFeedback = { message = "Passed - left on corpse for group.", showUntil = (os.clock and os.clock() or 0) + 2 }
-        uiState.lootMythicalAlert = nil
-        local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-        if path and path ~= "" then
-            mq.cmdf('/ini "%s" Alert itemName ""', path)
-            mq.cmdf('/ini "%s" Alert corpseName ""', path)
-            mq.cmdf('/ini "%s" Alert itemLink ""', path)
-        end
-    end
-    ctx.setMythicalCopyName = function(name)
-        if name and name ~= "" then print(string.format("\ay[ItemUI]\ax Mythical item name: %s", name)) end
-    end
-    ctx.setMythicalCopyLink = function(link)
-        if not link or link == "" then return end
-        if ImGui and ImGui.SetClipboardText then ImGui.SetClipboardText(link) end
-        print(string.format("\ay[ItemUI]\ax Mythical item link copied to clipboard (or see console)."))
-    end
-    ctx.clearLootUIState = function()
-        uiState.lootRunLootedList = {}
-        uiState.lootRunLootedItems = {}
-        uiState.lootRunCorpsesLooted = 0
-        uiState.lootRunTotalCorpses = 0
-        uiState.lootRunCurrentCorpse = ""
-        uiState.lootRunFinished = false
-        uiState.lootMythicalAlert = nil
-        uiState.lootMythicalDecisionStartAt = nil
-        uiState.lootMythicalFeedback = nil
-        uiState.lootRunTotalValue = 0
-        uiState.lootRunTributeValue = 0
-        uiState.lootRunBestItemName = ""
-        uiState.lootRunBestItemValue = 0
-        -- lootHistory and skipHistory are not cleared (persist across window close)
-    end
-    ctx.loadLootHistory = function()
-        if not uiState.lootHistory then loadLootHistoryFromFile() end
-        if not uiState.lootHistory then uiState.lootHistory = {} end
-    end
-    ctx.loadSkipHistory = function()
-        if not uiState.skipHistory then loadSkipHistoryFromFile() end
-        if not uiState.skipHistory then uiState.skipHistory = {} end
-    end
-    ctx.clearLootHistory = function()
-        uiState.lootHistory = {}
-        local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
-        if path and path ~= "" then mq.cmdf('/ini "%s" History count 0', path) end
-        lootLoopRefs.saveHistoryAt = 0
-    end
-    ctx.clearSkipHistory = function()
-        uiState.skipHistory = {}
-        local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
-        if path and path ~= "" then mq.cmdf('/ini "%s" Skip count 0', path) end
-        lootLoopRefs.saveSkipAt = 0
-    end
-    LootUIView.render(ctx)
-end
-
--- ============================================================================
--- Main render
--- ============================================================================
-local function renderUI()
-    if not shouldDraw and not uiState.lootUIOpen then return end
-    uiState.lastPickupSetThisFrame = false  -- reset each frame; views set true when they set lastPickup
-    local merchOpen = isMerchantWindowOpen()
-    -- In setup step 1–2 show inventory/sell only; step 3 show inv+bank
-    local curView
-    if uiState.setupMode and uiState.setupStep == 1 then
-        curView = "Inventory"
-    elseif uiState.setupMode and uiState.setupStep == 2 then
-        curView = "Sell"  -- Always show sell view in step 2 (simulated if no merchant)
-    elseif uiState.setupMode and uiState.setupStep == 3 then
-        curView = "Inventory"  -- Bank is now separate window, so setup step 3 is just for inventory
-    else
-        -- Loot view disabled: show Inventory or Sell only (loot macro uses default EQ loot UI; ItemUI stays out of the way)
-        curView = (merchOpen and "Sell") or "Inventory"
-    end
-
-    if shouldDraw then
-    -- Window size: setup = free resize; else use saved sizes or align-to-context
-    if not uiState.setupMode then
-        local w, h = nil, nil
-        if curView == "Inventory" then w, h = layoutConfig.WidthInventory, layoutConfig.Height
-        elseif curView == "Sell" then w, h = layoutConfig.WidthSell, layoutConfig.Height
-        elseif curView == "Loot" then w, h = layoutConfig.WidthLoot or layoutDefaults.WidthLoot, layoutConfig.Height
-        end
-        if w and h and w > 0 and h > 0 then
-            if uiState.uiLocked then
-                ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.Always)
-            else
-                ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
-            end
-        end
-        if uiState.alignToContext then
-            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            if invWnd and invWnd.Open and invWnd.Open() then
-                local x, y = tonumber(invWnd.X and invWnd.X()) or 0, tonumber(invWnd.Y and invWnd.Y()) or 0
-                local pw = tonumber(invWnd.Width and invWnd.Width()) or 0
-                if x and y and pw > 0 then 
-                    local itemUIX = x + pw + 10
-                    ImGui.SetNextWindowPos(ImVec2(itemUIX, y), ImGuiCond.Always)
-                    -- Store ItemUI position for bank window syncing
-                    uiState.itemUIPositionX = itemUIX
-                    uiState.itemUIPositionY = y
-                end
-            end
-        end
-    end
-    
-    -- Set window flags based on lock state
-    local windowFlags = 0
-    if uiState.uiLocked then
-        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
-    end
-    
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Inventory Companion##ItemUI", isOpen, windowFlags)
-    isOpen = winOpen
-    if not winOpen then
-        shouldDraw = false
-        uiState.configWindowOpen = false
-        closeGameInventoryIfOpen()
-        ImGui.End()
-        return
-    end
-    -- Layered Esc: close pending picker, then most recently opened companion (LIFO), then main UI
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        if uiState.pendingQuantityPickup then
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-        else
-            local mostRecent = getMostRecentlyOpenedCompanion()
-            if mostRecent then
-                closeCompanionWindow(mostRecent)
-            else
-                ImGui.SetKeyboardFocusHere(-1)  -- release keyboard focus so game gets input after close
-                shouldDraw = false
-                isOpen = false
-                uiState.configWindowOpen = false
-                closeGameInventoryIfOpen()
-                closeGameMerchantIfOpen()  -- clean close: also close default merchant UI when in sell view
-                ImGui.End()
-                return
-            end
-        end
-    end
-    if not winVis then ImGui.End(); return end
-
-    -- Phase 2: cache cursor state once per frame so main loop and views don't call TLO.Cursor() repeatedly
-    uiState.hasItemOnCursorThisFrame = itemOps.hasItemOnCursor()
-
-    -- Track ItemUI window position and size (for bank sync and EQ item-display grid)
-    if not uiState.alignToContext then
-        -- Get actual ItemUI position (when not snapping)
-        uiState.itemUIPositionX, uiState.itemUIPositionY = ImGui.GetWindowPos()
-    end
-    local itemUIWidth = ImGui.GetWindowWidth()
-
-    -- If bank window sync is enabled and bank window is open, update its position
-    if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw and uiState.itemUIPositionX and uiState.itemUIPositionY and itemUIWidth then
-        -- Calculate bank window position relative to ItemUI
-        local bankX = uiState.itemUIPositionX + itemUIWidth + 10
-        local bankY = uiState.itemUIPositionY
-        -- Update saved position (will be used in renderBankWindow)
-        layoutConfig.BankWindowX = bankX
-        layoutConfig.BankWindowY = bankY
-    end
-
-    -- Default layout: position companions relative to hub (Inventory Companion) when they have no saved position (0,0)
-    -- Bank stays as-is (synced right of hub).
-    local hubX, hubY = uiState.itemUIPositionX, uiState.itemUIPositionY
-    local hubW, hubH = itemUIWidth, (ImGui.GetWindowSize and select(2, ImGui.GetWindowSize())) or 450
-    local defGap = 10
-    local eqW = layoutConfig.WidthEquipmentPanel or 220
-    local eqH = layoutConfig.HeightEquipment or 380
-    if hubX and hubY and hubW then
-        if uiState.equipmentWindowShouldDraw and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
-            layoutConfig.EquipmentWindowX = hubX - eqW - defGap
-            layoutConfig.EquipmentWindowY = hubY
-        end
-        if uiState.itemDisplayWindowShouldDraw and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
-            layoutConfig.ItemDisplayWindowX = hubX + hubW + defGap
-            layoutConfig.ItemDisplayWindowY = hubY
-        end
-        if uiState.augmentsWindowShouldDraw and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
-            local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
-            layoutConfig.AugmentsWindowX = hubX - aw - defGap
-            layoutConfig.AugmentsWindowY = hubY + eqH + defGap
-        end
-        if uiState.augmentUtilityWindowShouldDraw and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
-            local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or 520
-            layoutConfig.AugmentUtilityWindowX = hubX - auw - defGap
-            layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
-        end
-        if uiState.aaWindowShouldDraw and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
-            local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or 520
-            layoutConfig.AAWindowX = hubX + hubW + defGap
-            layoutConfig.AAWindowY = hubY + idH + defGap
-        end
-    end
-
-    -- Header: left = Equipment, AA, Augment Utility, Filter; right = Settings, Pin (Lock), Bank
-    if ImGui.Button("Equipment", ImVec2(75, 0)) then
-        uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
-        uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
-        if uiState.equipmentWindowOpen then recordCompanionWindowOpened("equipment"); setStatusMessage("Equipment Companion opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
-        if ImGui.Button("AA", ImVec2(45, 0)) then
-            uiState.aaWindowOpen = not uiState.aaWindowOpen
-            uiState.aaWindowShouldDraw = uiState.aaWindowOpen
-            if uiState.aaWindowOpen then
-                recordCompanionWindowOpened("aa")
-                if aa_data.shouldRefresh() then aa_data.refresh() end
-                setStatusMessage("Alt Advancement window opened")
-            end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-    end
-    if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
-        uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
-        uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
-        if uiState.augmentUtilityWindowOpen then recordCompanionWindowOpened("augmentUtility"); setStatusMessage("Augment Utility opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Filter", ImVec2(55, 0)) then
-        uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
-        uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-        if uiState.augmentsWindowOpen then recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
-    ImGui.SameLine(ImGui.GetWindowWidth() - 210)
-    if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; recordCompanionWindowOpened("config") end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    local prevLocked = uiState.uiLocked
-    uiState.uiLocked = ImGui.Checkbox("##Lock", uiState.uiLocked)
-    if prevLocked ~= uiState.uiLocked then
-        saveLayoutToFile()
-        if uiState.uiLocked then
-            local w, h = ImGui.GetWindowSize()
-            if curView == "Inventory" then layoutConfig.WidthInventory = w; layoutConfig.Height = h
-            elseif curView == "Sell" then layoutConfig.WidthSell = w; layoutConfig.Height = h
-            elseif curView == "Loot" then layoutConfig.WidthLoot = w; layoutConfig.Height = h
-            end
-            saveLayoutToFile()
-        end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.uiLocked and "Pin: UI locked (click to unlock and resize)" or "Pin: UI unlocked (click to lock)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    local bankOnline = isBankWindowOpen()
-    if bankOnline then
-        ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0.2, 0.65, 0.2, 1))
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImVec4(0.3, 0.75, 0.3, 1))
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImVec4(0.15, 0.55, 0.15, 1))
-    else
-        ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0.7, 0.2, 0.2, 1))
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImVec4(0.8, 0.3, 0.3, 1))
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImVec4(0.6, 0.15, 0.15, 1))
-    end
-    if ImGui.Button("Bank", ImVec2(60, 0)) then
-        uiState.bankWindowOpen = not uiState.bankWindowOpen
-        uiState.bankWindowShouldDraw = uiState.bankWindowOpen
-        if uiState.bankWindowOpen then recordCompanionWindowOpened("bank"); if bankOnline then maybeScanBank(bankOnline) end end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(bankOnline and "Open or close the bank window. Bank is online." or "Open or close the bank window. Bank is offline."); ImGui.EndTooltip() end
-    ImGui.PopStyleColor(3)
-    ImGui.Separator()
-
-    -- Setup walkthrough: Step 1 Inventory -> Step 2 Sell -> Step 3 Inv+Bank -> done
-    if uiState.setupMode then
-        if uiState.setupStep == 1 then
-            ImGui.TextColored(ImVec4(0.95, 0.75, 0.2, 1), "Step 1 of 3: Inventory — Resize the window and columns as you like.")
-            ImGui.SameLine()
-            if ImGui.Button("Next", ImVec2(60, 0)) then
-                local w, h = ImGui.GetWindowSize()
-                if w and h and w > 0 and h > 0 then saveLayoutForView("Inventory", w, h, nil) end
-                uiState.setupStep = 2
-                print("\ag[ItemUI]\ax Saved Inventory layout. Step 2: Open a merchant, then resize and click Next.")
-            end
-        elseif uiState.setupStep == 2 then
-            ImGui.TextColored(ImVec4(0.95, 0.75, 0.2, 1), "Step 2 of 3: Sell view — Resize the window and columns, then click Next.")
-            if not merchOpen then
-                ImGui.SameLine()
-                ImGui.TextColored(ImVec4(0.6, 0.8, 0.6, 1), "(Simulated view - no merchant needed)")
-            end
-            -- Ensure sell items are populated for simulated view
-            if #sellItems == 0 then
-                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-                local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
-                maybeScanInventory(invO); maybeScanSellItems(merchO)
-            end
-            if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 1 end
-            ImGui.SameLine()
-            if ImGui.Button("Next", ImVec2(60, 0)) then
-                local w, h = ImGui.GetWindowSize()
-                if w and h and w > 0 and h > 0 then saveLayoutForView("Sell", w, h, nil) end
-                uiState.setupStep = 3
-                uiState.bankWindowOpen = true
-                uiState.bankWindowShouldDraw = true
-                recordCompanionWindowOpened("bank")
-                print("\ag[ItemUI]\ax Saved Sell layout. Step 3: Open the bank window and resize it, then Save & finish.")
-            end
-        elseif uiState.setupStep == 3 then
-            ImGui.TextColored(ImVec4(0.95, 0.75, 0.2, 1), "Step 3 of 3: Open and resize the Bank window, then save.")
-            if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 2; uiState.bankWindowOpen = false; uiState.bankWindowShouldDraw = false end
-            ImGui.SameLine()
-            if ImGui.Button("Save & finish", ImVec2(100, 0)) then
-                -- Bank window size is saved automatically when resized, so just finish setup
-                uiState.setupMode = false
-                uiState.setupStep = 0
-                print("\ag[ItemUI]\ax Setup complete! Your layout is saved.")
-            end
-        end
-        ImGui.Separator()
-    end
-
-    -- Content: Character stats panel (left) + inventory (dynamic sell/gameplay view) - bank is now separate window
-    CharacterStats.render()
-    ImGui.SameLine()
-    
-    -- Right side: Inventory content (bank is now separate window)
-    ImGui.BeginChild("MainContent", ImVec2(0, -C.FOOTER_HEIGHT), true)
-    renderInventoryContent()
-    ImGui.EndChild()
-
-    -- Quantity picker tool (shown when user clicks on stackable item)
-    if uiState.pendingQuantityPickup then
-        -- Process deferred submit from Enter key (next frame so ImGui consumes Enter before we clear the field)
-        if uiState.quantityPickerSubmitPending ~= nil then
-            local qty = uiState.quantityPickerSubmitPending
-            uiState.quantityPickerSubmitPending = nil
-            if qty and qty > 0 and qty <= uiState.pendingQuantityPickup.maxQty then
-                uiState.pendingQuantityAction = {
-                    action = "set",
-                    qty = qty,
-                    pickup = uiState.pendingQuantityPickup
-                }
-                uiState.pendingQuantityPickup = nil
-                uiState.pendingQuantityPickupTimeoutAt = nil
-                uiState.quantityPickerValue = ""
-            else
-                setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
-            end
-        else
-            ImGui.Separator()
-            ImGui.TextColored(ImVec4(0.9, 0.7, 0.2, 1), "Quantity Picker")
-            ImGui.SameLine()
-            ImGui.Text(string.format("(%s)", uiState.pendingQuantityPickup.itemName or "Item"))
-            ImGui.Text(string.format("Max: %d", uiState.pendingQuantityPickup.maxQty))
-            ImGui.SameLine()
-            ImGui.Text("Quantity:")
-            ImGui.SameLine()
-            ImGui.SetNextItemWidth(100)
-            local qtyFlags = bit32.bor(ImGuiInputTextFlags.CharsDecimal, ImGuiInputTextFlags.EnterReturnsTrue)
-            local submitted
-            uiState.quantityPickerValue, submitted = ImGui.InputText("##QuantityPicker", uiState.quantityPickerValue, qtyFlags)
-            if submitted then
-                -- Defer submit to next frame so Enter is consumed and focus doesn't leak to the game
-                uiState.quantityPickerSubmitPending = tonumber(uiState.quantityPickerValue)
-            end
-            ImGui.SameLine()
-            if ImGui.Button("Set", ImVec2(60, 0)) then
-                local qty = tonumber(uiState.quantityPickerValue)
-                if qty and qty > 0 and qty <= uiState.pendingQuantityPickup.maxQty then
-                    uiState.pendingQuantityAction = {
-                        action = "set",
-                        qty = qty,
-                        pickup = uiState.pendingQuantityPickup
-                    }
-                    uiState.pendingQuantityPickup = nil
-                    uiState.pendingQuantityPickupTimeoutAt = nil
-                    uiState.quantityPickerValue = ""
-                else
-                    setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
-                end
-            end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up this quantity"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Max", ImVec2(50, 0)) then
-            uiState.pendingQuantityAction = {
-                action = "max",
-                qty = uiState.pendingQuantityPickup.maxQty,
-                pickup = uiState.pendingQuantityPickup
-            }
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up maximum quantity"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Cancel", ImVec2(60, 0)) then
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Cancel quantity selection"); ImGui.EndTooltip() end
-        end
-    end
-
-    if hasItemOnCursor() then
-        ImGui.Separator()
-        local cursor = mq.TLO and mq.TLO.Cursor
-        local cn = (cursor and cursor.Name and cursor.Name()) or "Item"
-        local st = (cursor and cursor.Stack and cursor.Stack()) or 0
-        if st and st > 1 then cn = cn .. string.format(" (x%d)", st) end
-        ImGui.TextColored(ImVec4(0.95,0.75,0.2,1), "Cursor: " .. cn)
-        if ImGui.Button("Clear cursor", ImVec2(90,0)) then removeItemFromCursor() end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Put item back to last location or use /autoinv"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Put in bags", ImVec2(90,0)) then putCursorInBags() end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Place item in first free inventory slot"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        ImGui.TextColored(ImVec4(0.55,0.55,0.55,1), "Right-click to put back")
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Right-click anywhere on this window to put the item back"); ImGui.EndTooltip() end
-    end
-    if hasItemOnCursor() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and ImGui.IsWindowHovered() then
-        removeItemFromCursor()
-    end
-    -- Clear lastPickup when cursor is empty so the item shows back in the list. Don't clear the same frame we set it (lastPickupSetThisFrame) or we'd clear before the game has put the item on cursor.
-    -- When cursor becomes empty after having had an item (e.g. user equipped it), schedule a scan so the list updates and the row disappears instead of reappearing.
-    if not hasItemOnCursor() and not uiState.lastPickupSetThisFrame then
-        if uiState.lastPickup and (uiState.lastPickup.bag ~= nil or uiState.lastPickup.slot ~= nil) then
-            uiState.deferredInventoryScanAt = mq.gettime() + 120
-        end
-        uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
-    end
-    if not hasItemOnCursor() then
-        uiState.hadItemOnCursorLastFrame = false
-    else
-        uiState.hadItemOnCursorLastFrame = true
-    end
-
-    -- Footer: status messages (Keep/Junk, moves, sell), failed items notice
-    ImGui.Separator()
-    if uiState.pendingDestroy then
-        local pd = uiState.pendingDestroy
-        local name = pd.name or "item"
-        if #name > 40 then name = name:sub(1, 37) .. "..." end
-        local stackSize = (pd.stackSize and pd.stackSize > 0) and pd.stackSize or 1
-        ImGui.Text("Destroy " .. name .. "?")
-        if stackSize > 1 then
-            ImGui.SameLine()
-            ImGui.SetNextItemWidth(60)
-            local qtyFlags = bit32.bor(ImGuiInputTextFlags.CharsDecimal, ImGuiInputTextFlags.EnterReturnsTrue)
-            uiState.destroyQuantityValue, _ = ImGui.InputText("##DestroyQty", uiState.destroyQuantityValue, qtyFlags)
-            ImGui.SameLine()
-            ImGui.Text(string.format("(1-%d)", stackSize))
-        end
-        ImGui.SameLine()
-        local errCol = theme and theme.ToVec4 and theme.ToVec4(theme.Colors.Error) or ImVec4(0.9, 0.25, 0.2, 1)
-        ImGui.PushStyleColor(ImGuiCol.Button, errCol)
-        if ImGui.Button("Confirm Delete", ImVec2(110, 0)) then
-            local qty = stackSize
-            if stackSize > 1 then
-                local n = tonumber(uiState.destroyQuantityValue)
-                if n and n >= 1 and n <= stackSize then qty = math.floor(n) else qty = stackSize end
-            end
-            uiState.pendingDestroyAction = { bag = pd.bag, slot = pd.slot, name = pd.name, qty = qty }
-            uiState.pendingDestroy = nil
-            uiState.destroyQuantityValue = ""
-            uiState.destroyQuantityMax = 1
-        end
-        ImGui.PopStyleColor()
-        ImGui.SameLine()
-        if ImGui.Button("Cancel", ImVec2(60, 0)) then
-            uiState.pendingDestroy = nil
-            uiState.destroyQuantityValue = ""
-            uiState.destroyQuantityMax = 1
-        end
-    end
-    -- Failed items notice (after sell.mac finishes)
-    if sellMacState.failedCount > 0 and mq.gettime() < sellMacState.showFailedUntil then
-        ImGui.TextColored(ImVec4(1, 0.6, 0.2, 1), string.format("Failed to sell (%d):", sellMacState.failedCount))
-        ImGui.SameLine()
-        local failedList = table.concat(sellMacState.failedItems, ", ")
-        if #failedList > 60 then failedList = failedList:sub(1, 57) .. "..." end
-        ImGui.TextColored(ImVec4(1, 0.7, 0.3, 1), failedList)
-        ImGui.SameLine()
-        ImGui.TextColored(ImVec4(0.8, 0.8, 0.8, 1), "— Rerun /macro sell confirm to retry.")
-    end
-    if uiState.statusMessage ~= "" then
-        ImGui.TextColored(ImVec4(0.5, 0.85, 0.5, 1), uiState.statusMessage)
-    end
-    ImGui.End()
-    if uiState.configWindowOpen then
-        local ctx = extendContext(buildViewContext())
-        ConfigView.render(ctx)
-    end
-
-    -- Phase 2: refresh equipment cache only on deferred timer or when stale (~400ms), not every frame
-    if uiState.equipmentWindowShouldDraw then
-        local now = mq.gettime()
-        local shouldRefresh = false
-        if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
-            uiState.equipmentDeferredRefreshAt = nil
-            shouldRefresh = true
-        elseif not uiState.equipmentLastRefreshAt or (now - uiState.equipmentLastRefreshAt) > 400 then
-            shouldRefresh = true
-        end
-        if shouldRefresh then
-            refreshEquipmentCache()
-            uiState.equipmentLastRefreshAt = now
-        end
-    else
-        uiState.equipmentLastRefreshAt = nil  -- so next open we refresh
-    end
-    if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
-        scanInventory()
-        uiState.deferredInventoryScanAt = nil
-    end
-    renderEquipmentWindow()
-    renderBankWindow()
-    if uiState.augmentsWindowShouldDraw then
-        renderAugmentsWindow()
-    end
-    if uiState.augmentUtilityWindowShouldDraw then
-        renderAugmentUtilityWindow()
-    end
-    if uiState.itemDisplayWindowShouldDraw then
-        renderItemDisplayWindow()
-    end
-    -- Clear Locate highlight after 3s
-    if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
-        local now = (os and os.clock and os.clock()) or 0
-        if now - uiState.itemDisplayLocateRequestAt > 3 then
-            uiState.itemDisplayLocateRequest = nil
-            uiState.itemDisplayLocateRequestAt = nil
-        end
-    end
-    if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
-        renderAAWindow()
-    end
-    end -- shouldDraw
-
-    if uiState.lootUIOpen then
-        renderLootWindow()
-    end
-end
 
 -- ============================================================================
 -- Commands & main
@@ -1715,6 +1048,73 @@ local function handleCommand(...)
     end
 end
 
+local function buildMainLoopDeps()
+    return {
+        uiState = uiState,
+        scanState = scanState,
+        sellMacState = sellMacState,
+        lootMacState = lootMacState,
+        lootLoopRefs = lootLoopRefs,
+        perfCache = perfCache,
+        deferredScanNeeded = deferredScanNeeded,
+        inventoryItems = inventoryItems,
+        sellItems = sellItems,
+        bankItems = bankItems,
+        bankCache = bankCache,
+        C = C,
+        LOOT_HISTORY_MAX = constants.LIMITS.LOOT_HISTORY_MAX,
+        STATS_TAB_PRIME_MS = constants.TIMING.STATS_TAB_PRIME_MS,
+        Cache = Cache,
+        getShouldDraw = function() return shouldDraw end,
+        setShouldDraw = function(v) shouldDraw = v end,
+        getOpen = function() return isOpen end,
+        setOpen = function(v) isOpen = v end,
+        getLastInventoryWindowState = function() return lastInventoryWindowState end,
+        setLastInventoryWindowState = function(v) lastInventoryWindowState = v end,
+        getLastBankWindowState = function() return lastBankWindowState end,
+        setLastBankWindowState = function(v) lastBankWindowState = v end,
+        getLastMerchantState = function() return lastMerchantState end,
+        setLastMerchantState = function(v) lastMerchantState = v end,
+        getLastLootWindowState = function() return lastLootWindowState end,
+        setLastLootWindowState = function(v) lastLootWindowState = v end,
+        getStatsTabPrimeState = function() return statsTabPrimeState end,
+        setStatsTabPrimeState = function(v) statsTabPrimeState = v end,
+        getStatsTabPrimeAt = function() return statsTabPrimeAt end,
+        setStatsTabPrimeAt = function(v) statsTabPrimeAt = v end,
+        getStatsTabPrimedThisSession = function() return statsTabPrimedThisSession end,
+        setStatsTabPrimedThisSession = function(v) statsTabPrimedThisSession = v end,
+        clearLootItems = clearLootItems,
+        setStatusMessage = setStatusMessage,
+        storage = storage,
+        computeAndAttachSellStatus = computeAndAttachSellStatus,
+        isBankWindowOpen = isBankWindowOpen,
+        runSellMacro = runSellMacro,
+        config = config,
+        loadLootHistoryFromFile = loadLootHistoryFromFile,
+        loadSkipHistoryFromFile = loadSkipHistoryFromFile,
+        getSellStatusForItem = getSellStatusForItem,
+        processSellQueue = processSellQueue,
+        itemOps = itemOps,
+        augmentOps = augmentOps,
+        hasItemOnCursor = hasItemOnCursor,
+        maybeScanInventory = maybeScanInventory,
+        maybeScanBank = maybeScanBank,
+        maybeScanSellItems = maybeScanSellItems,
+        sellStatusService = sellStatusService,
+        flushLayoutSave = flushLayoutSave,
+        loadLayoutConfig = loadLayoutConfig,
+        recordCompanionWindowOpened = recordCompanionWindowOpened,
+        isMerchantWindowOpen = isMerchantWindowOpen,
+        isLootWindowOpen = isLootWindowOpen,
+        invalidateSortCache = invalidateSortCache,
+        scanInventory = scanInventory,
+        scanBank = scanBank,
+        scanSellItems = scanSellItems,
+        refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
+        saveLayoutToFileImmediate = saveLayoutToFileImmediate,
+    }
+end
+
 local function main()
     -- Startup order: 1) Unbind 2) Bind + imgui.init 3) Paths 4) Wait for Me 5) loadLayoutConfig 6) maybeScan* 7) Initial persist 8) Main loop
     print(string.format("\ag[ItemUI]\ax Item UI v%s loaded. /itemui or /inv to toggle. /dosell, /doloot for macros.", C.VERSION))
@@ -1738,7 +1138,7 @@ local function main()
         end
         mq.cmd('/macro loot')
     end)
-    mq.imgui.init('ItemUI', renderUI)
+    mq.imgui.init('ItemUI', function() MainWindow.render(mainWindowRefs) end)
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then
@@ -1781,716 +1181,9 @@ local function main()
         if scanState.lastPersistSaveTime == 0 then scanState.lastPersistSaveTime = mq.gettime() end
     end
 
-    -- Main loop phases: 1) Status expiry 2) Periodic persist 3) Auto-sell 4) Sell macro done 5) Loot macro 6) Process queue 7) Pending scans 8) Auto-show/hide 9) Layout save 10) Delay. Hot path: no file I/O in render; sort/config from cache.
+    mainLoop.init(buildMainLoopDeps())
     while not terminate do
-        local now = mq.gettime()
-        -- Clear expired status message (keeps render path free of gettime)
-        if uiState.statusMessage ~= "" and (now - uiState.statusMessageTime) > (C.STATUS_MSG_SECS * 1000) then
-            uiState.statusMessage = ""
-        end
-        -- Periodic persist: save inventory/bank so data survives game close/crash
-        if (now - scanState.lastPersistSaveTime) >= C.PERSIST_SAVE_INTERVAL_MS then
-            local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
-            if charName ~= "" then
-                storage.ensureCharFolderExists()
-                if #sellItems > 0 then
-                    storage.saveInventory(sellItems)
-                    storage.writeSellCache(sellItems)
-                elseif #inventoryItems > 0 then
-                    computeAndAttachSellStatus(inventoryItems)
-                    storage.saveInventory(inventoryItems)
-                    storage.writeSellCache(inventoryItems)
-                end
-                local bankToSave = (isBankWindowOpen() and bankItems and #bankItems > 0) and bankItems or bankCache
-                if bankToSave and #bankToSave > 0 then
-                    storage.saveBank(bankToSave)
-                end
-                scanState.lastPersistSaveTime = now
-            end
-        end
-        -- Rescans happen only on reopen or Refresh; moves update tables in-place (like Keep/Junk).
-        if uiState.autoSellRequested then
-            uiState.autoSellRequested = false
-            runSellMacro()
-            setStatusMessage("Running sell macro...")
-        end
-        -- Detect sell.mac finish: force inventory refresh and read failed items
-        do
-            local macroName = mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""
-            local mn = macroName:lower()
-            local sellMacRunning = (mn == "sell" or mn == "sell.mac")
-            if sellMacState.lastRunning and not sellMacRunning then
-                -- Sell macro just finished
-                sellMacState.smoothedFrac = 0  -- reset for next run
-                mq.delay(300)
-                scanInventory()
-                if isMerchantWindowOpen() then scanSellItems() end
-                invalidateSortCache("inv"); invalidateSortCache("sell")
-                -- Read failed items from sell_failed.ini
-                sellMacState.failedItems = {}
-                sellMacState.failedCount = 0
-                if perfCache.sellLogPath then
-                    local failedPath = perfCache.sellLogPath .. "\\sell_failed.ini"
-                    local countStr = config.safeIniValueByPath(failedPath, "Failed", "count", "0")
-                    local count = tonumber(countStr) or 0
-                    if count > 0 then
-                        sellMacState.failedCount = count
-                        for i = 1, count do
-                            local item = config.safeIniValueByPath(failedPath, "Failed", "item" .. i, "")
-                            if item and item ~= "" then table.insert(sellMacState.failedItems, item) end
-                        end
-                        sellMacState.showFailedUntil = now + C.SELL_FAILED_DISPLAY_MS
-                        uiState.statusMessage = ""  -- failed list in footer shows the notice
-                    else
-                        setStatusMessage("Sell complete. Inventory refreshed.")
-                    end
-                else
-                    setStatusMessage("Sell complete. Inventory refreshed.")
-                end
-                print("\ag[ItemUI]\ax Sell macro finished - inventory refreshed")
-            end
-            sellMacState.lastRunning = sellMacRunning
-        end
-        -- Loot macro: progress/session INI for Loot UI; defer scan when macro finishes
-        do
-            local macroName = mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""
-            local mn = macroName:lower()
-            local lootMacRunning = (mn == "loot" or mn == "loot.mac")
-            -- When macro just started (was not running, now running), open Loot UI if not suppressed (list persists; updates when run finishes)
-            if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
-                uiState.lootUIOpen = true
-                uiState.lootRunFinished = false
-                recordCompanionWindowOpened("loot")
-            end
-            if lootMacState.lastRunning and not lootMacRunning then
-                lootMacState.pendingScan = true
-                lootMacState.finishedAt = now
-                scanState.inventoryBagsDirty = true
-                -- Defer session table build to next frame (smoother UI, no hitch on macro-stop frame)
-                lootLoopRefs.pendingSession = true
-                -- When macro stops, show Loot UI if Mythical alert INI was written (e.g. /macro loot test)
-                local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-                if alertPath and alertPath ~= "" then
-                    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-                    if itemName and itemName ~= "" then
-                        local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                        local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                        local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                        uiState.lootMythicalAlert = {
-                            itemName = itemName,
-                            corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                            decision = decision,
-                            itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                            timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                            iconId = tonumber(iconStr) or 0
-                        }
-                        if decision == "pending" then
-                            if not prevName or prevName ~= itemName then
-                                uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
-                            end
-                        else
-                            uiState.lootMythicalDecisionStartAt = nil
-                        end
-                        uiState.lootUIOpen = true
-                        recordCompanionWindowOpened("loot")
-                    end
-                end
-            end
-            -- Process deferred session build (one frame after macro stopped)
-            if lootLoopRefs.pendingSession then
-                lootLoopRefs.pendingSession = nil
-                if uiState.lootUIOpen then
-                    local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
-                    if sessionPath and sessionPath ~= "" then
-                        local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
-                        local count = tonumber(countStr) or 0
-                        if count > 0 then
-                            uiState.lootRunLootedList = {}
-                            uiState.lootRunLootedItems = {}
-                            for i = 1, count do
-                                local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
-                                if name and name ~= "" then
-                                    table.insert(uiState.lootRunLootedList, name)
-                                    local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
-                                    local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
-                                    local statusText, willSell = "—", false
-                                    if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
-                                        statusText, willSell = getSellStatusForItem({ name = name })
-                                        if statusText == "" then statusText = "—" end
-                                    end
-                                    table.insert(uiState.lootRunLootedItems, {
-                                        name = name,
-                                        value = tonumber(valStr) or 0,
-                                        tribute = tonumber(tribStr) or 0,
-                                        statusText = statusText,
-                                        willSell = willSell
-                                    })
-                                end
-                            end
-                            local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
-                            local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
-                            uiState.lootRunTotalValue = tonumber(sv) or 0
-                            uiState.lootRunTributeValue = tonumber(tv) or 0
-                            uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
-                            uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
-                            if not uiState.lootHistory then loadLootHistoryFromFile() end
-                            if not uiState.lootHistory then uiState.lootHistory = {} end
-                            for _, row in ipairs(uiState.lootRunLootedItems) do
-                                table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
-                            end
-                            while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
-                            lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
-                        end
-                    end
-                    local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
-                    if skippedPath and skippedPath ~= "" then
-                        local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
-                        local skipCount = tonumber(skipCountStr) or 0
-                        if skipCount > 0 then
-                            if not uiState.skipHistory then loadSkipHistoryFromFile() end
-                            if not uiState.skipHistory then uiState.skipHistory = {} end
-                            for j = 1, skipCount do
-                                local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
-                                if raw and raw ~= "" then
-                                    local name, reason = raw:match("^([^%^]*)%^?(.*)$")
-                                    table.insert(uiState.skipHistory, { name = name or raw, reason = reason or "" })
-                                end
-                            end
-                            while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end
-                            lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
-                        end
-                    end
-                    uiState.lootRunFinished = true
-                end
-            end
-            local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
-            if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
-                lootLoopRefs.pollAt = now
-                local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
-                if progPath and progPath ~= "" and config.readLootProgressSection then
-                    local corpses, total, current = config.readLootProgressSection(progPath)
-                    uiState.lootRunCorpsesLooted = corpses
-                    uiState.lootRunTotalCorpses = total
-                    uiState.lootRunCurrentCorpse = current or ""
-                end
-                if lootMacRunning then
-                    local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-                    if alertPath and alertPath ~= "" then
-                        local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-                        if itemName and itemName ~= "" then
-                            local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                            local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                            local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                            uiState.lootMythicalAlert = {
-                                itemName = itemName,
-                                corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                                decision = decision,
-                                itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                                timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                                iconId = tonumber(iconStr) or 0
-                            }
-                            if decision == "pending" then
-                                if not prevName or prevName ~= itemName then
-                                    uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
-                                end
-                            else
-                                uiState.lootMythicalDecisionStartAt = nil
-                            end
-                            uiState.lootUIOpen = true
-                            recordCompanionWindowOpened("loot")
-                        else
-                            uiState.lootMythicalAlert = nil
-                            uiState.lootMythicalDecisionStartAt = nil
-                        end
-                    end
-                end
-            end
-            lootMacState.lastRunning = lootMacRunning
-        end
-        -- Deferred loot/skip history saves (avoid blocking macro-finish frame)
-        if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt then
-            lootLoopRefs.saveHistoryAt = 0
-            lootLoopRefs.saveLootHistory()
-        end
-        if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt then
-            lootLoopRefs.saveSkipAt = 0
-            lootLoopRefs.saveSkipHistory()
-        end
-        processSellQueue()
-        -- Handle pending quantity pickup action (non-blocking, runs in main loop)
-        if uiState.pendingQuantityAction then
-            local action = uiState.pendingQuantityAction
-            uiState.pendingQuantityAction = nil  -- Clear immediately to prevent re-processing
-            -- Pick up the item (this will open QuantityWnd)
-            if action.pickup.source == "bank" then
-                mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-            else
-                mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-            end
-            -- Wait for QuantityWnd to open, then set quantity and accept
-            mq.delay(300, function()
-                local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-                return w and w.Open and w.Open()
-            end)
-            local qtyWndOpen = (function()
-                local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-                return w and w.Open and w.Open()
-            end)()
-            if qtyWndOpen then
-                mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty))
-                mq.delay(150)
-                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-            end
-        end
-        if uiState.pendingDestroyAction then
-            local pd = uiState.pendingDestroyAction
-            uiState.pendingDestroyAction = nil
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-            itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
-        end
-        if uiState.pendingMoveAction then
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-            itemOps.executeMoveAction(uiState.pendingMoveAction)
-            uiState.pendingMoveAction = nil
-        end
-        -- Phase 1: start first remove from Remove All queue when idle (no pending/waiting remove)
-        if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0
-            and not uiState.pendingRemoveAugment and not uiState.waitingForRemoveConfirmation and not uiState.waitingForRemoveCursorPopulated then
-            local q = uiState.removeAllQueue
-            local slotIndex = table.remove(q.slotIndices, 1)
-            uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
-            if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
-        end
-        if uiState.pendingRemoveAugment then
-            local ra = uiState.pendingRemoveAugment
-            uiState.pendingRemoveAugment = nil
-            augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
-            uiState.removeConfirmationSetAt = mq.gettime()
-        end
-        -- Phase 2: start first insert from Optimize queue when idle (no pending/waiting insert)
-        if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
-            and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear then
-            local oq = uiState.optimizeQueue
-            local step = table.remove(oq.steps, 1)
-            if step and step.slotIndex and step.augmentItem then
-                local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
-                local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
-                uiState.pendingInsertAugment = {
-                    targetItem = targetItem,
-                    targetBag = oq.targetLoc.bag,
-                    targetSlot = oq.targetLoc.slot,
-                    targetSource = oq.targetLoc.source or "inv",
-                    augmentItem = step.augmentItem,
-                    slotIndex = step.slotIndex,
-                }
-                uiState.insertConfirmationSetAt = mq.gettime()
-            end
-        end
-        if uiState.pendingInsertAugment then
-            local pa = uiState.pendingInsertAugment
-            uiState.pendingInsertAugment = nil
-            uiState.itemDisplayAugmentSlotActive = nil
-            augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
-            uiState.insertConfirmationSetAt = mq.gettime()
-        end
-        -- Clear pending quantity pickup if item was picked up manually or QuantityWnd closed or timeout
-        if uiState.pendingQuantityPickup then
-            local now = mq.gettime()
-            if uiState.pendingQuantityPickupTimeoutAt and now >= uiState.pendingQuantityPickupTimeoutAt then
-                uiState.pendingQuantityPickup = nil
-                uiState.pendingQuantityPickupTimeoutAt = nil
-                uiState.quantityPickerValue = ""
-                setStatusMessage("Quantity picker cancelled")
-            else
-            local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            local qtyWndOpen = qtyWnd and qtyWnd.Open and qtyWnd.Open() or false
-            local hasCursor = hasItemOnCursor()
-            -- Clear if QuantityWnd closed (user cancelled manually) or item is on cursor (user picked it up manually)
-            if not qtyWndOpen and not hasCursor then
-                -- Check if item still exists at the location
-                local itemExists = false
-                local Me = mq.TLO and mq.TLO.Me
-                if uiState.pendingQuantityPickup.source == "bank" then
-                    local bn = Me and Me.Bank and Me.Bank(uiState.pendingQuantityPickup.bag)
-                    local sz = bn and bn.Container and bn.Container()
-                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(uiState.pendingQuantityPickup.slot)) or bn
-                    itemExists = it and it.ID and it.ID() and it.ID() > 0
-                else
-                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. uiState.pendingQuantityPickup.bag)
-                    local it = pack and pack.Item and pack.Item(uiState.pendingQuantityPickup.slot)
-                    itemExists = it and it.ID and it.ID() and it.ID() > 0
-                end
-                if not itemExists then
-                    -- Item was picked up, clear pending
-                    uiState.pendingQuantityPickup = nil
-                    uiState.pendingQuantityPickupTimeoutAt = nil
-                    uiState.quantityPickerValue = ""
-                end
-            elseif hasCursor then
-                -- Item is on cursor, clear pending (user picked it up manually)
-                uiState.pendingQuantityPickup = nil
-                uiState.pendingQuantityPickupTimeoutAt = nil
-                uiState.quantityPickerValue = ""
-            end
-            end
-        end
-        local invWndLoop = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-        local invOpen = (invWndLoop and invWndLoop.Open and invWndLoop.Open()) or false
-        local bankOpen = isBankWindowOpen()
-        local merchOpen = isMerchantWindowOpen()
-        local lootOpen = isLootWindowOpen()
-        local bankJustOpened = bankOpen and not lastBankWindowState
-        local lootJustClosed = lastLootWindowState and not lootOpen
-        if lootOpen or lootJustClosed then scanState.inventoryBagsDirty = true end
-        local shouldDrawBefore = shouldDraw  -- capture before any auto-show
-        -- Run deferred scans from previous frame (one scan per first-paint; rest run here)
-        if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
-        if deferredScanNeeded.bank then maybeScanBank(bankOpen); deferredScanNeeded.bank = false end
-        if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
-        if perfCache.sellConfigPendingRefresh then
-            -- Force fresh config load so we see INI changes (e.g. addToJunkList) that may not have been visible when cache was last loaded
-            if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
-            computeAndAttachSellStatus(inventoryItems)
-            if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
-            if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-            perfCache.sellConfigPendingRefresh = false
-        end
-        -- Auto-show when inventory, bank, or merchant just opened (loot view disabled - loot macro uses default EQ loot UI)
-        local invJustOpened = invOpen and not lastInventoryWindowState
-        -- Prime Stats tab only the first time inventory is opened this ItemUI session (so AC/ATK/Weight load once)
-        if invJustOpened and invOpen and not statsTabPrimedThisSession then
-            mq.cmd('/notify InventoryWindow IW_Subwindows tabselect 2')
-            statsTabPrimeState = 'shown'
-            statsTabPrimeAt = now
-            statsTabPrimedThisSession = true
-        end
-        -- After priming delay, switch back to Inventory tab (tab 1)
-        if statsTabPrimeState == 'shown' and invOpen and (now - statsTabPrimeAt) >= STATS_TAB_PRIME_MS then
-            mq.cmd('/notify InventoryWindow IW_Subwindows tabselect 1')
-            statsTabPrimeState = nil
-        end
-        if lastInventoryWindowState and not invOpen then statsTabPrimeState = nil end
-        -- Macro.Name may return "loot" or "loot.mac" depending on MQ version (needed before bag-open and ItemUI suppress)
-        local lootMacName = (mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or ""):lower()) or ""
-        local lootMacRunning = (lootMacName == "loot" or lootMacName == "loot.mac")
-        -- ItemUI never shows while looting (manual or macro). Skip opening bags when loot window open or macro running.
-        if invJustOpened and invOpen and not (lootOpen or lootMacRunning) then
-            mq.cmd('/keypress OPEN_INV_BAGS')
-        end
-        -- When looting (manual or macro): keep ItemUI hidden (suppress auto-show and force-hide if already visible)
-        if (lootOpen or lootMacRunning) and shouldDraw then
-            flushLayoutSave()  -- Persist sort before hiding so next open has correct sort
-            shouldDraw = false
-            isOpen = false
-            uiState.configWindowOpen = false
-            if invOpen then mq.cmd('/keypress inventory') end
-        end
-        -- Do not auto-show ItemUI when loot window is open (manual looting) or loot macro is running
-        local shouldAutoShowInv = invJustOpened and not (lootOpen or lootMacRunning)
-        -- Run pending background scan (from loot macro finish) only when user isn't opening and enough time has passed
-        -- Delay 2.5s so user opening right after looting always wins (avoids double-scan, preserves sort)
-        if lootMacState.pendingScan then
-            local userOpening = shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) or shouldDraw
-            local elapsed = now - (lootMacState.finishedAt or 0)
-            if not userOpening and elapsed >= C.LOOT_PENDING_SCAN_DELAY_MS then
-                scanInventory()
-                invalidateSortCache("inv")
-            end
-            lootMacState.pendingScan = false
-        end
-        if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
-            if not shouldDraw then
-                shouldDraw = true
-                isOpen = true
-                loadLayoutConfig()
-                uiState.bankWindowOpen = bankJustOpened
-                uiState.bankWindowShouldDraw = uiState.bankWindowOpen
-                if bankJustOpened then recordCompanionWindowOpened("bank") end
-                uiState.equipmentWindowOpen = true
-                uiState.equipmentWindowShouldDraw = true
-                recordCompanionWindowOpened("equipment")
-                -- Run only the scan that triggered show; defer others to next frame for faster first paint
-                if bankJustOpened then
-                    maybeScanBank(bankOpen)
-                    deferredScanNeeded.inventory = invOpen
-                    deferredScanNeeded.sell = merchOpen
-                elseif merchOpen and not lastMerchantState then
-                    maybeScanInventory(invOpen)
-                    deferredScanNeeded.sell = true
-                    deferredScanNeeded.bank = bankOpen
-                else
-                    maybeScanInventory(invOpen)
-                    deferredScanNeeded.bank = bankOpen
-                    deferredScanNeeded.sell = merchOpen
-                end
-            end
-        end
-        -- When bank window is open but ItemUI is hidden, show it and open bank window (e.g. right-click banker with bank already open)
-        if bankOpen and not shouldDraw then
-            shouldDraw = true
-            isOpen = true
-            loadLayoutConfig()
-            uiState.bankWindowOpen = true
-            uiState.bankWindowShouldDraw = true
-            uiState.equipmentWindowOpen = true
-            uiState.equipmentWindowShouldDraw = true
-            recordCompanionWindowOpened("bank")
-            recordCompanionWindowOpened("equipment")
-            maybeScanBank(bankOpen)
-            deferredScanNeeded.inventory = invOpen
-            deferredScanNeeded.sell = merchOpen
-        end
-        -- When loot macro running and loot window closes: hide ItemUI and close inventory
-        if lootMacRunning and lootJustClosed then
-            shouldDraw = false
-            isOpen = false
-            uiState.configWindowOpen = false
-            if invOpen then
-                mq.cmd('/keypress inventory')
-            end
-        end
-        -- Auto-close when inventory window closes: close all bags (toggle) and save character snapshot
-        if lastInventoryWindowState and not invOpen then
-            mq.cmd('/keypress CLOSE_INV_BAGS')
-            storage.ensureCharFolderExists()
-            if #sellItems > 0 then
-                storage.saveInventory(sellItems)
-                storage.writeSellCache(sellItems)
-            else
-                computeAndAttachSellStatus(inventoryItems)
-                storage.saveInventory(inventoryItems)
-                storage.writeSellCache(inventoryItems)
-            end
-            local bankToSave = bankOpen and bankItems or bankCache
-            if bankToSave and #bankToSave > 0 then
-                storage.saveBank(bankToSave)
-            end
-            flushLayoutSave()  -- Persist sort/layout immediately so next open shows correct sort
-            shouldDraw = false
-            isOpen = false
-            uiState.configWindowOpen = false
-        end
-        -- When bank just opened and ItemUI was already showing: open bank panel and refresh (avoid duplicate scan if we auto-showed above)
-        if bankJustOpened and shouldDrawBefore then
-            uiState.bankWindowOpen = true
-            uiState.bankWindowShouldDraw = true
-            maybeScanBank(bankOpen)
-        elseif bankJustOpened then
-            uiState.bankWindowOpen = true
-            uiState.bankWindowShouldDraw = true
-        end
-        -- Update lastScanState when windows close (so we'll scan when they reopen)
-        if lastInventoryWindowState and not invOpen then scanState.lastScanState.invOpen = false end
-        if lastBankWindowState and not bankOpen then scanState.lastScanState.bankOpen = false end
-        if lastMerchantState and not merchOpen then scanState.lastScanState.merchOpen = false end
-        local lootOpenNow = isLootWindowOpen()
-        -- When user manually opens loot window (no macro running), open Loot UI if not suppressed
-        local lootJustOpened = lootOpenNow and not lastLootWindowState
-        if lootJustOpened then
-            local mn = (mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "") or ""):lower()
-            local lootMacRunning = (mn == "loot" or mn == "loot.mac")
-            if not lootMacRunning and not uiState.suppressWhenLootMac then
-                uiState.lootUIOpen = true
-                recordCompanionWindowOpened("loot")
-            end
-        end
-        -- Auto-accept no-drop valuable item confirmation when loot window open
-        if lootOpenNow then
-            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-            if confirmWnd and confirmWnd.Open and confirmWnd.Open() then
-                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-            end
-        end
-        -- Augment insert/remove: consistent timeouts and recovery so cursor/window don't get stuck
-        local AUGMENT_CURSOR_CLEAR_TIMEOUT_MS = 5000
-        local AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = 5000
-        local AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS = 4000
-        local AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = 6000
-
-        local itemDisplayOpen = augmentOps.isItemDisplayWindowOpen and augmentOps.isItemDisplayWindowOpen()
-        -- If user closed Item Display while we were waiting, clear state so we don't hang
-        if uiState.waitingForInsertCursorClear and not itemDisplayOpen then
-            uiState.waitingForInsertCursorClear = false
-            uiState.insertCursorClearTimeoutAt = nil
-            uiState.insertConfirmationSetAt = nil
-        end
-        if uiState.waitingForRemoveCursorPopulated and not itemDisplayOpen then
-            uiState.waitingForRemoveCursorPopulated = false
-            uiState.removeCursorPopulatedTimeoutAt = nil
-            uiState.removeConfirmationSetAt = nil
-        end
-
-        local confirmDialogOpen = false
-        do
-            local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-            confirmDialogOpen = confirmWnd and confirmWnd.Open and confirmWnd.Open()
-        end
-        -- Auto-accept augment-remove distiller confirmation when we triggered remove
-        if uiState.waitingForRemoveConfirmation and confirmDialogOpen then
-            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-            uiState.waitingForRemoveConfirmation = false
-            uiState.removeConfirmationSetAt = nil
-            uiState.waitingForRemoveCursorPopulated = true
-            uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
-        end
-        -- Auto-accept augment-insert confirmation (e.g. attuneable) when we triggered insert
-        if uiState.waitingForInsertConfirmation and confirmDialogOpen then
-            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-            uiState.waitingForInsertConfirmation = false
-            uiState.insertConfirmationSetAt = nil
-            uiState.waitingForInsertCursorClear = true
-            uiState.insertCursorClearTimeoutAt = mq.gettime()
-        end
-        -- Insert: no confirmation dialog appeared (e.g. client doesn't show one) — close window and clear state
-        if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            if not hasItemOnCursor() then
-                -- Insert likely succeeded without confirmation
-            else
-                setStatusMessage("Insert may have failed; check cursor.")
-            end
-            uiState.waitingForInsertConfirmation = false
-            uiState.insertConfirmationSetAt = nil
-        end
-        -- Remove: no confirmation dialog appeared — close window and clear state; if cursor has item, autoinv
-        if uiState.waitingForRemoveConfirmation and not confirmDialogOpen and uiState.removeConfirmationSetAt and (now - uiState.removeConfirmationSetAt) > AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            if hasItemOnCursor() then mq.cmd('/autoinv') end
-            uiState.waitingForRemoveConfirmation = false
-            uiState.removeConfirmationSetAt = nil
-            uiState.waitingForRemoveCursorPopulated = false
-            uiState.removeCursorPopulatedTimeoutAt = nil
-        end
-        -- After insert confirm accepted: poll until cursor clear, then close Item Display; on timeout close window and notify
-        if uiState.waitingForInsertCursorClear then
-            if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then
-                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-                setStatusMessage("Insert timed out; check cursor.")
-                uiState.waitingForInsertCursorClear = false
-                uiState.insertCursorClearTimeoutAt = nil
-                uiState.insertConfirmationSetAt = nil
-                -- Phase 2: if more Optimize steps queued, pop next; else Phase 0 single scan at completion
-                if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
-                    local oq = uiState.optimizeQueue
-                    local step = table.remove(oq.steps, 1)
-                    if step and step.slotIndex and step.augmentItem then
-                        local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
-                        local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
-                        uiState.pendingInsertAugment = {
-                            targetItem = targetItem,
-                            targetBag = oq.targetLoc.bag,
-                            targetSlot = oq.targetLoc.slot,
-                            targetSource = oq.targetLoc.source or "inv",
-                            augmentItem = step.augmentItem,
-                            slotIndex = step.slotIndex,
-                        }
-                    end
-                    if #oq.steps == 0 then uiState.optimizeQueue = nil end
-                else
-                    local hadOptimize = (uiState.optimizeQueue ~= nil)
-                    if uiState.optimizeQueue then uiState.optimizeQueue = nil end
-                    scanInventory()
-                    if isBankWindowOpen() then scanBank() end
-                    refreshActiveItemDisplayTab()
-                    if hadOptimize and setStatusMessage then setStatusMessage("Optimize complete.") end
-                end
-            elseif not hasItemOnCursor() then
-                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-                uiState.waitingForInsertCursorClear = false
-                uiState.insertCursorClearTimeoutAt = nil
-                uiState.insertConfirmationSetAt = nil
-                -- Phase 2: if more Optimize steps queued, pop next; else Phase 0 single scan at completion
-                if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
-                    local oq = uiState.optimizeQueue
-                    local step = table.remove(oq.steps, 1)
-                    if step and step.slotIndex and step.augmentItem then
-                        local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
-                        local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
-                        uiState.pendingInsertAugment = {
-                            targetItem = targetItem,
-                            targetBag = oq.targetLoc.bag,
-                            targetSlot = oq.targetLoc.slot,
-                            targetSource = oq.targetLoc.source or "inv",
-                            augmentItem = step.augmentItem,
-                            slotIndex = step.slotIndex,
-                        }
-                    end
-                    if #oq.steps == 0 then uiState.optimizeQueue = nil end
-                else
-                    local hadOptimize = (uiState.optimizeQueue ~= nil)
-                    if uiState.optimizeQueue then uiState.optimizeQueue = nil end
-                    scanInventory()
-                    if isBankWindowOpen() then scanBank() end
-                    refreshActiveItemDisplayTab()
-                    if hadOptimize and setStatusMessage then setStatusMessage("Optimize complete.") end
-                end
-            end
-        end
-        -- After remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv; on timeout close window and notify
-        if uiState.waitingForRemoveCursorPopulated then
-            if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > AUGMENT_CURSOR_POPULATED_TIMEOUT_MS) then
-                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-                setStatusMessage("Remove timed out; check cursor.")
-                uiState.waitingForRemoveCursorPopulated = false
-                uiState.removeCursorPopulatedTimeoutAt = nil
-                uiState.removeConfirmationSetAt = nil
-                -- Phase 1: if more Remove All steps queued, pop next; else Phase 0 single scan at completion
-                if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0 then
-                    local q = uiState.removeAllQueue
-                    local slotIndex = table.remove(q.slotIndices, 1)
-                    uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
-                    if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
-                else
-                    local hadRemoveAll = (uiState.removeAllQueue ~= nil)
-                    if uiState.removeAllQueue then uiState.removeAllQueue = nil end
-                    scanInventory()
-                    if isBankWindowOpen() then scanBank() end
-                    refreshActiveItemDisplayTab()
-                    if hadRemoveAll and setStatusMessage then setStatusMessage("Remove all done.") end
-                end
-            elseif hasItemOnCursor() then
-                if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-                mq.cmd('/autoinv')
-                uiState.waitingForRemoveCursorPopulated = false
-                uiState.removeCursorPopulatedTimeoutAt = nil
-                uiState.removeConfirmationSetAt = nil
-                -- Phase 1: if more Remove All steps queued, pop next; else Phase 0 single scan at completion
-                if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0 then
-                    local q = uiState.removeAllQueue
-                    local slotIndex = table.remove(q.slotIndices, 1)
-                    uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
-                    if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
-                else
-                    local hadRemoveAll = (uiState.removeAllQueue ~= nil)
-                    if uiState.removeAllQueue then uiState.removeAllQueue = nil end
-                    scanInventory()
-                    if isBankWindowOpen() then scanBank() end
-                    refreshActiveItemDisplayTab()
-                    if hadRemoveAll and setStatusMessage then setStatusMessage("Remove all done.") end
-                end
-            end
-        end
-        if lastLootWindowState and not lootOpenNow then scanState.lastScanState.lootOpen = false; lootItems = {} end
-        lastInventoryWindowState = invOpen
-        lastBankWindowState = bankOpen
-        lastMerchantState = merchOpen
-        lastLootWindowState = lootOpenNow
-        -- Debounced layout save: batch rapid changes (sort, tab switch) into one file write
-        if perfCache.layoutDirty and (now - perfCache.layoutSaveScheduledAt) >= perfCache.layoutSaveDebounceMs then
-            perfCache.layoutDirty = false
-            saveLayoutToFileImmediate()
-        end
-        -- Periodic cache cleanup: evict expired spell cache entries (every 30s)
-        if not perfCache.lastCacheCleanup or (now - perfCache.lastCacheCleanup) >= 30000 then
-            perfCache.lastCacheCleanup = now
-            Cache.cleanup()
-        end
-        mq.delay(shouldDraw and C.LOOP_DELAY_VISIBLE_MS or C.LOOP_DELAY_HIDDEN_MS)
-        mq.doevents()
+        mainLoop.tick(mq.gettime())
     end
     flushLayoutSave()  -- Persist any pending layout changes before unload
     mq.imgui.destroy('ItemUI')

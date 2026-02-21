@@ -6,6 +6,8 @@
 
 local mq = require('mq')
 require('ImGui')
+local constants = require('itemui.constants')
+local theme = require('itemui.utils.theme')
 
 local M = {}
 local deps  -- set by init()
@@ -13,6 +15,14 @@ local deps  -- set by init()
 function M.init(d)
     deps = d
 end
+
+-- ============================================================================
+-- TLO Query Cache — refresh every STATS_CACHE_TTL_MS instead of every frame
+-- ============================================================================
+
+local CACHE_TTL = constants.TIMING.STATS_CACHE_TTL_MS
+local cachedStats = nil
+local cacheTime = 0
 
 -- ============================================================================
 -- Class display: 3-letter abbreviation + optional server subclasses
@@ -25,21 +35,18 @@ local CLASS_TO_ABBREV = {
     ["magician"] = "MAG", ["enchanter"] = "ENC", ["beastlord"] = "BST", ["berserker"] = "BER",
 }
 
---- Return 3-letter class abbreviation for display; nil if unknown.
 local function classAbbrev(className)
     if not className or className == "" then return nil end
     local key = tostring(className):lower():gsub("^%s+", ""):gsub("%s+$", "")
     return CLASS_TO_ABBREV[key]
 end
 
---- Build primary + optional subclass string. Tries server-specific TLOs for tagged/alt classes.
 local function getClassDisplayString(Me)
     local primary = Me.Class and Me.Class()
     local abbrev = classAbbrev(primary)
     local primaryStr = abbrev and abbrev or (tostring(primary or "?"):gsub("^%s+", ""):gsub("%s+$", ""))
     local subclasses = {}
     local seen = {}
-    -- Server may expose tagged/alt classes via custom TLOs; try common names without failing
     for _, tloName in ipairs({ "AltClass", "SecondaryClass", "SubClass", "TaggedClasses", "ExtraClasses" }) do
         local fn = Me[tloName]
         if type(fn) == "function" then
@@ -124,7 +131,7 @@ local function getScriptCountsFromInventory(items)
 end
 
 -- ============================================================================
--- Render
+-- TLO Query + Cache
 -- ============================================================================
 
 local function getWindowText(path)
@@ -138,180 +145,193 @@ local function getWindowText(path)
     return success and text or nil
 end
 
-function M.render()
+local function refreshStats()
     local Me = mq.TLO and mq.TLO.Me
-    if not Me then
-        -- TLO.Me can be nil during zone transitions / loading
-        return
+    if not Me then return nil end
+
+    return {
+        playerName = (Me.Name and Me.Name()) or "?",
+        playerLevel = (Me.Level and Me.Level()) or 0,
+        classStr = getClassDisplayString(Me),
+        hp = Me.CurrentHPs() or 0,
+        maxHP = Me.MaxHPs() or 0,
+        mana = Me.CurrentMana() or 0,
+        maxMana = Me.MaxMana() or 0,
+        endur = Me.CurrentEndurance() or 0,
+        maxEndur = Me.MaxEndurance() or 0,
+        exp = Me.PctExp() or 0,
+        aaPointsTotal = Me.AAPointsTotal() or 0,
+        haste = Me.Haste() or 0,
+        isMoving = Me.Moving() or false,
+        movementSpeed = (Me.Moving() and Me.Moving()) and math.floor((Me.Speed() or 0) + 0.5) or 0,
+        platinum = Me.Platinum() or 0,
+        gold = Me.Gold() or 0,
+        silver = Me.Silver() or 0,
+        copper = Me.Copper() or 0,
+        str = Me.STR() or 0,
+        sta = Me.STA() or 0,
+        int = Me.INT() or 0,
+        wis = Me.WIS() or 0,
+        dex = Me.DEX() or 0,
+        cha = Me.CHA() or 0,
+        magicResist = Me.svMagic() or 0,
+        fireResist = Me.svFire() or 0,
+        coldResist = Me.svCold() or 0,
+        diseaseResist = Me.svDisease() or 0,
+        poisonResist = Me.svPoison() or 0,
+        corruptionResist = Me.svCorruption() or 0,
+        displayedAC = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentArmorClass") or
+                      getWindowText("InventoryWindow/IW_ACNumber") or "N/A",
+        displayedATK = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentAttack") or
+                       getWindowText("InventoryWindow/IW_ATKNumber") or "N/A",
+        displayedWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentWeight") or
+                          getWindowText("InventoryWindow/IW_CurrentWeight") or "N/A",
+        displayedMaxWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_MaxWeight") or
+                             getWindowText("InventoryWindow/IW_MaxWeight") or "N/A",
+    }
+end
+
+-- ============================================================================
+-- Render
+-- ============================================================================
+
+function M.render()
+    local now = mq.gettime()
+    if not cachedStats or (now - cacheTime) > CACHE_TTL then
+        cachedStats = refreshStats()
+        cacheTime = now
     end
 
-    local displayedAC = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentArmorClass") or
-                        getWindowText("InventoryWindow/IW_ACNumber") or "N/A"
-    local displayedATK = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentAttack") or
-                         getWindowText("InventoryWindow/IW_ATKNumber") or "N/A"
-    local displayedWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentWeight") or
-                            getWindowText("InventoryWindow/IW_CurrentWeight") or "N/A"
-    local displayedMaxWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_MaxWeight") or
-                               getWindowText("InventoryWindow/IW_MaxWeight") or "N/A"
+    local s = cachedStats
+    if not s then return end
 
-    local hp = Me.CurrentHPs() or 0
-    local maxHP = Me.MaxHPs() or 0
-    local mana = Me.CurrentMana() or 0
-    local maxMana = Me.MaxMana() or 0
-    local endur = Me.CurrentEndurance() or 0
-    local maxEndur = Me.MaxEndurance() or 0
-    local exp = Me.PctExp() or 0
-    local aaPointsTotal = Me.AAPointsTotal() or 0
-    local haste = Me.Haste() or 0
-    local isMoving = Me.Moving() or false
-    local movementSpeed = isMoving and math.floor((Me.Speed() or 0) + 0.5) or 0
+    local C = theme.Colors
+    local tv = theme.ToVec4
 
-    local platinum = Me.Platinum() or 0
-    local gold = Me.Gold() or 0
-    local silver = Me.Silver() or 0
-    local copper = Me.Copper() or 0
-
-    local str = Me.STR() or 0
-    local sta = Me.STA() or 0
-    local int = Me.INT() or 0
-    local wis = Me.WIS() or 0
-    local dex = Me.DEX() or 0
-    local cha = Me.CHA() or 0
-
-    local magicResist = Me.svMagic() or 0
-    local fireResist = Me.svFire() or 0
-    local coldResist = Me.svCold() or 0
-    local diseaseResist = Me.svDisease() or 0
-    local poisonResist = Me.svPoison() or 0
-    local corruptionResist = Me.svCorruption() or 0
-
-    ImGui.BeginChild("CharacterStats", ImVec2(180, -deps.FOOTER_HEIGHT), true, ImGuiWindowFlags.NoScrollbar)
+    ImGui.BeginChild("CharacterStats", ImVec2(constants.UI.CHARACTER_STATS_PANEL_WIDTH, -deps.FOOTER_HEIGHT), true, ImGuiWindowFlags.NoScrollbar)
 
     ImGui.SetWindowFontScale(0.95)
 
-    local playerName = (Me.Name and Me.Name()) and Me.Name() or "?"
-    local playerLevel = (Me.Level and Me.Level()) and Me.Level() or 0
-    local classStr = getClassDisplayString(Me)
-    local headerText = string.format("%s (%s) %s", playerName, playerLevel, classStr)
-    ImGui.TextColored(ImVec4(0.4, 0.8, 1, 1), headerText)
+    local headerText = string.format("%s (%s) %s", s.playerName, s.playerLevel, s.classStr)
+    ImGui.TextColored(tv(C.Header), headerText)
     ImGui.Separator()
 
-    ImGui.TextColored(ImVec4(0.9, 0.3, 0.3, 1), "HP:")
+    ImGui.TextColored(tv(C.HP), "HP:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", hp, maxHP))
+    ImGui.Text(string.format("%d / %d", s.hp, s.maxHP))
 
-    ImGui.TextColored(ImVec4(0.3, 0.5, 0.9, 1), "MP:")
+    ImGui.TextColored(tv(C.MP), "MP:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", mana, maxMana))
+    ImGui.Text(string.format("%d / %d", s.mana, s.maxMana))
 
-    ImGui.TextColored(ImVec4(0.5, 0.7, 0.3, 1), "EN:")
+    ImGui.TextColored(tv(C.Endurance), "EN:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%d / %d", endur, maxEndur))
+    ImGui.Text(string.format("%d / %d", s.endur, s.maxEndur))
 
-    ImGui.TextColored(ImVec4(0.8, 0.6, 0.2, 1), "AC:")
+    ImGui.TextColored(tv(C.Combat), "AC:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(displayedAC))
+    ImGui.Text(tostring(s.displayedAC))
 
-    ImGui.TextColored(ImVec4(0.8, 0.6, 0.2, 1), "ATK:")
+    ImGui.TextColored(tv(C.Combat), "ATK:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(displayedATK))
+    ImGui.Text(tostring(s.displayedATK))
 
-    ImGui.TextColored(ImVec4(0.6, 0.8, 0.6, 1), "Haste:")
+    ImGui.TextColored(tv(C.Utility), "Haste:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%d%%", haste))
+    ImGui.Text(string.format("%d%%", s.haste))
 
-    ImGui.TextColored(ImVec4(0.6, 0.8, 0.6, 1), "Speed:")
+    ImGui.TextColored(tv(C.Utility), "Speed:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%d%%", movementSpeed))
+    ImGui.Text(string.format("%d%%", s.movementSpeed))
 
     ImGui.Separator()
 
     ImGui.Text("EXP:")
     ImGui.SameLine(50)
-    ImGui.Text(string.format("%.1f%%", exp))
+    ImGui.Text(string.format("%.1f%%", s.exp))
 
     ImGui.Text("AAs:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(aaPointsTotal))
+    ImGui.Text(tostring(s.aaPointsTotal))
 
     ImGui.Separator()
 
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Stats:")
+    ImGui.TextColored(tv(C.SectionHead), "Stats:")
     ImGui.Text("STR:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(str))
+    ImGui.Text(tostring(s.str))
     ImGui.SameLine(90)
     ImGui.Text("STA:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(sta))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_FIRST)
+    ImGui.Text(tostring(s.sta))
 
     ImGui.Text("INT:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(int))
+    ImGui.Text(tostring(s.int))
     ImGui.SameLine(90)
     ImGui.Text("WIS:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(wis))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_FIRST)
+    ImGui.Text(tostring(s.wis))
 
     ImGui.Text("DEX:")
     ImGui.SameLine(50)
-    ImGui.Text(tostring(dex))
+    ImGui.Text(tostring(s.dex))
     ImGui.SameLine(90)
     ImGui.Text("CHA:")
-    ImGui.SameLine(130)
-    ImGui.Text(tostring(cha))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_FIRST)
+    ImGui.Text(tostring(s.cha))
 
     ImGui.Separator()
 
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Resist:")
+    ImGui.TextColored(tv(C.SectionHead), "Resist:")
     ImGui.Text("Poison:")
     ImGui.SameLine(65)
-    ImGui.Text(tostring(poisonResist))
+    ImGui.Text(tostring(s.poisonResist))
     ImGui.SameLine(95)
     ImGui.Text("Magic:")
-    ImGui.SameLine(155)
-    ImGui.Text(tostring(magicResist))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_SECOND)
+    ImGui.Text(tostring(s.magicResist))
 
     ImGui.Text("Fire:")
     ImGui.SameLine(65)
-    ImGui.Text(tostring(fireResist))
+    ImGui.Text(tostring(s.fireResist))
     ImGui.SameLine(95)
     ImGui.Text("Disease:")
-    ImGui.SameLine(155)
-    ImGui.Text(tostring(diseaseResist))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_SECOND)
+    ImGui.Text(tostring(s.diseaseResist))
 
     ImGui.Text("Corrupt:")
     ImGui.SameLine(65)
-    ImGui.Text(tostring(corruptionResist))
+    ImGui.Text(tostring(s.corruptionResist))
     ImGui.SameLine(95)
     ImGui.Text("Cold:")
-    ImGui.SameLine(155)
-    ImGui.Text(tostring(coldResist))
+    ImGui.SameLine(constants.UI.CHARACTER_STATS_SAMELINE_SECOND)
+    ImGui.Text(tostring(s.coldResist))
 
     ImGui.Separator()
 
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "WEIGHT:")
-    ImGui.Text(string.format("%s / %s", tostring(displayedWeight), tostring(displayedMaxWeight)))
+    ImGui.TextColored(tv(C.SectionHead), "WEIGHT:")
+    ImGui.Text(string.format("%s / %s", tostring(s.displayedWeight), tostring(s.displayedMaxWeight)))
 
     ImGui.Separator()
 
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Money:")
+    ImGui.TextColored(tv(C.SectionHead), "Money:")
     local moneyStr = ""
-    if platinum > 0 then
-        moneyStr = moneyStr .. string.format("%dp ", platinum)
+    if s.platinum > 0 then
+        moneyStr = moneyStr .. string.format("%dp ", s.platinum)
     end
-    if gold > 0 or platinum > 0 then
-        moneyStr = moneyStr .. string.format("%dg ", gold)
+    if s.gold > 0 or s.platinum > 0 then
+        moneyStr = moneyStr .. string.format("%dg ", s.gold)
     end
-    if silver > 0 or gold > 0 or platinum > 0 then
-        moneyStr = moneyStr .. string.format("%ds ", silver)
+    if s.silver > 0 or s.gold > 0 or s.platinum > 0 then
+        moneyStr = moneyStr .. string.format("%ds ", s.silver)
     end
-    moneyStr = moneyStr .. string.format("%dc", copper)
+    moneyStr = moneyStr .. string.format("%dc", s.copper)
     ImGui.Text(moneyStr)
 
     -- AA Scripts (Lost/Planar)
     ImGui.Separator()
-    ImGui.TextColored(ImVec4(0.85, 0.85, 0.7, 1), "Scripts:")
+    ImGui.TextColored(tv(C.SectionHead), "Scripts:")
     ImGui.SameLine()
     if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/scripttracker show') end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
@@ -319,9 +339,9 @@ function M.render()
     ImGui.SetWindowFontScale(0.85)
     ImGui.Text("")
     ImGui.SameLine(48)
-    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "Cnt")
+    ImGui.TextColored(tv(C.Muted), "Cnt")
     ImGui.SameLine(78)
-    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "AA")
+    ImGui.TextColored(tv(C.Muted), "AA")
     for _, row in ipairs(scriptData.rows) do
         ImGui.Text(row.label .. ":")
         ImGui.SameLine(48)
@@ -329,7 +349,7 @@ function M.render()
         ImGui.SameLine(78)
         ImGui.Text(tostring(row.aa))
     end
-    ImGui.TextColored(ImVec4(0.9, 0.85, 0.4, 1), "Total: " .. tostring(scriptData.totalAA) .. " AA")
+    ImGui.TextColored(tv(C.Highlight), "Total: " .. tostring(scriptData.totalAA) .. " AA")
     ImGui.SetWindowFontScale(0.95)
 
     ImGui.SetWindowFontScale(1.0)

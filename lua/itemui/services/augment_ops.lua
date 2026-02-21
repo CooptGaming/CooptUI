@@ -6,12 +6,13 @@
 
 local mq = require('mq')
 local itemHelpers = require('itemui.utils.item_helpers')
+local constants = require('itemui.constants')
 
 local M = {}
 local deps  -- set by init()
 
-local INSERT_DELAY_MS = 250
-local REMOVE_OPEN_DELAY_MS = 400
+local INSERT_DELAY_MS = constants.TIMING.AUGMENT_INSERT_DELAY_MS
+local REMOVE_OPEN_DELAY_MS = constants.TIMING.AUGMENT_REMOVE_OPEN_DELAY_MS
 local REMOVE_AFTER_RIGHTCLICK_MS = 150
 -- Control name for "Remove" / "Extract" in the context menu after right-clicking socket. Discover via Window Inspector.
 local REMOVE_MENU_CONTROL = nil  -- e.g. "IDW_RemoveAugmentButton" or popup window name + control

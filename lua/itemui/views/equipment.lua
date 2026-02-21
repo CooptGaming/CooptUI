@@ -7,6 +7,7 @@
 local mq = require('mq')
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local constants = require('itemui.constants')
 
 local EquipmentView = {}
 
@@ -180,7 +181,7 @@ function EquipmentView.render(ctx)
                             local opts = { source = "equipped", bag = 0, slot = slotIndex }
                             local ok, effects, tw, th = pcall(ItemTooltip.prepareTooltipContent, showItem, ctx, opts)
                             if ok and effects then opts.effects = effects end
-                            ItemTooltip.beginItemTooltip(tw or 400, th or 300)
+                            ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH, th or constants.UI.TOOLTIP_MIN_HEIGHT)
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
@@ -219,7 +220,7 @@ function EquipmentView.render(ctx)
                             end
                             if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
                             -- Deferred refresh so icon updates after game applies swap (same-frame refresh may still see old state)
-                            ctx.uiState.equipmentDeferredRefreshAt = mq.gettime() + 120
+                            ctx.uiState.equipmentDeferredRefreshAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
                         end
                     end
                 end
