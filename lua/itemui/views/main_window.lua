@@ -381,12 +381,12 @@ function M.render(refs)
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
         ImGui.SameLine()
-        if ImGui.Button("Filter", ImVec2(55, 0)) then
+        if ImGui.Button("Reroll Mgr", ImVec2(80, 0)) then
             uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
             uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
+            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Reroll Manager opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Manager (augment and mythical 10-for-1 exchange, protect items)"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
         if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
