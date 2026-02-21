@@ -649,7 +649,8 @@ function M.getAugTypeFromTLO(it)
     return tonumber(v) or 0
 end
 
---- Get AugRestrictions from item TLO (for augmentation items). Returns int: 0=none, 1=Armor Only, 2=Weapons Only, etc.
+--- Get AugRestrictions from item TLO (for augmentation items). Returns int: 0=none, 1-15=single restriction (live EQ).
+--- If callers see values >15 or default Item Display shows multiple restriction lines for one item, decode as bitmask (bits 1-15 → restriction names, OR in augmentRestrictionAllowsParent).
 function M.getAugRestrictionsFromTLO(it)
     if not it or not it.AugRestrictions then return 0 end
     local ok, v = pcall(function() return it.AugRestrictions() end)
@@ -714,7 +715,9 @@ function M.getStatKeysForRanking()
 end
 
 --- True if the augment's AugRestrictions allow the parent item. Restriction 0 = none; 1 = Armor Only;
---- 2 = Weapons Only; 3-15 = specific weapon/shield types. Uses parent TLO Type/Damage/ItemDelay for consistency with tooltip.
+--- 2 = Weapons Only; 3 = One-Handed Weapons Only; 4 = 2H Weapons Only; 5-12 = specific weapon types;
+--- 13 = Shields Only; 14 = 1H Slash/1H Blunt/H2H; 15 = 1H Blunt/H2H. IDs match AUG_RESTRICTION_NAMES in item_tooltip.
+--- If AugRestrictions is ever a bitmask, allow parent when any set bit allows it (OR logic).
 function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
     if not augRestrictionId or augRestrictionId == 0 then return true end
     if not parentIt then return false end
@@ -725,22 +728,22 @@ function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
     if augRestrictionId == 2 then return isWeapon end
     -- 13 = Shields Only
     if augRestrictionId == 13 then return isShield end
-    -- 3-12, 14-15: weapon subtype; parent must be weapon and type string match
+    -- 3-12, 14-15: weapon subtype; parent must be weapon and type string match (IDs match live EQ)
     if augRestrictionId >= 3 and augRestrictionId <= 15 then
         if not isWeapon then return false end
         if not typeLower or typeLower == "" then return false end
-        if augRestrictionId == 3 then return typeLower:find("1h", 1, true) and typeLower:find("slashing", 1, true) end
-        if augRestrictionId == 4 then return typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true) end
-        if augRestrictionId == 5 then return typeLower:find("piercing", 1, true) end
-        if augRestrictionId == 6 then return typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
-        if augRestrictionId == 7 then return typeLower:find("2h", 1, true) and typeLower:find("slashing", 1, true) end
-        if augRestrictionId == 8 then return typeLower:find("2h", 1, true) and typeLower:find("blunt", 1, true) end
-        if augRestrictionId == 9 then return typeLower:find("2h", 1, true) and typeLower:find("piercing", 1, true) end
-        if augRestrictionId == 10 then return typeLower:find("ranged", 1, true) end
-        if augRestrictionId == 11 then return typeLower:find("2h", 1, true) and typeLower:find("hand to hand", 1, true) end
-        if augRestrictionId == 12 then return typeLower:find("archery", 1, true) end
-        if augRestrictionId == 14 then return typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("blunt", 1, true)) end
-        if augRestrictionId == 15 then return typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("piercing", 1, true)) end
+        if augRestrictionId == 3 then return typeLower:find("1h", 1, true) end  -- One-Handed Weapons Only (any 1H)
+        if augRestrictionId == 4 then return typeLower:find("2h", 1, true) end  -- 2H Weapons Only (any 2H)
+        if augRestrictionId == 5 then return typeLower:find("1h", 1, true) and typeLower:find("slashing", 1, true) end
+        if augRestrictionId == 6 then return typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true) end
+        if augRestrictionId == 7 then return typeLower:find("piercing", 1, true) end
+        if augRestrictionId == 8 then return typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
+        if augRestrictionId == 9 then return typeLower:find("2h", 1, true) and typeLower:find("slashing", 1, true) end
+        if augRestrictionId == 10 then return typeLower:find("2h", 1, true) and typeLower:find("blunt", 1, true) end
+        if augRestrictionId == 11 then return typeLower:find("2h", 1, true) and typeLower:find("piercing", 1, true) end
+        if augRestrictionId == 12 then return typeLower:find("ranged", 1, true) end
+        if augRestrictionId == 14 then return (typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("blunt", 1, true))) or typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
+        if augRestrictionId == 15 then return (typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true)) or typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
         return true
     end
     return true

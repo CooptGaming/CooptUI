@@ -142,11 +142,12 @@ local AUG_TYPE_NAMES = {
 }
 
 -- Augment restriction ID to display text (0 = no restriction, omit).
+-- IDs match live EQ / default Item Display. If value is ever a bitmask, decode via bit and join names (see comment near "Restriction " fallback).
 local AUG_RESTRICTION_NAMES = {
-    [1] = "Armor Only", [2] = "Weapons Only", [3] = "1H Slashing", [4] = "1H Blunt", [5] = "Piercing",
-    [6] = "Hand to Hand", [7] = "2H Slashing", [8] = "2H Blunt", [9] = "2H Piercing", [10] = "Ranged",
-    [11] = "2H Hand to Hand", [12] = "Archery", [13] = "Shields Only", [14] = "1H Slashing/1H Blunt",
-    [15] = "1H Slashing/Piercing",
+    [1] = "Armor Only", [2] = "Weapons Only", [3] = "One-Handed Weapons Only", [4] = "2H Weapons Only",
+    [5] = "1H Slashing", [6] = "1H Blunt", [7] = "Piercing", [8] = "Hand to Hand",
+    [9] = "2H Slashing", [10] = "2H Blunt", [11] = "2H Piercing", [12] = "Ranged",
+    [13] = "Shields Only", [14] = "1H Slashing, 1H Blunt, or Hand to Hand", [15] = "1H Blunt or Hand to Hand",
 }
 
 -- Slot layout: 1-4 = augment slots, 5 = ornament (type 20). All 1-based per ITEM_INDEX_BASE.
@@ -943,6 +944,9 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                 ImGui.Spacing()
             end
         end
+        -- AugRestrictions: single ID 1-15 (live EQ). If you see "Restriction N" for N>15 or N not in 1-15,
+        -- or the default Item Display shows multiple restriction lines for one augment, add a bitmask decoder:
+        -- loop bits 1..15, collect AUG_RESTRICTION_NAMES[i] for each set bit, then join with ", ".
         local ar = item.augRestrictions
         if ar and ar > 0 then
             local restrText = AUG_RESTRICTION_NAMES[ar] or ("Restriction " .. tostring(ar))
