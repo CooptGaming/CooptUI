@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "files": [
+    { "path": "lua/itemui/init.lua", "hash": "" },
+    { "path": "Macros/sell.mac", "hash": "" },
+    { "path": "Macros/loot.mac", "hash": "" },
+    { "path": "lua/mq/ItemUtils.lua", "hash": "" },
+    { "path": "release_manifest.json", "hash": "" }
+  ]
+}
