@@ -445,6 +445,11 @@ function M.scanLootItems()
     if not corpse or not itemsCount or (type(itemsCount) ~= "number") or itemsCount <= 0 then return end
     env.perfCache.lootConfigCache = env.perfCache.lootConfigCache or env.rules.loadLootConfigCache()
     local lootCache = env.perfCache.lootConfigCache
+    -- Reroll List protection: merge aug/mythical list IDs and names so shouldItemBeLooted can skip them.
+    if lootCache and env.getRerollListProtection then
+        local r = env.getRerollListProtection()
+        if r then lootCache.rerollListIdSet = r.idSet; lootCache.rerollListNameSet = r.nameSet end
+    end
     for i = 1, itemsCount do
         local it = corpse.Item and corpse.Item(i)
         local itId = it and it.ID and it.ID()
@@ -480,7 +485,7 @@ function M.scanLootItems()
             end
             local nodrop = false
             if it.NoDrop then nodrop = (type(it.NoDrop) == "function" and it.NoDrop()) or (it.NoDrop == true) end
-            local itemData = { slot = i, name = name, type = itemType, value = value, totalValue = value * stackSize,
+            local itemData = { slot = i, id = itId, name = name, type = itemType, value = value, totalValue = value * stackSize,
                 stackSize = stackSize, tribute = tribute, lore = lore, quest = quest, collectible = collectible,
                 heirloom = heirloom, attuneable = attuneable, augSlots = augSlots, clicky = clicky, wornSlots = wornSlots, nodrop = nodrop }
             local shouldLoot, reason = env.rules.shouldItemBeLooted(itemData, lootCache)

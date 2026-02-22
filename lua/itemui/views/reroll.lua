@@ -75,6 +75,9 @@ local function renderTabContent(ctx, track, rerollService)
     local addLabel = "Add (from Cursor)##" .. track
     if ImGui.Button(addLabel, ImVec2(120, 0)) then
         if isAug then rerollService.addAugFromCursor() else rerollService.addMythicalFromCursor() end
+        if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
+        if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
+        if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
@@ -132,6 +135,9 @@ local function renderTabContent(ctx, track, rerollService)
             if isAug then rerollService.removeAug(pendingRemoveId) else rerollService.removeMythical(pendingRemoveId) end
             ctx.uiState[pendingRemoveKey] = nil
             ctx.uiState[selectedKey] = nil
+            if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
+            if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
+            if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
         end
         ImGui.SameLine()
         if ImGui.Button("Cancel##Remove" .. track, ImVec2(60, 0)) then
@@ -146,7 +152,13 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.SameLine()
         theme.PushKeepButton(false)
         if ImGui.Button("Confirm Roll##" .. track, ImVec2(100, 0)) then
-            if isAug then rerollService.augRoll() else rerollService.mythicalRoll() end
+            if isAug then
+                rerollService.augRoll()
+                ctx.uiState.pendingAugRollComplete = true
+                ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
+            else
+                rerollService.mythicalRoll()
+            end
             ctx.uiState[pendingRollKey] = nil
         end
         theme.PopButtonColors()

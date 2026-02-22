@@ -286,6 +286,33 @@ function SellView.render(ctx, simulateSellView)
                             if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
                         end
                     end
+                    -- Reroll list: only for augments or mythicals; show Add or Remove per list
+                    local rerollService = ctx.rerollService
+                    if rerollService then
+                        local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
+                        local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
+                        local isAugment = (itemTypeTrim == "Augmentation")
+                        local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
+                        if nameKey ~= "" and (isAugment or isMythicalEligible) then
+                            ImGui.Separator()
+                            local augList = rerollService.getAugList and rerollService.getAugList() or {}
+                            local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
+                            local itemId = item.id or item.ID
+                            local onAugList, onMythicalList = false, false
+                            if itemId then
+                                for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
+                                for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
+                            end
+                            if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
+                            if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
+                            if isAugment then
+                                if onAugList then if ImGui.MenuItem("Remove from Augment List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end end else if ImGui.MenuItem("Add to Augment List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end end end
+                            end
+                            if isMythicalEligible then
+                                if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end end end
+                            end
+                        end
+                    end
                     ImGui.EndPopup()
                 end
                 -- Column 2: Sell Keep Junk buttons
@@ -342,6 +369,8 @@ function SellView.render(ctx, simulateSellView)
                     statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
                 elseif statusText == "NoDrop" or statusText == "NoTrade" then
                     statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
+                elseif statusText == "RerollList" and ctx.theme.Colors.RerollList then
+                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
                 end
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))

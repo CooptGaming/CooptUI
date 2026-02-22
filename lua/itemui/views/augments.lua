@@ -1,25 +1,17 @@
 --[[
     Augments View - Pop-out window (like Bank)
-    
+
     Shows all items of type "Augmentation" in a compact table for quick review.
-    Uses its own lists that override other sell/loot rules:
-    - Always sell: augment-only list (sell_augment_always_sell_exact.ini); overrides Keep, shared, value rules.
-    - Never loot: augment-only list (loot_augment_skip_exact.ini); overrides Always loot, valuable, etc.
-    Columns: Icon (hover = full stats) | Name | Effects | Value | Always sell | Never loot
+    Filter section: Add to Aug List / Add to Mythical List (reroll companion lists).
+    Columns: Icon (hover = full stats) | Name | Effects | Value | Add to Aug List | Add to Mythical List
 --]]
 
 local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
-local events = require('itemui.core.events')
 
 local AugmentsView = {}
-
--- Cached "Never loot" set (augment skip list); invalidated on CONFIG_LOOT_CHANGED
-local cachedAugmentNeverLootSet = {}
-local augmentNeverLootCacheValid = false
-events.on(events.EVENTS.CONFIG_LOOT_CHANGED, function() augmentNeverLootCacheValid = false end)
 
 local AUGMENT_TYPE = "Augmentation"
 local AUGMENTS_WINDOW_WIDTH = 560
@@ -138,18 +130,7 @@ function AugmentsView.render(ctx)
         return
     end
 
-    -- Use cached "Never loot" set; rebuild when invalidated by CONFIG_LOOT_CHANGED.
-    if not augmentNeverLootCacheValid then
-        cachedAugmentNeverLootSet = {}
-        if ctx.configLootLists and ctx.configLootLists.augmentSkipExact then
-            for _, name in ipairs(ctx.configLootLists.augmentSkipExact) do
-                if name and name ~= "" then cachedAugmentNeverLootSet[name] = true end
-            end
-        end
-        augmentNeverLootCacheValid = true
-    end
-
-    -- Compact table: Icon (stats on hover) | Name | Effects | Value | Always sell | Never loot (Name, Effects, Value sortable)
+    -- Compact table: Icon (stats on hover) | Name | Effects | Value | Add to Aug List | Add to Mythical List (Name, Effects, Value sortable)
     local nCols = 6
     local tableFlagsAug = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("ItemUI_Augments", nCols, tableFlagsAug) then
@@ -157,8 +138,8 @@ function AugmentsView.render(ctx)
         ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
         ImGui.TableSetupColumn("Effects", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
         ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 3)
-        ImGui.TableSetupColumn("Always sell", ImGuiTableColumnFlags.WidthFixed, 72, 4)
-        ImGui.TableSetupColumn("Never loot", ImGuiTableColumnFlags.WidthFixed, 72, 5)
+        ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
+        ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
         ImGui.TableSetupScrollFreeze(1, 1)
         ImGui.TableHeadersRow()
 
@@ -204,8 +185,26 @@ function AugmentsView.render(ctx)
                 ImGui.PushID(rid)
 
                 local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
-                local actualInAugmentAlwaysSell = ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(nameKey) or false
-                local actualInAugmentNeverLoot = cachedAugmentNeverLootSet[nameKey] == true
+                local itemId = item.id or item.ID
+                local rerollService = ctx.rerollService
+                local augList = rerollService and rerollService.getAugList and rerollService.getAugList() or {}
+                local mythicalList = rerollService and rerollService.getMythicalList and rerollService.getMythicalList() or {}
+                local onAugList = false
+                local onMythicalList = false
+                if itemId then
+                    for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
+                    for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
+                end
+                if not onAugList then
+                    for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end
+                end
+                if not onMythicalList then
+                    for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end
+                end
+                -- Mythical list only applies to items whose name starts with "Mythical" (augments view shows augments; mythicals can appear if user has them)
+                local itemNameTrim = (item.name or ""):match("^%s*(.-)%s*$")
+                local mythicalPrefix = "Mythical"
+                local isMythicalEligible = itemNameTrim:sub(1, #mythicalPrefix) == mythicalPrefix
 
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()
@@ -238,6 +237,32 @@ function AugmentsView.render(ctx)
                             if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
                         end
                     end
+                    -- Reroll list: contextual — augment shows Add/Remove Augment List; mythical-eligible shows Add/Remove Mythical List (augments view = all rows are augments)
+                    if rerollService and nameKey ~= "" then
+                        ImGui.Separator()
+                        -- Augment: one of Add or Remove
+                        if onAugList then
+                            if ImGui.MenuItem("Remove from Augment List") then
+                                if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
+                            end
+                        else
+                            if ImGui.MenuItem("Add to Augment List") then
+                                if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
+                            end
+                        end
+                        -- Mythical-eligible: one of Add or Remove
+                        if isMythicalEligible then
+                            if onMythicalList then
+                                if ImGui.MenuItem("Remove from Mythical List") then
+                                    if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
+                                end
+                            else
+                                if ImGui.MenuItem("Add to Mythical List") then
+                                    if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end
+                                end
+                            end
+                        end
+                    end
                     ImGui.EndPopup()
                 end
 
@@ -266,38 +291,44 @@ function AugmentsView.render(ctx)
                 ImGui.TableNextColumn()
                 ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
 
-                -- Column: Always sell (augment-only list; overrides other sell rules)
+                -- Column: Add to Aug List (reroll companion list; augments only)
                 ImGui.TableNextColumn()
-                if actualInAugmentAlwaysSell then
-                    ctx.theme.PushKeepButton(false)  -- highlighted = in list
+                local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
+                if augDisabled then
+                    ctx.theme.PushKeepButton(true)
                 else
-                    ctx.theme.PushSkipButton()
+                    ctx.theme.PushKeepButton(false)
                 end
-                if ImGui.Button("Always sell##" .. rid, ImVec2(70, 0)) then
-                    if actualInAugmentAlwaysSell then
-                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentAlwaysSellList(nameKey) end
-                    else
-                        if ctx.augmentLists then ctx.augmentLists.addToAugmentAlwaysSellList(nameKey) end
+                if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
+                    if not onAugList and ctx.requestAddToRerollList then
+                        ctx.requestAddToRerollList("aug", item)
                     end
                 end
-                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Augment Always sell list (overrides Keep/sell rules)"); ImGui.EndTooltip() end
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
+                    ImGui.EndTooltip()
+                end
                 ctx.theme.PopButtonColors()
 
-                -- Column: Never loot (augment-only list; overrides other loot rules)
+                -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
                 ImGui.TableNextColumn()
-                if actualInAugmentNeverLoot then
-                    ctx.theme.PushKeepButton(false)  -- highlighted = in list
+                local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
+                if mythicalDisabled then
+                    ctx.theme.PushKeepButton(true)
                 else
-                    ctx.theme.PushSkipButton()
+                    ctx.theme.PushKeepButton(false)
                 end
-                if ImGui.Button("Never loot##" .. rid, ImVec2(70, 0)) then
-                    if actualInAugmentNeverLoot then
-                        if ctx.augmentLists then ctx.augmentLists.removeFromAugmentNeverLootList(nameKey) end
-                    else
-                        if ctx.augmentLists then ctx.augmentLists.addToAugmentNeverLootList(nameKey) end
+                if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
+                    if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
+                        ctx.requestAddToRerollList("mythical", item)
                     end
                 end
-                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add/remove from Augment Never loot list (overrides other loot rules)"); ImGui.EndTooltip() end
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
+                    ImGui.EndTooltip()
+                end
                 ctx.theme.PopButtonColors()
 
                 ImGui.PopID()

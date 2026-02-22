@@ -480,7 +480,7 @@ local function getMostRecentlyOpenedCompanion()
 end
 
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
-sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C })
+sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C, getRerollListProtection = function() return rerollService.getRerollListProtection() end })
 local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
 
 -- ============================================================================
@@ -582,6 +582,7 @@ do
         attachGranularFlags = function(item, storedByName) sellStatusService.attachGranularFlags(item, storedByName) end,
         rules = rules,
         getStoredInvByName = function() return sellStatusService.refreshStoredInvByName() end,
+        getRerollListProtection = function() return rerollService.getRerollListProtection() end,
     }
     scanService.init(scanEnv)
 end
@@ -619,7 +620,15 @@ itemOps.init({
     scanInventory = function() scanService.scanInventory() end,
     maybeScanInventory = maybeScanInventory,
 })
-rerollService.init({ setStatusMessage = setStatusMessage })
+rerollService.init({
+    setStatusMessage = setStatusMessage,
+    getRerollListStoragePath = function()
+        local me = mq.TLO and mq.TLO.Me
+        local name = me and me.Name and me.Name()
+        if not name or name == "" then return nil end
+        return config.getCharStoragePath(name, "reroll_lists.lua")
+    end,
+})
 augmentOps.init({
     setStatusMessage = setStatusMessage,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
@@ -644,6 +653,42 @@ local function applySellListChange(itemName, inKeep, inJunk)
     if inJunk then addToJunkList(itemName) else removeFromJunkList(itemName) end
     itemOps.updateSellStatusForItemName(itemName, inKeep, inJunk)
     if storage and inventoryItems then storage.saveInventory(inventoryItems) end
+end
+
+-- Reroll list add: if cursor occupied we abort with clear message (CoOpt UI pattern: don't move user's item without consent).
+-- Otherwise pickup -> send !augadd/!mythicaladd -> main_loop waits for ack or timeout -> put back; status feedback during flow.
+-- Guard: only one add-in-progress at a time (avoid double-click / concurrent pickup).
+local function requestAddToRerollList(list, item)
+    if not item or (list ~= "aug" and list ~= "mythical") then return end
+    if uiState.pendingRerollAdd then
+        setStatusMessage("Add already in progress.")
+        return
+    end
+    if hasItemOnCursor() then
+        setStatusMessage("Clear cursor first.")
+        return
+    end
+    local source = item.source or "inv"
+    uiState.pendingRerollAdd = {
+        list = list,
+        bag = item.bag,
+        slot = item.slot,
+        source = source,
+        itemId = item.id or item.ID,
+        itemName = item.name or "",
+        step = "pickup",
+    }
+    itemOps.pickupFromSlot(item.bag, item.slot, source)
+    setStatusMessage("Adding to list...")
+end
+
+-- Reroll list remove: no pickup needed; send !augremove/!mythicalremove and update cache; invalidate sell/loot caches.
+local function removeFromRerollList(list, id)
+    if not id or (list ~= "aug" and list ~= "mythical") then return end
+    if list == "aug" then rerollService.removeAug(id) else rerollService.removeMythical(id) end
+    sellStatusService.invalidateSellConfigCache()
+    sellStatusService.invalidateLootConfigCache()
+    if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
 end
 
 -- ============================================================================
@@ -850,6 +895,8 @@ context_builder.init({
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
     augmentLists = augmentListAPI,
+    requestAddToRerollList = requestAddToRerollList,
+    removeFromRerollList = removeFromRerollList,
     addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
     isInLootSkipList = isInLootSkipList,
     -- Sort/columns (Phase 3: shared sort+cache helper)
@@ -1132,6 +1179,10 @@ local function buildMainLoopDeps()
         scanSellItems = scanSellItems,
         refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
         saveLayoutToFileImmediate = saveLayoutToFileImmediate,
+        removeItemFromCursor = removeItemFromCursor,
+        invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
+        invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
+        rerollService = rerollService,
     }
 end
 

@@ -699,6 +699,74 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     setLastLootWindowState(lootOpenNow)
 end
 
+-- Phase 8b: Pending reroll add (pickup -> send !augadd/!mythicaladd -> wait for ack or timeout -> put back)
+-- Optimistic: add to cache as soon as we send; on timeout roll back cache and notify.
+local REROLL_ADD_ACK_TIMEOUT_MS = 3000
+local function phase8b_pendingRerollAdd(now)
+    local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems =
+        d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems
+    local pending = uiState.pendingRerollAdd
+    if not pending or not rerollService then return end
+    local lp = d.uiState.lastPickup
+    local function finish(success)
+        rerollService.clearPendingAddAck()
+        if removeItemFromCursor then removeItemFromCursor() end
+        uiState.pendingRerollAdd = nil
+        if invalidateSellConfigCache then invalidateSellConfigCache() end
+        if invalidateLootConfigCache then invalidateLootConfigCache() end
+        if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+        if setStatusMessage then setStatusMessage(success and "Added to list." or "Add failed or timed out; list reverted.") end
+    end
+    if pending.step == "pickup" then
+        if hasItemOnCursor() and lp and lp.bag == pending.bag and lp.slot == pending.slot and lp.source == pending.source then
+            -- Optimistic: update cache immediately so UI shows new state without waiting for server
+            rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+            local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
+            mq.cmd("/say " .. cmd)
+            pending.step = "sent"
+            pending.sentAt = now
+            rerollService.setPendingAddAck(pending.itemId, function() finish(true) end)
+        end
+        return
+    end
+    if pending.step == "sent" then
+        if pending.sentAt and (now - pending.sentAt) > REROLL_ADD_ACK_TIMEOUT_MS then
+            if rerollService.removeEntryFromCache then rerollService.removeEntryFromCache(pending.list, pending.itemId) end
+            finish(false)
+        end
+    end
+end
+
+-- Phase 8c: After augment roll confirm — poll for item on cursor, print name/link, autoinv, then refresh inventory.
+local AUG_ROLL_COMPLETE_TIMEOUT_MS = 15000
+local function phase8c_pendingAugRollComplete(now)
+    local uiState, hasItemOnCursor = d.uiState, d.hasItemOnCursor
+    if not uiState.pendingAugRollComplete then return end
+    if uiState.pendingAugRollCompleteAt and (now - uiState.pendingAugRollCompleteAt) > AUG_ROLL_COMPLETE_TIMEOUT_MS then
+        uiState.pendingAugRollComplete = nil
+        uiState.pendingAugRollCompleteAt = nil
+        return
+    end
+    if not hasItemOnCursor() then return end
+    local cur = mq.TLO and mq.TLO.Cursor
+    local name = (cur and cur.Name and cur.Name()) or ""
+    if name and name ~= "" then
+        print("\ag[ItemUI]\ax Augment roll result: " .. name)
+        local link = (cur and cur.Link and cur.Link()) or (cur and cur.ItemLink and cur.ItemLink()) or nil
+        if link and link ~= "" then
+            mq.cmdf("/guild %s", link)
+        else
+            mq.cmdf("/guild %s", name)
+        end
+    end
+    uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
+    mq.cmd("/autoinv")
+    local delayMs = (constants.TIMING and constants.TIMING.DEFERRED_SCAN_DELAY_MS) or 120
+    uiState.deferredInventoryScanAt = now + delayMs
+    uiState.pendingAugRollComplete = nil
+    uiState.pendingAugRollCompleteAt = nil
+end
+
 -- Phase 9: Debounced layout save, cache cleanup
 local function phase9_layoutSaveCacheCleanup(now)
     local perfCache, saveLayoutToFileImmediate, Cache = d.perfCache, d.saveLayoutToFileImmediate, d.Cache
@@ -734,6 +802,8 @@ function M.tick(now)
     phase6_deferredHistorySaves(now)
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
+    phase8b_pendingRerollAdd(now)
+    phase8c_pendingAugRollComplete(now)
     phase9_layoutSaveCacheCleanup(now)
     phase10_loopDelay()
 end

@@ -31,6 +31,7 @@ local Colors = {
     Header      = { 0.4, 0.75, 1.0, 1 },
     HeaderAlt   = { 0.65, 0.7, 0.75, 1 },
     Info        = { 0.5, 0.7, 0.9, 1 },
+    RerollList  = { 0.35, 0.6, 0.95, 1 },  -- blue for Reroll List status in Inventory/Sell/Bank
     EpicQuest   = { 0.7, 0.5, 0.9, 1 },
     Keep = {
         Normal = { 0.2, 0.55, 0.25, 1 },
