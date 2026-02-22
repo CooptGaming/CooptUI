@@ -24,7 +24,7 @@ def resource_path(relative_path: str) -> str:
 
 
 # Repo config: raw base URL (no trailing slash) and manifest path in repo
-REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/master"
+REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/feature/Updatetool"
 MANIFEST_PATH = "release_manifest.json"
 
 WIDTH = 400
