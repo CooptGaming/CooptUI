@@ -68,6 +68,7 @@ local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
+local rerollService = require('itemui.services.reroll_service')
 local MainWindow = require('itemui.views.main_window')
 
 -- Phase 7: Utility modules
@@ -145,6 +146,7 @@ local uiState = {
     searchFilterAugmentUtility = "",     -- filter compatible augments list by name
     augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
     aaWindowOpen = false, aaWindowShouldDraw = false,
+    rerollWindowOpen = false, rerollWindowShouldDraw = false,
     companionWindowOpenedAt = {},  -- LIFO Esc: name -> mq.gettime() when opened
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -215,6 +217,10 @@ do
     layoutDefaults.AAWindowX = 0
     layoutDefaults.AAWindowY = 0
     layoutDefaults.ShowAAWindow = 1
+    layoutDefaults.WidthRerollPanel = (constants.VIEWS and constants.VIEWS.WidthRerollPanel) or 520
+    layoutDefaults.HeightReroll = (constants.VIEWS and constants.VIEWS.HeightReroll) or 480
+    layoutDefaults.RerollWindowX = 0
+    layoutDefaults.RerollWindowY = 0
     layoutDefaults.AABackupPath = ""
     layoutDefaults.AlignToContext = 1
     layoutDefaults.UILocked = 1
@@ -427,6 +433,9 @@ local function closeCompanionWindow(name)
     elseif name == "aa" then
         uiState.aaWindowOpen = false
         uiState.aaWindowShouldDraw = false
+    elseif name == "reroll" then
+        uiState.rerollWindowOpen = false
+        uiState.rerollWindowShouldDraw = false
     elseif name == "loot" then
         uiState.lootUIOpen = false
         uiState.lootRunLootedList = {}
@@ -456,6 +465,7 @@ local function getMostRecentlyOpenedCompanion()
         { "augmentUtility", uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw },
         { "itemDisplay", uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw },
         { "aa", uiState.aaWindowOpen and uiState.aaWindowShouldDraw },
+        { "reroll", uiState.rerollWindowOpen and uiState.rerollWindowShouldDraw },
         { "loot", uiState.lootUIOpen },
     }
     local bestName, bestT = nil, -1
@@ -609,6 +619,7 @@ itemOps.init({
     scanInventory = function() scanService.scanInventory() end,
     maybeScanInventory = maybeScanInventory,
 })
+rerollService.init({ setStatusMessage = setStatusMessage })
 augmentOps.init({
     setStatusMessage = setStatusMessage,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
@@ -902,6 +913,7 @@ context_builder.init({
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
     drawItemIcon = function(id, size) icons.drawItemIcon(id, size) end,
     drawEmptySlotIcon = function() icons.drawEmptySlotIcon() end,
+    rerollService = rerollService,
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
@@ -1019,6 +1031,13 @@ local function handleCommand(...)
         shouldDraw = true
         isOpen = true
         print("\ag[ItemUI]\ax Config window opened.")
+    elseif cmd == "reroll" then
+        uiState.rerollWindowOpen = true
+        uiState.rerollWindowShouldDraw = true
+        recordCompanionWindowOpened("reroll")
+        shouldDraw = true
+        isOpen = true
+        print("\ag[ItemUI]\ax Reroll Companion opened.")
     elseif cmd == "exit" or cmd == "quit" or cmd == "unload" then
         storage.ensureCharFolderExists()
         if #sellItems > 0 then
@@ -1038,9 +1057,10 @@ local function handleCommand(...)
         uiState.configWindowOpen = false
         print("\ag[ItemUI]\ax Unloading...")
     elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|exit|help]")
+        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|reroll|exit|help]")
         print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
-        print("  Config = open ItemUI & Loot settings (or click Config in the header)")
+        print("  config = open ItemUI & Loot settings (or click Settings in the header)")
+        print("  reroll = open Reroll Companion (augment and mythical reroll lists)")
         print("  exit  = unload ItemUI completely")
         print("\ag[ItemUI]\ax /dosell = run sell.mac (sell marked items)  |  /doloot = run loot.mac")
     else

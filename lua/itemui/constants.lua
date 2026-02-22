@@ -60,7 +60,6 @@ M.TIMING = {
     LOOT_POLL_MS_IDLE = 1000,
     LOOT_DEFER_MS = 2000,
     LOOT_MYTHICAL_DECISION_SEC = 300,
-    REROLL_RESCAN_DELAY_MS = 2000,   -- Reroll Manager
 
     -- Quantity picker / item ops
     QUANTITY_PICKUP_TIMEOUT_MS = 60000,
@@ -118,7 +117,6 @@ M.UI = {
     ITEM_NAME_TRUNCATE_LEN = 37,
     FAILED_LIST_TRUNCATE_LEN = 60,
     FAILED_LIST_DISPLAY_MAX = 57,
-    REROLL_PROGRESS_BAR_HEIGHT = 20,   -- Reroll Manager
 }
 
 -- ---------------------------------------------------------------------------
@@ -127,7 +125,6 @@ M.UI = {
 M.LIMITS = {
     MAX_BANK_SLOTS = 24,
     MAX_INVENTORY_BAGS = 10,
-    REROLL_REQUIRED_COUNT = 10,   -- Reroll: items needed per exchange
     STATUS_MSG_MAX_LEN = 72,
     LOOT_HISTORY_MAX = 200,
     ITEM_DISPLAY_RECENT_MAX = 10,
@@ -157,6 +154,27 @@ M.VIEWS = {
     WidthAAPanel = 640,
     HeightAA = 520,
     WidthConfig = 520,
+    -- Reroll Companion (Augment / Mythical server reroll lists)
+    WidthRerollPanel = 520,
+    HeightReroll = 480,
+}
+
+-- ---------------------------------------------------------------------------
+-- REROLL — Server reroll system (augments and mythical items)
+-- ---------------------------------------------------------------------------
+M.REROLL = {
+    ITEMS_REQUIRED = 10,
+    COMMAND_AUG_ADD = "!augadd",
+    COMMAND_AUG_REMOVE = "!augremove",
+    COMMAND_AUG_LIST = "!auglist",
+    COMMAND_AUG_ROLL = "!augroll",
+    COMMAND_MYTHICAL_ADD = "!mythicaladd",
+    COMMAND_MYTHICAL_REMOVE = "!mythicalremove",
+    COMMAND_MYTHICAL_LIST = "!mythicallist",
+    COMMAND_MYTHICAL_ROLL = "!mythicalroll",
+    MYTHICAL_NAME_PREFIX = "Mythical",
+    -- Chat list response: assume server sends lines like "12345: Item Name" or "12345 - Item Name"
+    LIST_RESPONSE_PARSE_MS = 3000,
 }
 
 -- Layout INI file and section names (shared with utils/layout.lua)

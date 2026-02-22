@@ -106,6 +106,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
     if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
     if d.AABackupPath ~= nil then layoutDefaults.AABackupPath = (d.AABackupPath and d.AABackupPath ~= "") and d.AABackupPath or "" end
+    if d.WidthRerollPanel then layoutDefaults.WidthRerollPanel = tonumber(d.WidthRerollPanel) or layoutDefaults.WidthRerollPanel end
+    if d.HeightReroll then layoutDefaults.HeightReroll = tonumber(d.HeightReroll) or layoutDefaults.HeightReroll end
+    if d.RerollWindowX then layoutDefaults.RerollWindowX = tonumber(d.RerollWindowX) or layoutDefaults.RerollWindowX end
+    if d.RerollWindowY then layoutDefaults.RerollWindowY = tonumber(d.RerollWindowY) or layoutDefaults.RerollWindowY end
     if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
@@ -302,6 +306,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
+        f:write("WidthRerollPanel=" .. tostring(layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel) .. "\n")
+        f:write("HeightReroll=" .. tostring(layoutConfig.HeightReroll or layoutDefaults.HeightReroll) .. "\n")
+        f:write("RerollWindowX=" .. tostring(layoutConfig.RerollWindowX or layoutDefaults.RerollWindowX or 0) .. "\n")
+        f:write("RerollWindowY=" .. tostring(layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY or 0) .. "\n")
         f:write("WidthConfig=" .. tostring(layoutConfig.WidthConfig or constants.VIEWS.WidthConfig) .. "\n")
         f:write("HeightConfig=" .. tostring(layoutConfig.HeightConfig or 420) .. "\n")
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
@@ -472,6 +480,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.AAWindowY = layoutConfig.AAWindowY or layoutDefaults.AAWindowY
     layoutDefaults.ShowAAWindow = layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow
     layoutDefaults.AABackupPath = layoutConfig.AABackupPath or ""
+    layoutDefaults.WidthRerollPanel = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel
+    layoutDefaults.HeightReroll = layoutConfig.HeightReroll or layoutDefaults.HeightReroll
+    layoutDefaults.RerollWindowX = layoutConfig.RerollWindowX or layoutDefaults.RerollWindowX
+    layoutDefaults.RerollWindowY = layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY
     layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
     layoutDefaults.AlignToMerchant = uiState.alignToMerchant and 1 or 0
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
@@ -543,6 +555,10 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("AAWindowY=" .. layoutDefaults.AAWindowY .. "\n")
             f:write("ShowAAWindow=" .. layoutDefaults.ShowAAWindow .. "\n")
             f:write("AABackupPath=" .. tostring(layoutDefaults.AABackupPath or "") .. "\n")
+            f:write("WidthRerollPanel=" .. tostring(layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520) .. "\n")
+            f:write("HeightReroll=" .. tostring(layoutDefaults.HeightReroll or constants.VIEWS.HeightReroll or 480) .. "\n")
+            f:write("RerollWindowX=" .. tostring(layoutDefaults.RerollWindowX or 0) .. "\n")
+            f:write("RerollWindowY=" .. tostring(layoutDefaults.RerollWindowY or 0) .. "\n")
             f:write("SyncBankWindow=" .. layoutDefaults.SyncBankWindow .. "\n")
             f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
             f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
@@ -608,6 +624,10 @@ function LayoutUtils.resetLayoutToDefault()
     layoutConfig.AAWindowY = layoutDefaults.AAWindowY
     layoutConfig.ShowAAWindow = layoutDefaults.ShowAAWindow
     layoutConfig.AABackupPath = layoutDefaults.AABackupPath or ""
+    layoutConfig.WidthRerollPanel = layoutDefaults.WidthRerollPanel
+    layoutConfig.HeightReroll = layoutDefaults.HeightReroll
+    layoutConfig.RerollWindowX = layoutDefaults.RerollWindowX or 0
+    layoutConfig.RerollWindowY = layoutDefaults.RerollWindowY or 0
     local sortState = LayoutUtils.sortState
     if sortState then
         sortState.aaColumn = "Title"
@@ -683,6 +703,10 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
+        layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
+        layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)
+        layoutConfig.RerollWindowX = LayoutUtils.loadLayoutValue(layout, "RerollWindowX", layoutDefaults.RerollWindowX or 0)
+        layoutConfig.RerollWindowY = LayoutUtils.loadLayoutValue(layout, "RerollWindowY", layoutDefaults.RerollWindowY or 0)
         layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
         layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
@@ -787,6 +811,10 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
+    layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
+    layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)
+    layoutConfig.RerollWindowX = LayoutUtils.loadLayoutValue(layout, "RerollWindowX", layoutDefaults.RerollWindowX or 0)
+    layoutConfig.RerollWindowY = LayoutUtils.loadLayoutValue(layout, "RerollWindowY", layoutDefaults.RerollWindowY or 0)
     layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
     layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
     uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)

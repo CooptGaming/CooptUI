@@ -19,6 +19,7 @@ local AAView = require('itemui.views.aa')
 local LootUIView = require('itemui.views.loot_ui')
 local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
+local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 
 local function buildViewContext()
@@ -80,6 +81,11 @@ local function renderAAWindow(refs)
     ctx.shouldRefreshAA = function() return aa_data.shouldRefresh() end
     ctx.getAALastRefreshTime = function() return aa_data.getLastRefreshTime() end
     AAView.render(ctx)
+end
+
+local function renderRerollWindow(refs)
+    local ctx = extendContext(buildViewContext())
+    RerollView.render(ctx)
 end
 
 local function renderLootWindow(refs)
@@ -348,6 +354,11 @@ function M.render(refs)
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
+            if uiState.rerollWindowShouldDraw and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
+                local rw = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520
+                layoutConfig.RerollWindowX = hubX + hubW + defGap
+                layoutConfig.RerollWindowY = hubY
+            end
             if uiState.lootUIOpen and (layoutConfig.LootWindowX or 0) == 0 and (layoutConfig.LootWindowY or 0) == 0 then
                 layoutConfig.LootWindowX = hubX + hubW + defGap
                 layoutConfig.LootWindowY = hubY
@@ -381,12 +392,19 @@ function M.render(refs)
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
         ImGui.SameLine()
-        if ImGui.Button("Reroll Mgr", ImVec2(80, 0)) then
+        if ImGui.Button("Filter", ImVec2(55, 0)) then
             uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
             uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Reroll Manager opened") end
+            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Manager (augment and mythical 10-for-1 exchange, protect items)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.Button("Reroll", ImVec2(55, 0)) then
+            uiState.rerollWindowOpen = not uiState.rerollWindowOpen
+            uiState.rerollWindowShouldDraw = uiState.rerollWindowOpen
+            if uiState.rerollWindowOpen then refs.recordCompanionWindowOpened("reroll"); setStatusMessage("Reroll Companion opened") end
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Companion (augment and mythical reroll lists)"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
         if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
@@ -679,6 +697,9 @@ function M.render(refs)
         end
         if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
             renderAAWindow(refs)
+        end
+        if uiState.rerollWindowShouldDraw then
+            renderRerollWindow(refs)
         end
     end
 
