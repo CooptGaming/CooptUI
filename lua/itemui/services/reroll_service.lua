@@ -337,22 +337,16 @@ function M.mythicalRoll()
     M.requestMythicalList()
 end
 
---- Count how many of the given list entries are present in inventory (by item id).
+--- Count how many inventory/bank items are on the list (every instance counts).
+--- List has no duplicates; inv/bank can have multiple of the same item — each instance counts toward the total.
 function M.countInInventory(listEntries, inventoryItems)
     if not listEntries or not inventoryItems then return 0 end
+    local listIds = {}
+    for _, e in ipairs(listEntries) do if e.id then listIds[e.id] = true end end
     local count = 0
-    local seen = {}
-    for _, entry in ipairs(listEntries) do
-        local id = entry.id
-        if id and not seen[id] then
-            for _, inv in ipairs(inventoryItems) do
-                if (inv.id or inv.ID) == id then
-                    count = count + 1
-                    seen[id] = true
-                    break
-                end
-            end
-        end
+    for _, inv in ipairs(inventoryItems) do
+        local id = inv.id or inv.ID
+        if id and listIds[id] then count = count + 1 end
     end
     return count
 end
