@@ -375,6 +375,44 @@ function InventoryView.render(ctx, bankOpen)
                                     end
                                 end
                             end
+                            -- Reroll List integration: Add/Remove from Aug List and Mythical List
+                            local rerollService = ctx.rerollService
+                            if rerollService and nameKey ~= "" then
+                                local augList = rerollService.getAugList and rerollService.getAugList() or {}
+                                local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
+                                local itemId = item.id or item.ID
+                                local onAugList, onMythicalList = false, false
+                                if itemId then
+                                    for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
+                                    for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
+                                end
+                                if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
+                                if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
+                                local isMythicalEligible = (item.name or ""):match("^%s*(.-)%s*$"):sub(1, 8) == "Mythical"
+                                ImGui.Separator()
+                                if isAugment then
+                                    if onAugList then
+                                        if ImGui.MenuItem("Remove from Aug List") then
+                                            if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
+                                        end
+                                    else
+                                        if ImGui.MenuItem("Add to Aug List") then
+                                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
+                                        end
+                                    end
+                                end
+                                if isMythicalEligible then
+                                    if onMythicalList then
+                                        if ImGui.MenuItem("Remove from Mythical List") then
+                                            if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
+                                        end
+                                    else
+                                        if ImGui.MenuItem("Add to Mythical List") then
+                                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end
+                                        end
+                                    end
+                                end
+                            end
                             ImGui.Separator()
                             ImGui.Dummy(ImVec2(0, 6))
                             ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors.Error))

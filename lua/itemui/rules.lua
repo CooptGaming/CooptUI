@@ -270,6 +270,10 @@ end
 --- @return boolean willSell, string reason
 local function willItemBeSold(itemData, cache)
     local cfg = cache or {}
+    -- Reroll List protection layer: items on aug or mythical reroll list must never be sold (integrated into sell rules, not a separate bolt-on).
+    if cfg.rerollListIdSet and itemData.id and cfg.rerollListIdSet[itemData.id] then return false, "RerollList" end
+    local nameTrim = (itemData.name or ""):match("^%s*(.-)%s*$")
+    if cfg.rerollListNameSet and nameTrim ~= "" and cfg.rerollListNameSet[nameTrim] then return false, "RerollList" end
     -- Step 0a: Augment overrides (highest priority sell rules)
     local itemType = (itemData.type or ""):match("^%s*(.-)%s*$")
     if itemType == "Augmentation" and cfg.augmentAlwaysSellSet and itemData.name and cfg.augmentAlwaysSellSet[itemData.name] then
@@ -423,6 +427,10 @@ local function shouldItemBeLooted(itemData, cache)
     local itemType = (itemData.type or ""):match("^%s*(.-)%s*$")
     local epicKey = normalizeItemName(name)
 
+    -- Reroll List protection layer: items on aug or mythical reroll list should be respected by loot system (skip).
+    if cache.rerollListIdSet and itemData.id and cache.rerollListIdSet[itemData.id] then return false, "RerollList" end
+    local nameTrim = name:match("^%s*(.-)%s*$")
+    if cache.rerollListNameSet and nameTrim ~= "" and cache.rerollListNameSet[nameTrim] then return false, "RerollList" end
     -- Augment-only list overrides all other loot rules (never loot)
     if itemType == "Augmentation" and cache.augmentSkipExactSet and cache.augmentSkipExactSet[name] then
         return false, "AugmentNeverLoot"

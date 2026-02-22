@@ -699,6 +699,39 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     setLastLootWindowState(lootOpenNow)
 end
 
+-- Phase 8b: Pending reroll add (pickup -> send !augadd/!mythicaladd -> wait for ack or timeout -> put back)
+local REROLL_ADD_ACK_TIMEOUT_MS = 3000
+local function phase8b_pendingRerollAdd(now)
+    local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService =
+        d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService
+    local pending = uiState.pendingRerollAdd
+    if not pending or not rerollService then return end
+    local lp = d.uiState.lastPickup
+    local function finish(success)
+        rerollService.clearPendingAddAck()
+        if removeItemFromCursor then removeItemFromCursor() end
+        uiState.pendingRerollAdd = nil
+        if invalidateSellConfigCache then invalidateSellConfigCache() end
+        if invalidateLootConfigCache then invalidateLootConfigCache() end
+        if setStatusMessage then setStatusMessage(success and "Added to list." or "Added; list will refresh.") end
+    end
+    if pending.step == "pickup" then
+        if hasItemOnCursor() and lp and lp.bag == pending.bag and lp.slot == pending.slot and lp.source == pending.source then
+            local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
+            mq.cmd("/say " .. cmd)
+            pending.step = "sent"
+            pending.sentAt = now
+            rerollService.setPendingAddAck(pending.itemId, function() finish(true) end)
+        end
+        return
+    end
+    if pending.step == "sent" then
+        if pending.sentAt and (now - pending.sentAt) > REROLL_ADD_ACK_TIMEOUT_MS then
+            finish(false)
+        end
+    end
+end
+
 -- Phase 9: Debounced layout save, cache cleanup
 local function phase9_layoutSaveCacheCleanup(now)
     local perfCache, saveLayoutToFileImmediate, Cache = d.perfCache, d.saveLayoutToFileImmediate, d.Cache
@@ -734,6 +767,7 @@ function M.tick(now)
     phase6_deferredHistorySaves(now)
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
+    phase8b_pendingRerollAdd(now)
     phase9_layoutSaveCacheCleanup(now)
     phase10_loopDelay()
 end
