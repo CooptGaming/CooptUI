@@ -11,6 +11,8 @@
 !README.md
 !DEPLOY.md
 !CHANGELOG.md
+!release_manifest.json
+!patcher/
 !epic_quests/
 !scripts/
 !lua/
