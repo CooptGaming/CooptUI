@@ -30,7 +30,13 @@ local function renderTabContent(ctx, track, rerollService)
     local isAug = (track == "aug")
     local list = isAug and rerollService.getAugList() or rerollService.getMythicalList()
     local inventoryItems = ctx.inventoryItems or {}
+    local bankItems = ctx.bankItems or {}
+    local bankCache = ctx.bankCache or {}
+    local bankConnected = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
+    local bankList = bankConnected and bankItems or bankCache
     local countInInv = rerollService.countInInventory(list, inventoryItems)
+    local countInBank = (bankConnected and bankList and #bankList > 0) and rerollService.countInInventory(list, bankList) or 0
+    local combinedCount = countInInv + countInBank
     local theme = ctx.theme
     local setStatusMessage = ctx.setStatusMessage or function() end
 
@@ -41,12 +47,17 @@ local function renderTabContent(ctx, track, rerollService)
     local selectedId = ctx.uiState[selectedKey]
     local pendingRemoveId = ctx.uiState[pendingRemoveKey]
     local pendingRoll = ctx.uiState[pendingRollKey]
+    local pendingBankMoves = ctx.uiState.pendingRerollBankMoves
+    local isMovingFromBank = pendingBankMoves and pendingBankMoves.list == track
 
-    -- Inventory match counter: X / 10, color grey -> yellow -> green
+    -- Inventory (+ bank when connected) match counter: X / 10 or X / 10 (Y in bank), color grey -> yellow -> green
     local counterText = string.format("%d / %d items in inventory", countInInv, ITEMS_REQUIRED)
-    if countInInv >= ITEMS_REQUIRED then
+    if bankConnected and countInBank > 0 then
+        counterText = string.format("%d / %d (%d in bank)", combinedCount, ITEMS_REQUIRED, countInBank)
+    end
+    if combinedCount >= ITEMS_REQUIRED then
         ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
-    elseif countInInv >= (ITEMS_REQUIRED - 2) then
+    elseif combinedCount >= (ITEMS_REQUIRED - 2) then
         ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning))
     else
         ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
@@ -55,7 +66,11 @@ local function renderTabContent(ctx, track, rerollService)
     ImGui.PopStyleColor(1)
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Number of listed items currently in your inventory (need 10 to roll)")
+        if bankConnected and countInBank > 0 then
+            ImGui.Text("Listed items in bags + bank (need 10 total to roll). Roll will move bank items to bags first if needed.")
+        else
+            ImGui.Text("Number of listed items currently in your inventory (need 10 to roll)")
+        end
         ImGui.EndTooltip()
     end
 
@@ -64,7 +79,7 @@ local function renderTabContent(ctx, track, rerollService)
     local cursorOnList = rerollService.isCursorIdInList(list)
     local cursorValid = hasCursor and (isAug or rerollService.isCursorMythical())
     local addDisabled = not hasCursor or cursorOnList or not cursorValid
-    local rollDisabled = countInInv < ITEMS_REQUIRED
+    local rollDisabled = combinedCount < ITEMS_REQUIRED or isMovingFromBank
 
     ImGui.SameLine()
     if addDisabled then
@@ -78,6 +93,7 @@ local function renderTabContent(ctx, track, rerollService)
         if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
         if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
         if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
+        if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
@@ -108,13 +124,13 @@ local function renderTabContent(ctx, track, rerollService)
     else
         theme.PushKeepButton(false)
     end
-    local rollLabel = "Roll##" .. track
+    local rollLabel = isMovingFromBank and ("Moving " .. tostring(pendingBankMoves.nextIndex or 0) .. "/" .. tostring(#(pendingBankMoves.items or {})) .. "##" .. track) or ("Roll##" .. track)
     if ImGui.Button(rollLabel, ImVec2(60, 0)) then
         if not rollDisabled then ctx.uiState[pendingRollKey] = true end
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        if rollDisabled then ImGui.Text("You need 10 listed items in inventory to roll.") else ImGui.Text("Consumes 10 listed items from inventory. Confirm before rolling.") end
+        if isMovingFromBank then ImGui.Text("Moving listed items from bank to bags...") elseif rollDisabled then ImGui.Text("You need 10 listed items (in bags or bank when bank is open) to roll.") else ImGui.Text("Consumes 10 listed items from inventory. Confirm before rolling.") end
         ImGui.EndTooltip()
     end
     theme.PopButtonColors()
@@ -138,6 +154,7 @@ local function renderTabContent(ctx, track, rerollService)
             if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
             if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
             if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
+            if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
         end
         ImGui.SameLine()
         if ImGui.Button("Cancel##Remove" .. track, ImVec2(60, 0)) then
@@ -152,14 +169,46 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.SameLine()
         theme.PushKeepButton(false)
         if ImGui.Button("Confirm Roll##" .. track, ImVec2(100, 0)) then
-            if isAug then
-                rerollService.augRoll()
-                ctx.uiState.pendingAugRollComplete = true
-                ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
+            local needToMove = math.max(0, ITEMS_REQUIRED - countInInv)
+            if needToMove > 0 then
+                -- Pre-flight: need free bag space for bank items we'll move
+                local freeSlots = (ctx.countFreeInvSlots and ctx.countFreeInvSlots()) or 0
+                if freeSlots < needToMove then
+                    setStatusMessage(string.format("Need %d free bag slots to move items from bank; you have %d. Free %d more.", needToMove, freeSlots, needToMove - freeSlots))
+                    -- Keep pendingRoll so they can fix and try again
+                elseif not bankConnected then
+                    setStatusMessage("Bank must be open to use bank items for roll.")
+                else
+                    -- Build list of bank items that are on the reroll list (by id); take exactly needToMove
+                    local listIds = {}
+                    for _, e in ipairs(list) do if e.id then listIds[e.id] = true end end
+                    local bankItemsToMove = {}
+                    for _, bn in ipairs(bankList) do
+                        local id = bn.id or bn.ID
+                        if id and listIds[id] and #bankItemsToMove < needToMove then
+                            bankItemsToMove[#bankItemsToMove + 1] = { bag = bn.bag, slot = bn.slot, id = id, name = bn.name or "" }
+                        end
+                    end
+                    if #bankItemsToMove < needToMove then
+                        setStatusMessage(string.format("Need %d items from bank but only found %d listed in bank.", needToMove, #bankItemsToMove))
+                    else
+                        -- Start bank-to-bag move sequence; main_loop will process one per tick then trigger roll
+                        ctx.uiState.pendingRerollBankMoves = { list = track, items = bankItemsToMove, nextIndex = 1 }
+                        ctx.uiState[pendingRollKey] = nil
+                        setStatusMessage(string.format("Moving %d item(s) from bank...", needToMove))
+                    end
+                end
             else
-                rerollService.mythicalRoll()
+                -- Enough in inventory already; roll immediately
+                if isAug then
+                    rerollService.augRoll()
+                    ctx.uiState.pendingAugRollComplete = true
+                    ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
+                else
+                    rerollService.mythicalRoll()
+                end
+                ctx.uiState[pendingRollKey] = nil
             end
-            ctx.uiState[pendingRollKey] = nil
         end
         theme.PopButtonColors()
         ImGui.SameLine()
@@ -169,7 +218,7 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.Separator()
     end
 
-    -- Server list table: Name, Item ID, Status (On list + In inv / On list only), In Inventory (sortable)
+    -- Server list table: Name, Item ID, Status (On list + In inv / On list, in bank / List only), In Inventory (sortable)
     theme.TextHeader(isAug and "Server reroll list (augments)" or "Server reroll list (mythicals)")
     if #list == 0 then
         theme.TextMuted(isAug and "No augments on list. Add from cursor or refresh." or "No mythicals on list. Add from cursor or refresh.")
@@ -198,9 +247,13 @@ local function renderTabContent(ctx, track, rerollService)
         local sorted = {}
         for i = 1, #list do sorted[i] = list[i] end
         local inInvSet = {}
+        local inBankSet = {}
         for _, entry in ipairs(list) do
             for _, inv in ipairs(inventoryItems) do
                 if (inv.id or inv.ID) == entry.id then inInvSet[entry.id] = true; break end
+            end
+            for _, bn in ipairs(bankList) do
+                if (bn.id or bn.ID) == entry.id then inBankSet[entry.id] = true; break end
             end
         end
         -- Strict comparator for table.sort: never return true when a and b are equal; use id as tie-breaker.
@@ -226,14 +279,17 @@ local function renderTabContent(ctx, track, rerollService)
             return (aid < bid) and sortAsc or (aid > bid) and not sortAsc
         end)
 
-        for _, entry in ipairs(sorted) do
+        for i, entry in ipairs(sorted) do
             ImGui.TableNextRow()
             local inInv = inInvSet[entry.id] == true
-            local rowId = "reroll_" .. track .. "_" .. tostring(entry.id)
+            local inBank = inBankSet[entry.id] == true
+            -- Row ID must include index so duplicate list entries (same item twice) get unique ImGui IDs
+            local rowId = "reroll_" .. track .. "_" .. tostring(i) .. "_" .. tostring(entry.id)
+            local locationOk = inInv or (inBank and bankConnected)
 
             ImGui.TableNextColumn()
             ImGui.PushID(rowId)
-            if inInv then
+            if locationOk then
                 ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
             else
                 ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
@@ -241,15 +297,23 @@ local function renderTabContent(ctx, track, rerollService)
             ImGui.Selectable(entry.name or ("ID " .. tostring(entry.id)), selectedId == entry.id, ImGuiSelectableFlags.None, ImVec2(0, 0))
             ImGui.PopStyleColor(1)
             if ImGui.IsItemHovered() then
-                -- Tooltip: try to show item details from inventory if we have it
+                -- Tooltip: try to show item details from inventory or bank if we have it
                 local invItem = nil
+                local bankItem = nil
                 for _, inv in ipairs(inventoryItems) do
                     if (inv.id or inv.ID) == entry.id then invItem = inv; break end
                 end
-                if invItem and ctx.getItemStatsForTooltip then
-                    local showItem = ctx.getItemStatsForTooltip(invItem, "inv")
+                if not invItem then
+                    for _, bn in ipairs(bankList) do
+                        if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
+                    end
+                end
+                local tipItem = invItem or bankItem
+                local tipSource = invItem and "inv" or "bank"
+                if tipItem and ctx.getItemStatsForTooltip then
+                    local showItem = ctx.getItemStatsForTooltip(tipItem, tipSource)
                     if showItem then
-                        local opts = { source = "inv", bag = invItem.bag, slot = invItem.slot }
+                        local opts = { source = tipSource, bag = tipItem.bag, slot = tipItem.slot }
                         local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                         opts.effects = effects
                         ItemTooltip.beginItemTooltip(w, h)
@@ -262,7 +326,7 @@ local function renderTabContent(ctx, track, rerollService)
                     ImGui.BeginTooltip()
                     ImGui.Text(entry.name or "—")
                     ImGui.Text("ID: " .. tostring(entry.id))
-                    ImGui.Text(inInv and "In inventory" or "Not in inventory")
+                    if inInv then ImGui.Text("In inventory") elseif inBank then ImGui.Text("In bank" .. (bankConnected and " (bank open)" or " (bank not open)")) else ImGui.Text("Not in inventory or bank") end
                     ImGui.EndTooltip()
                 end
             end
@@ -285,8 +349,18 @@ local function renderTabContent(ctx, track, rerollService)
                 ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
                 ImGui.Text("On list, in inv")
                 ImGui.PopStyleColor(1)
+            elseif inBank then
+                if bankConnected then
+                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
+                    ImGui.Text("On list, in bank")
+                    ImGui.PopStyleColor(1)
+                else
+                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
+                    ImGui.Text("On list, in bank")
+                    ImGui.PopStyleColor(1)
+                end
             else
-                theme.TextMuted("On list only")
+                theme.TextMuted("List only")
             end
 
             ImGui.TableNextColumn()
@@ -328,7 +402,8 @@ local function renderTabContent(ctx, track, rerollService)
             ImGui.TableSetupColumn("On list", ImGuiTableColumnFlags.WidthFixed, 70, 2)
             ImGui.TableSetupScrollFreeze(0, 1)
             ImGui.TableHeadersRow()
-            for _, it in ipairs(invFiltered) do
+            for idx, it in ipairs(invFiltered) do
+                ImGui.PushID("RerollInv_" .. track .. "_" .. tostring(idx))
                 local id = it.id or it.ID
                 local onList = id and listIds[id]
                 ImGui.TableNextRow()
@@ -363,6 +438,7 @@ local function renderTabContent(ctx, track, rerollService)
                 else
                     theme.TextMuted("No")
                 end
+                ImGui.PopID()
             end
             ImGui.EndTable()
         end

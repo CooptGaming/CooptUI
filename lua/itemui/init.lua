@@ -689,6 +689,7 @@ local function removeFromRerollList(list, id)
     sellStatusService.invalidateSellConfigCache()
     sellStatusService.invalidateLootConfigCache()
     if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+    if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
 end
 
 -- ============================================================================
@@ -871,6 +872,7 @@ context_builder.init({
     putCursorInBags = function() return itemOps.putCursorInBags() end,
     moveBankToInv = function(b, s) return itemOps.moveBankToInv(b, s) end,
     moveInvToBank = function(b, s) return itemOps.moveInvToBank(b, s) end,
+    countFreeInvSlots = function() return itemOps.countFreeInvSlots() end,
     shouldHideRowForCursor = function(item, source) return itemOps.shouldHideRowForCursor(item, source) end,
     pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end,
     dropAtSlot = function(bag, slot, source) return itemOps.dropAtSlot(bag, slot, source) end,
