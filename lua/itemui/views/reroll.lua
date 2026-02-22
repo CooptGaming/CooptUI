@@ -223,6 +223,15 @@ local function renderTabContent(ctx, track, rerollService)
     if #list == 0 then
         theme.TextMuted(isAug and "No augments on list. Add from cursor or refresh." or "No mythicals on list. Add from cursor or refresh.")
     else
+    -- One row per unique item (server list has no duplicates; dedupe for display in case of duplicate lines)
+    local uniqueList = {}
+    local seenId = {}
+    for _, e in ipairs(list) do
+        if e.id and not seenId[e.id] then
+            seenId[e.id] = true
+            uniqueList[#uniqueList + 1] = e
+        end
+    end
     local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     local nCols = 4
     if ImGui.BeginTable("RerollList_" .. track, nCols, tableFlags) then
@@ -245,10 +254,10 @@ local function renderTabContent(ctx, track, rerollService)
             end
         end
         local sorted = {}
-        for i = 1, #list do sorted[i] = list[i] end
+        for i = 1, #uniqueList do sorted[i] = uniqueList[i] end
         local inInvSet = {}
         local inBankSet = {}
-        for _, entry in ipairs(list) do
+        for _, entry in ipairs(uniqueList) do
             for _, inv in ipairs(inventoryItems) do
                 if (inv.id or inv.ID) == entry.id then inInvSet[entry.id] = true; break end
             end
