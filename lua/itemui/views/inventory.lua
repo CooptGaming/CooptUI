@@ -375,9 +375,10 @@ function InventoryView.render(ctx, bankOpen)
                                     end
                                 end
                             end
-                            -- Reroll List integration: Add/Remove from Aug List and Mythical List
+                            -- Reroll List: only for augments or items whose name starts with Mythical; show Add or Remove per list.
                             local rerollService = ctx.rerollService
-                            if rerollService and nameKey ~= "" then
+                            local isMythicalEligible = ((item.name or ""):match("^%s*(.-)%s*$") or ""):sub(1, 8) == "Mythical"
+                            if rerollService and nameKey ~= "" and (isAugment or isMythicalEligible) then
                                 local augList = rerollService.getAugList and rerollService.getAugList() or {}
                                 local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
                                 local itemId = item.id or item.ID
@@ -388,15 +389,14 @@ function InventoryView.render(ctx, bankOpen)
                                 end
                                 if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
                                 if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                                local isMythicalEligible = (item.name or ""):match("^%s*(.-)%s*$"):sub(1, 8) == "Mythical"
                                 ImGui.Separator()
                                 if isAugment then
                                     if onAugList then
-                                        if ImGui.MenuItem("Remove from Aug List") then
+                                        if ImGui.MenuItem("Remove from Augment List") then
                                             if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
                                         end
                                     else
-                                        if ImGui.MenuItem("Add to Aug List") then
+                                        if ImGui.MenuItem("Add to Augment List") then
                                             if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
                                         end
                                     end
@@ -443,6 +443,8 @@ function InventoryView.render(ctx, bankOpen)
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
                         elseif statusText == "NoDrop" or statusText == "NoTrade" then
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
+                        elseif statusText == "RerollList" and ctx.theme.Colors.RerollList then
+                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
                         end
                         ImGui.TextColored(statusColor, statusText)
                     else

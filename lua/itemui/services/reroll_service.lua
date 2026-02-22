@@ -56,8 +56,11 @@ local function parseListLine(line)
 end
 
 -- Detect header to know which list we're filling (optional; we also use pending* from Refresh).
+-- Only treat as header if line looks like a section title (e.g. "===== Aug List =====").
+-- Do NOT treat "Aug list removed: ..." or "Aug list added: ..." as headers or we clear the list on every add/remove.
 local function detectListHeader(line)
     if not line or type(line) ~= "string" then return nil end
+    if not line:find("=====") then return nil end
     local lower = line:lower()
     if lower:find("aug") and lower:find("list") then return "aug" end
     if lower:find("mythical") and lower:find("list") then return "mythical" end
@@ -109,6 +112,26 @@ local function loadFromFile()
     end
 end
 
+-- Parse "Aug list added: ... (id 75084)." or "Mythical list added: ... (id 413257)." → id or nil.
+local function parseAddConfirmationLine(line)
+    if not line or type(line) ~= "string" then return nil end
+    local idStr = line:match("%(id%s+(%d+)%)")
+    if not idStr or idStr == "" then return nil end
+    return tonumber(idStr)
+end
+
+-- Chat callback: server confirms add with "Aug list added: Name (id N)." / "Mythical list added: Name (id N)."
+-- Fire ack immediately so we can put the item back without waiting for a full list line.
+local function onRerollAddConfirmation(line)
+    local id = parseAddConfirmationLine(line)
+    if not id then return end
+    if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
+        pendingAddAckCallback()
+        pendingAddAckId = nil
+        pendingAddAckCallback = nil
+    end
+end
+
 -- Chat event callback: when server echoes a list line or header, parse and add to the appropriate list.
 -- Large-list handling: append line-by-line (no single huge string); cap at MAX_LIST_ENTRIES per list.
 local function onRerollListLine(line)
@@ -131,10 +154,12 @@ local function onRerollListLine(line)
     local id, name = parseListLine(line)
     if not id then return end
     -- If we're waiting for this id as add-ack (pickup→add→put-back flow), notify and clear.
+    -- Skip inserting this entry: we already added it optimistically when sending the command.
     if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
         pendingAddAckCallback()
         pendingAddAckId = nil
         pendingAddAckCallback = nil
+        return
     end
     local entry = { id = id, name = name }
     if pendingAugListAt and (now - pendingAugListAt) < LIST_PARSE_MS then
@@ -163,6 +188,9 @@ function M.init(deps)
     mq.event("ItemUIRerollListLineColon", "#*#:#*#", onRerollListLine)
     mq.event("ItemUIRerollListLineDash", "#*#-#*#", onRerollListLine)
     mq.event("ItemUIRerollListHeader", "#*#=#*#List#*#", onRerollListLine)
+    -- Add confirmation: "Aug list added: Name (id N)." / "Mythical list added: Name (id N)." — ack immediately to clear cursor fast.
+    mq.event("ItemUIRerollAugAdded", "#*#Aug list added:#*#(id #*#).#*#", onRerollAddConfirmation)
+    mq.event("ItemUIRerollMythicalAdded", "#*#Mythical list added:#*#(id #*#).#*#", onRerollAddConfirmation)
 end
 
 function M.getAugList()
@@ -231,18 +259,46 @@ function M.addEntryToList(listKind, id, name)
     end
 end
 
+--- Remove one entry from in-memory list only (no server command). Used to roll back optimistic add on timeout.
+function M.removeEntryFromCache(listKind, id)
+    if not id or (listKind ~= "aug" and listKind ~= "mythical") then return end
+    if listKind == "aug" then
+        for i = #augList, 1, -1 do
+            if augList[i].id == id then table.remove(augList, i); saveToFile(); return end
+        end
+    else
+        for i = #mythicalList, 1, -1 do
+            if mythicalList[i].id == id then table.remove(mythicalList, i); saveToFile(); return end
+        end
+    end
+end
+
 --- Add item on cursor to augment reroll list. Call when cursor has an augment.
+--- Optimistic: add to in-memory list immediately, then send command (no requestAugList = no grey-out).
 function M.addAugFromCursor()
+    local cur = mq.TLO and mq.TLO.Cursor
+    if not cur or not cur.ID or cur.ID() == 0 then
+        setStatusMessageFn("No item on cursor.")
+        return
+    end
+    local id, name = cur.ID(), (cur.Name and cur.Name()) or ""
+    M.addEntryToList("aug", id, name)
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_ADD or "!augadd"))
-    setStatusMessageFn("Added from cursor to augment list; refresh to see.")
-    M.requestAugList()
+    setStatusMessageFn("Added to augment list.")
 end
 
 --- Add item on cursor to mythical reroll list. Call when cursor has a mythical item.
+--- Optimistic: add to in-memory list immediately, then send command (no requestMythicalList = no grey-out).
 function M.addMythicalFromCursor()
+    local cur = mq.TLO and mq.TLO.Cursor
+    if not cur or not cur.ID or cur.ID() == 0 then
+        setStatusMessageFn("No item on cursor.")
+        return
+    end
+    local id, name = cur.ID(), (cur.Name and cur.Name()) or ""
+    M.addEntryToList("mythical", id, name)
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd"))
-    setStatusMessageFn("Added from cursor to mythical list; refresh to see.")
-    M.requestMythicalList()
+    setStatusMessageFn("Added to mythical list.")
 end
 
 --- Remove item from augment list by ID. Updates cache immediately; persist to file.

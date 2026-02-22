@@ -657,8 +657,13 @@ end
 
 -- Reroll list add: if cursor occupied we abort with clear message (CoOpt UI pattern: don't move user's item without consent).
 -- Otherwise pickup -> send !augadd/!mythicaladd -> main_loop waits for ack or timeout -> put back; status feedback during flow.
+-- Guard: only one add-in-progress at a time (avoid double-click / concurrent pickup).
 local function requestAddToRerollList(list, item)
     if not item or (list ~= "aug" and list ~= "mythical") then return end
+    if uiState.pendingRerollAdd then
+        setStatusMessage("Add already in progress.")
+        return
+    end
     if hasItemOnCursor() then
         setStatusMessage("Clear cursor first.")
         return
@@ -683,6 +688,7 @@ local function removeFromRerollList(list, id)
     if list == "aug" then rerollService.removeAug(id) else rerollService.removeMythical(id) end
     sellStatusService.invalidateSellConfigCache()
     sellStatusService.invalidateLootConfigCache()
+    if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
 end
 
 -- ============================================================================

@@ -237,18 +237,20 @@ function AugmentsView.render(ctx)
                             if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
                         end
                     end
-                    -- Reroll list options (same pattern as inventory right-click)
+                    -- Reroll list: contextual — augment shows Add/Remove Augment List; mythical-eligible shows Add/Remove Mythical List (augments view = all rows are augments)
                     if rerollService and nameKey ~= "" then
                         ImGui.Separator()
+                        -- Augment: one of Add or Remove
                         if onAugList then
-                            if ImGui.MenuItem("Remove from Aug List") then
+                            if ImGui.MenuItem("Remove from Augment List") then
                                 if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
                             end
                         else
-                            if ImGui.MenuItem("Add to Aug List") then
+                            if ImGui.MenuItem("Add to Augment List") then
                                 if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
                             end
                         end
+                        -- Mythical-eligible: one of Add or Remove
                         if isMythicalEligible then
                             if onMythicalList then
                                 if ImGui.MenuItem("Remove from Mythical List") then
