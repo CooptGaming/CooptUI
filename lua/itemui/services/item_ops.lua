@@ -351,6 +351,24 @@ local function findFirstFreeInvSlot()
     return nil, nil
 end
 
+--- Count empty inventory bag slots (for pre-flight checks, e.g. reroll bank-to-bag moves).
+function M.countFreeInvSlots()
+    local Me = mq.TLO and mq.TLO.Me
+    if not Me or not Me.Inventory then return 0 end
+    local n = 0
+    for b = 1, 10 do
+        local p = Me.Inventory("pack" .. b)
+        local sz = p and p.Container and p.Container() or 0
+        if sz and sz > 0 then
+            for i = 1, sz do
+                local it = p.Item and p.Item(i)
+                if not it or not it.ID or not it.ID() or it.ID() == 0 then n = n + 1 end
+            end
+        end
+    end
+    return n
+end
+
 function M.moveInvToBank(invBag, invSlot)
     local row
     for _, r in ipairs(deps.inventoryItems) do

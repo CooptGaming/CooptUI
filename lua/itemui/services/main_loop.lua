@@ -342,6 +342,40 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         itemOps.executeMoveAction(uiState.pendingMoveAction)
         uiState.pendingMoveAction = nil
     end
+    -- Reroll bank-to-bag: one move per tick (so each item lands before the next); stack moves set pendingMoveAction
+    -- and are completed in the block above. Only when no move is in flight do we start the next or trigger the roll.
+    if uiState.pendingRerollBankMoves and not uiState.pendingMoveAction then
+        local pm = uiState.pendingRerollBankMoves
+        local items = pm.items or {}
+        local idx = pm.nextIndex or 1
+        if d.isBankWindowOpen and not d.isBankWindowOpen() then
+            uiState.pendingRerollBankMoves = nil
+            if d.setStatusMessage then d.setStatusMessage("Bank closed; roll cancelled.") end
+        elseif idx <= #items then
+            local one = items[idx]
+            if one and one.bag and one.slot then
+                local ok = d.itemOps.moveBankToInv(one.bag, one.slot)
+                pm.nextIndex = idx + 1
+                if not ok and d.setStatusMessage then d.setStatusMessage("Move from bank failed; roll cancelled.") end
+                if not ok then uiState.pendingRerollBankMoves = nil end
+            else
+                pm.nextIndex = idx + 1
+            end
+        end
+        if pm.nextIndex and pm.nextIndex > #items then
+            uiState.pendingRerollBankMoves = nil
+            if d.rerollService then
+                if pm.list == "aug" then
+                    d.rerollService.augRoll()
+                    uiState.pendingAugRollComplete = true
+                    uiState.pendingAugRollCompleteAt = now
+                else
+                    d.rerollService.mythicalRoll()
+                end
+            end
+            if d.setStatusMessage then d.setStatusMessage("Roll sent.") end
+        end
+    end
     if uiState.removeAllQueue and uiState.removeAllQueue.slotIndices and #uiState.removeAllQueue.slotIndices > 0
         and not uiState.pendingRemoveAugment and not uiState.waitingForRemoveConfirmation and not uiState.waitingForRemoveCursorPopulated then
         local q = uiState.removeAllQueue
@@ -703,8 +737,8 @@ end
 -- Optimistic: add to cache as soon as we send; on timeout roll back cache and notify.
 local REROLL_ADD_ACK_TIMEOUT_MS = 3000
 local function phase8b_pendingRerollAdd(now)
-    local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems =
-        d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems
+    local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems, bankItems =
+        d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems, d.bankItems
     local pending = uiState.pendingRerollAdd
     if not pending or not rerollService then return end
     local lp = d.uiState.lastPickup
@@ -715,6 +749,7 @@ local function phase8b_pendingRerollAdd(now)
         if invalidateSellConfigCache then invalidateSellConfigCache() end
         if invalidateLootConfigCache then invalidateLootConfigCache() end
         if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+        if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
         if setStatusMessage then setStatusMessage(success and "Added to list." or "Add failed or timed out; list reverted.") end
     end
     if pending.step == "pickup" then
