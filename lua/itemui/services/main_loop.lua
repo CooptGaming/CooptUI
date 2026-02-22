@@ -62,6 +62,26 @@ local function phase1_statusExpiry(now)
     end
 end
 
+-- Phase 1b: Click-through protection — item on cursor we didn't initiate (e.g. focus click went to game)
+-- Auto-bag and block new pickups for ACTIVATION_GUARD_MS to prevent rapid pickup/bag cycles.
+local function phase1b_activationGuard(now)
+    local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    local C = constants.TIMING
+    local guardMs = C and C.ACTIVATION_GUARD_MS or 450
+    local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 200
+    if not hasItemOnCursor or not hasItemOnCursor() then return end
+    local lp = uiState.lastPickup
+    if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
+    local clearedAt = uiState.lastPickupClearedAt or 0
+    if (now - clearedAt) <= graceMs then return end
+    mq.cmd('/autoinv')
+    uiState.activationGuardUntil = now + guardMs
+    uiState.lastPickupClearedAt = now
+    local delayMs = (constants.TIMING and constants.TIMING.DEFERRED_SCAN_DELAY_MS) or 120
+    uiState.deferredInventoryScanAt = now + delayMs
+    if setStatusMessage then setStatusMessage("Put in bags (click-through protection)") end
+end
+
 -- Phase 2: Periodic persist (inventory/bank so data survives game close/crash)
 local function phase2_periodicPersist(now)
     local C, scanState, storage, computeAndAttachSellStatus, isBankWindowOpen = d.C, d.scanState, d.storage, d.computeAndAttachSellStatus, d.isBankWindowOpen
@@ -830,6 +850,7 @@ end
 
 function M.tick(now)
     phase1_statusExpiry(now)
+    phase1b_activationGuard(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)

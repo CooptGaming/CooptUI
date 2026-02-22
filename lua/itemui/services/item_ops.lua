@@ -397,6 +397,7 @@ function M.moveInvToBank(invBag, invSlot)
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', invBag, invSlot)
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bb, bs)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     M.removeItemFromInventoryBySlot(invBag, invSlot)
     M.removeItemFromSellItemsBySlot(invBag, invSlot)
@@ -435,6 +436,7 @@ function M.moveBankToInv(bagIdx, slotIdx)
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bagIdx, slotIdx)
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     if row then
         M.removeItemFromBankBySlot(bagIdx, slotIdx)
@@ -479,6 +481,7 @@ function M.executeMoveAction(action)
         mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.destBag, action.destSlot)
     end
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     local row = action.row
     if action.source == "inv" then
@@ -513,8 +516,14 @@ function M.shouldHideRowForCursor(item, source)
 end
 
 --- Initiate pickup from a slot (inv or bank). Sets lastPickup and runs /itemnotify. Call from view on left-click when no cursor.
+--- Blocked for ACTIVATION_GUARD_MS after an unexpected cursor (click-through protection).
 function M.pickupFromSlot(bag, slot, source)
     if not bag or not slot or (source ~= "inv" and source ~= "bank") then return end
+    local now = mq.gettime()
+    if deps.uiState.activationGuardUntil and now < deps.uiState.activationGuardUntil then
+        if deps.setStatusMessage then deps.setStatusMessage("Please wait...") end
+        return
+    end
     deps.uiState.lastPickup.bag = bag
     deps.uiState.lastPickup.slot = slot
     deps.uiState.lastPickup.source = source
@@ -535,6 +544,7 @@ function M.dropAtSlot(bag, slot, source)
         mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
     end
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     deps.invalidateSortCache(source == "inv" and "inv" or "bank")
     if source == "inv" then
         if deps.maybeScanInventory then deps.maybeScanInventory() end
@@ -554,6 +564,7 @@ function M.putCursorInBags()
     end
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     deps.setStatusMessage("Put in bags")
     if deps.scanInventory then deps.scanInventory() end
     -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
@@ -578,6 +589,7 @@ function M.removeItemFromCursor()
             mq.cmdf('/itemnotify in pack%d %d leftmouseup', lp.bag, lp.slot)
         end
         deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+        deps.uiState.lastPickupClearedAt = mq.gettime()
     else
         mq.cmd('/autoinv')
     end
@@ -618,6 +630,7 @@ function M.performDestroyItem(bag, slot, itemName, qty)
     end
     mq.cmd('/destroy')
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
+    deps.uiState.lastPickupClearedAt = mq.gettime()
     M.reduceStackOrRemoveBySlot(bag, slot, qty)
     if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
     if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end

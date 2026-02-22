@@ -592,6 +592,7 @@ function M.render(refs)
                 uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
             end
             uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
+            uiState.lastPickupClearedAt = mq.gettime()
         end
         if not hasCursor then
             uiState.hadItemOnCursorLastFrame = false

@@ -155,6 +155,8 @@ local uiState = {
     pendingQuantityAction = nil,
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
     lastPickupSetThisFrame = false,  -- true when a view set lastPickup this frame (don't clear until next frame so item hides)
+    lastPickupClearedAt = 0,         -- mq.gettime() when lastPickup was last cleared (avoids treating our own drop as "unexpected cursor")
+    activationGuardUntil = 0,       -- mq.gettime() until which pickupFromSlot is blocked (click-through protection)
     hadItemOnCursorLastFrame = false,
     hasItemOnCursorThisFrame = nil,  -- Phase 2: set once per frame to avoid repeated TLO.Cursor() calls
     pendingDestroy = nil,       -- { bag, slot, name, stackSize } when Delete clicked and confirm required
