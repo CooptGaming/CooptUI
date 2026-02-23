@@ -37,10 +37,19 @@ jobs:
 
       - name: Build patcher exe
         run: |
-          pip install -r patcher/requirements.txt --quiet
-          cd patcher
+          python -m pip install -r patcher/requirements.txt --quiet
+          Push-Location patcher
           python build_icon.py
-          pyinstaller patcher.spec
+          python -m PyInstaller patcher.spec
+          Pop-Location
+        shell: pwsh
+
+      - name: Verify patcher exe
+        run: |
+          if (-not (Test-Path "patcher/dist/CoOptUIPatcher.exe")) {
+            Write-Error "CoOptUIPatcher.exe was not built at patcher/dist/CoOptUIPatcher.exe"
+            exit 1
+          }
         shell: pwsh
 
       - name: Create GitHub Release
