@@ -6,6 +6,13 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.7.0-alpha] — 2026-02-22
+
+### Changed
+- Version bump to 0.7.0-alpha
+
+---
+
 ## [0.4.2-alpha] — 2026-02-20
 
 ### Changed
