@@ -71,6 +71,8 @@ M.TIMING = {
     ITEM_OPS_DELAY_SHORT_MS = 100,
     ITEM_OPS_DELAY_MEDIUM_MS = 150,
     ITEM_OPS_DELAY_INITIAL_MS = 200,
+    -- Script items (Alt Currency): delay between each right-click use in sequence
+    SCRIPT_CONSUME_DELAY_MS = 300,
 }
 
 -- ---------------------------------------------------------------------------

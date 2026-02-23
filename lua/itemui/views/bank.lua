@@ -355,6 +355,33 @@ function BankView.render(ctx)
                             ImGui.EndTooltip()
                         end
                         if ImGui.BeginPopupContextItem("ItemContextBankIcon_" .. rid) then
+                            local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
+                            if isScriptItem then
+                                if ImGui.MenuItem("Add All to Alt Currency") then
+                                    local Me = mq.TLO and mq.TLO.Me
+                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
+                                    local it = bn and bn.Item and bn.Item(item.slot)
+                                    local stack = (it and it.Stack and it.Stack()) or 0
+                                    if stack < 1 then
+                                        if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
+                                    else
+                                        ctx.uiState.pendingScriptConsume = {
+                                            bag = item.bag, slot = item.slot, source = "bank",
+                                            totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
+                                        }
+                                    end
+                                end
+                                if ImGui.MenuItem("Add Selected to Alt Currency") then
+                                    local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
+                                    ctx.uiState.pendingQuantityPickup = {
+                                        bag = item.bag, slot = item.slot, source = "bank",
+                                        maxQty = maxQty, itemName = item.name, intent = "script_consume"
+                                    }
+                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
+                                    ctx.uiState.quantityPickerValue = "1"
+                                    ctx.uiState.quantityPickerMax = maxQty
+                                end
+                            else
                             if ImGui.MenuItem("CoOp UI Item Display") then
                                 if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
                             end
@@ -394,6 +421,7 @@ function BankView.render(ctx)
                                         if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" }) end end end
                                     end
                                 end
+                            end
                             end
                             ImGui.EndPopup()
                         end

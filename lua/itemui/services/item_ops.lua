@@ -186,6 +186,38 @@ function M.reduceStackOrRemoveBySlot(bag, slot, destroyQty)
     end
 end
 
+--- Reduce stack at bag/slot in bank by qty; remove row if stack would be 0. Updates bankItems and bankCache (same pattern as reduceStackOrRemoveBySlot for inv).
+function M.reduceStackOrRemoveBySlotBank(bag, slot, qty)
+    if not qty or qty < 1 then return end
+    deps.invalidateSortCache("bank")
+    for i = #deps.bankItems, 1, -1 do
+        if deps.bankItems[i].bag == bag and deps.bankItems[i].slot == slot then
+            local row = deps.bankItems[i]
+            local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+            if qty >= cur then
+                table.remove(deps.bankItems, i)
+            else
+                row.stackSize = cur - qty
+                row.totalValue = (row.value or 0) * row.stackSize
+            end
+            break
+        end
+    end
+    for i = #deps.bankCache, 1, -1 do
+        if deps.bankCache[i].bag == bag and deps.bankCache[i].slot == slot then
+            local row = deps.bankCache[i]
+            local cur = (row.stackSize and row.stackSize > 0) and row.stackSize or 1
+            if qty >= cur then
+                table.remove(deps.bankCache, i)
+            else
+                row.stackSize = cur - qty
+                row.totalValue = (row.value or 0) * row.stackSize
+            end
+            return
+        end
+    end
+end
+
 function M.removeItemFromBankBySlot(bag, slot)
     deps.invalidateSortCache("bank")
     for i = #deps.bankItems, 1, -1 do

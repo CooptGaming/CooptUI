@@ -352,6 +352,69 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         -- Clear only after quantity flow completes so main_window does not clear lastPickup during the delay
         uiState.pendingQuantityAction = nil
     end
+    -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
+    -- After each right-click: update in-memory lists (reduceStackOrRemoveBySlot / reduceStackOrRemoveBySlotBank) so UI shows real-time decrement.
+    -- On completion or halt: persist with same pattern as performDestroyItem (saveInventory/writeSellCache for inv, saveBank for bank).
+    if uiState.pendingScriptConsume then
+        local ps = uiState.pendingScriptConsume
+        local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
+        local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
+        if shouldFire then
+            local Me = mq.TLO and mq.TLO.Me
+            local stack = 0
+            if ps.source == "bank" then
+                local bn = Me and Me.Bank and Me.Bank(ps.bag)
+                local it = bn and bn.Item and bn.Item(ps.slot)
+                stack = (it and it.Stack and it.Stack()) or 0
+            else
+                local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
+                local it = pack and pack.Item and pack.Item(ps.slot)
+                stack = (it and it.Stack and it.Stack()) or 0
+            end
+            if stack < 1 then
+                local n = ps.consumedSoFar
+                local src = ps.source
+                uiState.pendingScriptConsume = nil
+                if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
+                if d.storage then
+                    if src == "inv" then
+                        if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
+                        if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
+                    elseif src == "bank" and d.bankItems then
+                        d.storage.saveBank(d.bankItems)
+                    end
+                end
+            else
+                if ps.source == "bank" then
+                    mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
+                else
+                    mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
+                end
+                ps.consumedSoFar = ps.consumedSoFar + 1
+                if ps.source == "bank" then
+                    itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
+                else
+                    itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
+                end
+                if ps.consumedSoFar >= ps.totalToConsume then
+                    local src = ps.source
+                    uiState.pendingScriptConsume = nil
+                    if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency.", ps.consumedSoFar)) end
+                    if d.storage then
+                        if src == "inv" then
+                            if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
+                            if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
+                        elseif src == "bank" and d.bankItems then
+                            d.storage.saveBank(d.bankItems)
+                        end
+                    end
+                else
+                    ps.nextClickAt = now + delayMs
+                    if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", ps.consumedSoFar, ps.totalToConsume)) end
+                end
+            end
+        end
+    end
     if uiState.pendingDestroyAction then
         local pd = uiState.pendingDestroyAction
         uiState.pendingDestroyAction = nil
