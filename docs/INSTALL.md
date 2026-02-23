@@ -64,8 +64,9 @@ If you already have these folders with INI files inside (from SellUI or a previo
 
 When a new version is released:
 
-1. Download the new zip from the releases page
-2. Extract into your MQ2 root folder, overwriting existing files
+**Option A — Patcher (recommended):** Download **CoOptUIPatcher.exe** from the same release, place it in your MQ2 root folder, and run it. It will download only changed files and install any missing default config (it never overwrites your existing INI files).
+
+**Option B — Full zip:** Download the new zip from the releases page and extract into your MQ2 root folder, overwriting existing files.
 
 ### What gets overwritten (safe)
 

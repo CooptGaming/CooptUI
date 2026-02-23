@@ -1,6 +1,6 @@
-# Build CoopUI release zip and create a GitHub Release when a version tag is pushed.
+# Build CoopUI release zip and patcher exe, then create a GitHub Release when a version tag is pushed.
 # Usage: tag and push, e.g.  git tag v0.1.0-alpha   &&   git push origin v0.1.0-alpha
-# The workflow builds CoOpt UI_v0.1.0-alpha.zip and creates a release with that asset.
+# Assets: CoOpt UI_v<version>.zip and CoOptUIPatcher.exe
 
 name: Release
 
@@ -30,10 +30,25 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: .\scripts\build-release.ps1 -OutputDir $env:GITHUB_WORKSPACE
 
+      - name: Set up Python for patcher
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build patcher exe
+        run: |
+          pip install -r patcher/requirements.txt --quiet
+          cd patcher
+          python build_icon.py
+          pyinstaller patcher.spec
+        shell: pwsh
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip
+          files: |
+            CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip
+            patcher/dist/CoOptUIPatcher.exe
           generate_release_notes: true
           draft: true
         env:
