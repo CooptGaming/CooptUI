@@ -2,15 +2,19 @@
 # Build: pyinstaller patcher.spec
 # Run from patcher/ directory.
 
+import os
 import sys
 
 block_cipher = None
 assets_dir = 'assets'
 datas = [(assets_dir, assets_dir)]  # bundle assets/ into the exe
 
+# Resolve imports from this directory first so local updater.py is bundled (not any other updater on the path)
+spec_dir = os.path.dirname(os.path.abspath(SPEC))
+
 a = Analysis(
     ['patcher.py'],
-    pathex=[],
+    pathex=[spec_dir],
     binaries=[],
     datas=datas,
     hiddenimports=[],
@@ -26,7 +30,6 @@ a = Analysis(
 
 # Optional: add icon='assets/icon.ico' to EXE() when icon.ico is present
 icon_path = None
-import os
 if os.path.isfile(os.path.join(assets_dir, 'icon.ico')):
     icon_path = os.path.join(assets_dir, 'icon.ico')
 

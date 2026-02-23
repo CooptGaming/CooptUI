@@ -67,7 +67,9 @@ class PatcherApp(ctk.CTk):
             self.banner_label.configure(text="CoOpt UI Patcher", height=BANNER_HEIGHT)
 
         # Overlay over banner: shown during patch, lists each file being downloaded
-        self.banner_overlay = ctk.CTkFrame(self, fg_color=("gray85", "gray20"), corner_radius=8, border_width=1)
+        self.banner_overlay = ctk.CTkFrame(
+            self, fg_color=("gray85", "gray20"), corner_radius=8, border_width=1, height=BANNER_HEIGHT
+        )
         self.patch_log_text = ctk.CTkTextbox(
             self.banner_overlay,
             width=WIDTH - 24,
@@ -78,7 +80,7 @@ class PatcherApp(ctk.CTk):
         )
         self.patch_log_text.pack(padx=8, pady=8, fill="both", expand=True)
         # Position over banner; initially hidden
-        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0, height=BANNER_HEIGHT)
+        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0)
         self.banner_overlay.place_forget()
 
         # Status area (slim: progress or text)
@@ -126,7 +128,7 @@ class PatcherApp(ctk.CTk):
         self._run_validator_then_check()
 
     def _patch_log_show(self):
-        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0, height=BANNER_HEIGHT)
+        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0)
         self.patch_log_text.configure(state="normal")
         self.patch_log_text.delete("0.0", "end")
         self.patch_log_text.configure(state="disabled")
