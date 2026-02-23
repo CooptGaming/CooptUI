@@ -130,3 +130,96 @@ def patch(
     if progress_callback:
         progress_callback(total, total, "Done")
     return True, "Update complete."
+
+
+def check_for_default_config(
+    repo_base_url: str,
+    root_path: str,
+    manifest_path: str = "default_config_manifest.json",
+) -> tuple[list[dict], str | None]:
+    """
+    Fetch default config manifest; return list of entries where install path is missing (create-if-missing).
+    Each entry has "repoPath" and "installPath". Only includes entries for which the file does not exist.
+    """
+    manifest_url = _raw_url(repo_base_url, manifest_path)
+    try:
+        req = urllib.request.Request(manifest_url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return [], None  # No default config manifest is OK; skip install-only
+        return [], "Could not reach GitHub (default config)."
+    except (urllib.error.URLError, OSError):
+        return [], "Could not reach GitHub (default config)."
+
+    try:
+        manifest = json.loads(data)
+    except json.JSONDecodeError:
+        return [], "default_config_manifest.json is not valid JSON."
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        return [], None
+
+    to_install: list[dict] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        repo_path = (entry.get("repoPath") or "").strip()
+        install_path = (entry.get("installPath") or "").strip()
+        if not repo_path or not install_path:
+            continue
+        local_path = os.path.join(root_path, install_path.replace("/", os.sep))
+        if not os.path.isfile(local_path):
+            to_install.append({"repoPath": repo_path, "installPath": install_path})
+
+    return to_install, None
+
+
+def install_default_config(
+    entries: list[dict],
+    repo_base_url: str,
+    root_path: str,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> tuple[bool, str]:
+    """
+    Download each file from repo (repoPath) and write to root_path/installPath. Creates parent dirs.
+    Only call with entries where the file is missing (create-if-missing).
+    """
+    total = len(entries)
+    if total == 0:
+        return True, "No default config to install."
+
+    for i, entry in enumerate(entries):
+        repo_path = (entry.get("repoPath") or "").replace("\\", "/")
+        install_path = (entry.get("installPath") or "").replace("\\", "/")
+        if not repo_path or not install_path:
+            continue
+        local_path = os.path.join(root_path, install_path.replace("/", os.sep))
+
+        if progress_callback:
+            progress_callback(i + 1, total, install_path)
+
+        try:
+            url = _raw_url(repo_base_url, repo_path)
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                content = resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return False, f"Default config not found: {repo_path}"
+            return False, "Could not reach GitHub."
+        except (urllib.error.URLError, OSError):
+            return False, "Could not reach GitHub."
+
+        try:
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            with open(local_path, "wb") as f:
+                f.write(content)
+        except OSError:
+            return False, f"Could not write {install_path}. Check permissions."
+
+    if progress_callback:
+        progress_callback(total, total, "Done")
+    return True, "Default config installed."

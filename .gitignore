@@ -12,6 +12,7 @@
 !DEPLOY.md
 !CHANGELOG.md
 !release_manifest.json
+!default_config_manifest.json
 !patcher/
 !epic_quests/
 !config_templates/

@@ -76,6 +76,10 @@ The patcher **only** offers files (and versions) that are listed in the manifest
 
 So: the patcher only "knows" which files to get from the manifest, and it only offers a new release when you regenerate and push that manifest.
 
+## Default config (create-if-missing)
+
+The patcher also fetches `default_config_manifest.json`, which lists default INI files under `config_templates/` (sell_config, shared_config, loot_config). For each entry, if the file **does not exist** in the user's `Macros/` folder, the patcher downloads it from the repo and writes it. Existing user files are **never overwritten**. Regenerate the default config manifest when you add or remove template files (from repo root: `python patcher/generate_default_config_manifest.py`), then commit and push `default_config_manifest.json`.
+
 ## Configuration
 
 Repo URL and manifest path are set in `patcher.py`:

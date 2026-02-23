@@ -10,7 +10,7 @@ import threading
 import customtkinter as ctk
 from PIL import Image
 
-from updater import check_for_updates, patch
+from updater import check_for_updates, check_for_default_config, patch, install_default_config
 from validator import validate_mq_root
 
 
@@ -23,9 +23,10 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base, relative_path)
 
 
-# Repo config: raw base URL (no trailing slash) and manifest path in repo
-REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/feature/Updatetool"
+# Repo config: raw base URL (no trailing slash) and manifest paths in repo
+REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/master"
 MANIFEST_PATH = "release_manifest.json"
+DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 
 WIDTH = 400
 HEIGHT = 420
@@ -42,8 +43,8 @@ class PatcherApp(ctk.CTk):
         self.resizable(False, False)
         self.mq_root = os.getcwd()
         self.files_to_update: list[dict] = []
+        self.files_to_install_defaults: list[dict] = []
         self._patch_in_progress = False
-        self._after_check_auto_patch = False
 
         # Banner (CTkImage requires PIL Image objects, not file paths)
         banner_path = resource_path(os.path.join("assets", "banner.png"))
@@ -64,6 +65,21 @@ class PatcherApp(ctk.CTk):
         self.banner_label.pack(fill="x", padx=0, pady=0)
         if not self.banner_image:
             self.banner_label.configure(text="CoOpt UI Patcher", height=BANNER_HEIGHT)
+
+        # Overlay over banner: shown during patch, lists each file being downloaded
+        self.banner_overlay = ctk.CTkFrame(self, fg_color=("gray85", "gray20"), corner_radius=8, border_width=1)
+        self.patch_log_text = ctk.CTkTextbox(
+            self.banner_overlay,
+            width=WIDTH - 24,
+            height=BANNER_HEIGHT - 24,
+            font=ctk.CTkFont(size=12),
+            state="disabled",
+            wrap="word",
+        )
+        self.patch_log_text.pack(padx=8, pady=8, fill="both", expand=True)
+        # Position over banner; initially hidden
+        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0, height=BANNER_HEIGHT)
+        self.banner_overlay.place_forget()
 
         # Status area (slim: progress or text)
         self.status_frame = ctk.CTkFrame(self, fg_color="transparent", height=STATUS_HEIGHT)
@@ -98,17 +114,6 @@ class PatcherApp(ctk.CTk):
         self.patch_btn.pack(side="left", padx=(10, 8), pady=8)
         self.patch_btn.configure(state="disabled")
 
-        self.auto_patch_var = ctk.BooleanVar(value=False)
-        self.auto_patch_cb = ctk.CTkCheckBox(
-            self.control_frame,
-            text="Auto Patch",
-            variable=self.auto_patch_var,
-            font=ctk.CTkFont(weight="bold"),
-            fg_color="#c0392b",
-            hover_color="#a02820",
-        )
-        self.auto_patch_cb.pack(side="left", padx=8, pady=8)
-
         self.close_btn = ctk.CTkButton(
             self.control_frame,
             text="Close",
@@ -119,6 +124,21 @@ class PatcherApp(ctk.CTk):
         self.close_btn.pack(side="right", padx=10, pady=8)
 
         self._run_validator_then_check()
+
+    def _patch_log_show(self):
+        self.banner_overlay.place(relx=0.5, rely=0, anchor="n", relwidth=1.0, height=BANNER_HEIGHT)
+        self.patch_log_text.configure(state="normal")
+        self.patch_log_text.delete("0.0", "end")
+        self.patch_log_text.configure(state="disabled")
+
+    def _patch_log_append(self, line: str):
+        self.patch_log_text.configure(state="normal")
+        self.patch_log_text.insert("end", line + "\n")
+        self.patch_log_text.see("end")
+        self.patch_log_text.configure(state="disabled")
+
+    def _patch_log_hide(self):
+        self.banner_overlay.place_forget()
 
     def _set_status(self, text: str, show_progress: bool = False, progress_val: float = 0.0):
         self.status_label.configure(text=text)
@@ -137,64 +157,97 @@ class PatcherApp(ctk.CTk):
             self.patch_btn.configure(state="disabled")
             return
         self._set_status("Checking for updates…")
-        self._after_check_auto_patch = self.auto_patch_var.get()
         threading.Thread(target=self._check_updates, daemon=True).start()
 
     def _check_updates(self):
         to_update, err = check_for_updates(REPO_BASE_URL, self.mq_root, MANIFEST_PATH)
-        self.after(0, lambda: self._on_check_done(to_update, err))
+        if err:
+            self.after(0, lambda: self._on_check_done(to_update, [], err))
+            return
+        to_install_defaults, default_err = check_for_default_config(
+            REPO_BASE_URL, self.mq_root, DEFAULT_CONFIG_MANIFEST_PATH
+        )
+        if default_err:
+            self.after(0, lambda: self._on_check_done(to_update, [], default_err))
+            return
+        self.after(0, lambda: self._on_check_done(to_update, to_install_defaults, None))
 
-    def _on_check_done(self, to_update: list[dict], err: str | None):
+    def _on_check_done(self, to_update: list[dict], to_install_defaults: list[dict], err: str | None):
         self.files_to_update = to_update
+        self.files_to_install_defaults = to_install_defaults or []
         if err:
             self._set_status(err)
             self.patch_btn.configure(state="disabled")
             return
-        n = len(to_update)
-        if n == 0:
+        n_update = len(self.files_to_update)
+        n_defaults = len(self.files_to_install_defaults)
+        if n_update == 0 and n_defaults == 0:
             self._set_status("Up to date.")
             self.patch_btn.configure(state="disabled")
             return
-        self._set_status(f"{n} file(s) to update.")
+        parts = []
+        if n_update:
+            parts.append(f"{n_update} file(s) to update")
+        if n_defaults:
+            parts.append(f"{n_defaults} default config to install")
+        self._set_status(". ".join(parts) + ".")
         self.patch_btn.configure(state="normal")
-        if self._after_check_auto_patch:
-            self._after_check_auto_patch = False
-            self._on_patch()
 
     def _on_patch(self):
-        if self._patch_in_progress or not self.files_to_update:
+        if self._patch_in_progress or (not self.files_to_update and not self.files_to_install_defaults):
             return
         self._patch_in_progress = True
         self.patch_btn.configure(state="disabled")
         self._set_status("Patching…", show_progress=True, progress_val=0.0)
+        self._patch_log_show()
+        total_ops = len(self.files_to_update) + len(self.files_to_install_defaults)
 
         def progress_cb(current: int, total: int, path_or_msg: str):
             def update():
                 self._set_status(
-                    f"Patching… {current}/{total}",
+                    f"Patching… {current}/{total_ops}",
                     show_progress=True,
-                    progress_val=current / total if total else 0,
+                    progress_val=current / total_ops if total_ops else 0,
                 )
+                if path_or_msg and path_or_msg != "Done":
+                    self._patch_log_append(f"  {current}/{total_ops}: {path_or_msg}")
             self.after(0, update)
 
         def run():
-            success, message = patch(
-                self.files_to_update,
-                REPO_BASE_URL,
-                self.mq_root,
-                progress_callback=progress_cb,
-            )
-            self.after(0, lambda: self._on_patch_done(success, message))
+            done = 0
+            if self.files_to_update:
+                success, message = patch(
+                    self.files_to_update,
+                    REPO_BASE_URL,
+                    self.mq_root,
+                    progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
+                )
+                if not success:
+                    self.after(0, lambda: self._on_patch_done(False, message))
+                    return
+                done = len(self.files_to_update)
+            if self.files_to_install_defaults:
+                success, message = install_default_config(
+                    self.files_to_install_defaults,
+                    REPO_BASE_URL,
+                    self.mq_root,
+                    progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
+                )
+                self.after(0, lambda: self._on_patch_done(success, message))
+            else:
+                self.after(0, lambda: self._on_patch_done(True, "Update complete."))
 
         threading.Thread(target=run, daemon=True).start()
 
     def _on_patch_done(self, success: bool, message: str):
         self._patch_in_progress = False
+        self._patch_log_hide()
         self._set_status(message)
         self.progress.pack_forget()
         self.status_label.pack(side="left", fill="x", expand=True)
         if success:
             self.files_to_update = []
+            self.files_to_install_defaults = []
             self.patch_btn.configure(state="disabled")
         else:
             self.patch_btn.configure(state="normal")
