@@ -243,7 +243,7 @@ class PatcherApp(ctk.CTk):
 
     def _on_patch_done(self, success: bool, message: str):
         self._patch_in_progress = False
-        self._patch_log_hide()
+        # Keep patch log visible so players can scroll through the list of altered files
         self._set_status(message)
         self.progress.pack_forget()
         self.status_label.pack(side="left", fill="x", expand=True)
