@@ -11,7 +11,11 @@
 !README.md
 !DEPLOY.md
 !CHANGELOG.md
+!release_manifest.json
+!default_config_manifest.json
+!patcher/
 !epic_quests/
+!config_templates/
 !scripts/
 !lua/
 !Macros/
@@ -46,19 +50,11 @@ Macros/*
 !Macros/sell_config/
 !Macros/loot_config/
 
-# Per-character and runtime data (never version)
+# Per-character and runtime data; all user INIs (never version — defaults live in config_templates/)
 Macros/sell_config/Chars/
-Macros/sell_config/sell_cache.ini
-Macros/sell_config/itemui_layout.ini
-Macros/sell_config/itemui_filter_presets.ini
-Macros/sell_config/itemui_last_filters.ini
-Macros/loot_config/loot_history.ini
-Macros/loot_config/loot_mythical_alert.ini
-Macros/loot_config/loot_progress.ini
-Macros/loot_config/loot_session.ini
-Macros/loot_config/loot_skipped.ini
-Macros/loot_config/skip_history.ini
-Macros/shared_config/epic_items_resolved.ini
+Macros/sell_config/*.ini
+Macros/loot_config/*.ini
+Macros/shared_config/*.ini
 Macros/bank_data/
 Macros/logs/
 

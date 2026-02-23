@@ -1,0 +1,293 @@
+{
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "Macros/loot.mac",
+      "hash": "2f5aea56edb53a32868da702d106ecbeca2ed3ecc92af726143a377a1a4f8586"
+    },
+    {
+      "path": "Macros/sell.mac",
+      "hash": "cc7d631efbff572018c12858c996ddd0dc697f7d27d086ab29de1dca8a52141c"
+    },
+    {
+      "path": "Macros/shared_config/log_item.mac",
+      "hash": "173dbb32917ebe3cc5eb638e62c98ed6c1c58443ececb94d53e88fc1e8d150cf"
+    },
+    {
+      "path": "Macros/shared_config/validate_config.mac",
+      "hash": "7d0acdd8dd20b89a46e203de05cd626236b935070f34c932087c23e2e8bd454d"
+    },
+    {
+      "path": "lua/coopui/core/cache.lua",
+      "hash": "62ca176e207f5dd9f4058b2c3628ea2c0ecb9466a2e74a313caadf8e012f0c01"
+    },
+    {
+      "path": "lua/coopui/core/events.lua",
+      "hash": "0e535c5c8f04bccc693b56d214e3597a638bf25c9bb359bd8262813817ce436d"
+    },
+    {
+      "path": "lua/coopui/core/state.lua",
+      "hash": "90a8fb05e6327854f51f2c259d1faf213e05cbe3b91222add8ebc653198e9eb2"
+    },
+    {
+      "path": "lua/coopui/utils/theme.lua",
+      "hash": "f0ab02560139a319649e7607db5090be5036859c08c334c56858b56312b7da39"
+    },
+    {
+      "path": "lua/coopui/version.lua",
+      "hash": "8c80cec5058792025c7bb6291f7d2e0407b49ac0f0a6ce1166c906499aa458ac"
+    },
+    {
+      "path": "lua/itemui/README.md",
+      "hash": "0eab50c0a3ff944873bb82601932954c17314977939630217d894ae13f952667"
+    },
+    {
+      "path": "lua/itemui/REROLL_FEATURE.md",
+      "hash": "94215e4ac7f0abe7f82297f406977a506e6ea37aeef5c3a84181a09d1a6ec2de"
+    },
+    {
+      "path": "lua/itemui/components/character_stats.lua",
+      "hash": "c0881c85929a06a0c3b24d859255cc140e9c297cfe40b9adeca4126ffa3b3b25"
+    },
+    {
+      "path": "lua/itemui/components/filters.lua",
+      "hash": "28e2bef1105a26c36c61ca31e87993129690c35de1ab9328acb59b16ea7336b0"
+    },
+    {
+      "path": "lua/itemui/components/progressbar.lua",
+      "hash": "89badb9eeaeb83198516eb8d18e73eb398ef92dea190a5e6c8de2bd4b1c01512"
+    },
+    {
+      "path": "lua/itemui/components/searchbar.lua",
+      "hash": "30c37b6291a112b06ed1a8c458d8746839817902aa34ce909d390cf50f215f28"
+    },
+    {
+      "path": "lua/itemui/components/ui_common.lua",
+      "hash": "d1bd7b9983cfbdad026fb597c1f615948d92869d5309fdd84ecc85aec10a14e1"
+    },
+    {
+      "path": "lua/itemui/config.lua",
+      "hash": "d64c0da7c36829e6f83023a86ddcb90efa2c7542ef45b53f971860fb7680d752"
+    },
+    {
+      "path": "lua/itemui/config_cache.lua",
+      "hash": "f29dd83cd50231c4e2fd10ccc42fc6443b87ba6f4f95e6a0df3830218f5f47b5"
+    },
+    {
+      "path": "lua/itemui/constants.lua",
+      "hash": "cee40aa58e5f0e47ad70e91d500466032ec49206f3b4e4b44ad3b9eaffdfb593"
+    },
+    {
+      "path": "lua/itemui/context.lua",
+      "hash": "9fcdddc8193b9f237c2ab03a35fe221646c56f67a9e731cb4f58869e45a4c264"
+    },
+    {
+      "path": "lua/itemui/context_builder.lua",
+      "hash": "bf12c6bf0928cb048df2fc97ea3bba04d702ffcb2c480cf3e5ec34d2e6e65da4"
+    },
+    {
+      "path": "lua/itemui/core/cache.lua",
+      "hash": "336a9096f084f845a1a4328d9d5d85ce6d9c102e573c188bf3ad22cf59ce23f8"
+    },
+    {
+      "path": "lua/itemui/core/events.lua",
+      "hash": "66f3f666c0c4c4f10d7d8e7b31bfca11b5af5204e4ff5d12f97f21082999e923"
+    },
+    {
+      "path": "lua/itemui/core/state.lua",
+      "hash": "9b4b8baad0970d2f3f004b2eb997f12facc82a3c7fcbc488731edc5b2c110356"
+    },
+    {
+      "path": "lua/itemui/init.lua",
+      "hash": "ae1443ad348a501384235cab71831208ad23c8aee760988866142cc978278d44"
+    },
+    {
+      "path": "lua/itemui/rules.lua",
+      "hash": "8320d792539820b5b45a8f023dc03d46a5595eb2a4f2e830775b93ae04864b4b"
+    },
+    {
+      "path": "lua/itemui/services/aa_data.lua",
+      "hash": "2a24f0382c92565cf57162ab2fc0f4eafb414a0b14eb63b2d00e4529fe34b6ba"
+    },
+    {
+      "path": "lua/itemui/services/augment_ops.lua",
+      "hash": "8637039b4c9940b6a7eed566081746fbbe20128b0f68afbb1bab977932b1fd96"
+    },
+    {
+      "path": "lua/itemui/services/filter_service.lua",
+      "hash": "f51052ae29ccc21ff94b9b22e8469974dc6335deed5c29244c63289fa1acfc46"
+    },
+    {
+      "path": "lua/itemui/services/item_ops.lua",
+      "hash": "cc95662176ceb3dd779dfc6d803cb6f0641d82a5cafa126215923a2d2ee3a616"
+    },
+    {
+      "path": "lua/itemui/services/macro_bridge.lua",
+      "hash": "60c53fd3cd4ac21d75b74b3a00e023c4b774ed5b686011c1eb7d3df34fdde634"
+    },
+    {
+      "path": "lua/itemui/services/main_loop.lua",
+      "hash": "ab7bd97850ebe85791ec65d98be6e1c75cb5899e413ebd11121082475ed2ee42"
+    },
+    {
+      "path": "lua/itemui/services/reroll_service.lua",
+      "hash": "beebd55c37e404d7d3b3e8d88de91cd3971d901aca36a1474d950ecb692e93f3"
+    },
+    {
+      "path": "lua/itemui/services/scan.lua",
+      "hash": "acdf05c5324f25a835796a47a9b4bf87560ac3e3df8f79b399f9c01fc06d2f7e"
+    },
+    {
+      "path": "lua/itemui/services/sell_status.lua",
+      "hash": "3ed878d42bdaee8b436dec7854dc5b7e5cacf5947ab7700945f6978ee7907fbe"
+    },
+    {
+      "path": "lua/itemui/storage.lua",
+      "hash": "1dedb240a1e3a9b8cefc941b4ad0068f37c88e0563dc0b3edc849f7181715b32"
+    },
+    {
+      "path": "lua/itemui/utils/augment_ranking.lua",
+      "hash": "7980b467521c9a0dd82849d34087bcb6083a5e552c32299c98f56d4cac4d4316"
+    },
+    {
+      "path": "lua/itemui/utils/column_config.lua",
+      "hash": "901542184b4585802f52a9c90568158d1a9f7d2672998fd9d25b3a1632cd5b65"
+    },
+    {
+      "path": "lua/itemui/utils/columns.lua",
+      "hash": "648a41bfa9c5c6647a3ed108dc65e445c7555744e50cbff96d5eccf5bc8402c2"
+    },
+    {
+      "path": "lua/itemui/utils/file_safe.lua",
+      "hash": "9dc515cc5865849b6092e96c3e6ff46fcf104dac9716ff835a39d9a2d351e19f"
+    },
+    {
+      "path": "lua/itemui/utils/icons.lua",
+      "hash": "209d0b5a929d1e65d733aa514aeafa4051d98fc1f036f232ea4460e109e515e6"
+    },
+    {
+      "path": "lua/itemui/utils/item_helpers.lua",
+      "hash": "62c9841c964fa7a88ec2c382c5dd2e9aba695bccfee07f03bb03ac14fc0ef433"
+    },
+    {
+      "path": "lua/itemui/utils/item_tooltip.lua",
+      "hash": "f785eeea2c87f96c6b22d3c2aa9cc69b8751387f7cf84a3ca50316ffe14027dc"
+    },
+    {
+      "path": "lua/itemui/utils/layout.lua",
+      "hash": "e5dd3195f7cc79ae6de7478185acf2031ee059861b71e571016f4c1649f89344"
+    },
+    {
+      "path": "lua/itemui/utils/sort.lua",
+      "hash": "019fc01522298717859f50a0dd2e6b5c46ed9fff230383a78c890f15f34dd8e8"
+    },
+    {
+      "path": "lua/itemui/utils/table_cache.lua",
+      "hash": "079bf16dc53c5de0ebaafc2f61846563d494302be7375c5bf78a415208da9944"
+    },
+    {
+      "path": "lua/itemui/utils/theme.lua",
+      "hash": "ce5bcb95c81537d3102e19f8c9b6c42e2b028aa60e58ca0cb256667f6c1af484"
+    },
+    {
+      "path": "lua/itemui/utils/window_state.lua",
+      "hash": "459b7572ff61c0a81e95f314ecff3b59569b1e5674d1dbde1aa67c00da1ffc99"
+    },
+    {
+      "path": "lua/itemui/views/aa.lua",
+      "hash": "02f598f6209215bf650f349da1a6f21d3133fdc4e5986cc590884cd276e36740"
+    },
+    {
+      "path": "lua/itemui/views/augment_utility.lua",
+      "hash": "0d5996960aa9b31edfa45de37c746a8eb40abeb5014fad6f3df3f59b0beee0a4"
+    },
+    {
+      "path": "lua/itemui/views/augments.lua",
+      "hash": "6eef0e30a19658deeb03ba2b1f4ebf1863e264df8530dd0625c2d6498b4de9c2"
+    },
+    {
+      "path": "lua/itemui/views/bank.lua",
+      "hash": "c0e2f0b38bad8d8e1ba0b5bcdabb78201829802517a699d1dce4693637b4cfde"
+    },
+    {
+      "path": "lua/itemui/views/config.lua",
+      "hash": "e80e64685dc0e95109ae8be8a232f67cb500814ef47aa098707da3a23ce0e7d7"
+    },
+    {
+      "path": "lua/itemui/views/config_filters.lua",
+      "hash": "0f398d56815c8b0167ec13af14bd0c142020f12991bcf2635a28dbbacce3d19a"
+    },
+    {
+      "path": "lua/itemui/views/config_general.lua",
+      "hash": "c9448f5e822aa76dc4d740280085e4090e6535cbd534cf3dbbe9e1e40ed36f9f"
+    },
+    {
+      "path": "lua/itemui/views/config_loot.lua",
+      "hash": "08cca3b3ace40d346edbae2bc3a717568babeff8568d53e2a76be4959ea875a1"
+    },
+    {
+      "path": "lua/itemui/views/config_sell.lua",
+      "hash": "f33ab8ee4d35e7987fbe6e02073aa63ffaef08b92e33cede2cb291ed3c3c37a7"
+    },
+    {
+      "path": "lua/itemui/views/config_shared.lua",
+      "hash": "a4689a4f57804a99021d48a01809b4d5a0790daf81c3d2a2d5ba0308f109ed9a"
+    },
+    {
+      "path": "lua/itemui/views/equipment.lua",
+      "hash": "ea93c4960d265f9ac924c54a0f873a3f3fcccd922c2bd3567eec551415c00e55"
+    },
+    {
+      "path": "lua/itemui/views/inventory.lua",
+      "hash": "5fb293aaa24899cf8e63066d42bca970349a14549494c75f4a135e2940b0e496"
+    },
+    {
+      "path": "lua/itemui/views/item_display.lua",
+      "hash": "fe74c626087376b48e3616d3d262cd6e6ba8f1dd102cff69786a85a841918137"
+    },
+    {
+      "path": "lua/itemui/views/loot.lua",
+      "hash": "35d243d851174991947ede71703de8b4336cc2d5c8811f822ba31585dc88a0a8"
+    },
+    {
+      "path": "lua/itemui/views/loot_ui.lua",
+      "hash": "6ed48bac266739338cce0e482531a6ca7a8e7040a3db1fa647e9e53f243e038a"
+    },
+    {
+      "path": "lua/itemui/views/main_window.lua",
+      "hash": "f09c9af094b334790cb6b434dcb2dc35fb6341fe407f7389494ecb090fce0bbc"
+    },
+    {
+      "path": "lua/itemui/views/reroll.lua",
+      "hash": "7de038349b1b59daf19dee4626f6f76a82d44bb5e7abd402c5462dbcde6f476d"
+    },
+    {
+      "path": "lua/itemui/views/sell.lua",
+      "hash": "7d6b92556bc9300b267452ae969880665c75be053b44c11f855c258fe227f64c"
+    },
+    {
+      "path": "lua/mq/ItemUtils.lua",
+      "hash": "edfb42bfcf420ee023e8cb57455961bbedb3c9d7cc5fcf1abc977276e69dbe55"
+    },
+    {
+      "path": "lua/scripttracker/README.md",
+      "hash": "f69e82d0663116eebd0f87ea5b9f8be7b621a4fbeca1538667b932885cdd5a03"
+    },
+    {
+      "path": "lua/scripttracker/init.lua",
+      "hash": "e6b2f497ff236f758cb5df20c813c6181a3ecc9b7f5aa309943166848c25ea1e"
+    },
+    {
+      "path": "resources/UIFiles/Default/EQUI.xml",
+      "hash": "118a7ed35cdb52c581a6a4d9f35a28af41e9ceea086fcacca182f52057fc3401"
+    },
+    {
+      "path": "resources/UIFiles/Default/ItemColorBG.tga",
+      "hash": "423b9cd03c386dc105fb7d9c09ca50e19a4075455c1a7a85c7591098feb1602f"
+    },
+    {
+      "path": "resources/UIFiles/Default/MQUI_ItemColorAnimation.xml",
+      "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
+    }
+  ]
+}

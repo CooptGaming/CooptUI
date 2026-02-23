@@ -1,0 +1,156 @@
+{
+  "files": [
+    {
+      "repoPath": "config_templates/loot_config/loot_always_contains.ini",
+      "installPath": "Macros/loot_config/loot_always_contains.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_always_exact.ini",
+      "installPath": "Macros/loot_config/loot_always_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_always_types.ini",
+      "installPath": "Macros/loot_config/loot_always_types.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_flags.ini",
+      "installPath": "Macros/loot_config/loot_flags.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_skip_contains.ini",
+      "installPath": "Macros/loot_config/loot_skip_contains.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_skip_exact.ini",
+      "installPath": "Macros/loot_config/loot_skip_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_skip_types.ini",
+      "installPath": "Macros/loot_config/loot_skip_types.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_value.ini",
+      "installPath": "Macros/loot_config/loot_value.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/itemui_layout.ini",
+      "installPath": "Macros/sell_config/itemui_layout.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_always_sell_contains.ini",
+      "installPath": "Macros/sell_config/sell_always_sell_contains.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_always_sell_exact.ini",
+      "installPath": "Macros/sell_config/sell_always_sell_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_flags.ini",
+      "installPath": "Macros/sell_config/sell_flags.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_keep_contains.ini",
+      "installPath": "Macros/sell_config/sell_keep_contains.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_keep_exact.ini",
+      "installPath": "Macros/sell_config/sell_keep_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_keep_types.ini",
+      "installPath": "Macros/sell_config/sell_keep_types.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_protected_types.ini",
+      "installPath": "Macros/sell_config/sell_protected_types.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/sell_value.ini",
+      "installPath": "Macros/sell_config/sell_value.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_classes.ini",
+      "installPath": "Macros/shared_config/epic_classes.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_bard.ini",
+      "installPath": "Macros/shared_config/epic_items_bard.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_beastlord.ini",
+      "installPath": "Macros/shared_config/epic_items_beastlord.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_berserker.ini",
+      "installPath": "Macros/shared_config/epic_items_berserker.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_cleric.ini",
+      "installPath": "Macros/shared_config/epic_items_cleric.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_druid.ini",
+      "installPath": "Macros/shared_config/epic_items_druid.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_enchanter.ini",
+      "installPath": "Macros/shared_config/epic_items_enchanter.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_exact.ini",
+      "installPath": "Macros/shared_config/epic_items_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_magician.ini",
+      "installPath": "Macros/shared_config/epic_items_magician.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_monk.ini",
+      "installPath": "Macros/shared_config/epic_items_monk.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_necromancer.ini",
+      "installPath": "Macros/shared_config/epic_items_necromancer.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_paladin.ini",
+      "installPath": "Macros/shared_config/epic_items_paladin.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_ranger.ini",
+      "installPath": "Macros/shared_config/epic_items_ranger.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_rogue.ini",
+      "installPath": "Macros/shared_config/epic_items_rogue.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_shadow_knight.ini",
+      "installPath": "Macros/shared_config/epic_items_shadow_knight.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_shaman.ini",
+      "installPath": "Macros/shared_config/epic_items_shaman.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_warrior.ini",
+      "installPath": "Macros/shared_config/epic_items_warrior.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/epic_items_wizard.ini",
+      "installPath": "Macros/shared_config/epic_items_wizard.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/valuable_contains.ini",
+      "installPath": "Macros/shared_config/valuable_contains.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/valuable_exact.ini",
+      "installPath": "Macros/shared_config/valuable_exact.ini"
+    },
+    {
+      "repoPath": "config_templates/shared_config/valuable_types.ini",
+      "installPath": "Macros/shared_config/valuable_types.ini"
+    }
+  ]
+}
