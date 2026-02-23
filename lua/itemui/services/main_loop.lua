@@ -327,7 +327,10 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     processSellQueue()
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
-        uiState.pendingQuantityAction = nil
+        -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
+        uiState.lastPickup.bag = action.pickup.bag
+        uiState.lastPickup.slot = action.pickup.slot
+        uiState.lastPickup.source = action.pickup.source
         if action.pickup.source == "bank" then
             mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
         else
@@ -346,6 +349,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             mq.delay(150)
             mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
         end
+        -- Clear only after quantity flow completes so main_window does not clear lastPickup during the delay
+        uiState.pendingQuantityAction = nil
     end
     if uiState.pendingDestroyAction then
         local pd = uiState.pendingDestroyAction
