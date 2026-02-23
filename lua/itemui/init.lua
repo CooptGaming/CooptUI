@@ -153,6 +153,7 @@ local uiState = {
     quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
     pendingQuantityPickup = nil, pendingQuantityPickupTimeoutAt = nil,  -- timeout: clear picker if user never completes (Phase 1 reliability)
     pendingQuantityAction = nil,
+    pendingScriptConsume = nil,  -- { bag, slot, source, totalToConsume, consumedSoFar, nextClickAt, itemName } for sequential right-click (Script items)
     lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
     lastPickupSetThisFrame = false,  -- true when a view set lastPickup this frame (don't clear until next frame so item hides)
     lastPickupClearedAt = 0,         -- mq.gettime() when lastPickup was last cleared (avoids treating our own drop as "unexpected cursor")

@@ -306,8 +306,36 @@ function InventoryView.render(ctx, bankOpen)
                             ImGui.EndTooltip()
                         end
                         -- Right-click on icon: context menu for Inspect, Keep, Always sell, augment lists.
+                        -- Script items (name contains "Script of"): only "Add All to Alt Currency" and "Add Selected to Alt Currency".
                         -- Status and menu use row state when set; list changes must update rows (updateSellStatusForItemName or computeAndAttachSellStatus) so all views stay in sync.
                         if ImGui.BeginPopupContextItem("ItemContextInv_" .. rid) then
+                            local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
+                            if isScriptItem then
+                                if ImGui.MenuItem("Add All to Alt Currency") then
+                                    local Me = mq.TLO and mq.TLO.Me
+                                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+                                    local it = pack and pack.Item and pack.Item(item.slot)
+                                    local stack = (it and it.Stack and it.Stack()) or 0
+                                    if stack < 1 then
+                                        if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
+                                    else
+                                        ctx.uiState.pendingScriptConsume = {
+                                            bag = item.bag, slot = item.slot, source = "inv",
+                                            totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
+                                        }
+                                    end
+                                end
+                                if ImGui.MenuItem("Add Selected to Alt Currency") then
+                                    local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
+                                    ctx.uiState.pendingQuantityPickup = {
+                                        bag = item.bag, slot = item.slot, source = "inv",
+                                        maxQty = maxQty, itemName = item.name, intent = "script_consume"
+                                    }
+                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
+                                    ctx.uiState.quantityPickerValue = "1"
+                                    ctx.uiState.quantityPickerMax = maxQty
+                                end
+                            else
                             local inKeep, inJunk = false, false
                             if item.inKeep ~= nil and item.inJunk ~= nil then
                                 inKeep, inJunk = item.inKeep, item.inJunk
@@ -430,6 +458,7 @@ function InventoryView.render(ctx, bankOpen)
                                 end
                             end
                             ImGui.PopStyleColor()
+                            end
                             ImGui.EndPopup()
                         end
                     elseif colKey == "Status" then

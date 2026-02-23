@@ -500,17 +500,21 @@ function M.render(refs)
             if uiState.quantityPickerSubmitPending ~= nil then
                 local qty = uiState.quantityPickerSubmitPending
                 uiState.quantityPickerSubmitPending = nil
-                if qty and qty > 0 and qty <= uiState.pendingQuantityPickup.maxQty then
-                    uiState.pendingQuantityAction = {
-                        action = "set",
-                        qty = qty,
-                        pickup = uiState.pendingQuantityPickup
-                    }
+                local pickup = uiState.pendingQuantityPickup
+                if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
+                    if pickup and pickup.intent == "script_consume" then
+                        uiState.pendingScriptConsume = {
+                            bag = pickup.bag, slot = pickup.slot, source = pickup.source,
+                            totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
+                        }
+                    else
+                        uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
+                    end
                     uiState.pendingQuantityPickup = nil
                     uiState.pendingQuantityPickupTimeoutAt = nil
                     uiState.quantityPickerValue = ""
                 else
-                    setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
+                    setStatusMessage(string.format("Invalid quantity (1-%d)", pickup and pickup.maxQty or 1))
                 end
             else
                 ImGui.Separator()
@@ -531,27 +535,36 @@ function M.render(refs)
                 ImGui.SameLine()
                 if ImGui.Button("Set", ImVec2(60, 0)) then
                     local qty = tonumber(uiState.quantityPickerValue)
-                    if qty and qty > 0 and qty <= uiState.pendingQuantityPickup.maxQty then
-                        uiState.pendingQuantityAction = {
-                            action = "set",
-                            qty = qty,
-                            pickup = uiState.pendingQuantityPickup
-                        }
+                    local pickup = uiState.pendingQuantityPickup
+                    if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
+                        if pickup and pickup.intent == "script_consume" then
+                            uiState.pendingScriptConsume = {
+                                bag = pickup.bag, slot = pickup.slot, source = pickup.source,
+                                totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
+                            }
+                        else
+                            uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
+                        end
                         uiState.pendingQuantityPickup = nil
                         uiState.pendingQuantityPickupTimeoutAt = nil
                         uiState.quantityPickerValue = ""
                     else
-                        setStatusMessage(string.format("Invalid quantity (1-%d)", uiState.pendingQuantityPickup.maxQty))
+                        setStatusMessage(string.format("Invalid quantity (1-%d)", pickup and pickup.maxQty or 1))
                     end
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up this quantity"); ImGui.EndTooltip() end
                 ImGui.SameLine()
                 if ImGui.Button("Max", ImVec2(50, 0)) then
-                    uiState.pendingQuantityAction = {
-                        action = "max",
-                        qty = uiState.pendingQuantityPickup.maxQty,
-                        pickup = uiState.pendingQuantityPickup
-                    }
+                    local pickup = uiState.pendingQuantityPickup
+                    local qty = pickup and pickup.maxQty or 1
+                    if pickup and pickup.intent == "script_consume" then
+                        uiState.pendingScriptConsume = {
+                            bag = pickup.bag, slot = pickup.slot, source = pickup.source,
+                            totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
+                        }
+                    else
+                        uiState.pendingQuantityAction = { action = "max", qty = qty, pickup = pickup }
+                    end
                     uiState.pendingQuantityPickup = nil
                     uiState.pendingQuantityPickupTimeoutAt = nil
                     uiState.quantityPickerValue = ""
