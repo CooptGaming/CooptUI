@@ -6,6 +6,14 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.8.0-alpha] — 2026-02-22
+
+### Changed
+- Version bump to 0.8.0-alpha
+- Patcher: patch log (list of altered files) now remains visible after patching so players can scroll through it
+
+---
+
 ## [0.7.1-alpha] — 2026-02-22
 
 ### Changed
