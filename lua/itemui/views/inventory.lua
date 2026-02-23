@@ -238,6 +238,11 @@ function InventoryView.render(ctx, bankOpen)
                                     ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
                                     ctx.uiState.quantityPickerValue = tostring(item.stackSize)
                                     ctx.uiState.quantityPickerMax = item.stackSize
+                                    -- Set lastPickup so activation guard does not treat the upcoming stack pickup as unexpected
+                                    ctx.uiState.lastPickup.bag = item.bag
+                                    ctx.uiState.lastPickup.slot = item.slot
+                                    ctx.uiState.lastPickup.source = "inv"
+                                    ctx.uiState.lastPickupSetThisFrame = true
                                 else
                                     ctx.pickupFromSlot(item.bag, item.slot, "inv")
                                 end
