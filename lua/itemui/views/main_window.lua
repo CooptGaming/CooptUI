@@ -247,7 +247,8 @@ function M.render(refs)
             elseif curView == "Loot" then w, h = layoutConfig.WidthLoot or layoutDefaults.WidthLoot, layoutConfig.Height
             end
             if w and h and w > 0 and h > 0 then
-                if uiState.uiLocked then
+                local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
+                if uiState.uiLocked or forceApply then
                     ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.Always)
                 else
                     ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)

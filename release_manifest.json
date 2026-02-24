@@ -75,7 +75,7 @@
     },
     {
       "path": "lua/itemui/constants.lua",
-      "hash": "cee40aa58e5f0e47ad70e91d500466032ec49206f3b4e4b44ad3b9eaffdfb593"
+      "hash": "2bbed2cd5ce402a1b16e3097f97440d042a803da890c4e7eb53245f1a11e696a"
     },
     {
       "path": "lua/itemui/context.lua",
@@ -98,8 +98,24 @@
       "hash": "9b4b8baad0970d2f3f004b2eb997f12facc82a3c7fcbc488731edc5b2c110356"
     },
     {
+      "path": "lua/itemui/default_layout/itemui_layout.ini",
+      "hash": "f64be2873f7b274bade42c805c90ec2358f3a28368168e44ce041786583fe101"
+    },
+    {
+      "path": "lua/itemui/default_layout/layout_manifest.json",
+      "hash": "24f33d35a6abe1f0d071e8f723e507bb3a2a3e6e24e9126655dd7f0248387aa1"
+    },
+    {
+      "path": "lua/itemui/default_layout/layout_manifest_summary.txt",
+      "hash": "1d9b285c097432ba0f31b72f272a1a88620c775860d4804c3d99b8542070ed28"
+    },
+    {
+      "path": "lua/itemui/default_layout/overlay_snippet.ini",
+      "hash": "79588d0880c7c2eecbcd54ed81fc9c5ed1e4a682568de4344105e2f05d561826"
+    },
+    {
       "path": "lua/itemui/init.lua",
-      "hash": "ae1443ad348a501384235cab71831208ad23c8aee760988866142cc978278d44"
+      "hash": "c1c6ce35298a96c24f302cd3bd08733a1e1ed6ac9c7ddad554925aed5308c5a1"
     },
     {
       "path": "lua/itemui/rules.lua",
@@ -119,7 +135,7 @@
     },
     {
       "path": "lua/itemui/services/item_ops.lua",
-      "hash": "cc95662176ceb3dd779dfc6d803cb6f0641d82a5cafa126215923a2d2ee3a616"
+      "hash": "fc26a1d3c759d58cae61b6be00da6841a67f03d671e7db34fce5d1fecc67778a"
     },
     {
       "path": "lua/itemui/services/macro_bridge.lua",
@@ -127,7 +143,7 @@
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "ab7bd97850ebe85791ec65d98be6e1c75cb5899e413ebd11121082475ed2ee42"
+      "hash": "442d5808beb0c293dd8c54b5558fb7dfdc7b44642db99835baa5c82b776f149d"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
@@ -158,6 +174,10 @@
       "hash": "648a41bfa9c5c6647a3ed108dc65e445c7555744e50cbff96d5eccf5bc8402c2"
     },
     {
+      "path": "lua/itemui/utils/default_layout.lua",
+      "hash": "655aeb1deb64970aaff0eb0b9239c7f2a7c09a7b803b91f40a1153493680bd60"
+    },
+    {
       "path": "lua/itemui/utils/file_safe.lua",
       "hash": "9dc515cc5865849b6092e96c3e6ff46fcf104dac9716ff835a39d9a2d351e19f"
     },
@@ -167,7 +187,7 @@
     },
     {
       "path": "lua/itemui/utils/item_helpers.lua",
-      "hash": "62c9841c964fa7a88ec2c382c5dd2e9aba695bccfee07f03bb03ac14fc0ef433"
+      "hash": "61f275e45c9d17072f6dbf17aac475919e04920e5e798fe5e535c955186ea6ce"
     },
     {
       "path": "lua/itemui/utils/item_tooltip.lua",
@@ -207,11 +227,11 @@
     },
     {
       "path": "lua/itemui/views/bank.lua",
-      "hash": "c0e2f0b38bad8d8e1ba0b5bcdabb78201829802517a699d1dce4693637b4cfde"
+      "hash": "8614427df21d4a153a111537f7513ce8cf7a6869d64fbbcd0e03d4b220f91beb"
     },
     {
       "path": "lua/itemui/views/config.lua",
-      "hash": "e80e64685dc0e95109ae8be8a232f67cb500814ef47aa098707da3a23ce0e7d7"
+      "hash": "59243b4f53ad89e33662656bdf890be98d5ac462686028297e6406c771db2732"
     },
     {
       "path": "lua/itemui/views/config_filters.lua",
@@ -239,7 +259,7 @@
     },
     {
       "path": "lua/itemui/views/inventory.lua",
-      "hash": "5fb293aaa24899cf8e63066d42bca970349a14549494c75f4a135e2940b0e496"
+      "hash": "c83bacc9725298da609e8e10b9db3155216dfc9efbb4ad2d98e4f2b78abb8d95"
     },
     {
       "path": "lua/itemui/views/item_display.lua",
@@ -255,7 +275,7 @@
     },
     {
       "path": "lua/itemui/views/main_window.lua",
-      "hash": "f09c9af094b334790cb6b434dcb2dc35fb6341fe407f7389494ecb090fce0bbc"
+      "hash": "67093037c30f78a45cbadce2c4831e1ceccc600c6bf3781983ec5e7112841fb7"
     },
     {
       "path": "lua/itemui/views/reroll.lua",

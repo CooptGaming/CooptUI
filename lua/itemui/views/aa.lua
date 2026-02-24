@@ -256,15 +256,17 @@ function AAView.render(ctx)
     if not ctx.uiState.aaWindowShouldDraw then return end
 
     local layoutConfig = ctx.layoutConfig
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.AAWindowX or 0
     local ay = layoutConfig.AAWindowY or 0
     if ax and ay and (ax ~= 0 or ay ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(ax, ay), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
     local w = layoutConfig.WidthAAPanel or constants.VIEWS.WidthAAPanel
     local h = layoutConfig.HeightAA or constants.VIEWS.HeightAA
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0

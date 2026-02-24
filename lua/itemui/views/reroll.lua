@@ -464,13 +464,15 @@ function RerollView.render(ctx)
     local w = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel or constants_views.WidthRerollPanel or 520
     local h = layoutConfig.HeightReroll or layoutDefaults.HeightReroll or constants_views.HeightReroll or 480
 
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local rx = layoutConfig.RerollWindowX or 0
     local ry = layoutConfig.RerollWindowY or 0
     if rx and ry and (rx ~= 0 or ry ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(rx, ry), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(rx, ry), condPos)
     end
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0

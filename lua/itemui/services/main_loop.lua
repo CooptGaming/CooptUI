@@ -563,6 +563,10 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     local getStatsTabPrimedThisSession, setStatsTabPrimedThisSession = d.getStatsTabPrimedThisSession, d.setStatsTabPrimedThisSession
     local clearLootItems = d.clearLootItems
 
+    -- Decrement force-apply layout frames after revert (so positions/sizes re-apply from layoutConfig)
+    if uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0 then
+        uiState.layoutRevertedApplyFrames = uiState.layoutRevertedApplyFrames - 1
+    end
     local invWndLoop = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
     local invOpen = (invWndLoop and invWndLoop.Open and invWndLoop.Open()) or false
     local bankOpen = isBankWindowOpen()

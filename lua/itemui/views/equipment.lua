@@ -43,17 +43,19 @@ local EQUIPMENT_ROW_LENGTHS = { 4, 2, 2, 2, 2, 4, 3, 4 }
 function EquipmentView.render(ctx)
     if not ctx.uiState.equipmentWindowShouldDraw then return end
 
-    -- Position: use saved position from last close (same as other companion windows)
+    -- Position: use saved position from last close (Always when forceApply so revert takes effect)
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local eqX = ctx.layoutConfig.EquipmentWindowX or 0
     local eqY = ctx.layoutConfig.EquipmentWindowY or 0
     if eqX ~= 0 or eqY ~= 0 then
-        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(eqX, eqY), condPos)
     end
 
     local w = ctx.layoutConfig.WidthEquipmentPanel or EQUIPMENT_WINDOW_WIDTH
     local h = ctx.layoutConfig.HeightEquipment or EQUIPMENT_WINDOW_HEIGHT
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0

@@ -25,15 +25,17 @@ function LootUIView.render(ctx)
     local theme = ctx.theme
     local layoutConfig = ctx.layoutConfig or {}
 
+    local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local w = layoutConfig.WidthLootPanel or constants.VIEWS.WidthLootPanel
     local h = layoutConfig.HeightLoot or constants.VIEWS.HeightLoot
     if w and h and w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
     local lx = layoutConfig.LootWindowX
     local ly = layoutConfig.LootWindowY
     if lx and ly and (lx ~= 0 or ly ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(lx, ly), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(lx, ly), condPos)
     end
     -- Loot window is always resizable (independent of main UI lock)
     local windowFlags = 0
