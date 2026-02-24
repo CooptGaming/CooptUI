@@ -65,6 +65,18 @@ for _, f in ipairs(STAT_FIELDS) do STAT_FIELDS_SET[f] = true end
 --- String-type stat fields (default to "" not 0)
 local STAT_STRING_FIELDS = { baneDMGType = true, dmgBonusType = true }
 
+--- Descriptive/tooltip-only fields: lazy-loaded on first access (batch) to reduce scan TLO cost.
+--- Ordered list for batch iteration; string fields use "" as default.
+local DESCRIPTIVE_FIELDS = {
+    "tribute", "size", "sizeCapacity", "container", "stackSizeMax",
+    "norent", "magic", "prestige", "tradeskills",
+    "requiredLevel", "recommendedLevel", "instrumentType", "instrumentMod",
+    "class", "race", "deity",
+}
+local DESCRIPTIVE_FIELDS_SET = {}
+for _, f in ipairs(DESCRIPTIVE_FIELDS) do DESCRIPTIVE_FIELDS_SET[f] = true end
+local DESCRIPTIVE_STRING_FIELDS = { class = true, race = true, deity = true, instrumentType = true }
+
 --- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), "corpse" uses Corpse.Item(slot),
 --- "equipped" uses InvSlot(slot) for slot 0-22 (0-based equipment slots), else Me.Inventory("pack"..bag).Item(slot).
 --- Bag and slot are 1-based (same as stored on item tables) for inv/bank. For corpse, bag is ignored and slot is corpse loot slot (1-based).
@@ -870,8 +882,8 @@ function M.getDeityStringFromTLO(it)
 end
 
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
---- Stat/combat/resistance fields are lazy-loaded on first access via metatable __index.
---- wornSlots and augSlots are also lazy-loaded to reduce scan TLO cost (WornSlot N + AugSlot1-6 per item).
+--- Scan captures only: name, id, value, stackSize, type, weight, icon, and 7 sell/loot boolean flags.
+--- Stat/combat, wornSlots, augSlots, and descriptive/tooltip fields are lazy-loaded on first access via __index.
 --- Optional 5th arg socketIndex: when set, item is the socket TLO (e.g. parentIt.Item(5)); __index resolves
 --- parent via getItemTLO(bag,slot,source) then it.Item(socketIndex) for lazy stats. Used for augment/ornament link tooltips.
 function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
@@ -879,41 +891,23 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
     local iv = item.Value and item.Value() or 0
     local ss = item.Stack and item.Stack() or 1
     if ss < 1 then ss = 1 end
-    local stackSizeMax = item.StackSize and item.StackSize() or ss
-    local clsStr, raceStr = M.getClassRaceStringsFromTLO(item)
-    local deityStr = M.getDeityStringFromTLO(item)
     local base = {
         bag = bag, slot = slot,
         source = source or "inv",
         socketIndex = socketIndex,
         name = item.Name and item.Name() or "",
         id = item.ID and item.ID() or 0,
-        value = iv, totalValue = iv * ss, stackSize = ss, stackSizeMax = stackSizeMax,
+        value = iv, totalValue = iv * ss, stackSize = ss,
         type = item.Type and item.Type() or "",
         weight = item.Weight and item.Weight() or 0,
         icon = item.Icon and item.Icon() or 0,
-        tribute = item.Tribute and item.Tribute() or 0,
-        size = item.Size and item.Size() or 0,
-        sizeCapacity = item.SizeCapacity and item.SizeCapacity() or 0,
-        container = item.Container and item.Container() or 0,
         nodrop = item.NoDrop and item.NoDrop() or false,
         notrade = item.NoTrade and item.NoTrade() or false,
-        norent = item.NoRent and item.NoRent() or false,
         lore = item.Lore and item.Lore() or false,
-        magic = item.Magic and item.Magic() or false,
         attuneable = item.Attuneable and item.Attuneable() or false,
         heirloom = item.Heirloom and item.Heirloom() or false,
-        prestige = item.Prestige and item.Prestige() or false,
         collectible = item.Collectible and item.Collectible() or false,
         quest = item.Quest and item.Quest() or false,
-        tradeskills = item.Tradeskills and item.Tradeskills() or false,
-        class = clsStr,
-        race = raceStr,
-        deity = deityStr or "",
-        requiredLevel = item.RequiredLevel and item.RequiredLevel() or 0,
-        recommendedLevel = item.RecommendedLevel and item.RecommendedLevel() or 0,
-        instrumentType = item.InstrumentType and item.InstrumentType() or "",
-        instrumentMod = item.InstrumentMod and item.InstrumentMod() or 0,
     }
     -- Lazy-load: wornSlots, augSlots, and stat fields on first access (use getItemTLO so bank uses Me.Bank)
     setmetatable(base, { __index = function(t, k)
@@ -947,6 +941,39 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
             local v = (it and M.getAugRestrictionsFromTLO(it)) or 0
             rawset(t, "augRestrictions", v)
             return v
+        end
+        -- Descriptive/tooltip-only fields: batch-load on first access to any of them
+        if DESCRIPTIVE_FIELDS_SET[k] then
+            if rawget(t, "_descriptive_loaded") then return rawget(t, k) end
+            if it and it.ID and it.ID() ~= 0 then
+                local clsStr, raceStr = M.getClassRaceStringsFromTLO(it)
+                local deityStr = M.getDeityStringFromTLO(it)
+                rawset(t, "tribute", it.Tribute and it.Tribute() or 0)
+                rawset(t, "size", it.Size and it.Size() or 0)
+                rawset(t, "sizeCapacity", it.SizeCapacity and it.SizeCapacity() or 0)
+                rawset(t, "container", it.Container and it.Container() or 0)
+                rawset(t, "stackSizeMax", it.StackSize and it.StackSize() or rawget(t, "stackSize") or 1)
+                rawset(t, "norent", it.NoRent and it.NoRent() or false)
+                rawset(t, "magic", it.Magic and it.Magic() or false)
+                rawset(t, "prestige", it.Prestige and it.Prestige() or false)
+                rawset(t, "tradeskills", it.Tradeskills and it.Tradeskills() or false)
+                rawset(t, "requiredLevel", it.RequiredLevel and it.RequiredLevel() or 0)
+                rawset(t, "recommendedLevel", it.RecommendedLevel and it.RecommendedLevel() or 0)
+                rawset(t, "instrumentType", it.InstrumentType and it.InstrumentType() or "")
+                rawset(t, "instrumentMod", it.InstrumentMod and it.InstrumentMod() or 0)
+                rawset(t, "class", clsStr or "")
+                rawset(t, "race", raceStr or "")
+                rawset(t, "deity", deityStr or "")
+            else
+                rawset(t, "_tlo_unavailable", true)
+                rawset(t, "tribute", 0) rawset(t, "size", 0) rawset(t, "sizeCapacity", 0) rawset(t, "container", 0)
+                rawset(t, "stackSizeMax", rawget(t, "stackSize") or 1)
+                rawset(t, "norent", false) rawset(t, "magic", false) rawset(t, "prestige", false) rawset(t, "tradeskills", false)
+                rawset(t, "requiredLevel", 0) rawset(t, "recommendedLevel", 0) rawset(t, "instrumentMod", 0)
+                rawset(t, "instrumentType", "") rawset(t, "class", "") rawset(t, "race", "") rawset(t, "deity", "")
+            end
+            rawset(t, "_descriptive_loaded", true)
+            return rawget(t, k)
         end
         if not STAT_FIELDS_SET[k] then return nil end
         -- Batch-load all stat fields from TLO (Me/Inventory can be nil during zone/load)
