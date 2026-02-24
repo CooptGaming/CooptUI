@@ -338,6 +338,7 @@ local function loadLootHistoryFromFile()
             })
         end
     end
+    while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
 end
 local function saveLootHistoryToFile()
     if not uiState.lootHistory or #uiState.lootHistory == 0 then return end

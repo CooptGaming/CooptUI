@@ -125,6 +125,11 @@ local function getItemClassRaceSlotFromIt(it)
     return clsStr, raceStr, slotStr
 end
 
+--- Use shared getItemTLO from item_helpers (single place for bank vs inv TLO resolution).
+local function getItemTLO(bag, slot, source)
+    return itemHelpers.getItemTLO(bag, slot, source)
+end
+
 --- Class/race/slot from bag/slot/source (resolves TLO then calls getItemClassRaceSlotFromIt).
 local function getItemClassRaceSlotFromTLO(bag, slot, source)
     local it = getItemTLO(bag, slot, source)
@@ -153,11 +158,6 @@ local AUG_RESTRICTION_NAMES = {
 -- Slot layout: 1-4 = augment slots, 5 = ornament (type 20). All 1-based per ITEM_INDEX_BASE.
 local ORNAMENT_SLOT_INDEX = 5
 local AUGMENT_SLOT_COUNT = 4
-
---- Use shared getItemTLO from item_helpers (single place for bank vs inv TLO resolution).
-local function getItemTLO(bag, slot, source)
-    return itemHelpers.getItemTLO(bag, slot, source)
-end
 
 --- Use item_helpers.getSlotType for socket type (shared with getCompatibleAugments).
 local function getSlotType(it, slotIndex)
@@ -928,7 +928,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     end
 
     -- ---- Augment item only: "This Augmentation fits in slot types" and Restrictions ----
-    local itemTypeLower = (item.type and tostring(item.type):lower()) or ""
+    itemTypeLower = (item.type and tostring(item.type):lower()) or ""
     if itemTypeLower == "augmentation" then
         local at = item.augType or 0
         if at and at > 0 then
