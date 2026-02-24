@@ -131,6 +131,7 @@ local uiState = {
     setupMode = false, setupStep = 0,
     configWindowOpen = false, configNeedsLoad = false, configAdvancedMode = false,
     revertLayoutConfirmOpen = false,
+    layoutRevertedApplyFrames = 0,  -- When > 0, views use ImGuiCond.Always so positions/sizes from layoutConfig re-apply
     searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,

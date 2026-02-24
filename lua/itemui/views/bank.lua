@@ -26,6 +26,7 @@ function BankView.render(ctx)
     local bankX = ctx.layoutConfig.BankWindowX
     local bankY = ctx.layoutConfig.BankWindowY
     
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     if ctx.uiState.syncBankWindow then
         -- When synced, use the position calculated in renderUI (stored in layoutConfig)
         -- This position is updated every frame when sync is enabled
@@ -35,8 +36,8 @@ function BankView.render(ctx)
     else
         -- When not synced, use saved position or calculate initial position
         if bankX and bankY and bankX ~= 0 and bankY ~= 0 then
-            -- Use saved position
-            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), ImGuiCond.FirstUseEver)
+            -- Use saved position (Always when forceApply so revert takes effect)
+            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
         elseif ctx.uiState.alignToContext then
             -- Calculate initial position relative to ItemUI (if snapping is enabled)
             local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
@@ -59,11 +60,11 @@ function BankView.render(ctx)
         end
     end
     
-    -- Window size
+    -- Window size (Always when forceApply so revert takes effect)
     local w = ctx.layoutConfig.WidthBankPanel or constants.VIEWS.WidthBankPanel
     local h = ctx.layoutConfig.HeightBank or constants.VIEWS.HeightBank
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
     
     -- Window flags - allow resizing unless UI is locked

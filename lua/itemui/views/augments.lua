@@ -44,17 +44,19 @@ function AugmentsView.render(ctx)
     local augmentsWindowOpen = ctx.uiState.augmentsWindowOpen
     local layoutConfig = ctx.layoutConfig
 
-    -- Position: use saved or default
+    -- Position: use saved or default (Always when forceApply so revert takes effect)
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.AugmentsWindowX or 0
     local ay = layoutConfig.AugmentsWindowY or 0
     if ax and ay and ax ~= 0 and ay ~= 0 then
-        ImGui.SetNextWindowPos(ImVec2(ax, ay), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
 
     local w = layoutConfig.WidthAugmentsPanel or AUGMENTS_WINDOW_WIDTH
     local h = layoutConfig.HeightAugments or AUGMENTS_WINDOW_HEIGHT
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0

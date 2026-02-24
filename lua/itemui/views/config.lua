@@ -24,9 +24,10 @@ local function renderConfigWindow(ctx)
     local loadConfigCache = ctx.loadConfigCache
     local scheduleLayoutSave = ctx.scheduleLayoutSave
 
+    local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
     local w, h = layoutConfig.WidthConfig or 0, layoutConfig.HeightConfig or 0
     if w and h and w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
     local ok = ImGui.Begin("CoOpt UI Settings##ItemUIConfig", uiState.configWindowOpen)
     uiState.configWindowOpen = ok
@@ -77,12 +78,15 @@ local function renderConfigWindow(ctx)
         ImGui.TextWrapped("This will reset all window positions, sizes, column settings, and layout preferences to the bundled default.")
         ImGui.TextWrapped("Your lists, filters, and cached items will not be changed.")
         ImGui.Spacing()
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Companion windows will reposition immediately. The main Inventory Companion window position applies after you restart MacroQuest.")
+        ImGui.Spacing()
         if ImGui.Button("Confirm##RevertLayout", ImVec2(120, 0)) then
             local ok, err = defaultLayout.revertToBundledDefaultLayout()
             if ok then
                 if ctx.perfCache then ctx.perfCache.layoutCached = nil; ctx.perfCache.layoutNeedsReload = true end
                 if ctx.loadLayoutConfig then ctx.loadLayoutConfig() end
-                ctx.setStatusMessage("Layout reverted to default. Close and reopen CoOpt UI to see all windows.")
+                uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
+                ctx.setStatusMessage("Layout reverted to default. Companion windows will reposition; main window position applies after restarting MacroQuest.")
             else
                 ctx.setStatusMessage("Revert failed: " .. tostring(err or "unknown"))
             end

@@ -61,16 +61,18 @@ function ItemDisplayView.render(ctx)
         activeIdx = ctx.uiState.itemDisplayActiveTabIndex
     end
 
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local px = layoutConfig.ItemDisplayWindowX or 0
     local py = layoutConfig.ItemDisplayWindowY or 0
     if px and py and (px ~= 0 or py ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(px, py), condPos)
     end
 
     local w = layoutConfig.WidthItemDisplayPanel or constants.VIEWS.WidthItemDisplayPanel
     local h = layoutConfig.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0

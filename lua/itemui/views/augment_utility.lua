@@ -17,16 +17,18 @@ function AugmentUtilityView.render(ctx)
     local layoutConfig = ctx.layoutConfig
     local open = ctx.uiState.augmentUtilityWindowOpen
 
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local px = layoutConfig.AugmentUtilityWindowX or 0
     local py = layoutConfig.AugmentUtilityWindowY or 0
     if px and py and (px ~= 0 or py ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowPos(ImVec2(px, py), condPos)
     end
 
     local w = layoutConfig.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
     local h = layoutConfig.HeightAugmentUtility or constants.VIEWS.HeightAugmentUtility
     if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 
     local windowFlags = 0
