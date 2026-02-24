@@ -139,6 +139,7 @@ function M.scanInventory()
         print(string.format("\ag[ItemUI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
 end
 
 -- Incremental scan state (internal to this module)
@@ -322,6 +323,7 @@ function M.scanBank()
             scanState.lastPersistSaveTime = now
         end
     end
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
 end
 
 function M.ensureBankCacheFromStorage()
@@ -378,6 +380,7 @@ function M.scanSellItems()
     for i = #sellItems, 1, -1 do sellItems[i] = nil end
     for i, v in ipairs(newItems) do sellItems[i] = v end
 
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
     scanSellItemsRunning = false
 end
 

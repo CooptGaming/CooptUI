@@ -20,6 +20,9 @@ local TOOLTIP_COMPACT_COL = 280   -- column width when compact
 local TOOLTIP_LINE_HEIGHT = 18   -- ensure stats and spell info rows fit
 local TOOLTIP_PADDING = 20       -- margin so bottom content isn't cut off
 local TOOLTIP_EXTRA_ROWS = 4     -- buffer so all stats/effects are visible (no truncation)
+-- Tooltip pre-computation cache (Task 3.4): keyed by (itemId, bag, slot, source, socketIndex); invalidate on scan
+local tooltipCache = {}
+local TOOLTIP_CACHE_MAX = 200
 -- Approximate chars per line for row counting (column width ~380px)
 local CHARS_PER_LINE_NAME = 48
 local CHARS_PER_LINE_DESC = 52
@@ -378,12 +381,21 @@ end
 
 --- Pre-warm item, build effects, and estimate tooltip size so each hover gets correct width/height (no reuse of previous item's size).
 --- Returns: effects (table), width (number), height (number). Pass opts.effects = effects into renderStatsTooltip to avoid building effects twice.
+--- Results are cached by (itemId, bag, slot, source, socketIndex); invalidate via invalidateTooltipCache() on scan.
 function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     if not item then return {}, TOOLTIP_MIN_WIDTH, 400 end
     opts = opts or {}
     local source = opts.source or (item and item.source) or "inv"
     local bag = item.bag ~= nil and item.bag or opts.bag
     local slot = item.slot ~= nil and item.slot or opts.slot
+    local socketIndex = opts.socketIndex or 0
+    local id = item.id or 0
+    local cacheKey = tostring(id) .. "\0" .. tostring(bag or -1) .. "\0" .. tostring(slot or -1) .. "\0" .. tostring(source) .. "\0" .. tostring(socketIndex)
+    local cached = tooltipCache[cacheKey]
+    if cached then
+        opts.tooltipColWidth = (cached.width == TOOLTIP_COMPACT_WIDTH) and TOOLTIP_COMPACT_COL or TOOLTIP_COL_WIDTH
+        return cached.effects, cached.width, cached.height
+    end
     -- Pre-warm lazy fields
     if bag and slot and source then
         local _ = item.augSlots
@@ -439,7 +451,18 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     local useCompact = (#effects == 0 and augCount == 0 and totalRows < 26)
     local width = useCompact and TOOLTIP_COMPACT_WIDTH or TOOLTIP_MIN_WIDTH
     opts.tooltipColWidth = useCompact and TOOLTIP_COMPACT_COL or TOOLTIP_COL_WIDTH
+    tooltipCache[cacheKey] = { effects = effects, width = width, height = height }
+    if TOOLTIP_CACHE_MAX > 0 then
+        local n = 0
+        for _ in pairs(tooltipCache) do n = n + 1; if n > TOOLTIP_CACHE_MAX then break end end
+        if n > TOOLTIP_CACHE_MAX then tooltipCache = {} end
+    end
     return effects, width, height
+end
+
+--- Invalidate tooltip cache (call after inventory/bank/sell scan so tooltips reflect current data).
+function ItemTooltip.invalidateTooltipCache()
+    tooltipCache = {}
 end
 
 --- Returns true if the current player can use the item (class, race, deity, level).

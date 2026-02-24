@@ -501,9 +501,10 @@ local function loadLayoutConfig() layoutUtils.loadLayoutConfig() end
 local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutForView(view, w, h, bankPanelW) end
 
 -- sortOnly: when true (inv only), do not clear invTotalSlots/invTotalValue so "Items: x/y" and total value don't force recompute
+-- Invalidation sets _invalid so getSortedList will recompute; we keep sorted/key/dir/etc. so incremental update can run when only one item changed.
 local function invalidateSortCache(view, sortOnly)
     local c = view == "inv" and perfCache.inv or view == "sell" and perfCache.sell or view == "bank" and perfCache.bank or view == "loot" and perfCache.loot
-    if c then c.key = nil end
+    if c then c._invalid = true end
     if view == "inv" and not sortOnly then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true end
 end
 
@@ -576,6 +577,10 @@ do
         getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
         invalidateSortCache = invalidateSortCache,
         invalidateTimerReadyCache = function() perfCache.timerReadyCache = {} end,
+        invalidateTooltipCache = function()
+            local tt = require('itemui.utils.item_tooltip')
+            if tt and tt.invalidateTooltipCache then tt.invalidateTooltipCache() end
+        end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,

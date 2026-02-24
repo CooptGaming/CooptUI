@@ -541,8 +541,13 @@ end
 -- ============================================================================
 
 --- Return true if this row should be hidden (item is on cursor or just picked up from this slot).
+--- Do not hide when quantity picker is open for this slot (stack pickup): wait until quantity is selected and taken.
 function M.shouldHideRowForCursor(item, source)
     if not item or not source then return false end
+    local pq = deps.uiState.pendingQuantityPickup
+    if pq and pq.bag == item.bag and pq.slot == item.slot and pq.source == source then
+        return false  -- waiting for quantity selection; keep row visible so user sees the stack
+    end
     local lp = deps.uiState.lastPickup
     if not lp or lp.source ~= source then return false end
     if lp.bag ~= item.bag or lp.slot ~= item.slot then return false end
