@@ -393,12 +393,12 @@ function M.render(refs)
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
         ImGui.SameLine()
-        if ImGui.Button("Filter", ImVec2(55, 0)) then
+        if ImGui.Button("Augments", ImVec2(55, 0)) then
             uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
             uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
+            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Augments window opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Augments window (augment inventory, Always sell / Never loot lists, stats on hover)"); ImGui.EndTooltip() end
         ImGui.SameLine()
         if ImGui.Button("Reroll", ImVec2(55, 0)) then
             uiState.rerollWindowOpen = not uiState.rerollWindowOpen
