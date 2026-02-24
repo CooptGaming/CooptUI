@@ -6,6 +6,21 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.8.5-alpha] — 2026-02-23
+
+### Added
+- **Default layout snapshot system** — Standalone `coopt_layout_capture.py` to capture a reference layout from an MQ folder; outputs `default_layout/` with normalized `itemui_layout.ini`, CoOpt UI-only `overlay_snippet.ini`, and `layout_manifest.json`
+- **First-run default layout** — When no existing layout exists, CoOpt UI applies the bundled `lua/itemui/default_layout/` into `Macros/sell_config/` and merges overlay snippet into `config/MacroQuest_Overlay.ini`
+- **Revert to Default Layout** — Settings window button with confirmation modal; applies bundled default, force-applies companion window positions/sizes for several frames so they reposition without closing the UI; main window position applies after restarting MacroQuest (documented in dialog)
+- **DEFAULT_LAYOUT.md** — Documentation for capture, first-run, revert, patcher contract, and revert diagnostics/fixes
+
+### Fixed
+- Capture script: `[Window][Title]` key parsing now uses `index("]", 9)` so full window title is captured (was empty, so no `[Window]` blocks were in overlay_snippet.ini)
+- Deploy merge: same key parsing fix when merging overlay snippet into existing MacroQuest_Overlay.ini
+- Revert: companion windows now actually move/resize after revert by using `ImGuiCond.Always` for position/size for a few frames when `layoutRevertedApplyFrames > 0` (was only applying on first show via FirstUseEver)
+
+---
+
 ## [0.8.0-alpha] — 2026-02-22
 
 ### Changed
