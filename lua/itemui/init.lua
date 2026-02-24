@@ -314,6 +314,7 @@ local lootLoopRefs = {
     saveSkipAt = 0,
     sellStatusCap = constants.LIMITS.LOOT_SELL_STATUS_CAP,
     pendingSession = false,
+    pendingSessionAt = 0,  -- when we set pendingSession, so we can defer read until macro finished writing
 }
 local LOOT_HISTORY_MAX = constants.LIMITS.LOOT_HISTORY_MAX
 local LOOT_HISTORY_DELIM = "\1"  -- ASCII 1 (safe in INI values; avoids | or tab in item names)
@@ -598,6 +599,7 @@ local function scanBank() scanService.scanBank() end
 local function scanSellItems() scanService.scanSellItems() end
 local function scanLootItems() scanService.scanLootItems() end
 local function maybeScanInventory(invOpen) scanService.maybeScanInventory(invOpen) end
+local function rescanInventoryBags(bagList) scanService.rescanInventoryBags(bagList) end
 local function maybeScanBank(bankOpen) scanService.maybeScanBank(bankOpen) end
 local function maybeScanSellItems(merchOpen) scanService.maybeScanSellItems(merchOpen) end
 local function maybeScanLootItems(lootOpen) scanService.maybeScanLootItems(lootOpen) end
@@ -626,6 +628,7 @@ itemOps.init({
     scanBank = function() scanService.scanBank() end,
     scanInventory = function() scanService.scanInventory() end,
     maybeScanInventory = maybeScanInventory,
+    rescanInventoryBags = rescanInventoryBags,
 })
 rerollService.init({
     setStatusMessage = setStatusMessage,

@@ -527,10 +527,12 @@ function M.executeMoveAction(action)
             end
         end
         deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
+        if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.bag }) end
     else
         M.removeItemFromBankBySlot(action.bag, action.slot)
         if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots) end
         deps.setStatusMessage(row and string.format("Moved to inventory: %s", row.name or "item") or "Moved to inventory")
+        if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.destBag }) end
     end
 end
 
@@ -579,7 +581,7 @@ function M.dropAtSlot(bag, slot, source)
     deps.uiState.lastPickupClearedAt = mq.gettime()
     deps.invalidateSortCache(source == "inv" and "inv" or "bank")
     if source == "inv" then
-        if deps.maybeScanInventory then deps.maybeScanInventory() end
+        if deps.rescanInventoryBags then deps.rescanInventoryBags({ bag }) end
         deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
         if deps.setStatusMessage then deps.setStatusMessage("Dropped in pack") end
     end
@@ -598,7 +600,7 @@ function M.putCursorInBags()
     deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
     deps.uiState.lastPickupClearedAt = mq.gettime()
     deps.setStatusMessage("Put in bags")
-    if deps.scanInventory then deps.scanInventory() end
+    if deps.rescanInventoryBags then deps.rescanInventoryBags({ ib }) end
     -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
     deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
     return true
@@ -666,6 +668,7 @@ function M.performDestroyItem(bag, slot, itemName, qty)
     M.reduceStackOrRemoveBySlot(bag, slot, qty)
     if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
     if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
+    if deps.rescanInventoryBags then deps.rescanInventoryBags({ bag }) end
     local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
     if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
     deps.setStatusMessage(msg)

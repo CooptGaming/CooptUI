@@ -689,7 +689,9 @@ function M.render(refs)
             uiState.equipmentLastRefreshAt = nil
         end
         if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
-            if refs.scanInventory then refs.scanInventory() end
+            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+            local invOpen = (invWnd and invWnd.Open and invWnd.Open()) or false
+            if refs.maybeScanInventory then refs.maybeScanInventory(invOpen) end
             uiState.deferredInventoryScanAt = nil
         end
         renderEquipmentWindow(refs)

@@ -56,8 +56,9 @@ M.TIMING = {
     ITEM_DISPLAY_LOCATE_CLEAR_SEC = 3,
 
     -- Loot
-    LOOT_POLL_MS = 500,
+    LOOT_POLL_MS = 100,   -- poll progress more often so bar updates per corpse (was 500)
     LOOT_POLL_MS_IDLE = 1000,
+    LOOT_SESSION_READ_DELAY_MS = 150,  -- defer reading loot_session.ini after macro stop so macro can finish writing
     LOOT_DEFER_MS = 2000,
     LOOT_MYTHICAL_DECISION_SEC = 300,
 

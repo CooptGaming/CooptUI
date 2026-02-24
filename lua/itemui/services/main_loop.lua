@@ -170,6 +170,7 @@ local function phase5_lootMacro(now)
         lootMacState.finishedAt = now
         d.scanState.inventoryBagsDirty = true
         lootLoopRefs.pendingSession = true
+        lootLoopRefs.pendingSessionAt = now
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
             local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
@@ -197,8 +198,10 @@ local function phase5_lootMacro(now)
             end
         end
     end
-    if lootLoopRefs.pendingSession then
+    local sessionReadDelay = constants.TIMING.LOOT_SESSION_READ_DELAY_MS or 150
+    if lootLoopRefs.pendingSession and (now - (lootLoopRefs.pendingSessionAt or 0)) >= sessionReadDelay then
         lootLoopRefs.pendingSession = nil
+        lootLoopRefs.pendingSessionAt = 0
         if uiState.lootUIOpen then
             local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
             if sessionPath and sessionPath ~= "" then
