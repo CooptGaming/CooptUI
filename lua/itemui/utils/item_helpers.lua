@@ -522,6 +522,11 @@ local function slotIndexToDisplayName(s)
     return (str ~= "") and str or nil
 end
 
+--- Return display name for a single slot token (0-22 or name). Used by tooltip slotStringToDisplay.
+function M.getSlotDisplayName(s)
+    return slotIndexToDisplayName(s)
+end
+
 --- Build comma-separated list of slot names from item TLO. WornSlots() is the count; WornSlot(N) is the Nth slot.
 function M.getWornSlotsStringFromTLO(it)
     if not it or not it.WornSlots or not it.WornSlot then return "" end
@@ -826,6 +831,13 @@ function M.getClassRaceStringsFromTLO(it)
         else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r end, nRace); raceStr = table.concat(p, " ") end
     end
     return clsStr, raceStr
+end
+
+--- Class, race, and slot display strings from item TLO. Returns clsStr, raceStr, slotStr (single call for tooltip).
+function M.getClassRaceSlotFromTLO(it)
+    local c, r = M.getClassRaceStringsFromTLO(it)
+    local s = M.getWornSlotsStringFromTLO(it)
+    return c, r, s
 end
 
 --- Build deity display string from item TLO (Deities()/Deity(i)). Returns "" if no deity restriction.

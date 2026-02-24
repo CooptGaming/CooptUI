@@ -38,29 +38,12 @@ function ItemTooltip.beginItemTooltip(width, height)
     ImGui.BeginTooltip()
 end
 
--- Slot index (0-22) to display name
-local SLOT_DISPLAY_NAMES = {
-    [0] = "Charm", [1] = "Ear", [2] = "Head", [3] = "Face", [4] = "Ear",
-    [5] = "Neck", [6] = "Shoulder", [7] = "Arms", [8] = "Back", [9] = "Wrist",
-    [10] = "Wrist", [11] = "Ranged", [12] = "Hands", [13] = "Primary", [14] = "Secondary",
-    [15] = "Ring", [16] = "Ring", [17] = "Chest", [18] = "Legs", [19] = "Feet",
-    [20] = "Waist", [21] = "Power", [22] = "Ammo",
-}
-
-local function slotToDisplayName(s)
-    if s == nil or s == "" then return nil end
-    local n = tonumber(s)
-    if n ~= nil and SLOT_DISPLAY_NAMES[n] then return SLOT_DISPLAY_NAMES[n] end
-    local str = tostring(s):lower():gsub("^%l", string.upper)
-    return (str ~= "") and str or nil
-end
-
 local function slotStringToDisplay(str)
     if not str or str == "" then return str end
     local seen = {}
     local parts = {}
     for token in tostring(str):gmatch("[^,%s]+") do
-        local name = slotToDisplayName(token)
+        local name = itemHelpers.getSlotDisplayName(token)
         if name and not seen[name] then seen[name] = true; parts[#parts + 1] = name end
     end
     return (#parts > 0) and table.concat(parts, ", ") or str
@@ -98,44 +81,6 @@ local function attrLine(base, heroic, label)
     return string.format("%s: %d", label, b)
 end
 
---- Class/race/slot from item TLO (pass existing it to avoid re-resolving). Returns clsStr, raceStr, slotStr.
-local function getItemClassRaceSlotFromIt(it)
-    local clsStr, raceStr, slotStr = "", "", ""
-    if not it or not it.ID or it.ID() == 0 then return clsStr, raceStr, slotStr end
-    local function add(parts, fn, n)
-        if not n or n <= 0 then return end
-        for i = 1, n do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = v end end
-        if #parts == 0 then for i = 0, n - 1 do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = v end end end
-    end
-    local nClass = it.Classes and it.Classes()
-    if nClass and nClass > 0 then
-        if nClass >= 16 then clsStr = "All"
-        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c and tostring(c) or "" end, nClass); clsStr = table.concat(p, " ") end
-    end
-    local nRace = it.Races and it.Races()
-    if nRace and nRace > 0 then
-        if nRace >= 15 then raceStr = "All"
-        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r and tostring(r) or "" end, nRace); raceStr = table.concat(p, " ") end
-    end
-    local nSlots = it.WornSlots and it.WornSlots()
-    if nSlots and nSlots > 0 then
-        if nSlots >= 20 then slotStr = "All"
-        else local p = {}; add(p, function(i) local s = it.WornSlot and it.WornSlot(i); return s and slotToDisplayName(tostring(s)) or "" end, nSlots); slotStr = table.concat(p, ", ") end
-    end
-    return clsStr, raceStr, slotStr
-end
-
---- Use shared getItemTLO from item_helpers (single place for bank vs inv TLO resolution).
-local function getItemTLO(bag, slot, source)
-    return itemHelpers.getItemTLO(bag, slot, source)
-end
-
---- Class/race/slot from bag/slot/source (resolves TLO then calls getItemClassRaceSlotFromIt).
-local function getItemClassRaceSlotFromTLO(bag, slot, source)
-    local it = getItemTLO(bag, slot, source)
-    return getItemClassRaceSlotFromIt(it)
-end
-
 -- Augment slot type ID to display name (in-game style). Extended to match default Item Display.
 local AUG_TYPE_NAMES = {
     [1] = "General: Single", [2] = "General: Multiple Stat", [3] = "Armor: Visible", [4] = "Weapon: General",
@@ -159,33 +104,22 @@ local AUG_RESTRICTION_NAMES = {
 local ORNAMENT_SLOT_INDEX = 5
 local AUGMENT_SLOT_COUNT = 4
 
---- Use item_helpers.getSlotType for socket type (shared with getCompatibleAugments).
-local function getSlotType(it, slotIndex)
-    return itemHelpers.getSlotType(it, slotIndex)
-end
-
---- True if item has ornament slot (slot 5, type 20). Uses 1-based slot index.
-local function itemHasOrnamentSlot(it)
-    if not it or not it.ID or it.ID() == 0 then return false end
-    return getSlotType(it, ORNAMENT_SLOT_INDEX) == 20
-end
-
 --- Core: build augment slot lines from item TLO (slots 1-4 only; slot 5 is ornament, shown separately).
 --- Uses itemHelpers.getStandardAugSlotsCountFromTLO(it) when available so CoOpt Item Display and tooltips
 --- never show phantom slots (e.g. "Slot 3" when item only has slots 1, 2 and ornament). Fallback: augSlots - 1 if ornament.
---- Returns { iconId, text } per row. Uses getSlotType for type; name/icon from AugSlot(i).Name or Item(i). All indices 1-based.
+--- Returns { iconId, text } per row. Uses itemHelpers.getSlotType for type; name/icon from AugSlot(i).Name or Item(i). All indices 1-based.
 local function getAugmentSlotLinesFromIt(it, augSlots)
     if not it or not it.ID or it.ID() == 0 then return nil end
     local numSlots = (it and itemHelpers.getStandardAugSlotsCountFromTLO(it)) or 0
     if numSlots == 0 then
-        local hasOrnament = itemHasOrnamentSlot(it)
+        local hasOrnament = itemHelpers.itemHasOrnamentSlot(it)
         local raw = (augSlots or 0)
         numSlots = math.min(AUGMENT_SLOT_COUNT, hasOrnament and (raw - 1) or raw)
     end
     if numSlots < 1 then return nil end
     local lines = {}
     for i = 1, numSlots do
-        local typ = getSlotType(it, i)
+        local typ = itemHelpers.getSlotType(it, i)
         local augName = "empty"
         if typ > 0 then
             local okAug, aug = pcall(function() return it.AugSlot and it.AugSlot(i) end)
@@ -230,7 +164,7 @@ end
 
 --- Augment slot lines from bag/slot/source (resolves TLO then calls getAugmentSlotLinesFromIt).
 local function getAugmentSlotLines(bag, slot, source, augSlots)
-    local it = getItemTLO(bag, slot, source)
+    local it = itemHelpers.getItemTLO(bag, slot, source)
     return getAugmentSlotLinesFromIt(it, augSlots)
 end
 
@@ -252,7 +186,7 @@ end
 --- Primary: slot 5 (1-based per ITEM_INDEX_BASE) is ornament (type 20). Get name/icon from Item(5).
 local function getOrnamentFromIt(it)
     if not it or not it.ID or it.ID() == 0 then return nil end
-    if getSlotType(it, ORNAMENT_SLOT_INDEX) ~= 20 then
+    if itemHelpers.getSlotType(it, ORNAMENT_SLOT_INDEX) ~= 20 then
         -- Fallback: it.Ornament when slot 5 does not report type 20.
         local okO, ornamentObj = pcall(function() return it.Ornament end)
         if okO and ornamentObj then
@@ -460,7 +394,7 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
             _ = item.augRestrictions
         end
     end
-    local it = (bag and slot and source) and getItemTLO(bag, slot, source) or nil
+    local it = (bag and slot and source) and itemHelpers.getItemTLO(bag, slot, source) or nil
     local parentIt = it
     if it and opts.socketIndex and it.Item then
         local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
@@ -494,7 +428,7 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     end
     local itemInfoRows = getItemInfoRowCount(item)
     local statRows = getStatRowCount(item)
-    local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
+    local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHelpers.itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
     if augCount < 0 then augCount = 0 end
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     -- Use the longer column and add buffer so all stats and spell info are visible (no cut-off)
@@ -596,7 +530,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     end
 
     -- Resolve item TLO once per hover (quick); use for class/race/slot, ornament, and augment lines.
-    local it = (bag ~= nil and slot ~= nil and source) and getItemTLO(bag, slot, source) or nil
+    local it = (bag ~= nil and slot ~= nil and source) and itemHelpers.getItemTLO(bag, slot, source) or nil
     local parentIt = it
     if it and opts.socketIndex and it.Item then
         local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
@@ -697,14 +631,14 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     -- Class, Race, Slot, Deity, Ornament, Container, Item info, All Stats, Augmentation slots
     local cls, race, slotStr = "—", "—", ""
     if itValid then
-        local ok, c, r, s = pcall(getItemClassRaceSlotFromIt, it)
+        local ok, c, r, s = pcall(itemHelpers.getClassRaceSlotFromTLO, it)
         if ok then
             if c and c ~= "" then cls = c end
             if r and r ~= "" then race = r end
             if s and s ~= "" then slotStr = s end
         end
     else
-        local ok, c, r, s = pcall(getItemClassRaceSlotFromTLO, bag, slot, source)
+        local ok, c, r, s = pcall(itemHelpers.getClassRaceSlotFromTLO, itemHelpers.getItemTLO(bag, slot, source))
         if ok then
             if c and c ~= "" then cls = c end
             if r and r ~= "" then race = r end
@@ -819,7 +753,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
     -- (Some augments e.g. Barbed Dragon Bones, Jade Prism had stats in TLO but not in the table we render from.)
     -- If more augment stats are missing in future, add that TLO name here and use rawget/fallback in combat array.
     if itemTypeLower == "augmentation" and bag and slot and source then
-        local it = getItemTLO(bag, slot, source)
+        local it = itemHelpers.getItemTLO(bag, slot, source)
         if it and it.ID and it.ID() and it.ID() ~= 0 then
             local try = function(tlo, name)
                 local acc = tlo[name] or tlo[name:lower()]
