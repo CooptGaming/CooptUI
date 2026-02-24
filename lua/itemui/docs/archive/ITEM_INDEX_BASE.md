@@ -8,7 +8,7 @@
 
 ## MQ TLO nuance: ItemSlot / ItemSlot2
 
-- MQ’s `item.ItemSlot()` and `item.ItemSlot2()` return **0-based** indices (per MQ convention).
+- MQ's `item.ItemSlot()` and `item.ItemSlot2()` return **0-based** indices (per MQ convention).
 - **Bank scan** in `services/scan.lua` converts these to 1-based when building cache entries:  
   `(islot or (bagNum-1)) + 1`, `(islot2 or (slotNum-1)) + 1`.
 - All other code (inventory scan, views, tooltip, item_ops, getItemTLO) uses 1-based bag/slot only; no conversion.

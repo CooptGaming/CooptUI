@@ -13,7 +13,7 @@ import os
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 # Paths to include (relative to repo root). Mirrors build-release.ps1 replace-on-update list.
-# We collect lua/itemui (excluding docs, test_rules, upvalue_check, phase7_check), scripttracker, coopui, mq/ItemUtils,
+# We collect lua/itemui (excluding docs, upvalue_check), scripttracker, coopui, mq/ItemUtils,
 # Macros sell.mac loot.mac shared_config/*.mac, resources/UIFiles/Default (3 files).
 def _collect_release_paths():
     paths = []
@@ -23,7 +23,7 @@ def _collect_release_paths():
         for root, dirs, files in os.walk(itemui):
             dirs[:] = [d for d in dirs if d != "docs"]
             for f in files:
-                if f in ("test_rules.lua", "upvalue_check.lua", "phase7_check.ps1", "test_augment_stat_debug.lua"):
+                if f in ("upvalue_check.lua",):
                     continue
                 rel = os.path.relpath(os.path.join(root, f), REPO_ROOT)
                 paths.append(rel.replace("\\", "/"))
