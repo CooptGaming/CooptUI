@@ -1,0 +1,14 @@
+CoOpt UI Default Layout Snapshot
+=================================
+Version token: 20250223000000
+CoOpt UI version: 0.8.0-alpha
+Checksum: initial_bundled
+
+Files included (layout only; no user data):
+  - itemui_layout.ini
+  - overlay_snippet.ini
+
+First-run: CoOpt UI copies these into Macros/sell_config and merges overlay into config/ when no existing layout.
+Revert to Default: same files applied from bundled default_layout/.
+
+Patcher: Include this default_layout/ folder in the distribution (e.g. lua/itemui/default_layout/). CoOpt UI reads from MQ path + "/lua/itemui/default_layout/".

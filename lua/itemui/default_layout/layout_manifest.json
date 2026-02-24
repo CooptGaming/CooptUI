@@ -1,0 +1,11 @@
+{
+  "versionToken": "20250223000000",
+  "cooptVersion": "0.8.0-alpha",
+  "captureTime": "2025-02-23T00:00:00+00:00",
+  "files": [
+    "itemui_layout.ini",
+    "overlay_snippet.ini"
+  ],
+  "description": "CoOpt UI default layout snapshot; layout only (no user data).",
+  "checksum": "initial_bundled"
+}

@@ -13,6 +13,7 @@ local ConfigSell = require('itemui.views.config_sell')
 local ConfigLoot = require('itemui.views.config_loot')
 local ConfigShared = require('itemui.views.config_shared')
 local ConfigFilters = require('itemui.views.config_filters')
+local defaultLayout = require('itemui.utils.default_layout')
 
 local function renderConfigWindow(ctx)
     local uiState = ctx.uiState
@@ -59,7 +60,43 @@ local function renderConfigWindow(ctx)
         else ctx.setStatusMessage("Config path not available") end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the config folder in Windows Explorer."); ImGui.Text("Quick access to all INI files."); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Revert to Default Layout##Config", ImVec2(170, 0)) then
+        if ctx.revertToBundledDefaultLayoutRequest then ctx.revertToBundledDefaultLayoutRequest() end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reset all window positions, sizes, column settings, and layout preferences to the bundled default."); ImGui.Text("Does not affect user data (lists, filters, cached items)."); ImGui.EndTooltip() end
     ImGui.Separator()
+
+    -- Revert to Default Layout confirmation modal
+    if uiState.revertLayoutConfirmOpen and not ImGui.IsPopupOpen("Revert to Default Layout##ItemUI") then
+        ImGui.OpenPopup("Revert to Default Layout##ItemUI")
+    end
+    if ImGui.BeginPopupModal("Revert to Default Layout##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "Revert to Default Layout")
+        ImGui.Separator()
+        ImGui.TextWrapped("This will reset all window positions, sizes, column settings, and layout preferences to the bundled default.")
+        ImGui.TextWrapped("Your lists, filters, and cached items will not be changed.")
+        ImGui.Spacing()
+        if ImGui.Button("Confirm##RevertLayout", ImVec2(120, 0)) then
+            local ok, err = defaultLayout.revertToBundledDefaultLayout()
+            if ok then
+                if ctx.perfCache then ctx.perfCache.layoutCached = nil; ctx.perfCache.layoutNeedsReload = true end
+                if ctx.loadLayoutConfig then ctx.loadLayoutConfig() end
+                ctx.setStatusMessage("Layout reverted to default. Close and reopen CoOpt UI to see all windows.")
+            else
+                ctx.setStatusMessage("Revert failed: " .. tostring(err or "unknown"))
+            end
+            uiState.revertLayoutConfirmOpen = false
+            ImGui.CloseCurrentPopup()
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Apply bundled default layout"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##RevertLayout", ImVec2(80, 0)) then
+            uiState.revertLayoutConfirmOpen = false
+            ImGui.CloseCurrentPopup()
+        end
+        ImGui.EndPopup()
+    end
 
     filterState.configTab = filterState.configTab or 1
     if filterState.configTab < 1 or filterState.configTab > 4 then filterState.configTab = 1 end

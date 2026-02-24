@@ -73,6 +73,7 @@ local MainWindow = require('itemui.views.main_window')
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
+local defaultLayout = require('itemui.utils.default_layout')
 local theme = require('itemui.utils.theme')
 local columns = require('itemui.utils.columns')
 local columnConfig = require('itemui.utils.column_config')
@@ -129,6 +130,7 @@ local uiState = {
     sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
     configWindowOpen = false, configNeedsLoad = false, configAdvancedMode = false,
+    revertLayoutConfirmOpen = false,
     searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,
@@ -863,6 +865,7 @@ context_builder.init({
     loadLayoutConfig = loadLayoutConfig,
     captureCurrentLayoutAsDefault = function() layoutUtils.captureCurrentLayoutAsDefault() end,
     resetLayoutToDefault = function() layoutUtils.resetLayoutToDefault() end,
+    revertToBundledDefaultLayoutRequest = function() uiState.revertLayoutConfirmOpen = true end,
     getFixedColumns = function(v) return layoutUtils.getFixedColumns(v) end,
     toggleFixedColumn = function(v, k) return layoutUtils.toggleFixedColumn(v, k) end,
     isColumnInFixedSet = function(v, k) return layoutUtils.isColumnInFixedSet(v, k) end,
@@ -1225,6 +1228,15 @@ local function main()
         end
     end
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
+    -- First-run: apply bundled default layout if user has no existing layout (layout only; no user data)
+    if not defaultLayout.hasExistingLayout() then
+        local ok, err = defaultLayout.applyBundledDefaultLayout()
+        if ok then
+            -- loadLayoutConfig() below will load the newly applied default
+        elseif err and err ~= "" then
+            if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
+        end
+    end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
     do
         local path = layoutUtils.getLayoutFilePath()
