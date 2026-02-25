@@ -285,48 +285,10 @@ function SellView.render(ctx, simulateSellView)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
-                if ImGui.BeginPopupContextItem("ItemContextSellIcon_" .. rid) then
-                    if ImGui.MenuItem("CoOp UI Item Display") then
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                    end
-                    if ImGui.MenuItem("Inspect") then
-                        if hasCursor then ctx.removeItemFromCursor()
-                        else
-                            local Me = mq.TLO and mq.TLO.Me
-                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                            local tlo = pack and pack.Item and pack.Item(item.slot)
-                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
-                        end
-                    end
-                    -- Reroll list: only for augments or mythicals; show Add or Remove per list
-                    local rerollService = ctx.rerollService
-                    if rerollService then
-                        local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
-                        local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
-                        local isAugment = (itemTypeTrim == "Augmentation")
-                        local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
-                        if nameKey ~= "" and (isAugment or isMythicalEligible) then
-                            ImGui.Separator()
-                            local augList = rerollService.getAugList and rerollService.getAugList() or {}
-                            local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                            local itemId = item.id or item.ID
-                            local onAugList, onMythicalList = false, false
-                            if itemId then
-                                for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                                for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                            end
-                            if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-                            if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                            if isAugment then
-                                if onAugList then if ImGui.MenuItem("Remove from Augment List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end end else if ImGui.MenuItem("Add to Augment List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end end end
-                            end
-                            if isMythicalEligible then
-                                if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end end end
-                            end
-                        end
-                    end
-                    ImGui.EndPopup()
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
+                ctx.renderItemContextMenu(ctx, item, { source = "sell", popupId = "ItemContextSellIcon_" .. rid, bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false, hasCursor = hasCursor })
                 -- Column 2: Sell Keep Junk buttons
                 ImGui.TableNextColumn()
                 ctx.theme.PushDeleteButton()
@@ -364,7 +326,7 @@ function SellView.render(ctx, simulateSellView)
                     ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                    ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
                 ImGui.TableNextColumn()
                 -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank

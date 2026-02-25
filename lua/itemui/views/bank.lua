@@ -344,7 +344,7 @@ function BankView.render(ctx)
                             end
                         end
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
+                            ImGui.OpenPopup("ItemContextBankIcon_" .. rid)
                         end
                     elseif colKey == "Icon" then
                         if ctx.drawItemIcon then
@@ -363,77 +363,10 @@ function BankView.render(ctx)
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                             ImGui.EndTooltip()
                         end
-                        if ImGui.BeginPopupContextItem("ItemContextBankIcon_" .. rid) then
-                            local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
-                            if isScriptItem then
-                                if ImGui.MenuItem("Add All to Alt Currency") then
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                    local it = bn and bn.Item and bn.Item(item.slot)
-                                    local stack = (it and it.Stack and it.Stack()) or 0
-                                    if stack < 1 then
-                                        if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
-                                    else
-                                        ctx.uiState.pendingScriptConsume = {
-                                            bag = item.bag, slot = item.slot, source = "bank",
-                                            totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
-                                        }
-                                    end
-                                end
-                                if ImGui.MenuItem("Add Selected to Alt Currency") then
-                                    local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
-                                    ctx.uiState.pendingQuantityPickup = {
-                                        bag = item.bag, slot = item.slot, source = "bank",
-                                        maxQty = maxQty, itemName = item.name, intent = "script_consume"
-                                    }
-                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
-                                    ctx.uiState.quantityPickerValue = "1"
-                                    ctx.uiState.quantityPickerMax = maxQty
-                                end
-                            else
-                            if ImGui.MenuItem("CoOp UI Item Display") then
-                                if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
-                            end
-                            if ImGui.MenuItem("Inspect") then
-                                if hasCursor then ctx.removeItemFromCursor()
-                                else
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                    local sz = bn and bn.Container and bn.Container()
-                                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(item.slot)) or bn
-                                    if it and it.ID and it.ID() and it.ID() > 0 and it.Inspect then it.Inspect() end
-                                end
-                            end
-                            -- Reroll list: only for augments or mythicals; show Add or Remove per list
-                            local rerollService = ctx.rerollService
-                            if rerollService then
-                                local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
-                                local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
-                                local isAugment = (itemTypeTrim == "Augmentation")
-                                local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
-                                if nameKey ~= "" and (isAugment or isMythicalEligible) then
-                                    ImGui.Separator()
-                                    local augList = rerollService.getAugList and rerollService.getAugList() or {}
-                                    local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                                    local itemId = item.id or item.ID
-                                    local onAugList, onMythicalList = false, false
-                                    if itemId then
-                                        for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                                        for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                                    end
-                                    if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-                                    if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                                    if isAugment then
-                                        if onAugList then if ImGui.MenuItem("Remove from Augment List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end end else if ImGui.MenuItem("Add to Augment List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" }) end end end
-                                    end
-                                    if isMythicalEligible then
-                                        if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" }) end end end
-                                    end
-                                end
-                            end
-                            end
-                            ImGui.EndPopup()
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            ImGui.OpenPopup("ItemContextBankIcon_" .. rid)
                         end
+                        ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                     elseif colKey == "Status" then
                         local statusText, willSell = "", false
                         if item.sellReason ~= nil and item.willSell ~= nil then

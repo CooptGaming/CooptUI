@@ -295,6 +295,20 @@ local function renderTabContent(ctx, track, rerollService)
             -- Row ID must include index so duplicate list entries (same item twice) get unique ImGui IDs
             local rowId = "reroll_" .. track .. "_" .. tostring(i) .. "_" .. tostring(entry.id)
             local locationOk = inInv or (inBank and bankConnected)
+            -- Resolve inv/bank item for tooltip and shared context menu
+            local invItem, bankItem, tipItem, tipSource = nil, nil, nil, nil
+            for _, inv in ipairs(inventoryItems) do
+                if (inv.id or inv.ID) == entry.id then invItem = inv; break end
+            end
+            if not invItem then
+                for _, bn in ipairs(bankList) do
+                    if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
+                end
+            end
+            tipItem = invItem or bankItem
+            tipSource = invItem and "inv" or "bank"
+            local menuItem = { name = entry.name, id = entry.id, type = isAug and "Augmentation" or nil }
+            if tipItem then menuItem.bag = tipItem.bag; menuItem.slot = tipItem.slot; menuItem.inKeep = tipItem.inKeep; menuItem.inJunk = tipItem.inJunk end
 
             ImGui.TableNextColumn()
             ImGui.PushID(rowId)
@@ -307,18 +321,6 @@ local function renderTabContent(ctx, track, rerollService)
             ImGui.PopStyleColor(1)
             if ImGui.IsItemHovered() then
                 -- Tooltip: try to show item details from inventory or bank if we have it
-                local invItem = nil
-                local bankItem = nil
-                for _, inv in ipairs(inventoryItems) do
-                    if (inv.id or inv.ID) == entry.id then invItem = inv; break end
-                end
-                if not invItem then
-                    for _, bn in ipairs(bankList) do
-                        if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
-                    end
-                end
-                local tipItem = invItem or bankItem
-                local tipSource = invItem and "inv" or "bank"
                 if tipItem and ctx.getItemStatsForTooltip then
                     local showItem = ctx.getItemStatsForTooltip(tipItem, tipSource)
                     if showItem then
@@ -342,12 +344,14 @@ local function renderTabContent(ctx, track, rerollService)
             if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
                 ctx.uiState[selectedKey] = entry.id
             end
-            if ImGui.BeginPopupContextItem() then
-                if ImGui.MenuItem("Remove from list") then
-                    ctx.uiState[pendingRemoveKey] = entry.id
-                end
-                ImGui.EndPopup()
-            end
+            ctx.renderItemContextMenu(ctx, menuItem, {
+                source = "reroll",
+                popupId = "ItemContextReroll_" .. rowId,
+                bankOpen = bankConnected,
+                hasCursor = hasCursor,
+                onRemoveFromRerollList = function(id) ctx.uiState[pendingRemoveKey] = id end,
+                rerollEntryId = entry.id,
+            })
             ImGui.PopID()
 
             ImGui.TableNextColumn()

@@ -226,47 +226,10 @@ function AugmentsView.render(ctx)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
-                if ImGui.BeginPopupContextItem("ItemContextAugmentsIcon_" .. rid) then
-                    if ImGui.MenuItem("CoOp UI Item Display") then
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                    end
-                    if ImGui.MenuItem("Inspect") then
-                        if hasCursor then ctx.removeItemFromCursor()
-                        else
-                            local Me = mq.TLO and mq.TLO.Me
-                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                            local tlo = pack and pack.Item and pack.Item(item.slot)
-                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
-                        end
-                    end
-                    -- Reroll list: contextual — augment shows Add/Remove Augment List; mythical-eligible shows Add/Remove Mythical List (augments view = all rows are augments)
-                    if rerollService and nameKey ~= "" then
-                        ImGui.Separator()
-                        -- Augment: one of Add or Remove
-                        if onAugList then
-                            if ImGui.MenuItem("Remove from Augment List") then
-                                if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
-                            end
-                        else
-                            if ImGui.MenuItem("Add to Augment List") then
-                                if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
-                            end
-                        end
-                        -- Mythical-eligible: one of Add or Remove
-                        if isMythicalEligible then
-                            if onMythicalList then
-                                if ImGui.MenuItem("Remove from Mythical List") then
-                                    if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
-                                end
-                            else
-                                if ImGui.MenuItem("Add to Mythical List") then
-                                    if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end
-                                end
-                            end
-                        end
-                    end
-                    ImGui.EndPopup()
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    ImGui.OpenPopup("ItemContextAugmentsIcon_" .. rid)
                 end
+                ctx.renderItemContextMenu(ctx, item, { source = "augments", popupId = "ItemContextAugmentsIcon_" .. rid, bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false, hasCursor = hasCursor })
 
                 -- Column: Name
                 ImGui.TableNextColumn()
@@ -277,7 +240,7 @@ function AugmentsView.render(ctx)
                     ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                    ImGui.OpenPopup("ItemContextAugmentsIcon_" .. rid)
                 end
 
                 -- Column: Effects (only what exists)

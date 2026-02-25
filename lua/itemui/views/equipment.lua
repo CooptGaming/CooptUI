@@ -195,11 +195,12 @@ function EquipmentView.render(ctx)
                         end
                         if didPushTooltipBg then ImGui.PopStyleColor() end
                     end
-                    -- Phase 4: right-click equipped item opens Item Display
-                    if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) and hasItem and item then
+                    -- Phase 4: right-click equipped item opens shared context menu (Inspect, Item Display)
+                    if hasItem and item then
                         local displayItem = { bag = 0, slot = slotIndex }
                         if item.name then displayItem.name = item.name end
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(displayItem, "equipped") end
+                        if item.type then displayItem.type = item.type end
+                        ctx.renderItemContextMenu(ctx, displayItem, { source = "equipped", popupId = "ItemContextEquip_" .. slotIndex, bankOpen = false, hasCursor = ctx.hasItemOnCursor and ctx.hasItemOnCursor() or false })
                     end
                     -- Phase 2: left-click pickup (no cursor) or drop/swap (has cursor)
                     if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then

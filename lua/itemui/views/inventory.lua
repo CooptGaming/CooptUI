@@ -255,7 +255,7 @@ function InventoryView.render(ctx, bankOpen)
                             end
                         end
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                            ImGui.OpenPopup("ItemContextInv_" .. rid)
                         end
                     elseif colKey == "Clicky" then
                         local cid = ctx.getItemSpellId(item, "Clicky")
@@ -311,162 +311,10 @@ function InventoryView.render(ctx, bankOpen)
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                             ImGui.EndTooltip()
                         end
-                        -- Right-click on icon: context menu for Inspect, Keep, Always sell, augment lists.
-                        -- Script items (name contains "Script of"): only "Add All to Alt Currency" and "Add Selected to Alt Currency".
-                        -- Status and menu use row state when set; list changes must update rows (updateSellStatusForItemName or computeAndAttachSellStatus) so all views stay in sync.
-                        if ImGui.BeginPopupContextItem("ItemContextInv_" .. rid) then
-                            local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
-                            if isScriptItem then
-                                if ImGui.MenuItem("Add All to Alt Currency") then
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                                    local it = pack and pack.Item and pack.Item(item.slot)
-                                    local stack = (it and it.Stack and it.Stack()) or 0
-                                    if stack < 1 then
-                                        if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
-                                    else
-                                        ctx.uiState.pendingScriptConsume = {
-                                            bag = item.bag, slot = item.slot, source = "inv",
-                                            totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
-                                        }
-                                    end
-                                end
-                                if ImGui.MenuItem("Add Selected to Alt Currency") then
-                                    local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
-                                    ctx.uiState.pendingQuantityPickup = {
-                                        bag = item.bag, slot = item.slot, source = "inv",
-                                        maxQty = maxQty, itemName = item.name, intent = "script_consume"
-                                    }
-                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
-                                    ctx.uiState.quantityPickerValue = "1"
-                                    ctx.uiState.quantityPickerMax = maxQty
-                                end
-                            else
-                            local inKeep, inJunk = false, false
-                            if item.inKeep ~= nil and item.inJunk ~= nil then
-                                inKeep, inJunk = item.inKeep, item.inJunk
-                            elseif ctx.getSellStatusForItem then
-                                local _, _, k, j = ctx.getSellStatusForItem(item)
-                                inKeep, inJunk = k, j
-                            end
-                            local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
-                            local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
-                            local isAugment = (itemTypeTrim == "Augmentation")
-                            local inAugmentAlwaysSell = isAugment and ctx.augmentLists and ctx.augmentLists.isInAugmentAlwaysSellList and ctx.augmentLists.isInAugmentAlwaysSellList(nameKey)
-                            local inAugmentNeverLoot = isAugment and ctx.augmentLists and ctx.augmentLists.isInAugmentNeverLootList and ctx.augmentLists.isInAugmentNeverLootList(nameKey)
-
-                            if ImGui.MenuItem("Inspect") then
-                                if hasCursor then
-                                    ctx.removeItemFromCursor()
-                                else
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                                    local tlo = pack and pack.Item and pack.Item(item.slot)
-                                    if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
-                                end
-                            end
-                            if ImGui.MenuItem("CoOp UI Item Display") then
-                                if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                            end
-                            ImGui.Separator()
-                            if ctx.applySellListChange then
-                                if inKeep then
-                                    if ImGui.MenuItem("Remove from Keep list") then ctx.applySellListChange(item.name, false, inJunk) end
-                                else
-                                    if ImGui.MenuItem("Add to Keep list") then ctx.applySellListChange(item.name, true, false) end
-                                end
-                                if inJunk then
-                                    if ImGui.MenuItem("Remove from Always sell list") then ctx.applySellListChange(item.name, inKeep, false) end
-                                else
-                                    if ImGui.MenuItem("Add to Always sell list") then ctx.applySellListChange(item.name, false, true) end
-                                end
-                            end
-                            if isAugment and ctx.augmentLists and nameKey ~= "" then
-                                ImGui.Separator()
-                                if inAugmentAlwaysSell then
-                                    if ImGui.MenuItem("Remove from Augment Always sell") then
-                                        if ctx.augmentLists.removeFromAugmentAlwaysSellList(nameKey) then
-                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
-                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                                        end
-                                    end
-                                else
-                                    if ImGui.MenuItem("Add to Augment Always sell") then
-                                        if ctx.augmentLists.addToAugmentAlwaysSellList(nameKey) then
-                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
-                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                                        end
-                                    end
-                                end
-                                if inAugmentNeverLoot then
-                                    if ImGui.MenuItem("Remove from Augment Never loot") then
-                                        if ctx.augmentLists.removeFromAugmentNeverLootList(nameKey) then
-                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
-                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                                        end
-                                    end
-                                else
-                                    if ImGui.MenuItem("Add to Augment Never loot") then
-                                        if ctx.augmentLists.addToAugmentNeverLootList(nameKey) then
-                                            ctx.updateSellStatusForItemName(item.name, inKeep, inJunk)
-                                            if ctx.storage and ctx.inventoryItems then ctx.storage.saveInventory(ctx.inventoryItems) end
-                                        end
-                                    end
-                                end
-                            end
-                            -- Reroll List: only for augments or items whose name starts with Mythical; show Add or Remove per list.
-                            local rerollService = ctx.rerollService
-                            local isMythicalEligible = ((item.name or ""):match("^%s*(.-)%s*$") or ""):sub(1, 8) == "Mythical"
-                            if rerollService and nameKey ~= "" and (isAugment or isMythicalEligible) then
-                                local augList = rerollService.getAugList and rerollService.getAugList() or {}
-                                local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                                local itemId = item.id or item.ID
-                                local onAugList, onMythicalList = false, false
-                                if itemId then
-                                    for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                                    for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                                end
-                                if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-                                if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                                ImGui.Separator()
-                                if isAugment then
-                                    if onAugList then
-                                        if ImGui.MenuItem("Remove from Augment List") then
-                                            if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
-                                        end
-                                    else
-                                        if ImGui.MenuItem("Add to Augment List") then
-                                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
-                                        end
-                                    end
-                                end
-                                if isMythicalEligible then
-                                    if onMythicalList then
-                                        if ImGui.MenuItem("Remove from Mythical List") then
-                                            if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
-                                        end
-                                    else
-                                        if ImGui.MenuItem("Add to Mythical List") then
-                                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end
-                                        end
-                                    end
-                                end
-                            end
-                            ImGui.Separator()
-                            ImGui.Dummy(ImVec2(0, 6))
-                            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors.Error))
-                            if ImGui.MenuItem("Delete") then
-                                local stackSize = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
-                                if ctx.getSkipConfirmDelete and ctx.getSkipConfirmDelete() then
-                                    ctx.requestDestroyItem(item.bag, item.slot, item.name, stackSize)
-                                else
-                                    ctx.setPendingDestroy({ bag = item.bag, slot = item.slot, name = item.name or "", stackSize = stackSize })
-                                end
-                            end
-                            ImGui.PopStyleColor()
-                            end
-                            ImGui.EndPopup()
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            ImGui.OpenPopup("ItemContextInv_" .. rid)
                         end
+                        ctx.renderItemContextMenu(ctx, item, { source = "inv", popupId = "ItemContextInv_" .. rid, bankOpen = bankOpen or (ctx.uiState and ctx.uiState.bankOpen) or false, hasCursor = hasCursor })
                     elseif colKey == "Status" then
                         -- Prefer row state (updated by list changes) so Status updates immediately; fallback to getSellStatusForItem
                         local statusText, willSell = "", false
@@ -487,10 +335,6 @@ function InventoryView.render(ctx, bankOpen)
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
                         end
                         ImGui.TextColored(statusColor, statusText)
-                    elseif colKey == "Name" then
-                        local nameText = ctx.sortColumns.getCellDisplayText(item, "Name", "Inventory")
-                        local nameColor = ctx.getSellStatusNameColor and ctx.getSellStatusNameColor(ctx, item) or ImVec4(1, 1, 1, 1)
-                        ImGui.TextColored(nameColor, nameText)
                     else
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Inventory"))
                     end

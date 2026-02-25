@@ -872,6 +872,7 @@ context_builder.init({
     closeItemUI = closeItemUI,
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
+    renderItemContextMenu = function(ctx, item, opts) return ui_common.renderItemContextMenu(ctx, item, opts) end,
     -- Layout (module direct)
     saveLayoutToFile = function() layoutUtils.saveLayoutToFile() end,
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
