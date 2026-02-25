@@ -319,13 +319,6 @@ function M.render(refs)
         end
         local itemUIWidth = ImGui.GetWindowWidth()
 
-        if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw and uiState.itemUIPositionX and uiState.itemUIPositionY and itemUIWidth then
-            local bankX = uiState.itemUIPositionX + itemUIWidth + constants.UI.WINDOW_GAP
-            local bankY = uiState.itemUIPositionY
-            layoutConfig.BankWindowX = bankX
-            layoutConfig.BankWindowY = bankY
-        end
-
         local hubX, hubY = uiState.itemUIPositionX, uiState.itemUIPositionY
         local hubW, hubH = itemUIWidth, (ImGui.GetWindowSize and select(2, ImGui.GetWindowSize())) or constants.VIEWS.Height
         local defGap = constants.UI.WINDOW_GAP
@@ -364,6 +357,40 @@ function M.render(refs)
                 layoutConfig.LootWindowX = hubX + hubW + defGap
                 layoutConfig.LootWindowY = hubY
             end
+            if uiState.bankWindowShouldDraw and (layoutConfig.BankWindowX or 0) == 0 and (layoutConfig.BankWindowY or 0) == 0 then
+                layoutConfig.BankWindowX = hubX + hubW + defGap
+                layoutConfig.BankWindowY = hubY
+            end
+        end
+
+        -- Reset Window Positions: re-apply hub-relative defaults for all companions (positions only)
+        if uiState.resetWindowPositionsRequested and hubX and hubY and hubW then
+            local defGapReset = constants.UI.WINDOW_GAP
+            local eqW = layoutConfig.WidthEquipmentPanel or constants.UI.EQUIPMENT_PANEL_WIDTH
+            local eqH = layoutConfig.HeightEquipment or constants.UI.EQUIPMENT_PANEL_HEIGHT
+            layoutConfig.EquipmentWindowX = hubX - eqW - defGapReset
+            layoutConfig.EquipmentWindowY = hubY
+            layoutConfig.ItemDisplayWindowX = hubX + hubW + defGapReset
+            layoutConfig.ItemDisplayWindowY = hubY
+            local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
+            layoutConfig.AugmentsWindowX = hubX - aw - defGapReset
+            layoutConfig.AugmentsWindowY = hubY + eqH + defGapReset
+            local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
+            layoutConfig.AugmentUtilityWindowX = hubX - auw - defGapReset
+            layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
+            local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
+            layoutConfig.AAWindowX = hubX + hubW + defGapReset
+            layoutConfig.AAWindowY = hubY + idH + defGapReset
+            layoutConfig.RerollWindowX = hubX + hubW + defGapReset
+            layoutConfig.RerollWindowY = hubY
+            layoutConfig.LootWindowX = hubX + hubW + defGapReset
+            layoutConfig.LootWindowY = hubY
+            layoutConfig.BankWindowX = hubX + hubW + defGapReset
+            layoutConfig.BankWindowY = hubY
+            uiState.resetWindowPositionsRequested = false
+            uiState.layoutRevertedApplyFrames = 5
+            if refs.scheduleLayoutSave then refs.scheduleLayoutSave() end
+            if setStatusMessage then setStatusMessage("Window positions reset to hub-relative defaults.") end
         end
 
         if ImGui.Button("Equipment", ImVec2(75, 0)) then

@@ -125,7 +125,7 @@ local uiState = {
     alignToContext = true,  -- Enable snap to Inventory by default
     alignToMerchant = false,  -- NEW: Align to merchant window when in sell view
     uiLocked = true,
-    syncBankWindow = true,
+    syncBankWindow = false,
     suppressWhenLootMac = false,  -- when true: Loot UI does not open during looting (default false = Loot UI opens)
     itemUIPositionX = nil, itemUIPositionY = nil,
     sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
@@ -133,6 +133,7 @@ local uiState = {
     configWindowOpen = false, configNeedsLoad = false, configAdvancedMode = false,
     revertLayoutConfirmOpen = false,
     layoutRevertedApplyFrames = 0,  -- When > 0, views use ImGuiCond.Always so positions/sizes from layoutConfig re-apply
+    resetWindowPositionsRequested = false,  -- When true, main_window re-applies hub-relative positions for all companions
     searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
     autoSellRequested = false, showOnlySellable = false,
     bankWindowOpen = false, bankWindowShouldDraw = false,

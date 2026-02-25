@@ -48,26 +48,6 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Uncheck to place CoOpt UI Inventory Companion freely.")
             ImGui.EndTooltip()
         end
-        local prevSync = uiState.syncBankWindow
-        uiState.syncBankWindow = ImGui.Checkbox("Enable bank window sync", uiState.syncBankWindow)
-        if prevSync ~= uiState.syncBankWindow then
-            saveLayoutToFile()
-            if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-                local itemUIX, itemUIY = ImGui.GetWindowPos()
-                local itemUIW = ImGui.GetWindowWidth()
-                if itemUIX and itemUIY and itemUIW then
-                    layoutConfig.BankWindowX = itemUIX + itemUIW + 10
-                    layoutConfig.BankWindowY = itemUIY
-                    saveLayoutToFile()
-                end
-            end
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("When enabled, the bank window follows CoOpt UI Inventory Companion position.")
-            ImGui.Text("Uncheck to move the bank window independently.")
-            ImGui.EndTooltip()
-        end
         local enableLootUI = not uiState.suppressWhenLootMac
         local prevEnableLootUI = enableLootUI
         enableLootUI = ImGui.Checkbox("Enable Loot UI during looting", enableLootUI)

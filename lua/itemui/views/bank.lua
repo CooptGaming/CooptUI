@@ -22,42 +22,12 @@ function BankView.render(ctx)
     ctx.ensureBankCacheFromStorage()
     local list = bankOpen and ctx.bankItems or ctx.bankCache
     
-    -- Window positioning
+    -- Window positioning: free-float with saved position; hub-relative default when 0,0 is set in main_window
     local bankX = ctx.layoutConfig.BankWindowX
     local bankY = ctx.layoutConfig.BankWindowY
-    
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
-    if ctx.uiState.syncBankWindow then
-        -- When synced, use the position calculated in renderUI (stored in layoutConfig)
-        -- This position is updated every frame when sync is enabled
-        if bankX and bankY then
-            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), ImGuiCond.Always)
-        end
-    else
-        -- When not synced, use saved position or calculate initial position
-        if bankX and bankY and bankX ~= 0 and bankY ~= 0 then
-            -- Use saved position (Always when forceApply so revert takes effect)
-            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
-        elseif ctx.uiState.alignToContext then
-            -- Calculate initial position relative to ItemUI (if snapping is enabled)
-            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            if invWnd and invWnd.Open and invWnd.Open() then
-                local invX, invY = tonumber(invWnd.X and invWnd.X()) or 0, tonumber(invWnd.Y and invWnd.Y()) or 0
-                local invW = tonumber(invWnd.Width and invWnd.Width()) or 0
-                if invX and invY and invW > 0 then
-                    -- ItemUI position = InventoryWindow.X + InventoryWindow.Width + spacing
-                    local itemUIX = invX + invW + constants.UI.WINDOW_GAP
-                    local itemUIY = invY
-                    local itemUIW = ctx.layoutConfig.WidthInventory or constants.VIEWS.WidthInventory
-                    local calculatedX = itemUIX + itemUIW + constants.UI.WINDOW_GAP
-                    ImGui.SetNextWindowPos(ImVec2(calculatedX, itemUIY), ImGuiCond.FirstUseEver)
-                    -- Save this calculated position for future use
-                    ctx.layoutConfig.BankWindowX = calculatedX
-                    ctx.layoutConfig.BankWindowY = itemUIY
-                    ctx.scheduleLayoutSave()  -- Schedule debounced save
-                end
-            end
-        end
+    if bankX and bankY then
+        ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
     
     -- Window size (Always when forceApply so revert takes effect)
@@ -90,17 +60,14 @@ function BankView.render(ctx)
         end
     end
     
-    -- Save position when window is moved (only if not synced, or when sync is disabled)
-    if not ctx.uiState.syncBankWindow then
-        local currentX, currentY = ImGui.GetWindowPos()
-        if currentX and currentY then
-            -- Only save if position actually changed (to avoid constant file writes)
-            if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or 
-               not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
-                ctx.layoutConfig.BankWindowX = currentX
-                ctx.layoutConfig.BankWindowY = currentY
-                ctx.scheduleLayoutSave()  -- Schedule debounced save (was immediate save causing spam)
-            end
+    -- Save position when window is moved
+    local currentX, currentY = ImGui.GetWindowPos()
+    if currentX and currentY then
+        if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or
+           not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
+            ctx.layoutConfig.BankWindowX = currentX
+            ctx.layoutConfig.BankWindowY = currentY
+            ctx.scheduleLayoutSave()
         end
     end
     

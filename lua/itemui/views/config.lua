@@ -62,6 +62,12 @@ local function renderConfigWindow(ctx)
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the config folder in Windows Explorer."); ImGui.Text("Quick access to all INI files."); ImGui.EndTooltip() end
     ImGui.SameLine()
+    if ImGui.Button("Reset Window Positions##Config", ImVec2(160, 0)) then
+        uiState.resetWindowPositionsRequested = true
+        ctx.setStatusMessage("Window positions will reset to hub-relative defaults on next frame.")
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Re-apply hub-relative default positions for all companion windows (Equipment, Bank, Item Display, Augments, etc.). Does not change sizes or column settings."); ImGui.EndTooltip() end
+    ImGui.SameLine()
     if ImGui.Button("Revert to Default Layout##Config", ImVec2(170, 0)) then
         if ctx.revertToBundledDefaultLayoutRequest then ctx.revertToBundledDefaultLayoutRequest() end
     end
