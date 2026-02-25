@@ -117,28 +117,24 @@ local function phase3_autoSellRequest()
     end
 end
 
--- Phase 4: Sell macro finish detection + failed items (P0-01: deferred scan, no mq.delay)
+-- Phase 4: Sell macro finish detection + failed items (via macro bridge; P0-01: deferred scan, no mq.delay)
+-- Use bridge running state (includes file-based fallback) so we detect finish and schedule inventory refresh even when Macro.Name() doesn't match
 local function phase4_sellMacroFinish(now)
-    local uiState, sellMacState, config, setStatusMessage, C, perfCache = d.uiState, d.sellMacState, d.config, d.setStatusMessage, d.C, d.perfCache
-    local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-    local mn = macroName:lower()
-    local sellMacRunning = (mn == "sell" or mn == "sell.mac")
+    local uiState, sellMacState, setStatusMessage, C = d.uiState, d.sellMacState, d.setStatusMessage, d.C
+    local macroBridge = d.macroBridge
+    local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
+    local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning()) or (prog.running == true)
     if sellMacState.lastRunning and not sellMacRunning then
         sellMacState.smoothedFrac = 0
         sellMacState.pendingScan = true
         sellMacState.finishedAt = now
         sellMacState.failedItems = {}
         sellMacState.failedCount = 0
-        if perfCache.sellLogPath then
-            local failedPath = perfCache.sellLogPath .. "\\sell_failed.ini"
-            local countStr = config.safeIniValueByPath(failedPath, "Failed", "count", "0")
-            local count = tonumber(countStr) or 0
-            if count > 0 then
-                sellMacState.failedCount = count
-                for i = 1, count do
-                    local item = config.safeIniValueByPath(failedPath, "Failed", "item" .. i, "")
-                    if item and item ~= "" then table.insert(sellMacState.failedItems, item) end
-                end
+        if macroBridge and macroBridge.getSellFailed then
+            local failedItems, failedCount = macroBridge.getSellFailed()
+            if failedCount and failedCount > 0 then
+                sellMacState.failedCount = failedCount
+                sellMacState.failedItems = failedItems or {}
                 sellMacState.showFailedUntil = now + C.SELL_FAILED_DISPLAY_MS
                 uiState.statusMessage = ""
             else
@@ -152,14 +148,15 @@ local function phase4_sellMacroFinish(now)
     sellMacState.lastRunning = sellMacRunning
 end
 
--- Phase 5: Loot macro management (progress, mythical alerts, session, deferred scan)
+-- Phase 5: Loot macro management (progress, mythical alerts, session, deferred scan; via macro bridge)
+-- Use bridge running state (includes file-based fallback from loot_progress.ini) so we detect finish and populate tables/history even when Macro.Name() doesn't match
 local function phase5_lootMacro(now)
     local uiState, lootMacState, lootLoopRefs, config, getSellStatusForItem, loadLootHistoryFromFile, loadSkipHistoryFromFile =
         d.uiState, d.lootMacState, d.lootLoopRefs, d.config, d.getSellStatusForItem, d.loadLootHistoryFromFile, d.loadSkipHistoryFromFile
     local LOOT_HISTORY_MAX = d.LOOT_HISTORY_MAX
-    local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-    local mn = macroName:lower()
-    local lootMacRunning = (mn == "loot" or mn == "loot.mac")
+    local macroBridge = d.macroBridge
+    local lootState = (macroBridge and macroBridge.getLootState and macroBridge.getLootState()) or {}
+    local lootMacRunning = (macroBridge and macroBridge.isLootMacroRunning and macroBridge.isLootMacroRunning()) or (lootState.running == true)
     if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
         uiState.lootUIOpen = true
         uiState.lootRunFinished = false
@@ -202,49 +199,33 @@ local function phase5_lootMacro(now)
     if lootLoopRefs.pendingSession and (now - (lootLoopRefs.pendingSessionAt or 0)) >= sessionReadDelay then
         lootLoopRefs.pendingSession = nil
         lootLoopRefs.pendingSessionAt = 0
-        if uiState.lootUIOpen then
-            local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
-            if sessionPath and sessionPath ~= "" then
-                local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
-                local count = tonumber(countStr) or 0
-                if count > 0 then
-                    uiState.lootRunLootedList = {}
-                    uiState.lootRunLootedItems = {}
-                    for i = 1, count do
-                        local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
-                        if name and name ~= "" then
-                            table.insert(uiState.lootRunLootedList, name)
-                            local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
-                            local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
-                            local statusText, willSell = "—", false
-                            if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
-                                statusText, willSell = getSellStatusForItem({ name = name })
-                                if statusText == "" then statusText = "—" end
-                            end
-                            table.insert(uiState.lootRunLootedItems, {
-                                name = name,
-                                value = tonumber(valStr) or 0,
-                                tribute = tonumber(tribStr) or 0,
-                                statusText = statusText,
-                                willSell = willSell
-                            })
+        local session = nil
+        if uiState.lootUIOpen and macroBridge and macroBridge.getLootSession then
+            session = macroBridge.getLootSession()
+            if session and session.count and session.count > 0 then
+                uiState.lootRunLootedList = {}
+                uiState.lootRunLootedItems = {}
+                for i, row in ipairs(session.items or {}) do
+                    local name = row.name
+                    if name and name ~= "" then
+                        table.insert(uiState.lootRunLootedList, name)
+                        local statusText, willSell = "—", false
+                        if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
+                            statusText, willSell = getSellStatusForItem({ name = name })
+                            if statusText == "" then statusText = "—" end
                         end
+                        table.insert(uiState.lootRunLootedItems, {
+                            name = name,
+                            value = row.value or 0,
+                            tribute = row.tribute or 0,
+                            statusText = statusText,
+                            willSell = willSell
+                        })
                     end
-                    local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
-                    local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
-                    uiState.lootRunTotalValue = tonumber(sv) or 0
-                    uiState.lootRunTributeValue = tonumber(tv) or 0
-                    uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
-                    uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
-                    if not uiState.lootHistory then loadLootHistoryFromFile() end
-                    if not uiState.lootHistory then uiState.lootHistory = {} end
-                    for _, row in ipairs(uiState.lootRunLootedItems) do
-                        table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
-                    end
-                    while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
-                    lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                 end
             end
+        end
+        if uiState.lootUIOpen then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if skippedPath and skippedPath ~= "" then
                 local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
@@ -263,15 +244,28 @@ local function phase5_lootMacro(now)
                     lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                 end
             end
+            -- Populate session summary and loot history whenever we have session (not only when skipped path exists)
+            if session then
+                uiState.lootRunTotalValue = session.totalValue or 0
+                uiState.lootRunTributeValue = session.tributeValue or 0
+                uiState.lootRunBestItemName = session.bestItemName or ""
+                uiState.lootRunBestItemValue = session.bestItemValue or 0
+                if not uiState.lootHistory then loadLootHistoryFromFile() end
+                if not uiState.lootHistory then uiState.lootHistory = {} end
+                for _, row in ipairs(uiState.lootRunLootedItems or {}) do
+                    table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
+                end
+                while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
+            end
             uiState.lootRunFinished = true
         end
     end
     local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
     if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
         lootLoopRefs.pollAt = now
-        local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
-        if progPath and progPath ~= "" and config.readLootProgressSection then
-            local corpses, total, current = config.readLootProgressSection(progPath)
+        if macroBridge and macroBridge.pollLootProgress then
+            local corpses, total, current = macroBridge.pollLootProgress()
             uiState.lootRunCorpsesLooted = corpses
             uiState.lootRunTotalCorpses = total
             uiState.lootRunCurrentCorpse = current or ""
@@ -639,18 +633,18 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         if not userOpening and elapsed >= C.LOOT_PENDING_SCAN_DELAY_MS then
             scanInventory()
             invalidateSortCache("inv")
+            lootMacState.pendingScan = false
         end
-        lootMacState.pendingScan = false
     end
-    -- P0-01: Deferred sell macro finish scan (no mq.delay in loop)
+    -- P0-01: Deferred sell macro finish scan (no mq.delay in loop). Only clear pendingScan after we actually scan.
     if sellMacState.pendingScan then
         local elapsed = now - (sellMacState.finishedAt or 0)
         if elapsed >= C.SELL_PENDING_SCAN_DELAY_MS then
             scanInventory()
             if isMerchantWindowOpen() then scanSellItems() end
             invalidateSortCache("inv"); invalidateSortCache("sell")
+            sellMacState.pendingScan = false
         end
-        sellMacState.pendingScan = false
     end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
         if not shouldDraw then
@@ -932,6 +926,7 @@ function M.init(deps)
 end
 
 function M.tick(now)
+    if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
     phase2_periodicPersist(now)

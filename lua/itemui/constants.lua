@@ -55,6 +55,9 @@ M.TIMING = {
     -- Item Display locate highlight
     ITEM_DISPLAY_LOCATE_CLEAR_SEC = 3,
 
+    -- IPC (macro bridge): version for sell_progress, sell_failed, loot_progress, loot_session, loot_skipped
+    IPC_PROTOCOL_VERSION = 1,
+
     -- Loot
     LOOT_POLL_MS = 100,   -- poll progress more often so bar updates per corpse (was 500)
     LOOT_POLL_MS_IDLE = 1000,

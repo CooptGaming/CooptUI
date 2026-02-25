@@ -56,31 +56,20 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.Separator()
     
-    -- Sell progress bar: prominent placement when sell.mac is running (visible in sell view)
+    -- Sell progress bar: via macro bridge (show when macro running by live check or bridge state so bar appears even if poll throttled)
     do
-        local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-        local mn = macroName:lower()
-        -- Macro.Name may return "sell" or "sell.mac" depending on MQ version
-        local sellMacRunning = (mn == "sell" or mn == "sell.mac")
-        if sellMacRunning and ctx.perfCache.sellLogPath then
-            local config = require('itemui.config')
-            local progPath = ctx.perfCache.sellLogPath .. "\\sell_progress.ini"
-            local totalStr = config.safeIniValueByPath(progPath, "Progress", "total", "0")
-            local currentStr = config.safeIniValueByPath(progPath, "Progress", "current", "0")
-            local remainingStr = config.safeIniValueByPath(progPath, "Progress", "remaining", "0")
-            local total = tonumber(totalStr) or 0
-            local current = tonumber(currentStr) or 0
-            local remaining = tonumber(remainingStr) or 0
-            -- Smooth bar: lerp toward target to avoid jumpy updates and flashing
-            local targetFrac = (total > 0) and math.min(1, math.max(0, current / total)) or 0
-            local lerpSpeed = 0.35  -- higher = faster catch-up
-            ctx.sellMacState.smoothedFrac = ctx.sellMacState.smoothedFrac + (targetFrac - ctx.sellMacState.smoothedFrac) * lerpSpeed
-            ctx.sellMacState.smoothedFrac = math.min(1, math.max(0, ctx.sellMacState.smoothedFrac))
-            -- Fixed-size child to prevent layout shift (reduces flashing)
+        local macroBridge = ctx.macroBridge
+        local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
+        local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning()) or (prog.running == true)
+        if sellMacRunning and macroBridge and macroBridge.getSellProgress then
+            local total = prog.total or 0
+            local current = prog.current or 0
+            local remaining = prog.remaining or 0
+            local smoothedFrac = prog.smoothedFrac or 0
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                 if total > 0 then
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
-                    ctx.theme.RenderProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
+                    ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
                 else
                     ctx.theme.TextSuccess("Sell macro running...")
                 end

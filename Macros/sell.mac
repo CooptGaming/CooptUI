@@ -208,6 +208,9 @@ Sub Main
 | ------------------------------------------------- |
 /if (${doConfirm}) {
     /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    | IPC Protocol Version=1 for CoOpt UI macro bridge (readers fall back if Version > supported)
+    /ini "${logPath}/sell_progress.ini" Protocol Version 1
+    /ini "${logPath}/sell_failed.ini" Protocol Version 1
     | Check if ItemUI pre-populated total (from sell view) - skip count pass if so
     /declare preTotal int local ${Ini[${logPath}/sell_progress.ini,Progress,total,0]}
     /if (${preTotal} > 0) {
@@ -298,6 +301,7 @@ Sub Main
 
 | Reset progress file so next run (direct or from ItemUI) starts fresh
 /if (${doConfirm}) {
+    /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Protocol Version 1
     /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress total 0
     /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress current 0
     /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress remaining 0
@@ -1117,6 +1121,7 @@ sub LoadConfig(bool verbose)
 sub WriteProgress
     /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
     /declare remaining int local ${Math.Calc[${totalToSell}-${soldCount}]}
+    /ini "${logPath}/sell_progress.ini" Protocol Version 1
     /ini "${logPath}/sell_progress.ini" Progress total ${totalToSell}
     /ini "${logPath}/sell_progress.ini" Progress current ${soldCount}
     /ini "${logPath}/sell_progress.ini" Progress remaining ${remaining}
@@ -1127,6 +1132,7 @@ sub WriteProgress
 | ================================================= |
 sub LogFailedItem(string itemName)
     /declare logPath string local ${MacroQuest.Path}/Macros/logs/item_management
+    /ini "${logPath}/sell_failed.ini" Protocol Version 1
     /ini "${logPath}/sell_failed.ini" Failed count ${failedCount}
     /ini "${logPath}/sell_failed.ini" Failed item${failedCount} "${itemName}"
 /return

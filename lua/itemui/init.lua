@@ -1142,11 +1142,8 @@ local function runSellMacro()
     end
     local count = 0
     for _, it in ipairs(sellItems) do if it.willSell then count = count + 1 end end
-    if perfCache.sellLogPath and count >= 0 then
-        local progPath = perfCache.sellLogPath .. "\\sell_progress.ini"
-        mq.cmdf('/ini "%s" Progress total %d', progPath, count)
-        mq.cmdf('/ini "%s" Progress current 0', progPath)
-        mq.cmdf('/ini "%s" Progress remaining %d', progPath, count)
+    if count >= 0 and macroBridge.writeSellProgress then
+        macroBridge.writeSellProgress(count, 0)
     end
     mq.cmd('/macro sell confirm')
 end
@@ -1241,6 +1238,7 @@ local function buildMainLoopDeps()
         lootMacState = lootMacState,
         lootLoopRefs = lootLoopRefs,
         perfCache = perfCache,
+        macroBridge = macroBridge,
         deferredScanNeeded = deferredScanNeeded,
         inventoryItems = inventoryItems,
         sellItems = sellItems,
@@ -1338,6 +1336,11 @@ local function main()
             perfCache.sellLogPath = (p:gsub("/", "\\")) .. "\\Macros\\logs\\item_management"
         end
     end
+    macroBridge.init({
+        sellLogPath = perfCache.sellLogPath,
+        getLootConfigFile = config.getLootConfigFile,
+        pollInterval = 500,
+    })
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
     -- First-run: apply bundled default layout if user has no existing layout (layout only; no user data)
     if not defaultLayout.hasExistingLayout() then

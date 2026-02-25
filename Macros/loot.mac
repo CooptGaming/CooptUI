@@ -315,6 +315,7 @@ Sub Main
 /varset corpsesLooted 0
 /varset currentCorpseName
 /declare progressRunning int outer 1
+/ini "${configPath}/loot_progress.ini" Protocol Version 1
 /ini "${configPath}/loot_progress.ini" Progress line "1##0##${totalCorpses}##"
 
 /echo ==========================================
@@ -1188,8 +1189,9 @@ sub CloseLootWindow
 | FinishLooting                                     |
 | ================================================= |
 sub FinishLooting
-    | Write progress running=0 for CoOpt UI Loot UI (single line)
+    | Write progress running=0 for CoOpt UI Loot UI (single line). IPC Protocol Version=1 for macro bridge.
     /varset progressRunning 0
+    /ini "${configPath}/loot_progress.ini" Protocol Version 1
     /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
     
     | Write loot_session.ini only when this run had items (from chunked lists; each chunk capped at runListMaxLen)
@@ -1198,6 +1200,7 @@ sub FinishLooting
         /declare count2 int local 0
         /if (${runLootedList.Length} > 0) /varcalc count1 ${runLootedList.Count[|]}+1
         /if (${runLootedList2.Length} > 0) /varcalc count2 ${runLootedList2.Count[|]}+1
+        /ini "${configPath}/loot_session.ini" Protocol Version 1
         /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
         /declare i int local 1
         /declare idx2 int local 0
@@ -1224,12 +1227,13 @@ sub FinishLooting
         /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
         /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
     }
-    | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason)
+    | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason). IPC Protocol Version=1.
     /if (${runSkippedCount} > 0) {
         /declare skipCount1 int local 0
         /declare skipCount2 int local 0
         /if (${runSkippedList.Length} > 0) /varcalc skipCount1 ${runSkippedList.Count[|]}+1
         /if (${runSkippedList2.Length} > 0) /varcalc skipCount2 ${runSkippedList2.Count[|]}+1
+        /ini "${configPath}/loot_skipped.ini" Protocol Version 1
         /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
         /declare j int local 1
         /declare jdx2 int local 0

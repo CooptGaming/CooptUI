@@ -125,6 +125,8 @@ MQ2 macro string variables are limited to **2048 characters**. Exceeding this ca
 
 **To add another chunk (e.g. chunk4):** See the comment block in `loot.mac` under "PERFORMANCE OPTIMIZATION" titled "*** CHUNKING: ... ***". In short: (1) Declare the new vars (e.g. `runLootedList4`, `runLootedValues4`, `runLootedTributes4`, `runSkippedList4`, `runSkippedReasons4`, `loreItemCache4`, `skippedNamesThisSession4`, `lootedNamesThisSession4`). (2) Reset them at "START LOOTING". (3) Add lookup checks in EvaluateItem (and lore in Event_LoreDup) for the new chunk. (4) Add an "else /if (chunkN has room)" append path in LogItem, LogSkippedItem, AddToSkippedSessionCache, AddToLootedSessionCache, and both lore-append sites. (5) In FinishLooting, add countN/skipCountN and an else branch that writes from chunkN using the correct index. The INI format written for CoOpt UI does not change.
 
+**IPC protocol:** `loot_progress.ini`, `loot_session.ini`, and `loot_skipped.ini` include `[Protocol] Version=1` for CoOpt UI macro bridge; readers treat missing or future version as legacy for forward compatibility.
+
 ## Future Enhancements
 
 - Lua UI for managing these lists (planned)
