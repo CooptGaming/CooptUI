@@ -581,6 +581,7 @@ do
             local tt = require('itemui.utils.item_tooltip')
             if tt and tt.invalidateTooltipCache then tt.invalidateTooltipCache() end
         end,
+        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, bankItems or bankCache) end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,

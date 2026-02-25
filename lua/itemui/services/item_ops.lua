@@ -234,30 +234,33 @@ function M.removeItemFromBankBySlot(bag, slot)
     end
 end
 
-function M.addItemToBank(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, weight, clicky, container)
+function M.addItemToBank(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, weight, clicky, container, icon)
     weight = weight or 0
     clicky = clicky or 0
     container = container or 0
+    icon = tonumber(icon) or 0
     local row = {
         bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", weight = weight, nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0, clicky = clicky, container = container
+        stackSize = stackSize or 1, type = itemType or "", weight = weight, icon = icon,
+        nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
+        collectible = collectible or false, heirloom = heirloom or false, attuneable = attuneable or false, augSlots = augSlots or 0,
+        clicky = clicky, container = container
     }
     deps.invalidateSortCache("bank")
     table.insert(deps.bankItems, row)
     if deps.isBankWindowOpen() then
-        table.insert(deps.bankCache, { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, weight = row.weight })
+        table.insert(deps.bankCache, { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, weight = row.weight, icon = row.icon })
         deps.perfCache.lastBankCacheTime = os.time()
     end
 end
 
-function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots)
+function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, icon)
+    icon = tonumber(icon) or 0
     deps.invalidateSortCache("inv")
     local row = { bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0 }
+        stackSize = stackSize or 1, type = itemType or "", icon = icon,
+        nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
+        collectible = collectible or false, heirloom = heirloom or false, attuneable = attuneable or false, augSlots = augSlots or 0 }
     if deps.scanState and deps.scanState.nextAcquiredSeq then
         row.acquiredSeq = deps.scanState.nextAcquiredSeq
         deps.scanState.nextAcquiredSeq = deps.scanState.nextAcquiredSeq + 1
@@ -267,7 +270,8 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
     local ws, reason = deps.sellStatus.willItemBeSold(row)
     row.willSell, row.sellReason = ws, reason or ""
     local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
-        stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
+        stackSize = row.stackSize, type = row.type, icon = row.icon,
+        nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
         collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots,
         inKeep = row.inKeep, inJunk = row.inJunk, willSell = row.willSell, sellReason = row.sellReason }
     deps.invalidateSortCache("sell")
@@ -421,7 +425,7 @@ function M.moveInvToBank(invBag, invSlot)
         deps.uiState.pendingMoveAction = {
             source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
             mergeIntoExisting = mergeIntoExisting,
-            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container }
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container, icon = row.icon }
         }
         if deps.uiState.pendingMoveAction.row then deps.uiState.pendingMoveAction.row.clicky = deps.getItemSpellId(row, "Clicky") end
         return true
@@ -437,7 +441,7 @@ function M.moveInvToBank(invBag, invSlot)
         if mergeIntoExisting then
             addQtyToBankStack(bb, bs, 1, row.value)
         else
-            M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container)
+            M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container, row.icon)
         end
         deps.setStatusMessage(string.format("Moved to bank: %s", row.name or "item"))
     end
@@ -461,7 +465,7 @@ function M.moveBankToInv(bagIdx, slotIdx)
     if stackSize > 1 then
         deps.uiState.pendingMoveAction = {
             source = "bank", bag = bagIdx, slot = slotIdx, destBag = ib, destSlot = is_, qty = stackSize,
-            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, icon = row.icon }
         }
         return true
     end
@@ -472,7 +476,7 @@ function M.moveBankToInv(bagIdx, slotIdx)
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     if row then
         M.removeItemFromBankBySlot(bagIdx, slotIdx)
-        M.addItemToInventory(ib, is_, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots)
+        M.addItemToInventory(ib, is_, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.icon)
         deps.setStatusMessage(string.format("Moved to inventory: %s", row.name or "item"))
     end
     return true
@@ -523,14 +527,14 @@ function M.executeMoveAction(action)
             if action.mergeIntoExisting then
                 addQtyToBankStack(action.destBag, action.destSlot, action.qty or row.stackSize or 1, row.value)
             else
-                M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0)
+                M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0, row.icon)
             end
         end
         deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
         if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.bag }) end
     else
         M.removeItemFromBankBySlot(action.bag, action.slot)
-        if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots) end
+        if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.icon) end
         deps.setStatusMessage(row and string.format("Moved to inventory: %s", row.name or "item") or "Moved to inventory")
         if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.destBag }) end
     end

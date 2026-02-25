@@ -140,6 +140,7 @@ function M.scanInventory()
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+    if env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 -- Incremental scan state (internal to this module)
@@ -324,6 +325,7 @@ function M.scanBank()
         end
     end
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+    if env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 function M.ensureBankCacheFromStorage()

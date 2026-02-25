@@ -586,6 +586,20 @@ function M.augmentWornSlotAllowsParent(parentIt, augIt)
     return false
 end
 
+--- Same as augmentWornSlotAllowsParent but uses pre-fetched augment worn-slot set (from index) instead of augIt TLO.
+function M.augmentWornSlotAllowsParentWithCachedAugSlots(parentIt, augWornSlotSet)
+    if not parentIt then return false end
+    if augWornSlotSet == "all" then return true end
+    if type(augWornSlotSet) ~= "table" or not next(augWornSlotSet) then return true end
+    local parentSlots = M.getWornSlotIndicesFromTLO(parentIt)
+    if parentSlots == "all" then return true end
+    if type(parentSlots) ~= "table" or not next(parentSlots) then return false end
+    for idx, _ in pairs(parentSlots) do
+        if augWornSlotSet[idx] then return true end
+    end
+    return false
+end
+
 --- Count augment slots: AugSlot1-6 return slot type (int); 0 = no slot, >0 = has slot.
 function M.getAugSlotsCountFromTLO(it)
     if not it then return 0 end
@@ -766,6 +780,40 @@ function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
     return true
 end
 
+-- Augment compatibility index (Task 3.5): built at scan time; each entry { itemRow, augType, augRestrictions, wornSlotIndices }.
+local augmentIndex = {}
+
+--- Build augment index from inventory + bank for O(N) getCompatibleAugments with no per-augment TLO calls.
+--- Call after scanInventory or scanBank so index stays current.
+function M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
+    augmentIndex = {}
+    if not inventoryItems and not bankItemsOrCache then return end
+    local function addFromList(list)
+        if not list then return end
+        for _, row in ipairs(list) do
+            if (row.type or ""):lower() == "augmentation" then
+                local src = row.source or "inv"
+                local augIt = M.getItemTLO(row.bag, row.slot, src)
+                if augIt and augIt.AugType then
+                    local augType = M.getAugTypeFromTLO(augIt)
+                    if augType and augType > 0 then
+                        local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
+                        local wornSlotIndices = M.getWornSlotIndicesFromTLO(augIt)
+                        augmentIndex[#augmentIndex + 1] = {
+                            itemRow = row,
+                            augType = augType,
+                            augRestrictions = augRestrictions or 0,
+                            wornSlotIndices = wornSlotIndices,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    addFromList(inventoryItems)
+    addFromList(bankItemsOrCache)
+end
+
 --- Check if an augment item (with augType from TLO) fits the given socket type.
 --- Socket type is from parent item's AugSlotN; augType is augmentation slot type mask from the augment.
 function M.augmentFitsSocket(augType, socketType)
@@ -785,7 +833,7 @@ function M.augmentFitsSocket(augType, socketType)
 end
 
 --- Build list of compatible augments for a given item and slot from inventory + bank.
---- An augment is recommended only if (1) it can fit the open slot, then (2) it passes all qualifications.
+--- Uses pre-computed augment index when available (Task 3.5): O(N) filtered lookup with no per-augment TLO calls.
 --- parentItem must have bag, slot, source; slotIndex is 1-based (1-6, ornament 5 optional).
 --- canUseFilter: optional function(itemRow) -> boolean; when provided, only augments that pass
 --- (class, race, deity, level for current player) are included.
@@ -798,16 +846,31 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
     local socketType = M.getSlotType(it, slotIndex)
     if not socketType or socketType <= 0 then return {} end
     local candidates = {}
+    -- Use pre-computed index when available (built at scan time or on first use)
+    if #augmentIndex == 0 and (inventoryItems or bankItemsOrCache) then
+        M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
+    end
+    if #augmentIndex > 0 then
+        for _, entry in ipairs(augmentIndex) do
+            local itemRow = entry.itemRow
+            if not M.augmentFitsSocket(entry.augType, socketType) then goto continue end
+            if not M.augmentRestrictionAllowsParent(it, entry.augRestrictions) then goto continue end
+            if not M.augmentWornSlotAllowsParentWithCachedAugSlots(it, entry.wornSlotIndices) then goto continue end
+            if type(canUseFilter) == "function" and not canUseFilter(itemRow) then goto continue end
+            candidates[#candidates + 1] = itemRow
+            ::continue::
+        end
+        return candidates
+    end
+    -- Fallback: no index (e.g. no augments in inv/bank), or legacy path
     local function addCandidate(itemRow)
         if not itemRow or (itemRow.type or ""):lower() ~= "augmentation" then return end
         local augIt = M.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
         if not augIt or not augIt.AugType then return end
         local augId = (type(augIt.ID) == "function" and augIt.ID()) or augIt.ID
         if not augId or augId == 0 then return end
-        -- Step 1: Can it actually fit into the open slot? (socket type must match)
         local augType = M.getAugTypeFromTLO(augIt)
         if not M.augmentFitsSocket(augType, socketType) then return end
-        -- Step 2: Qualifications (restrictions, equipment slot, character use)
         local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
         if not M.augmentRestrictionAllowsParent(it, augRestrictions) then return end
         if not M.augmentWornSlotAllowsParent(it, augIt) then return end
