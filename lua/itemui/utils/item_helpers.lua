@@ -6,9 +6,41 @@
 
 local mq = require('mq')
 local Cache = require('itemui.core.cache')
+local item_tlo = require('itemui.utils.item_tlo')
+local augment_helpers = require('itemui.utils.augment_helpers')
 
 local M = {}
 local deps  -- set by init()
+
+-- Delegate TLO resolution and property readers to item_tlo (extraction 6)
+M.getItemTLO = item_tlo.getItemTLO
+M.getItemLoreText = item_tlo.getItemLoreText
+M.getEquipmentSlotLabel = item_tlo.getEquipmentSlotLabel
+M.getEquipmentSlotNameForItemNotify = item_tlo.getEquipmentSlotNameForItemNotify
+M.getSlotDisplayName = item_tlo.getSlotDisplayName
+M.getWornSlotsStringFromTLO = item_tlo.getWornSlotsStringFromTLO
+M.getWornSlotIndicesFromTLO = item_tlo.getWornSlotIndicesFromTLO
+M.getAugSlotsCountFromTLO = item_tlo.getAugSlotsCountFromTLO
+M.getSlotType = item_tlo.getSlotType
+M.itemHasOrnamentSlot = item_tlo.itemHasOrnamentSlot
+M.getFilledStandardAugmentSlotIndices = item_tlo.getFilledStandardAugmentSlotIndices
+M.getStandardAugSlotsCountFromTLO = item_tlo.getStandardAugSlotsCountFromTLO
+M.getAugTypeFromTLO = item_tlo.getAugTypeFromTLO
+M.getAugRestrictionsFromTLO = item_tlo.getAugRestrictionsFromTLO
+M.getParentWeaponInfo = item_tlo.getParentWeaponInfo
+M.getClassRaceStringsFromTLO = item_tlo.getClassRaceStringsFromTLO
+M.getClassRaceSlotFromTLO = item_tlo.getClassRaceSlotFromTLO
+M.getDeityStringFromTLO = item_tlo.getDeityStringFromTLO
+M.parentItemClassify = item_tlo.parentItemClassify
+
+-- Delegate augment compatibility to augment_helpers (extraction 7)
+M.getAugTypeSlotIds = augment_helpers.getAugTypeSlotIds
+M.augmentWornSlotAllowsParent = augment_helpers.augmentWornSlotAllowsParent
+M.augmentWornSlotAllowsParentWithCachedAugSlots = augment_helpers.augmentWornSlotAllowsParentWithCachedAugSlots
+M.augmentRestrictionAllowsParent = augment_helpers.augmentRestrictionAllowsParent
+M.buildAugmentIndex = augment_helpers.buildAugmentIndex
+M.augmentFitsSocket = augment_helpers.augmentFitsSocket
+M.getCompatibleAugments = augment_helpers.getCompatibleAugments
 
 function M.init(d)
     deps = d
@@ -76,77 +108,6 @@ local DESCRIPTIVE_FIELDS = {
 local DESCRIPTIVE_FIELDS_SET = {}
 for _, f in ipairs(DESCRIPTIVE_FIELDS) do DESCRIPTIVE_FIELDS_SET[f] = true end
 local DESCRIPTIVE_STRING_FIELDS = { class = true, race = true, deity = true, instrumentType = true }
-
---- Get item TLO for the given location. source = "bank" uses Me.Bank(bag).Item(slot), "corpse" uses Corpse.Item(slot),
---- "equipped" uses InvSlot(slot) for slot 0-22 (0-based equipment slots), else Me.Inventory("pack"..bag).Item(slot).
---- Bag and slot are 1-based (same as stored on item tables) for inv/bank. For corpse, bag is ignored and slot is corpse loot slot (1-based).
---- For equipped, bag is ignored and slot is 0-based equipment slot index (0-22). Returns nil if TLO not available.
-function M.getItemTLO(bag, slot, source)
-    if source == "bank" then
-        local bn = mq.TLO and mq.TLO.Me and mq.TLO.Me.Bank and mq.TLO.Me.Bank(bag or 0)
-        if not bn then return nil end
-        return bn.Item and bn.Item(slot or 0)
-    elseif source == "corpse" then
-        local corpse = mq.TLO and mq.TLO.Corpse
-        if not corpse or not corpse.Item then return nil end
-        return corpse.Item(slot or 0)
-    elseif source == "equipped" then
-        -- Equipment slots 0-22 (0-based). Try Me.Inventory(slot) first (returns item); else InvSlot(slot).Item (property or method).
-        local slotIndex = tonumber(slot)
-        if slotIndex == nil or slotIndex < 0 or slotIndex > 22 then return nil end
-        local Me = mq.TLO and mq.TLO.Me
-        if not Me or not Me.Inventory then return nil end
-        -- 1) Me.Inventory(slotIndex) or Me.Inventory[slotIndex] or Me.Inventory(slotName) may return the item directly
-        local function isItem(obj)
-            if not obj or not obj.ID then return false end
-            local ok, id = pcall(function() return obj.ID() end)
-            return ok and id and id ~= 0
-        end
-        local ok1, direct = pcall(function()
-            local inv = Me.Inventory(slotIndex)
-            if isItem(inv) then return inv end
-            return nil
-        end)
-        if ok1 and direct then return direct end
-        -- Some Lua bindings use Me.Inventory[slotIndex] (bracket index)
-        local okB, invB = pcall(function() return Me.Inventory[slotIndex] end)
-        if okB and invB and isItem(invB) then return invB end
-        local slotNames = {
-            [0] = "charm", [1] = "leftear", [2] = "head", [3] = "face", [4] = "rightear",
-            [5] = "neck", [6] = "shoulder", [7] = "arms", [8] = "back", [9] = "leftwrist",
-            [10] = "rightwrist", [11] = "ranged", [12] = "hands", [13] = "mainhand", [14] = "offhand",
-            [15] = "leftfinger", [16] = "rightfinger", [17] = "chest", [18] = "legs", [19] = "feet",
-            [20] = "waist", [21] = "powersource", [22] = "ammo",
-        }
-        local name = slotNames[slotIndex]
-        if name then
-            local ok2, byName = pcall(function()
-                local inv = Me.Inventory(name)
-                if isItem(inv) then return inv end
-                return nil
-            end)
-            if ok2 and byName then return byName end
-        end
-        -- 2) InvSlot(slotIndex): .Item may be property or method
-        local ok3, slotObj = pcall(function()
-            return mq.TLO and mq.TLO.InvSlot and mq.TLO.InvSlot(slotIndex)
-        end)
-        if not ok3 or not slotObj or not slotObj.Item then return nil end
-        local item = nil
-        if type(slotObj.Item) == "function" then
-            local ok4, res = pcall(function() return slotObj.Item() end)
-            if ok4 and res then item = res end
-        else
-            item = slotObj.Item
-        end
-        if not isItem(item) then return nil end
-        return item
-    else
-        local pack = mq.TLO and mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory("pack" .. (bag or 0))
-        if not pack then return nil end
-        return pack.Item and pack.Item(slot or 0)
-    end
-end
 
 --- Set in-UI status (Keep/Junk, moves, sell). Safe: trims, coerces to string, truncates.
 function M.setStatusMessage(msg)
@@ -419,21 +380,6 @@ function M.getSpellRange(id)
     return nil
 end
 
---- Item lore text (flavor string) from item TLO. Returns string or nil. Safe to call with nil it.
---- Tries LoreText() then Lore() if it returns a string; does not cache (caller may cache per tooltip).
-function M.getItemLoreText(it)
-    if not it then return nil end
-    local ok, val = pcall(function()
-        if it.LoreText and it.LoreText() and tostring(it.LoreText()):match("%S") then return tostring(it.LoreText()) end
-        if it.Lore then
-            local v = it.Lore()
-            if type(v) == "string" and v:match("%S") then return v end
-        end
-        return nil
-    end)
-    return (ok and val and val ~= "") and val or nil
-end
-
 --- Build a compact stats summary string for an item (AC, HP, mana, attributes, etc.).
 function M.getItemStatsSummary(item)
     if not item then return "" end
@@ -524,242 +470,6 @@ function M.getMaxRecastForSlot(bag, slot, source)
     return deps.perfCache.timerReadyMaxCache[key]
 end
 
--- Slot index (0-22) to display name; WornSlots is count, WornSlot(N) returns Nth slot index.
-local SLOT_DISPLAY_NAMES = {
-    [0] = "Charm", [1] = "Ear", [2] = "Head", [3] = "Face", [4] = "Ear",
-    [5] = "Neck", [6] = "Shoulder", [7] = "Arms", [8] = "Back", [9] = "Wrist",
-    [10] = "Wrist", [11] = "Ranged", [12] = "Hands", [13] = "Primary", [14] = "Secondary",
-    [15] = "Ring", [16] = "Ring", [17] = "Chest", [18] = "Legs", [19] = "Feet",
-    [20] = "Waist", [21] = "Power", [22] = "Ammo",
-}
-
---- Return display label for equipment slot 0-22 (e.g. "Primary", "Charm"). For Equipment Companion grid labels.
-function M.getEquipmentSlotLabel(slotIndex)
-    local n = tonumber(slotIndex)
-    if n == nil or n < 0 or n > 22 then return nil end
-    return SLOT_DISPLAY_NAMES[n]
-end
-
--- Slot names for /itemnotify <name> leftmouseup (MQ2 equipment slot names).
-local SLOT_NAMES_ITEMNOTIFY = {
-    [0] = "charm", [1] = "leftear", [2] = "head", [3] = "face", [4] = "rightear",
-    [5] = "neck", [6] = "shoulder", [7] = "arms", [8] = "back", [9] = "leftwrist",
-    [10] = "rightwrist", [11] = "ranged", [12] = "hands", [13] = "mainhand", [14] = "offhand",
-    [15] = "leftfinger", [16] = "rightfinger", [17] = "chest", [18] = "legs", [19] = "feet",
-    [20] = "waist", [21] = "powersource", [22] = "ammo",
-}
-
---- Return MQ2 slot name for equipment slot 0-22 for use with /itemnotify <name> leftmouseup (pickup, equip, put-back).
-function M.getEquipmentSlotNameForItemNotify(slotIndex)
-    local n = tonumber(slotIndex)
-    if n == nil or n < 0 or n > 22 then return nil end
-    return SLOT_NAMES_ITEMNOTIFY[n]
-end
-
-local function slotIndexToDisplayName(s)
-    if s == nil or s == "" then return nil end
-    local n = tonumber(s)
-    if n ~= nil and SLOT_DISPLAY_NAMES[n] then return SLOT_DISPLAY_NAMES[n] end
-    local str = tostring(s):lower():gsub("^%l", string.upper)
-    return (str ~= "") and str or nil
-end
-
---- Return display name for a single slot token (0-22 or name). Used by tooltip slotStringToDisplay.
-function M.getSlotDisplayName(s)
-    return slotIndexToDisplayName(s)
-end
-
---- Build comma-separated list of slot names from item TLO. WornSlots() is the count; WornSlot(N) is the Nth slot.
-function M.getWornSlotsStringFromTLO(it)
-    if not it or not it.WornSlots or not it.WornSlot then return "" end
-    local nSlots = it.WornSlots()
-    if not nSlots or nSlots <= 0 then return "" end
-    if nSlots >= 20 then return "All" end
-    local seen, parts = {}, {}
-    for i = 1, nSlots do
-        local s = it.WornSlot(i)
-        local name = s and slotIndexToDisplayName(tostring(s)) or ""
-        if name ~= "" and not seen[name] then seen[name] = true; parts[#parts + 1] = name end
-    end
-    return (#parts > 0) and table.concat(parts, ", ") or ""
-end
-
---- Get set of worn slot indices (0-22) for an item TLO. Returns table slotIndex -> true, or "all" if item can be worn in all slots (WornSlots >= 20).
-function M.getWornSlotIndicesFromTLO(it)
-    if not it or not it.WornSlots or not it.WornSlot then return {} end
-    local nSlots = it.WornSlots()
-    if not nSlots or nSlots <= 0 then return {} end
-    if nSlots >= 20 then return "all" end
-    local set = {}
-    for i = 1, nSlots do
-        local s = it.WornSlot(i)
-        local idx = (s ~= nil and s ~= "") and tonumber(tostring(s)) or nil
-        if idx ~= nil and idx >= 0 and idx <= 22 then set[idx] = true end
-    end
-    return set
-end
-
---- True if the augment's worn-slot restriction allows the parent item. Augment can restrict which equipment slot
---- the parent item is worn in (e.g. "Legs Only", "Wrist Only"). Parent must be wearable in at least one slot
---- that the augment allows; if augment allows "All", any parent is ok.
-function M.augmentWornSlotAllowsParent(parentIt, augIt)
-    if not parentIt then return false end
-    local augSlots = M.getWornSlotIndicesFromTLO(augIt)
-    if augSlots == "all" then return true end
-    if type(augSlots) ~= "table" or not next(augSlots) then return true end
-    local parentSlots = M.getWornSlotIndicesFromTLO(parentIt)
-    if parentSlots == "all" then return true end
-    if type(parentSlots) ~= "table" or not next(parentSlots) then return false end
-    for idx, _ in pairs(parentSlots) do
-        if augSlots[idx] then return true end
-    end
-    return false
-end
-
---- Same as augmentWornSlotAllowsParent but uses pre-fetched augment worn-slot set (from index) instead of augIt TLO.
-function M.augmentWornSlotAllowsParentWithCachedAugSlots(parentIt, augWornSlotSet)
-    if not parentIt then return false end
-    if augWornSlotSet == "all" then return true end
-    if type(augWornSlotSet) ~= "table" or not next(augWornSlotSet) then return true end
-    local parentSlots = M.getWornSlotIndicesFromTLO(parentIt)
-    if parentSlots == "all" then return true end
-    if type(parentSlots) ~= "table" or not next(parentSlots) then return false end
-    for idx, _ in pairs(parentSlots) do
-        if augWornSlotSet[idx] then return true end
-    end
-    return false
-end
-
---- Count augment slots: AugSlot1-6 return slot type (int); 0 = no slot, >0 = has slot.
-function M.getAugSlotsCountFromTLO(it)
-    if not it then return 0 end
-    local n = 0
-    for _, accessor in ipairs({ "AugSlot1", "AugSlot2", "AugSlot3", "AugSlot4", "AugSlot5", "AugSlot6" }) do
-        local fn = it[accessor]
-        if fn then
-            local v = fn()
-            if type(v) == "number" and v > 0 then n = n + 1 end
-        end
-    end
-    return n
-end
-
---- Get socket type for slot index (1-based). Tries AugSlot# then AugSlot(i).Type. Returns 0 if unknown.
-function M.getSlotType(it, slotIndex)
-    if not it then return 0 end
-    local typ = 0
-    local acc = it["AugSlot" .. slotIndex]
-    if acc ~= nil then
-        typ = tonumber(type(acc) == "function" and acc() or acc) or 0
-    end
-    if typ == 0 then
-        local ok, aug = pcall(function() return it.AugSlot and it.AugSlot(slotIndex) end)
-        if ok and aug then
-            local t = (type(aug.Type) == "function" and aug.Type()) or aug.Type
-            typ = tonumber(t) or tonumber(tostring(t)) or 0
-        end
-    end
-    return typ
-end
-
---- Ornament slot index (1-based) and socket type per AUGMENT_SOCKET_UI_DESIGN. Slot 5 = Ornamentation (type 20).
-local ORNAMENT_SLOT_INDEX = 5
-local ORNAMENT_SOCKET_TYPE = 20
-
---- True if item has ornament slot (slot 5, type 20). Used to exclude ornament from "standard" augment slot count in UI.
-function M.itemHasOrnamentSlot(it)
-    if not it then return false end
-    return M.getSlotType(it, ORNAMENT_SLOT_INDEX) == ORNAMENT_SOCKET_TYPE
-end
-
---- Return list of 1-based standard augment slot indices (1-4) that currently have an augment (it.Item(i) ID > 0).
---- Used by Augment Utility "Remove All" to know which slots to queue. Slots 1-4 only; ornament (5) excluded.
-function M.getFilledStandardAugmentSlotIndices(it)
-    if not it or not it.Item then return {} end
-    local out = {}
-    for i = 1, 4 do
-        local ok, sock = pcall(function() return it.Item(i) end)
-        if ok and sock and sock.ID then
-            local okId, idVal = pcall(function() return sock.ID() end)
-            if not okId then idVal = (type(sock.ID) == "function" and sock.ID()) or sock.ID end
-            local idNum = tonumber(idVal)
-            if idNum and idNum > 0 then out[#out + 1] = i end
-        end
-    end
-    return out
-end
-
---- Count of standard augment slots (1-4 only) that actually have a socket type > 0. Iterates slots 1-4 and
---- counts only those with getSlotType(it, i) > 0, so we never show phantom "Slot N, type 0 (empty)" rows when
---- the game reports extra AugSlotN or when ornament (slot 5) is not reported as type 20. Ornament add/remove
---- can be supported later as a separate flow (slot 5, type 20) since it behaves differently from augments.
-function M.getStandardAugSlotsCountFromTLO(it)
-    if not it then return 0 end
-    local n = 0
-    for i = 1, 4 do
-        if M.getSlotType(it, i) > 0 then n = n + 1 end
-    end
-    return n
-end
-
---- Get AugType from item TLO (for augmentation items). Returns number or 0. Used to match augment to socket type.
-function M.getAugTypeFromTLO(it)
-    if not it or not it.AugType then return 0 end
-    local ok, v = pcall(function() return it.AugType() end)
-    if not ok or not v then return 0 end
-    return tonumber(v) or 0
-end
-
---- Get AugRestrictions from item TLO (for augmentation items). Returns int: 0=none, 1-15=single restriction (live EQ).
---- If callers see values >15 or default Item Display shows multiple restriction lines for one item, decode as bitmask (bits 1-15 → restriction names, OR in augmentRestrictionAllowsParent).
-function M.getAugRestrictionsFromTLO(it)
-    if not it or not it.AugRestrictions then return 0 end
-    local ok, v = pcall(function() return it.AugRestrictions() end)
-    if not ok or not v then return 0 end
-    return tonumber(v) or 0
-end
-
---- Expand AugType (bitmask or single type) to list of slot type IDs (1-based). Used for "This augment fits in slot types" display.
-function M.getAugTypeSlotIds(augType)
-    if not augType or augType <= 0 then return {} end
-    local list = {}
-    local bit32 = bit32
-    for slotId = 1, 24 do
-        local bit = (bit32 and bit32.lshift and bit32.lshift(1, slotId - 1)) or (2 ^ (slotId - 1))
-        local set = (augType == slotId) or (bit32 and bit32.band and bit32.band(augType, bit) ~= 0)
-        if set then list[#list + 1] = slotId end
-    end
-    return list
-end
-
---- Classify parent item TLO as weapon/shield/armor and optional weapon subtype for augment restriction checks.
---- Returns isWeapon (boolean), isShield (boolean), typeLower (string).
-local function parentItemClassify(it)
-    if not it then return false, false, "" end
-    local typeStr = ""
-    if it.Type then
-        local ok, v = pcall(function() return it.Type() end)
-        if ok and v then typeStr = tostring(v):lower() end
-    end
-    local dmg = 0
-    if it.Damage then local ok, v = pcall(function() return it.Damage() end); if ok and v then dmg = tonumber(v) or 0 end end
-    local delay = 0
-    if it.ItemDelay then local ok, v = pcall(function() return it.ItemDelay() end); if ok and v then delay = tonumber(v) or 0 end end
-    local isWeapon = (dmg and dmg ~= 0) or (delay and delay ~= 0) or (typeStr ~= "" and (typeStr:find("piercing") or typeStr:find("slashing") or typeStr:find("1h") or typeStr:find("2h") or typeStr:find("ranged")))
-    local isShield = typeStr ~= "" and typeStr:find("shield")
-    return isWeapon, isShield, typeStr
-end
-
---- Returns isWeapon (boolean), parentDamage (number), parentDelay (number) for ranking (e.g. augment damage as % of weapon).
-function M.getParentWeaponInfo(it)
-    if not it then return false, 0, 0 end
-    local dmg, delay = 0, 0
-    if it.Damage then local ok, v = pcall(function() return it.Damage() end); if ok and v then dmg = tonumber(v) or 0 end end
-    if it.ItemDelay then local ok, v = pcall(function() return it.ItemDelay() end); if ok and v then delay = tonumber(v) or 0 end end
-    local isWeapon = parentItemClassify(it)
-    return isWeapon, dmg, delay
-end
-
 --- Returns baseStatKeys, heroicStatKeys for augment ranking (single source of truth with STAT_TLO_MAP).
 function M.getStatKeysForRanking()
     local baseKeys, heroicKeys = {}, {}
@@ -773,205 +483,6 @@ function M.getStatKeysForRanking()
         end
     end
     return baseKeys, heroicKeys
-end
-
---- True if the augment's AugRestrictions allow the parent item. Restriction 0 = none; 1 = Armor Only;
---- 2 = Weapons Only; 3 = One-Handed Weapons Only; 4 = 2H Weapons Only; 5-12 = specific weapon types;
---- 13 = Shields Only; 14 = 1H Slash/1H Blunt/H2H; 15 = 1H Blunt/H2H. IDs match AUG_RESTRICTION_NAMES in item_tooltip.
---- If AugRestrictions is ever a bitmask, allow parent when any set bit allows it (OR logic).
-function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
-    if not augRestrictionId or augRestrictionId == 0 then return true end
-    if not parentIt then return false end
-    local isWeapon, isShield, typeLower = parentItemClassify(parentIt)
-    -- 1 = Armor Only: parent must not be weapon (armor or shield ok)
-    if augRestrictionId == 1 then return not isWeapon end
-    -- 2 = Weapons Only
-    if augRestrictionId == 2 then return isWeapon end
-    -- 13 = Shields Only
-    if augRestrictionId == 13 then return isShield end
-    -- 3-12, 14-15: weapon subtype; parent must be weapon and type string match (IDs match live EQ)
-    if augRestrictionId >= 3 and augRestrictionId <= 15 then
-        if not isWeapon then return false end
-        if not typeLower or typeLower == "" then return false end
-        if augRestrictionId == 3 then return typeLower:find("1h", 1, true) end  -- One-Handed Weapons Only (any 1H)
-        if augRestrictionId == 4 then return typeLower:find("2h", 1, true) end  -- 2H Weapons Only (any 2H)
-        if augRestrictionId == 5 then return typeLower:find("1h", 1, true) and typeLower:find("slashing", 1, true) end
-        if augRestrictionId == 6 then return typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true) end
-        if augRestrictionId == 7 then return typeLower:find("piercing", 1, true) end
-        if augRestrictionId == 8 then return typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
-        if augRestrictionId == 9 then return typeLower:find("2h", 1, true) and typeLower:find("slashing", 1, true) end
-        if augRestrictionId == 10 then return typeLower:find("2h", 1, true) and typeLower:find("blunt", 1, true) end
-        if augRestrictionId == 11 then return typeLower:find("2h", 1, true) and typeLower:find("piercing", 1, true) end
-        if augRestrictionId == 12 then return typeLower:find("ranged", 1, true) end
-        if augRestrictionId == 14 then return (typeLower:find("1h", 1, true) and (typeLower:find("slashing", 1, true) or typeLower:find("blunt", 1, true))) or typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
-        if augRestrictionId == 15 then return (typeLower:find("1h", 1, true) and typeLower:find("blunt", 1, true)) or typeLower:find("hand to hand", 1, true) or typeLower:find("h2h", 1, true) end
-        return true
-    end
-    return true
-end
-
--- Augment compatibility index (Task 3.5): built at scan time; each entry { itemRow, augType, augRestrictions, wornSlotIndices }.
-local augmentIndex = {}
-
---- Build augment index from inventory + bank for O(N) getCompatibleAugments with no per-augment TLO calls.
---- Call after scanInventory or scanBank so index stays current.
-function M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
-    augmentIndex = {}
-    if not inventoryItems and not bankItemsOrCache then return end
-    local function addFromList(list)
-        if not list then return end
-        for _, row in ipairs(list) do
-            if (row.type or ""):lower() == "augmentation" then
-                local src = row.source or "inv"
-                local augIt = M.getItemTLO(row.bag, row.slot, src)
-                if augIt and augIt.AugType then
-                    local augType = M.getAugTypeFromTLO(augIt)
-                    if augType and augType > 0 then
-                        local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
-                        local wornSlotIndices = M.getWornSlotIndicesFromTLO(augIt)
-                        augmentIndex[#augmentIndex + 1] = {
-                            itemRow = row,
-                            augType = augType,
-                            augRestrictions = augRestrictions or 0,
-                            wornSlotIndices = wornSlotIndices,
-                        }
-                    end
-                end
-            end
-        end
-    end
-    addFromList(inventoryItems)
-    addFromList(bankItemsOrCache)
-end
-
---- Check if an augment item (with augType from TLO) fits the given socket type.
---- Socket type is from parent item's AugSlotN; augType is augmentation slot type mask from the augment.
-function M.augmentFitsSocket(augType, socketType)
-    if not socketType or socketType <= 0 then return false end
-    if not augType or augType <= 0 then return false end
-    -- AugType can be a single type or a bitmask; try both
-    if augType == socketType then return true end
-    -- Bitmask: socket type 1 = bit 0, etc. (Lua 5.1 has no <<; use bit32 or 2^n)
-    local bit
-    if bit32 and bit32.lshift then
-        bit = bit32.lshift(1, socketType - 1)
-    else
-        bit = 2 ^ (socketType - 1)
-    end
-    if bit32 and bit32.band and bit32.band(augType, bit) ~= 0 then return true end
-    return false
-end
-
---- Build list of compatible augments for a given item and slot from inventory + bank.
---- Uses pre-computed augment index when available (Task 3.5): O(N) filtered lookup with no per-augment TLO calls.
---- parentItem must have bag, slot, source; slotIndex is 1-based (1-6, ornament 5 optional).
---- canUseFilter: optional function(itemRow) -> boolean; when provided, only augments that pass
---- (class, race, deity, level for current player) are included.
---- Returns array of item tables (same shape as scan) that are type Augmentation and fully compatible.
-function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inventoryItems, bankItemsOrCache, canUseFilter)
-    if not parentItem or not slotIndex or slotIndex < 1 or slotIndex > 6 then return {} end
-    local b, s, src = bag or parentItem.bag, slot or parentItem.slot, source or parentItem.source or "inv"
-    local it = M.getItemTLO(b, s, src)
-    if not it or not it.ID or it.ID() == 0 then return {} end
-    local socketType = M.getSlotType(it, slotIndex)
-    if not socketType or socketType <= 0 then return {} end
-    local candidates = {}
-    -- Use pre-computed index when available (built at scan time or on first use)
-    if #augmentIndex == 0 and (inventoryItems or bankItemsOrCache) then
-        M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
-    end
-    if #augmentIndex > 0 then
-        for _, entry in ipairs(augmentIndex) do
-            local itemRow = entry.itemRow
-            if not M.augmentFitsSocket(entry.augType, socketType) then goto continue end
-            if not M.augmentRestrictionAllowsParent(it, entry.augRestrictions) then goto continue end
-            if not M.augmentWornSlotAllowsParentWithCachedAugSlots(it, entry.wornSlotIndices) then goto continue end
-            if type(canUseFilter) == "function" and not canUseFilter(itemRow) then goto continue end
-            candidates[#candidates + 1] = itemRow
-            ::continue::
-        end
-        return candidates
-    end
-    -- Fallback: no index (e.g. no augments in inv/bank), or legacy path
-    local function addCandidate(itemRow)
-        if not itemRow or (itemRow.type or ""):lower() ~= "augmentation" then return end
-        local augIt = M.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
-        if not augIt or not augIt.AugType then return end
-        local augId = (type(augIt.ID) == "function" and augIt.ID()) or augIt.ID
-        if not augId or augId == 0 then return end
-        local augType = M.getAugTypeFromTLO(augIt)
-        if not M.augmentFitsSocket(augType, socketType) then return end
-        local augRestrictions = M.getAugRestrictionsFromTLO(augIt)
-        if not M.augmentRestrictionAllowsParent(it, augRestrictions) then return end
-        if not M.augmentWornSlotAllowsParent(it, augIt) then return end
-        if type(canUseFilter) == "function" and not canUseFilter(itemRow) then return end
-        candidates[#candidates + 1] = itemRow
-    end
-    if inventoryItems then
-        for _, row in ipairs(inventoryItems) do addCandidate(row) end
-    end
-    if bankItemsOrCache then
-        for _, row in ipairs(bankItemsOrCache) do addCandidate(row) end
-    end
-    return candidates
-end
-
---- Build class and race display strings from item TLO (Classes()/Class(i), Races()/Race(i)).
-function M.getClassRaceStringsFromTLO(it)
-    if not it or not it.ID or it.ID() == 0 then return "", "" end
-    local function add(parts, fn, n)
-        if not n or n <= 0 then return end
-        for i = 1, n do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = tostring(v) end end
-        if #parts == 0 then for i = 0, n - 1 do local v = fn(i); if v and v ~= "" then parts[#parts + 1] = tostring(v) end end end
-    end
-    local clsStr, raceStr = "", ""
-    local nClass = it.Classes and it.Classes()
-    if nClass and nClass > 0 then
-        if nClass >= 16 then clsStr = "All"
-        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c end, nClass); clsStr = table.concat(p, " ") end
-    end
-    local nRace = it.Races and it.Races()
-    if nRace and nRace > 0 then
-        if nRace >= 15 then raceStr = "All"
-        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r end, nRace); raceStr = table.concat(p, " ") end
-    end
-    return clsStr, raceStr
-end
-
---- Class, race, and slot display strings from item TLO. Returns clsStr, raceStr, slotStr (single call for tooltip).
-function M.getClassRaceSlotFromTLO(it)
-    local c, r = M.getClassRaceStringsFromTLO(it)
-    local s = M.getWornSlotsStringFromTLO(it)
-    return c, r, s
-end
-
---- Build deity display string from item TLO (Deities()/Deity(i)). Returns "" if no deity restriction.
-function M.getDeityStringFromTLO(it)
-    if not it or not it.ID or it.ID() == 0 then return "" end
-    local nDeities = it.Deities and it.Deities()
-    if not nDeities or nDeities <= 0 then return "" end
-    local parts = {}
-    for i = 1, nDeities do
-        local ok, v = pcall(function()
-            local fn = it.Deity and it.Deity(i)
-            return (type(fn) == "function" and fn()) or fn
-        end)
-        if ok and v and tostring(v) ~= "" and tostring(v):lower() ~= "null" then
-            parts[#parts + 1] = tostring(v)
-        end
-    end
-    if #parts == 0 then
-        for i = 0, nDeities - 1 do
-            local ok, v = pcall(function()
-                local fn = it.Deity and it.Deity(i)
-                return (type(fn) == "function" and fn()) or fn
-            end)
-            if ok and v and tostring(v) ~= "" and tostring(v):lower() ~= "null" then
-                parts[#parts + 1] = tostring(v)
-            end
-        end
-    end
-    return (#parts > 0) and table.concat(parts, " ") or ""
 end
 
 --- Extract core item properties from MQ item TLO (per iteminfo.mac).
