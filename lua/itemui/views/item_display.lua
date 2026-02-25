@@ -9,8 +9,23 @@ local mq = require('mq')
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
 
 local ItemDisplayView = {}
+
+-- Per 4.2 state ownership: tabs, active index, recent, locate request, augment slot active
+local state = {
+    itemDisplayTabs = {},
+    itemDisplayActiveTabIndex = 1,
+    itemDisplayRecent = {},
+    itemDisplayLocateRequest = nil,
+    itemDisplayLocateRequestAt = nil,
+    itemDisplayAugmentSlotActive = nil,
+}
+function ItemDisplayView.getState()
+    return state
+end
 
 --- Draw "Can I use?" banner + full item tooltip content for one tab entry.
 --- entry = { bag, slot, source, item, label }
@@ -51,14 +66,14 @@ end
 
 -- Module interface: render main Item Display window (tabbed)
 function ItemDisplayView.render(ctx)
-    if not ctx.uiState.itemDisplayWindowShouldDraw then return end
+    if not registry.shouldDraw("itemDisplay") then return end
 
     local layoutConfig = ctx.layoutConfig
-    local tabs = ctx.uiState.itemDisplayTabs
-    local activeIdx = ctx.uiState.itemDisplayActiveTabIndex
+    local tabs = state.itemDisplayTabs
+    local activeIdx = state.itemDisplayActiveTabIndex
     if activeIdx < 1 or activeIdx > #tabs then
-        ctx.uiState.itemDisplayActiveTabIndex = #tabs > 0 and 1 or 0
-        activeIdx = ctx.uiState.itemDisplayActiveTabIndex
+        state.itemDisplayActiveTabIndex = #tabs > 0 and 1 or 0
+        activeIdx = state.itemDisplayActiveTabIndex
     end
 
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
@@ -80,13 +95,12 @@ function ItemDisplayView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Item Display##ItemUIItemDisplay", ctx.uiState.itemDisplayWindowOpen, windowFlags)
-    ctx.uiState.itemDisplayWindowOpen = winOpen
-    ctx.uiState.itemDisplayWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Item Display##ItemUIItemDisplay", registry.isOpen("itemDisplay"), windowFlags)
+    registry.setWindowState("itemDisplay", winOpen, winOpen)
 
     if not winOpen then
-        ctx.uiState.itemDisplayTabs = {}
-        ctx.uiState.itemDisplayActiveTabIndex = 1
+        state.itemDisplayTabs = {}
+        state.itemDisplayActiveTabIndex = 1
         ImGui.End()
         return
     end
@@ -149,7 +163,7 @@ function ItemDisplayView.render(ctx)
                 ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImGui.GetStyleColorVec4(ImGuiCol.Header))
             end
             if ImGui.Button(tabLabel .. "##ItemDisplayTab" .. tostring(i), ImVec2(btnW, 0)) then
-                ctx.uiState.itemDisplayActiveTabIndex = i
+                state.itemDisplayActiveTabIndex = i
             end
             if isSelected then
                 ImGui.PopStyleColor(3)
@@ -169,8 +183,8 @@ function ItemDisplayView.render(ctx)
         end
         ImGui.NewLine()
         -- Remove closed tabs (from high index down so indices stay valid)
-        local t = ctx.uiState.itemDisplayTabs
-        local curActive = ctx.uiState.itemDisplayActiveTabIndex
+        local t = state.itemDisplayTabs
+        local curActive = state.itemDisplayActiveTabIndex
         table.sort(closeIndices, function(a, b) return a > b end)
         for _, idx in ipairs(closeIndices) do
             if idx >= 1 and idx <= #t then
@@ -182,18 +196,17 @@ function ItemDisplayView.render(ctx)
                 end
             end
         end
-        ctx.uiState.itemDisplayActiveTabIndex = curActive
-        if #ctx.uiState.itemDisplayTabs > 0 and (ctx.uiState.itemDisplayActiveTabIndex < 1 or ctx.uiState.itemDisplayActiveTabIndex > #ctx.uiState.itemDisplayTabs) then
-            ctx.uiState.itemDisplayActiveTabIndex = 1
+        state.itemDisplayActiveTabIndex = curActive
+        if #state.itemDisplayTabs > 0 and (state.itemDisplayActiveTabIndex < 1 or state.itemDisplayActiveTabIndex > #state.itemDisplayTabs) then
+            state.itemDisplayActiveTabIndex = 1
         end
-        if #ctx.uiState.itemDisplayTabs == 0 then
-            ctx.uiState.itemDisplayWindowOpen = false
-            ctx.uiState.itemDisplayWindowShouldDraw = false
+        if #state.itemDisplayTabs == 0 then
+            registry.setWindowState("itemDisplay", false, false)
         end
         -- Use current selection for content (updated by tab click or close)
-        activeIdx = ctx.uiState.itemDisplayActiveTabIndex
-        if activeIdx < 1 or activeIdx > #ctx.uiState.itemDisplayTabs then
-            activeIdx = math.max(1, #ctx.uiState.itemDisplayTabs)
+        activeIdx = state.itemDisplayActiveTabIndex
+        if activeIdx < 1 or activeIdx > #state.itemDisplayTabs then
+            activeIdx = math.max(1, #state.itemDisplayTabs)
         end
     end
 
@@ -209,8 +222,8 @@ function ItemDisplayView.render(ctx)
             -- Toolbar: row 1 = Locate, Refresh, Recent; row 2 = Source
             ImGui.Spacing()
             if ImGui.SmallButton("Locate##ItemDisplay") then
-                ctx.uiState.itemDisplayLocateRequest = { source = tab.source, bag = tab.bag, slot = tab.slot }
-                ctx.uiState.itemDisplayLocateRequestAt = mq.gettime()
+                state.itemDisplayLocateRequest = { source = tab.source, bag = tab.bag, slot = tab.slot }
+                state.itemDisplayLocateRequestAt = mq.gettime()
             end
             ImGui.SameLine()
             if ImGui.SmallButton("Refresh##ItemDisplay") then
@@ -222,7 +235,7 @@ function ItemDisplayView.render(ctx)
                 end
             end
             ImGui.SameLine()
-            local recent = ctx.uiState.itemDisplayRecent
+            local recent = state.itemDisplayRecent
             if #recent > 0 then
                 local currentLabel = tab.label or ""
                 local comboW = 280
@@ -241,7 +254,7 @@ function ItemDisplayView.render(ctx)
                             local found
                             for i, t in ipairs(tabs) do
                                 if t.bag == r.bag and t.slot == r.slot and t.source == r.source then
-                                    ctx.uiState.itemDisplayActiveTabIndex = i
+                                    state.itemDisplayActiveTabIndex = i
                                     found = true
                                     break
                                 end
@@ -252,7 +265,7 @@ function ItemDisplayView.render(ctx)
                                     local label = (showItem.name and showItem.name ~= "" and showItem.name:sub(1, 35)) or "Item"
                                     if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
                                     tabs[#tabs + 1] = { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label }
-                                    ctx.uiState.itemDisplayActiveTabIndex = #tabs
+                                    state.itemDisplayActiveTabIndex = #tabs
                                 end
                             end
                         end
@@ -271,5 +284,19 @@ function ItemDisplayView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Item Display module (4.2 state ownership — window in registry, tabs/recent/locate in view)
+registry.register({
+    id          = "itemDisplay",
+    label       = "Item Display",
+    buttonWidth = 90,
+    tooltip     = "Inspect item stats and augments",
+    layoutKeys  = { x = "ItemDisplayWindowX", y = "ItemDisplayWindowY" },
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        ItemDisplayView.render(ctx)
+    end,
+})
 
 return ItemDisplayView

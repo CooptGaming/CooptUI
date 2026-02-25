@@ -280,6 +280,13 @@ function M.render(refs)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
+        -- Request keyboard capture so ESC closes companion only, not native EQ bags (LIFO fix)
+        if winVis then
+            pcall(function()
+                if ImGui.SetNextFrameWantCaptureKeyboard then ImGui.SetNextFrameWantCaptureKeyboard(true)
+                elseif ImGui.GetIO and ImGui.GetIO().SetNextFrameWantCaptureKeyboard then ImGui.GetIO().SetNextFrameWantCaptureKeyboard(true) end
+            end)
+        end
         if ImGui.IsKeyPressed(ImGuiKey.Escape) then
             if uiState.pendingQuantityPickup then
                 uiState.pendingQuantityPickup = nil
@@ -326,20 +333,20 @@ function M.render(refs)
         local eqW = layoutConfig.WidthEquipmentPanel or constants.UI.EQUIPMENT_PANEL_WIDTH
         local eqH = layoutConfig.HeightEquipment or constants.UI.EQUIPMENT_PANEL_HEIGHT
         if hubX and hubY and hubW then
-            if uiState.equipmentWindowShouldDraw and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
+            if registry.shouldDraw("equipment") and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
                 layoutConfig.EquipmentWindowX = hubX - eqW - defGap
                 layoutConfig.EquipmentWindowY = hubY
             end
-            if uiState.itemDisplayWindowShouldDraw and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
+            if registry.shouldDraw("itemDisplay") and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
                 layoutConfig.ItemDisplayWindowX = hubX + hubW + defGap
                 layoutConfig.ItemDisplayWindowY = hubY
             end
-            if uiState.augmentsWindowShouldDraw and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
+            if registry.shouldDraw("augments") and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
                 local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
                 layoutConfig.AugmentsWindowX = hubX - aw - defGap
                 layoutConfig.AugmentsWindowY = hubY + eqH + defGap
             end
-            if uiState.augmentUtilityWindowShouldDraw and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
+            if registry.shouldDraw("augmentUtility") and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
                 local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
                 layoutConfig.AugmentUtilityWindowX = hubX - auw - defGap
                 layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
@@ -358,7 +365,7 @@ function M.render(refs)
                 layoutConfig.LootWindowX = hubX + hubW + defGap
                 layoutConfig.LootWindowY = hubY
             end
-            if uiState.bankWindowShouldDraw and (layoutConfig.BankWindowX or 0) == 0 and (layoutConfig.BankWindowY or 0) == 0 then
+            if registry.shouldDraw("bank") and (layoutConfig.BankWindowX or 0) == 0 and (layoutConfig.BankWindowY or 0) == 0 then
                 layoutConfig.BankWindowX = hubX + hubW + defGap
                 layoutConfig.BankWindowY = hubY
             end
@@ -394,43 +401,35 @@ function M.render(refs)
             if setStatusMessage then setStatusMessage("Window positions reset to hub-relative defaults.") end
         end
 
-        if ImGui.Button("Equipment", ImVec2(75, 0)) then
-            uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
-            uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
-            if uiState.equipmentWindowOpen then refs.recordCompanionWindowOpened("equipment"); setStatusMessage("Equipment Companion opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("View your worn items — click an item to swap or inspect"); ImGui.EndTooltip() end
-        ImGui.SameLine()
+        local bankOnline = refs.isBankWindowOpen and refs.isBankWindowOpen()
         for _, mod in ipairs(registry.getEnabledModules()) do
+            if mod.id == "bank" then
+                if bankOnline then
+                    ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Keep.Normal))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Keep.Hover))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Keep.Active))
+                else
+                    ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Delete.Normal))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Delete.Hover))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Delete.Active))
+                end
+            end
             if ImGui.Button(mod.label, ImVec2(mod.buttonWidth or 60, 0)) then
                 registry.toggleWindow(mod.id)
                 if registry.isOpen(mod.id) then
                     refs.recordCompanionWindowOpened(mod.id)
                     if mod.id == "aa" and aa_data.shouldRefresh() then aa_data.refresh() end
+                    if mod.id == "bank" and bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end
+                    if mod.id == "config" then uiState.configNeedsLoad = true end
                     local msg = (mod.id == "aa" and "Alt Advancement window opened") or (mod.id == "reroll" and "Reroll Companion opened") or (mod.label .. " opened")
                     setStatusMessage(msg)
                 end
             end
+            if mod.id == "bank" then ImGui.PopStyleColor(3) end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(mod.tooltip or ""); ImGui.EndTooltip() end
             ImGui.SameLine()
         end
-        if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
-            uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
-            uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
-            if uiState.augmentUtilityWindowOpen then refs.recordCompanionWindowOpened("augmentUtility"); setStatusMessage("Augment Utility opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add or remove augments from your gear"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Augments", ImVec2(55, 0)) then
-            uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
-            uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Augments window opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Browse all augments in your inventory with stat filtering"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
-        if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Configure sell rules, loot rules, and UI behavior"); ImGui.EndTooltip() end
-        ImGui.SameLine()
         local prevLocked = uiState.uiLocked
         uiState.uiLocked = ImGui.Checkbox("##Lock", uiState.uiLocked)
         if prevLocked ~= uiState.uiLocked then
@@ -445,24 +444,6 @@ function M.render(refs)
             end
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.uiLocked and "Pin: UI locked (click to unlock and resize)" or "Pin: UI unlocked (click to lock)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        local bankOnline = refs.isBankWindowOpen and refs.isBankWindowOpen()
-        if bankOnline then
-            ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Keep.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Keep.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Keep.Active))
-        else
-            ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Delete.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Delete.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Delete.Active))
-        end
-        if ImGui.Button("Bank", ImVec2(60, 0)) then
-            uiState.bankWindowOpen = not uiState.bankWindowOpen
-            uiState.bankWindowShouldDraw = uiState.bankWindowOpen
-            if uiState.bankWindowOpen then refs.recordCompanionWindowOpened("bank"); if bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("View your bank — green = online, red = offline snapshot"); ImGui.EndTooltip() end
-        ImGui.PopStyleColor(3)
         ImGui.Separator()
 
         if uiState.setupMode then
@@ -688,12 +669,9 @@ function M.render(refs)
         end
         ImGui.End()
 
-        if uiState.configWindowOpen then
-            local ctx = extendContext(buildViewContext())
-            ConfigView.render(ctx)
-        end
+        -- Config rendered via registry.getDrawableModules()
 
-        if uiState.equipmentWindowShouldDraw then
+        if registry.shouldDraw("equipment") then
             local now = mq.gettime()
             local shouldRefresh = false
             if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
@@ -715,17 +693,11 @@ function M.render(refs)
             if refs.maybeScanInventory then refs.maybeScanInventory(invOpen) end
             uiState.deferredInventoryScanAt = nil
         end
-        renderEquipmentWindow(refs)
-        renderBankWindow(refs)
-        if uiState.augmentsWindowShouldDraw then
-            renderAugmentsWindow(refs)
-        end
-        if uiState.augmentUtilityWindowShouldDraw then
-            renderAugmentUtilityWindow(refs)
-        end
-        if uiState.itemDisplayWindowShouldDraw then
-            renderItemDisplayWindow(refs)
-        end
+        -- Equipment rendered via registry.getDrawableModules()
+        -- Bank rendered via registry.getDrawableModules()
+        -- Augments rendered via registry.getDrawableModules()
+        -- Augment Utility rendered via registry.getDrawableModules()
+        -- Item Display rendered via registry.getDrawableModules()
         if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
             local now = mq.gettime()
             local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000

@@ -10,8 +10,20 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
 
 local AugmentsView = {}
+
+-- Per 4.2 state ownership: search and sort state
+local state = {
+    searchFilterAugments = "",
+    augmentsSortColumn = nil,
+    augmentsSortDirection = nil,
+}
+function AugmentsView.getState()
+    return state
+end
 
 local AUGMENT_TYPE = "Augmentation"
 local AUGMENTS_WINDOW_WIDTH = 560
@@ -39,9 +51,8 @@ end
 
 -- Module interface: render augments pop-out window (owns ImGui.Begin/End like BankView)
 function AugmentsView.render(ctx)
-    if not ctx.uiState.augmentsWindowShouldDraw then return end
+    if not registry.shouldDraw("augments") then return end
 
-    local augmentsWindowOpen = ctx.uiState.augmentsWindowOpen
     local layoutConfig = ctx.layoutConfig
 
     -- Position: use saved or default (Always when forceApply so revert takes effect)
@@ -64,9 +75,8 @@ function AugmentsView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Augments Companion##ItemUIAugments", augmentsWindowOpen, windowFlags)
-    ctx.uiState.augmentsWindowOpen = winOpen
-    ctx.uiState.augmentsWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Augments Companion##ItemUIAugments", registry.isOpen("augments"), windowFlags)
+    registry.setWindowState("augments", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -109,12 +119,12 @@ function AugmentsView.render(ctx)
     ImGui.Text("Search:")
     ImGui.SameLine()
     ImGui.SetNextItemWidth(160)
-    ctx.uiState.searchFilterAugments, _ = ImGui.InputText("##AugmentsSearch", ctx.uiState.searchFilterAugments or "")
+    state.searchFilterAugments, _ = ImGui.InputText("##AugmentsSearch", state.searchFilterAugments or "")
     ImGui.SameLine()
-    if ImGui.Button("X##AugmentsSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterAugments = "" end
+    if ImGui.Button("X##AugmentsSearchClear", ImVec2(22, 0)) then state.searchFilterAugments = "" end
     ImGui.Separator()
 
-    local searchLower = (ctx.uiState.searchFilterAugments or ""):lower()
+    local searchLower = (state.searchFilterAugments or ""):lower()
     local filtered = {}
     for _, it in ipairs(augments) do
         if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
@@ -150,13 +160,13 @@ function AugmentsView.render(ctx)
         if sortSpecs and sortSpecs.SpecsDirty and sortSpecs.SpecsCount > 0 then
             local spec = sortSpecs:Specs(1)
             if spec then
-                ctx.uiState.augmentsSortColumn = spec.ColumnIndex
-                ctx.uiState.augmentsSortDirection = spec.SortDirection
+                state.augmentsSortColumn = spec.ColumnIndex
+                state.augmentsSortDirection = spec.SortDirection
             end
             sortSpecs.SpecsDirty = false
         end
-        local sortCol = (ctx.uiState.augmentsSortColumn ~= nil) and ctx.uiState.augmentsSortColumn or 1
-        local sortDir = ctx.uiState.augmentsSortDirection or ImGuiSortDirection.Ascending
+        local sortCol = (state.augmentsSortColumn ~= nil) and state.augmentsSortColumn or 1
+        local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
         if sortCol >= 1 and sortCol <= 3 then
             table.sort(filtered, function(a, b)
@@ -305,5 +315,19 @@ function AugmentsView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Augments module (4.2 state ownership — window in registry, search/sort in view)
+registry.register({
+    id          = "augments",
+    label       = "Augments",
+    buttonWidth = 55,
+    tooltip     = "Browse all augments in your inventory with stat filtering",
+    layoutKeys  = { x = "AugmentsWindowX", y = "AugmentsWindowY" },
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        AugmentsView.render(ctx)
+    end,
+})
 
 return AugmentsView

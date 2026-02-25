@@ -11,6 +11,15 @@ local ItemUtils = require('mq.ItemUtils')
 
 local LootView = {}
 
+-- Per 4.2 state ownership: deferred rescan and remove list
+local state = {
+    pendingLootRescan = nil,
+    pendingLootRemove = nil,
+}
+function LootView.getState()
+    return state
+end
+
 -- Module interface: render loot view content
 -- Params: context table containing all necessary state and functions from init.lua
 function LootView.render(ctx)
@@ -79,15 +88,15 @@ function LootView.render(ctx)
             if ImGui.Button("Loot", ImVec2(50, 0)) then
                 mq.cmdf('/itemnotify loot%d rightmouseup', it.slot or 1)
                 ctx.setStatusMessage(string.format("Looting: %s", it.name or ""))
-                ctx.uiState.pendingLootRescan = true
+                state.pendingLootRescan = true
             end
             ctx.theme.PopButtonColors()
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Move item to first open inventory slot"); ImGui.EndTooltip() end
             ImGui.SameLine()
             ctx.theme.PushSkipButton()
             if ImGui.Button("Skip", ImVec2(50, 0)) then
-                ctx.uiState.pendingLootRemove = ctx.uiState.pendingLootRemove or {}
-                ctx.uiState.pendingLootRemove[#ctx.uiState.pendingLootRemove + 1] = it.slot
+                state.pendingLootRemove = state.pendingLootRemove or {}
+                state.pendingLootRemove[#state.pendingLootRemove + 1] = it.slot
             end
             ctx.theme.PopButtonColors()
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Skip item, remove from view"); ImGui.EndTooltip() end
@@ -109,7 +118,7 @@ function LootView.render(ctx)
                         end
                     end
                     mq.cmdf('/itemnotify loot%d rightmouseup', it.slot or 1)
-                    ctx.uiState.pendingLootRescan = true
+                    state.pendingLootRescan = true
                 end
                 ctx.theme.PopButtonColors()
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add to Always Loot list, then loot item"); ImGui.EndTooltip() end
@@ -131,8 +140,8 @@ function LootView.render(ctx)
                             ctx.setStatusMessage(string.format("Added to Always Skip: %s", name))
                         end
                     end
-                    ctx.uiState.pendingLootRemove = ctx.uiState.pendingLootRemove or {}
-                    ctx.uiState.pendingLootRemove[#ctx.uiState.pendingLootRemove + 1] = it.slot
+                    state.pendingLootRemove = state.pendingLootRemove or {}
+                    state.pendingLootRemove[#state.pendingLootRemove + 1] = it.slot
                 end
                 ctx.theme.PopButtonColors()
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add to Always Skip list, remove from view"); ImGui.EndTooltip() end
@@ -143,18 +152,18 @@ function LootView.render(ctx)
     end
     
     -- Process deferred loot actions (avoids modifying lootItems during iteration)
-    if ctx.uiState.pendingLootRescan then
-        ctx.uiState.pendingLootRescan = nil
+    if state.pendingLootRescan then
+        state.pendingLootRescan = nil
         ctx.scanLootItems()
         if #ctx.lootItems == 0 then
             mq.cmd('/notify LootWnd DoneButton leftmouseup')
             ctx.setStatusMessage("Loot complete")
         end
-    elseif ctx.uiState.pendingLootRemove and #ctx.uiState.pendingLootRemove > 0 then
-        for _, slot in ipairs(ctx.uiState.pendingLootRemove) do
+    elseif state.pendingLootRemove and #state.pendingLootRemove > 0 then
+        for _, slot in ipairs(state.pendingLootRemove) do
             if ctx.sortColumns and ctx.sortColumns.removeLootItemBySlot then ctx.sortColumns.removeLootItemBySlot(slot) end
         end
-        ctx.uiState.pendingLootRemove = nil
+        state.pendingLootRemove = nil
         if #ctx.lootItems == 0 then
             mq.cmd('/notify LootWnd DoneButton leftmouseup')
             ctx.setStatusMessage("Loot complete")

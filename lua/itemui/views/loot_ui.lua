@@ -11,6 +11,31 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local LootUIView = {}
 
+-- Per 4.2 state ownership: all Loot UI companion state
+local state = {
+    lootUIOpen = false,
+    lootRunCorpsesLooted = 0,
+    lootRunTotalCorpses = 0,
+    lootRunCurrentCorpse = "",
+    lootRunLootedList = {},
+    lootRunLootedItems = {},
+    lootHistory = nil,
+    skipHistory = nil,
+    lootRunFinished = false,
+    lootMythicalAlert = nil,
+    lootMythicalDecisionStartAt = nil,
+    lootMythicalFeedback = nil,
+    lootRunTotalValue = 0,
+    lootRunTributeValue = 0,
+    lootRunBestItemName = "",
+    lootRunBestItemValue = 0,
+    corpseLootedHidden = true,
+    lootUITab = 0,
+}
+function LootUIView.getState()
+    return state
+end
+
 --- Clear Loot UI in-memory state and optionally clear session/alert INI (call on Esc or Close).
 --- ctx.clearLootUIState() is provided by init.lua
 function LootUIView.closeAndClearState(ctx)
@@ -19,9 +44,9 @@ end
 
 --- Render the Loot UI window. Context must have: uiState, theme, layoutConfig, runLootCurrent, runLootAll, clearLootUIMythicalAlert, clearLootUIState.
 function LootUIView.render(ctx)
-    if not ctx or not ctx.uiState.lootUIOpen then return end
+    if not ctx or not state.lootUIOpen then return end
 
-    local uiState = ctx.uiState
+    local uiState = ctx.uiState  -- for layoutRevertedApplyFrames etc.
     local theme = ctx.theme
     local layoutConfig = ctx.layoutConfig or {}
 
@@ -40,8 +65,8 @@ function LootUIView.render(ctx)
     -- Loot window is always resizable (independent of main UI lock)
     local windowFlags = 0
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Loot Companion##LootUI", uiState.lootUIOpen, windowFlags)
-    uiState.lootUIOpen = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Loot Companion##LootUI", state.lootUIOpen, windowFlags)
+    state.lootUIOpen = winOpen
 
     if not winOpen then
         LootUIView.closeAndClearState(ctx)
@@ -65,20 +90,20 @@ function LootUIView.render(ctx)
         ImGui.Separator()
 
         -- Tabs: Current | Loot History | Skip History (guard when tab bar API unavailable)
-        if not uiState.lootUITab then uiState.lootUITab = 0 end
+        if not state.lootUITab then state.lootUITab = 0 end
         local hasTabBarAPI = ImGui.BeginTabBar and ImGuiTabBarFlags and (ImGuiTabBarFlags.None ~= nil)
         if hasTabBarAPI and ImGui.BeginTabBar("LootUITabs", ImGuiTabBarFlags.None) then
             if ImGui.BeginTabItem("Current") then
-                uiState.lootUITab = 0
+                state.lootUITab = 0
                 ImGui.EndTabItem()
             end
             if ImGui.BeginTabItem("Loot History") then
-                uiState.lootUITab = 1
+                state.lootUITab = 1
                 if ctx.loadLootHistory then ctx.loadLootHistory() end
                 ImGui.EndTabItem()
             end
             if ImGui.BeginTabItem("Skip History") then
-                uiState.lootUITab = 2
+                state.lootUITab = 2
                 if ctx.loadSkipHistory then ctx.loadSkipHistory() end
                 ImGui.EndTabItem()
             end
@@ -88,7 +113,7 @@ function LootUIView.render(ctx)
 
         -- First-time tip (Current tab only)
         local tipSeen = (ctx.layoutConfig and (ctx.layoutConfig.LootUIFirstTipSeen or 0) ~= 0)
-        if uiState.lootUITab == 0 and not tipSeen then
+        if state.lootUITab == 0 and not tipSeen then
             ImGui.TextColored(theme.ToVec4(theme.Colors.Info), "Loot current = this corpse only. Loot all = all corpses in range.")
             if ImGui.Button("Got it##LootUITip") then
                 if ctx.layoutConfig then ctx.layoutConfig.LootUIFirstTipSeen = 1 end
@@ -98,7 +123,7 @@ function LootUIView.render(ctx)
         end
 
         -- Current tab: buttons, progress, current loot table
-        if uiState.lootUITab == 0 then
+        if state.lootUITab == 0 then
         -- Buttons: Loot current, Loot all
         if ctx.runLootCurrent and ImGui.Button("Loot current", ImVec2(110, 0)) then
             ctx.runLootCurrent()
@@ -118,15 +143,15 @@ function LootUIView.render(ctx)
             ImGui.EndTooltip()
         end
         -- Show/Hide looted corpses (troubleshooting; same as /hidecorpse looted vs /hidecorpse none)
-        if uiState.corpseLootedHidden then
+        if state.corpseLootedHidden then
             if ImGui.Button("Show looted corpses", ImVec2(140, 0)) then
                 mq.cmd('/hidecorpse none')
-                uiState.corpseLootedHidden = false
+                state.corpseLootedHidden = false
             end
         else
             if ImGui.Button("Hide looted corpses", ImVec2(140, 0)) then
                 mq.cmd('/hidecorpse looted')
-                uiState.corpseLootedHidden = true
+                state.corpseLootedHidden = true
             end
         end
         if ImGui.IsItemHovered() then
@@ -156,11 +181,11 @@ function LootUIView.render(ctx)
         ImGui.Separator()
 
         -- Mythical feedback: brief "You chose: Take" / "Passed — left on corpse" after Take/Pass
-        local feedback = uiState.lootMythicalFeedback
+        local feedback = state.lootMythicalFeedback
         if feedback and feedback.message and feedback.showUntil then
             local now = mq.gettime()
             if now >= feedback.showUntil then
-                uiState.lootMythicalFeedback = nil
+                state.lootMythicalFeedback = nil
             else
                 ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Success))
                 ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
@@ -175,10 +200,10 @@ function LootUIView.render(ctx)
         end
 
         -- Mythical alert: pending Take/Pass decision (distinct styling, countdown, link)
-        if uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName and uiState.lootMythicalAlert.itemName ~= "" then
-            local decision = (uiState.lootMythicalAlert.decision or ""):lower()
+        if state.lootMythicalAlert and state.lootMythicalAlert.itemName and state.lootMythicalAlert.itemName ~= "" then
+            local decision = (state.lootMythicalAlert.decision or ""):lower()
             local pending = (decision == "" or decision == "pending")
-            local alert = uiState.lootMythicalAlert
+            local alert = state.lootMythicalAlert
             local amberBg = { 0.18, 0.14, 0.06, 0.85 }
             ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Warning))
             ImGui.PushStyleColor(ImGuiCol.ChildBg, ImVec4(amberBg[1], amberBg[2], amberBg[3], amberBg[4]))
@@ -243,7 +268,7 @@ function LootUIView.render(ctx)
                 end
                 if pending then
                     local remainSec = constants.TIMING.LOOT_MYTHICAL_DECISION_SEC
-                    local startAt = uiState.lootMythicalDecisionStartAt
+                    local startAt = state.lootMythicalDecisionStartAt
                     if startAt and type(startAt) == "number" then
                         remainSec = math.max(0, constants.TIMING.LOOT_MYTHICAL_DECISION_SEC - ((os.time and os.time() or 0) - startAt))
                     end
@@ -282,17 +307,17 @@ function LootUIView.render(ctx)
         local running = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
         running = running:lower()
         running = (running == "loot" or running == "loot.mac")
-        if running or uiState.lootRunCorpsesLooted > 0 or uiState.lootRunTotalCorpses > 0 then
-            ImGui.Text(string.format("Corpses looted: %d", uiState.lootRunCorpsesLooted))
-            if uiState.lootRunTotalCorpses > 0 then
+        if running or state.lootRunCorpsesLooted > 0 or state.lootRunTotalCorpses > 0 then
+            ImGui.Text(string.format("Corpses looted: %d", state.lootRunCorpsesLooted))
+            if state.lootRunTotalCorpses > 0 then
                 ImGui.SameLine()
-                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), string.format(" / %d", uiState.lootRunTotalCorpses))
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), string.format(" / %d", state.lootRunTotalCorpses))
             end
-            if uiState.lootRunCurrentCorpse and uiState.lootRunCurrentCorpse ~= "" then
-                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Current: " .. uiState.lootRunCurrentCorpse)
+            if state.lootRunCurrentCorpse and state.lootRunCurrentCorpse ~= "" then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Current: " .. state.lootRunCurrentCorpse)
             end
-            local total = uiState.lootRunTotalCorpses or 0
-            local current = uiState.lootRunCorpsesLooted or 0
+            local total = state.lootRunTotalCorpses or 0
+            local current = state.lootRunCorpsesLooted or 0
             local fraction = (total > 0) and (current / total) or 0
             local overlay = string.format("%d / %d", current, total > 0 and total or 0)
             theme.RenderProgressBar(fraction, ImVec2(-1, 24), overlay)
@@ -300,27 +325,27 @@ function LootUIView.render(ctx)
         end
 
         -- Looted list (current run; persists until next run with items)
-        local itemsForTable = uiState.lootRunLootedItems and #uiState.lootRunLootedItems > 0 and uiState.lootRunLootedItems
-            or (uiState.lootRunLootedList and #uiState.lootRunLootedList > 0 and (function()
+        local itemsForTable = state.lootRunLootedItems and #state.lootRunLootedItems > 0 and state.lootRunLootedItems
+            or (state.lootRunLootedList and #state.lootRunLootedList > 0 and (function()
                 local t = {}
-                for _, name in ipairs(uiState.lootRunLootedList) do
+                for _, name in ipairs(state.lootRunLootedList) do
                     t[#t+1] = { name = name, value = 0, statusText = "—", willSell = false }
                 end
                 return t
             end)())
         if itemsForTable and #itemsForTable > 0 then
             local n = #itemsForTable
-            local totalVal = uiState.lootRunTotalValue or 0
+            local totalVal = state.lootRunTotalValue or 0
             local summaryStr = string.format("%d items", n)
             if totalVal > 0 then
                 summaryStr = summaryStr .. "  ·  " .. (ItemUtils.formatValue and ItemUtils.formatValue(totalVal) or tostring(totalVal) .. "c")
             end
             ImGui.TextColored(theme.ToVec4(theme.Colors.Success), summaryStr)
-            if uiState.lootRunBestItemName and uiState.lootRunBestItemName ~= "" then
-                local bestVal = uiState.lootRunBestItemValue or 0
+            if state.lootRunBestItemName and state.lootRunBestItemName ~= "" then
+                local bestVal = state.lootRunBestItemValue or 0
                 ImGui.Text("Best: ")
                 ImGui.SameLine()
-                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), uiState.lootRunBestItemName)
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), state.lootRunBestItemName)
                 if bestVal > 0 then
                     ImGui.SameLine()
                     ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), " (" .. (ItemUtils.formatValue and ItemUtils.formatValue(bestVal) or tostring(bestVal) .. "c") .. ")")
@@ -341,7 +366,7 @@ function LootUIView.render(ctx)
                         ImGui.TableNextColumn()
                         ImGui.Text(tostring(i))
                         ImGui.TableNextColumn()
-                        if uiState.lootRunBestItemName and row.name == uiState.lootRunBestItemName then
+                        if state.lootRunBestItemName and row.name == state.lootRunBestItemName then
                             ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
                         else
                             ImGui.Text(row.name or "")
@@ -367,8 +392,8 @@ function LootUIView.render(ctx)
         end -- Current tab
 
         -- Loot History tab: cumulative recently looted items
-        if uiState.lootUITab == 1 then
-            local hist = uiState.lootHistory or {}
+        if state.lootUITab == 1 then
+            local hist = state.lootHistory or {}
             if ctx.clearLootHistory and ImGui.Button("Clear history", ImVec2(100, 0)) then
                 ctx.clearLootHistory()
             end
@@ -415,8 +440,8 @@ function LootUIView.render(ctx)
         end
 
         -- Skip History tab: unique skipped items (one row per name, with count)
-        if uiState.lootUITab == 2 then
-            local sk = uiState.skipHistory or {}
+        if state.lootUITab == 2 then
+            local sk = state.skipHistory or {}
             -- Build unique-by-name list with count (first reason seen, count of occurrences)
             local uniqueList = {}
             local seen = {}
@@ -477,7 +502,7 @@ function LootUIView.render(ctx)
 
         -- Close button
         if ImGui.Button("Close", ImVec2(80, 0)) then
-            uiState.lootUIOpen = false
+            state.lootUIOpen = false
             LootUIView.closeAndClearState(ctx)
         end
         ImGui.SameLine()

@@ -7,7 +7,20 @@
 local mq = require('mq')
 require('ImGui')
 
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
+
 local ConfigView = {}
+
+-- Per 4.2 state ownership: load flag and advanced mode
+local state = {
+    configNeedsLoad = false,
+    configAdvancedMode = false,
+}
+function ConfigView.getState()
+    return state
+end
+
 local ConfigGeneral = require('itemui.views.config_general')
 local ConfigSell = require('itemui.views.config_sell')
 local ConfigLoot = require('itemui.views.config_loot')
@@ -29,11 +42,11 @@ local function renderConfigWindow(ctx)
     if w and h and w > 0 and h > 0 then
         ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
-    local ok = ImGui.Begin("CoOpt UI Settings##ItemUIConfig", uiState.configWindowOpen)
-    uiState.configWindowOpen = ok
-    if not ok then uiState.configNeedsLoad = true; ImGui.End(); return end
+    local ok = ImGui.Begin("CoOpt UI Settings##ItemUIConfig", registry.isOpen("config"))
+    registry.setWindowState("config", ok, ok)
+    if not ok then state.configNeedsLoad = true; ImGui.End(); return end
 
-    if uiState.configNeedsLoad then loadConfigCache(); uiState.configNeedsLoad = false end
+    if state.configNeedsLoad then loadConfigCache(); state.configNeedsLoad = false end
     if not uiState._firstRunChecked then
         uiState._firstRunChecked = true
         local flagsPath = config.getConfigFile and config.getConfigFile("sell_flags.ini")
@@ -142,5 +155,16 @@ end
 function ConfigView.render(ctx)
     renderConfigWindow(ctx)
 end
+
+-- Registry: Config module (4.2 state ownership — window in registry, needsLoad/advancedMode in view)
+registry.register({
+    id     = "config",
+    label  = "Settings",
+    render = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        ConfigView.render(ctx)
+    end,
+})
 
 return ConfigView

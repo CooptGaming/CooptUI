@@ -22,6 +22,14 @@ local mythicalList = {}  -- { { id = number, name = string }, ... }
 local pendingAugListAt = nil      -- mq.gettime() when we sent !auglist; accept lines until this + LIST_PARSE_MS
 local pendingMythicalListAt = nil  -- same for !mythicallist
 local setStatusMessageFn = function() end
+
+-- Per 4.2 state ownership: add flow and bank-move state owned by reroll_service
+local state = {
+    pendingRerollAdd = nil,         -- { list, bag, slot, source, itemId, itemName, step, sentAt }
+    pendingRerollBankMoves = nil,   -- { list, items, nextIndex } for main_loop to move items to bank
+    pendingAugRollComplete = nil,   -- true when waiting for augment roll result on cursor
+    pendingAugRollCompleteAt = nil,-- mq.gettime() for timeout
+}
 local getRerollListStoragePathFn = nil  -- optional: function() return path end for persistence
 -- When adding via pickup flow: after we send !augadd/!mythicaladd, we wait for a list line containing this id then call callback (put back, update UI).
 local pendingAddAckId = nil
@@ -371,6 +379,11 @@ function M.isCursorIdInList(listEntries)
         if e.id == cursorId then return true end
     end
     return false
+end
+
+--- Return state table for 4.2 ownership; init wires uiState.* to this so existing code unchanged.
+function M.getState()
+    return state
 end
 
 return M

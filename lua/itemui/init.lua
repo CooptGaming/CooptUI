@@ -131,80 +131,144 @@ local uiState = {
     itemUIPositionX = nil, itemUIPositionY = nil,
     sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
-    configWindowOpen = false, configNeedsLoad = false, configAdvancedMode = false,
+    -- configWindowOpen, configNeedsLoad, configAdvancedMode in registry / Config view (4.2)
     revertLayoutConfirmOpen = false,
     layoutRevertedApplyFrames = 0,  -- When > 0, views use ImGuiCond.Always so positions/sizes from layoutConfig re-apply
     resetWindowPositionsRequested = false,  -- When true, main_window re-applies hub-relative positions for all companions
-    searchFilterInv = "", searchFilterBank = "", searchFilterAugments = "",
+    searchFilterInv = "", searchFilterBank = "", -- searchFilterAugments in Augments view (4.2)
     autoSellRequested = false, showOnlySellable = false,
-    bankWindowOpen = false, bankWindowShouldDraw = false,
-    equipmentWindowOpen = false, equipmentWindowShouldDraw = false,
-    augmentsWindowOpen = false, augmentsWindowShouldDraw = false,
-    itemDisplayWindowOpen = false, itemDisplayWindowShouldDraw = false,
-    itemDisplayTabs = {},           -- array of { bag, slot, source, item, label }
-    itemDisplayActiveTabIndex = 1,  -- 1-based index into itemDisplayTabs
-    itemDisplayRecent = {},        -- last N (e.g. 10) of { bag, slot, source, label } for Recent dropdown
-    itemDisplayLocateRequest = nil,      -- { source, bag, slot } when Locate clicked
-    itemDisplayLocateRequestAt = nil,     -- mq.gettime() ms when set (clear after 3s)
-    itemDisplayAugmentSlotActive = nil,   -- 1-based slot index when "Choose augment" is active in Item Display
-    augmentUtilityWindowOpen = false, augmentUtilityWindowShouldDraw = false,
-    augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
-    searchFilterAugmentUtility = "",     -- filter compatible augments list by name
-    augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
+    -- bankWindowOpen, bankWindowShouldDraw in registry (4.2)
+    -- equipmentWindowOpen, equipmentWindowShouldDraw in registry (4.2)
+    -- augmentsWindowOpen, augmentsWindowShouldDraw in registry (4.2)
+    -- itemDisplay* owned by Item Display view / registry (4.2)
+    -- augmentUtility* owned by Augment Utility view / registry (4.2)
     companionWindowOpenedAt = {},  -- LIFO Esc: name -> mq.gettime() when opened
     statusMessage = "", statusMessageTime = 0,
-    quantityPickerValue = "", quantityPickerMax = 1,
-    quantityPickerSubmitPending = nil,  -- qty to submit next frame (so Enter is consumed before we clear the field)
-    pendingQuantityPickup = nil, pendingQuantityPickupTimeoutAt = nil,  -- timeout: clear picker if user never completes (Phase 1 reliability)
-    pendingQuantityAction = nil,
-    pendingScriptConsume = nil,  -- { bag, slot, source, totalToConsume, consumedSoFar, nextClickAt, itemName } for sequential right-click (Script items)
-    lastPickup = { bag = nil, slot = nil, source = nil },  -- source: "inv" | "bank"
-    lastPickupSetThisFrame = false,  -- true when a view set lastPickup this frame (don't clear until next frame so item hides)
-    lastPickupClearedAt = 0,         -- mq.gettime() when lastPickup was last cleared (avoids treating our own drop as "unexpected cursor")
-    activationGuardUntil = 0,       -- mq.gettime() until which pickupFromSlot is blocked (click-through protection)
-    hadItemOnCursorLastFrame = false,
-    hasItemOnCursorThisFrame = nil,  -- Phase 2: set once per frame to avoid repeated TLO.Cursor() calls
-    pendingDestroy = nil,       -- { bag, slot, name, stackSize } when Delete clicked and confirm required
-    pendingDestroyAction = nil, -- { bag, slot, name, qty } for main loop to call performDestroyItem (qty = whole stack when confirm skipped)
-    destroyQuantityValue = "",  -- quantity input for destroy dialog (1..stackSize)
-    destroyQuantityMax = 1,     -- max allowed (stack size) while pendingDestroy is set
     confirmBeforeDelete = true, -- when true, show confirmation dialog before destroying an item (persisted in layout)
-    pendingMoveAction = nil,    -- { source = "inv"|"bank", bag, slot, destBag, destSlot, qty, row } for main loop (shift+click stack move)
-    pendingRemoveAugment = nil,   -- { bag, slot, source, slotIndex } for main loop (defer remove so ImGui frame completes)
-    waitingForRemoveConfirmation = false,  -- true after removeAugment started; main loop auto-clicks Yes on ConfirmationDialogBox
-    waitingForInsertConfirmation = false,  -- true after insertAugment started; main loop auto-clicks Yes on insert confirmation
-    waitingForInsertCursorClear = false,   -- after insert confirm accepted: poll until cursor clear, then close Item Display
-    waitingForRemoveCursorPopulated = false, -- after remove confirm accepted: poll until cursor has item, then close Item Display and /autoinv
-    insertCursorClearTimeoutAt = nil,      -- mq.gettime() when we started polling; 5s timeout
-    removeCursorPopulatedTimeoutAt = nil,
-    insertConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for insert confirmation; used for no-dialog fallback
-    removeConfirmationSetAt = nil,         -- mq.gettime() when we started waiting for remove confirmation; used for no-dialog fallback
-    pendingInsertAugment = nil,   -- { targetItem, targetBag, targetSlot, targetSource, augmentItem, slotIndex } for main loop; slotIndex = which socket (1-based)
-    removeAllQueue = nil,         -- Phase 1: { bag, slot, source, slotIndices } when Remove All active; one scan when queue empty
-    optimizeQueue = nil,          -- Phase 2: { targetLoc, steps = { { slotIndex, augmentItem }, ... } }; one scan when steps empty
-    equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
-    equipmentLastRefreshAt = nil,          -- Phase 2: last time we refreshed equipment cache (throttle to ~every 400ms instead of every frame)
+    -- quantityPicker*, pendingQuantity*, pendingScriptConsume, lastPickup, pendingDestroy*, destroyQuantity*, pendingMoveAction owned by item_ops (4.2)
+    -- pendingRemoveAugment, pendingInsertAugment, waitingFor*, insertCursor*, removeCursor*, insertConfirmation*, removeConfirmation*, removeAllQueue, optimizeQueue owned by augment_ops (4.2)
+    -- equipmentDeferredRefreshAt, equipmentLastRefreshAt owned by Equipment view (4.2)
     deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
     pendingStatRescanBags = nil,            -- set of bag numbers to rescan (when _statsPending items seen); main_loop drains and calls rescanInventoryBags (MASTER_PLAN 2.6)
-    -- Loot UI (separate window; open only on Esc or Close)
-    lootUIOpen = false,
-    lootRunCorpsesLooted = 0,
-    lootRunTotalCorpses = 0,
-    lootRunCurrentCorpse = "",
-    lootRunLootedList = {},     -- array of item names (kept for compatibility)
-    lootRunLootedItems = {},    -- array of { name, value, statusText, willSell } for table display
-    lootHistory = nil,          -- array of { name, value, statusText, willSell } for History tab (loaded from file, appended when run has items)
-    skipHistory = nil,          -- array of { name, reason } for Skip History tab (loaded from file, appended when run has skips)
-    lootRunFinished = false,
-    lootMythicalAlert = nil,   -- { itemName, corpseName, decision, itemLink, timestamp, iconId } or nil
-    lootMythicalDecisionStartAt = nil, -- os.time() when pending alert first seen (for countdown)
-    lootMythicalFeedback = nil, -- { message, showUntil } after Take/Pass for 2s confirmation
-    lootRunTotalValue = 0,     -- copper (run receipt)
-    lootRunTributeValue = 0,
-    lootRunBestItemName = "",
-    lootRunBestItemValue = 0,
-    corpseLootedHidden = true,  -- toggle for Show/Hide looted corpses (troubleshooting)
+    -- Loot UI state owned by Loot UI view (4.2)
 }
+-- Delegate reroll and equipment state (4.2); existing uiState.* unchanged for callers
+do
+    local rerollKeys = { pendingRerollAdd = true, pendingRerollBankMoves = true, pendingAugRollComplete = true, pendingAugRollCompleteAt = true }
+    setmetatable(uiState, {
+        __index = function(t, k)
+            if rerollKeys[k] then return rerollService.getState()[k] end
+            if k == "equipmentWindowOpen" then return registry.isOpen("equipment") end
+            if k == "equipmentWindowShouldDraw" then return registry.shouldDraw("equipment") end
+            if k == "equipmentDeferredRefreshAt" then return EquipmentView.getState().equipmentDeferredRefreshAt end
+            if k == "equipmentLastRefreshAt" then return EquipmentView.getState().equipmentLastRefreshAt end
+            if k == "augmentsWindowOpen" then return registry.isOpen("augments") end
+            if k == "augmentsWindowShouldDraw" then return registry.shouldDraw("augments") end
+            if k == "searchFilterAugments" then return AugmentsView.getState().searchFilterAugments end
+            if k == "augmentsSortColumn" then return AugmentsView.getState().augmentsSortColumn end
+            if k == "augmentsSortDirection" then return AugmentsView.getState().augmentsSortDirection end
+            if k == "augmentUtilityWindowOpen" then return registry.isOpen("augmentUtility") end
+            if k == "augmentUtilityWindowShouldDraw" then return registry.shouldDraw("augmentUtility") end
+            if k == "augmentUtilitySlotIndex" then return AugmentUtilityView.getState().augmentUtilitySlotIndex end
+            if k == "searchFilterAugmentUtility" then return AugmentUtilityView.getState().searchFilterAugmentUtility end
+            if k == "augmentUtilityOnlyShowUsable" then return AugmentUtilityView.getState().augmentUtilityOnlyShowUsable end
+            if k == "itemDisplayWindowOpen" then return registry.isOpen("itemDisplay") end
+            if k == "itemDisplayWindowShouldDraw" then return registry.shouldDraw("itemDisplay") end
+            if k == "itemDisplayTabs" then return ItemDisplayView.getState().itemDisplayTabs end
+            if k == "itemDisplayActiveTabIndex" then return ItemDisplayView.getState().itemDisplayActiveTabIndex end
+            if k == "itemDisplayRecent" then return ItemDisplayView.getState().itemDisplayRecent end
+            if k == "itemDisplayLocateRequest" then return ItemDisplayView.getState().itemDisplayLocateRequest end
+            if k == "itemDisplayLocateRequestAt" then return ItemDisplayView.getState().itemDisplayLocateRequestAt end
+            if k == "itemDisplayAugmentSlotActive" then return ItemDisplayView.getState().itemDisplayAugmentSlotActive end
+            if k == "bankWindowOpen" then return registry.isOpen("bank") end
+            if k == "bankWindowShouldDraw" then return registry.shouldDraw("bank") end
+            if k == "configWindowOpen" then return registry.isOpen("config") end
+            if k == "configNeedsLoad" then return ConfigView.getState().configNeedsLoad end
+            if k == "configAdvancedMode" then return ConfigView.getState().configAdvancedMode end
+            if k == "pendingLootRescan" then return LootView.getState().pendingLootRescan end
+            if k == "pendingLootRemove" then return LootView.getState().pendingLootRemove end
+            local lootUIKeys = {
+                lootUIOpen = true, lootRunCorpsesLooted = true, lootRunTotalCorpses = true, lootRunCurrentCorpse = true,
+                lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
+                lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
+                lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
+                corpseLootedHidden = true,
+            }
+            if lootUIKeys[k] then return LootUIView.getState()[k] end
+            local itemOpsKeys = {
+                pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
+                pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
+                hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
+            }
+            if itemOpsKeys[k] then return itemOps.getState()[k] end
+            local augmentOpsKeys = {
+                pendingRemoveAugment = true, pendingInsertAugment = true,
+                waitingForRemoveConfirmation = true, waitingForInsertConfirmation = true,
+                waitingForInsertCursorClear = true, waitingForRemoveCursorPopulated = true,
+                insertCursorClearTimeoutAt = true, removeCursorPopulatedTimeoutAt = true,
+                insertConfirmationSetAt = true, removeConfirmationSetAt = true,
+                removeAllQueue = true, optimizeQueue = true,
+            }
+            if augmentOpsKeys[k] then return augmentOps.getState()[k] end
+            return rawget(t, k)
+        end,
+        __newindex = function(t, k, v)
+            if rerollKeys[k] then rerollService.getState()[k] = v; return end
+            if k == "equipmentWindowOpen" or k == "equipmentWindowShouldDraw" then registry.setWindowState("equipment", v, v); return end
+            if k == "equipmentDeferredRefreshAt" then EquipmentView.getState().equipmentDeferredRefreshAt = v; return end
+            if k == "equipmentLastRefreshAt" then EquipmentView.getState().equipmentLastRefreshAt = v; return end
+            if k == "augmentsWindowOpen" or k == "augmentsWindowShouldDraw" then registry.setWindowState("augments", v, v); return end
+            if k == "searchFilterAugments" then AugmentsView.getState().searchFilterAugments = v; return end
+            if k == "augmentsSortColumn" then AugmentsView.getState().augmentsSortColumn = v; return end
+            if k == "augmentsSortDirection" then AugmentsView.getState().augmentsSortDirection = v; return end
+            if k == "augmentUtilityWindowOpen" or k == "augmentUtilityWindowShouldDraw" then registry.setWindowState("augmentUtility", v, v); return end
+            if k == "augmentUtilitySlotIndex" then AugmentUtilityView.getState().augmentUtilitySlotIndex = v; return end
+            if k == "searchFilterAugmentUtility" then AugmentUtilityView.getState().searchFilterAugmentUtility = v; return end
+            if k == "augmentUtilityOnlyShowUsable" then AugmentUtilityView.getState().augmentUtilityOnlyShowUsable = v; return end
+            if k == "itemDisplayWindowOpen" or k == "itemDisplayWindowShouldDraw" then registry.setWindowState("itemDisplay", v, v); return end
+            if k == "itemDisplayTabs" then ItemDisplayView.getState().itemDisplayTabs = v; return end
+            if k == "itemDisplayActiveTabIndex" then ItemDisplayView.getState().itemDisplayActiveTabIndex = v; return end
+            if k == "itemDisplayRecent" then ItemDisplayView.getState().itemDisplayRecent = v; return end
+            if k == "itemDisplayLocateRequest" then ItemDisplayView.getState().itemDisplayLocateRequest = v; return end
+            if k == "itemDisplayLocateRequestAt" then ItemDisplayView.getState().itemDisplayLocateRequestAt = v; return end
+            if k == "itemDisplayAugmentSlotActive" then ItemDisplayView.getState().itemDisplayAugmentSlotActive = v; return end
+            if k == "bankWindowOpen" or k == "bankWindowShouldDraw" then registry.setWindowState("bank", v, v); return end
+            if k == "configWindowOpen" then registry.setWindowState("config", v, v); return end
+            if k == "configNeedsLoad" then ConfigView.getState().configNeedsLoad = v; return end
+            if k == "configAdvancedMode" then ConfigView.getState().configAdvancedMode = v; return end
+            if k == "pendingLootRescan" then LootView.getState().pendingLootRescan = v; return end
+            if k == "pendingLootRemove" then LootView.getState().pendingLootRemove = v; return end
+            local lootUIKeys = {
+                lootUIOpen = true, lootRunCorpsesLooted = true, lootRunTotalCorpses = true, lootRunCurrentCorpse = true,
+                lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
+                lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
+                lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
+                corpseLootedHidden = true,
+            }
+            if lootUIKeys[k] then LootUIView.getState()[k] = v; return end
+            local itemOpsKeys = {
+                pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
+                pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
+                hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
+            }
+            if itemOpsKeys[k] then itemOps.getState()[k] = v; return end
+            local augmentOpsKeys = {
+                pendingRemoveAugment = true, pendingInsertAugment = true,
+                waitingForRemoveConfirmation = true, waitingForInsertConfirmation = true,
+                waitingForInsertCursorClear = true, waitingForRemoveCursorPopulated = true,
+                insertCursorClearTimeoutAt = true, removeCursorPopulatedTimeoutAt = true,
+                insertConfirmationSetAt = true, removeConfirmationSetAt = true,
+                removeAllQueue = true, optimizeQueue = true,
+            }
+            if augmentOpsKeys[k] then augmentOps.getState()[k] = v; return end
+            rawset(t, k, v)
+        end,
+    })
+end
 
 -- Layout from setup (itemui_layout.ini): sizes per view; dimensions from constants.VIEWS
 local layoutDefaults = {}
@@ -288,8 +352,19 @@ local sortState = {
     bankColumnOrder = nil,  -- Will be set from saved layout or auto-generated on first use
     aaColumn = "Title",
     aaDirection = ImGuiSortDirection.Ascending,
-    aaTab = 1,  -- 1=General, 2=Archetype, 3=Class, 4=Special
+    -- aaTab owned by aa_data (4.2); sortState.aaTab delegates via metatable below
 }
+-- Delegate sortState.aaTab to aa_data for 4.2 state ownership (layout and AA view still use ctx.sortState.aaTab)
+setmetatable(sortState, {
+    __index = function(t, k)
+        if k == "aaTab" then return aa_data.getAaTab() end
+        return rawget(t, k)
+    end,
+    __newindex = function(t, k, v)
+        if k == "aaTab" then aa_data.setAaTab(v); return end
+        rawset(t, k, v)
+    end,
+})
 
 -- Phase 7: Initialize layout utility module
 layoutUtils.init({
@@ -421,26 +496,33 @@ local function recordCompanionWindowOpened(name)
 end
 local function closeCompanionWindow(name)
     if name == "config" then
-        uiState.configWindowOpen = false
+        registry.setWindowState("config", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "equipment" then
-        uiState.equipmentWindowOpen = false
-        uiState.equipmentWindowShouldDraw = false
+        registry.setWindowState("equipment", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "bank" then
-        uiState.bankWindowOpen = false
-        uiState.bankWindowShouldDraw = false
+        registry.setWindowState("bank", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "augments" then
-        uiState.augmentsWindowOpen = false
-        uiState.augmentsWindowShouldDraw = false
+        registry.setWindowState("augments", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "augmentUtility" then
-        uiState.augmentUtilityWindowOpen = false
-        uiState.augmentUtilityWindowShouldDraw = false
+        registry.setWindowState("augmentUtility", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "itemDisplay" then
-        uiState.itemDisplayWindowOpen = false
-        uiState.itemDisplayWindowShouldDraw = false
-        uiState.itemDisplayTabs = {}
-        uiState.itemDisplayActiveTabIndex = 1
+        registry.setWindowState("itemDisplay", false, false)
+        ItemDisplayView.getState().itemDisplayTabs = {}
+        ItemDisplayView.getState().itemDisplayActiveTabIndex = 1
         uiState.removeAllQueue = nil   -- Phase 1: target changed
         uiState.optimizeQueue = nil    -- Phase 2: target changed
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "aa" then
         registry.setWindowState("aa", false, false)
         if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
@@ -471,12 +553,12 @@ local function getMostRecentlyOpenedCompanion()
     local at = uiState.companionWindowOpenedAt
     if not at then return nil end
     local candidates = {
-        { "config", uiState.configWindowOpen },
-        { "equipment", uiState.equipmentWindowOpen and uiState.equipmentWindowShouldDraw },
-        { "bank", uiState.bankWindowOpen and uiState.bankWindowShouldDraw },
-        { "augments", uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw },
-        { "augmentUtility", uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw },
-        { "itemDisplay", uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw },
+        { "config", registry.isOpen("config") },
+        { "equipment", registry.isOpen("equipment") },
+        { "bank", registry.isOpen("bank") },
+        { "augments", registry.isOpen("augments") },
+        { "augmentUtility", registry.isOpen("augmentUtility") },
+        { "itemDisplay", registry.isOpen("itemDisplay") },
         { "aa", registry.isOpen("aa") },
         { "reroll", registry.isOpen("reroll") },
         { "loot", uiState.lootUIOpen },

@@ -9,13 +9,25 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local augmentRanking = require('itemui.utils.augment_ranking')
 
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
+
 local AugmentUtilityView = {}
 
+-- Per 4.2 state ownership: slot, search filter, only-show-usable
+local state = {
+    augmentUtilitySlotIndex = 1,
+    searchFilterAugmentUtility = "",
+    augmentUtilityOnlyShowUsable = true,
+}
+function AugmentUtilityView.getState()
+    return state
+end
+
 function AugmentUtilityView.render(ctx)
-    if not ctx.uiState.augmentUtilityWindowShouldDraw then return end
+    if not registry.shouldDraw("augmentUtility") then return end
 
     local layoutConfig = ctx.layoutConfig
-    local open = ctx.uiState.augmentUtilityWindowOpen
 
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
@@ -36,9 +48,8 @@ function AugmentUtilityView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Augment Utility##ItemUIAugmentUtility", open, windowFlags)
-    ctx.uiState.augmentUtilityWindowOpen = winOpen
-    ctx.uiState.augmentUtilityWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Augment Utility##ItemUIAugmentUtility", registry.isOpen("augmentUtility"), windowFlags)
+    registry.setWindowState("augmentUtility", winOpen, winOpen)
 
     if not winOpen then
         ctx.uiState.removeAllQueue = nil   -- Phase 1: window closed
@@ -99,10 +110,10 @@ function AugmentUtilityView.render(ctx)
         local count = it and ctx.getStandardAugSlotsCountFromTLO(it) or 0
         if count > 0 then maxSlots = math.min(count, 4) end
     end
-    local slotIdx = ctx.uiState.augmentUtilitySlotIndex
+    local slotIdx = state.augmentUtilitySlotIndex
     if type(slotIdx) ~= "number" or slotIdx < 1 or slotIdx > maxSlots then
         slotIdx = 1
-        ctx.uiState.augmentUtilitySlotIndex = 1
+        state.augmentUtilitySlotIndex = 1
     end
     ImGui.Text("Augment slot:")
     ImGui.SameLine()
@@ -121,7 +132,7 @@ function AugmentUtilityView.render(ctx)
     if type(newIdx) == "number" and newIdx >= 1 and newIdx <= maxSlots then
         slotIdx = newIdx
     end
-    ctx.uiState.augmentUtilitySlotIndex = slotIdx
+    state.augmentUtilitySlotIndex = slotIdx
     ImGui.Spacing()
 
     -- Phase 2: Build optimize plan once (used by Optimize button in Remove section). Requires getCompatibleAugments.
@@ -131,7 +142,7 @@ function AugmentUtilityView.render(ctx)
     if ctx.getCompatibleAugments and ctx.getFilledStandardAugmentSlotIndices then
         local bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
         local entry = { bag = bag, slot = slot, source = source, item = targetItem }
-        local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
+        local onlyShowUsable = (state.augmentUtilityOnlyShowUsable ~= false)
         local canUseFilter = onlyShowUsable and function(i)
             local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
             return info and info.canUse
@@ -176,7 +187,7 @@ function AugmentUtilityView.render(ctx)
         ImGui.Spacing()
     else
         local entry = { bag = bag, slot = slot, source = source, item = targetItem }
-        local onlyShowUsable = (ctx.uiState.augmentUtilityOnlyShowUsable ~= false)
+        local onlyShowUsable = (state.augmentUtilityOnlyShowUsable ~= false)
         -- Apply socket type + augment restrictions + (when on) class/race/deity/level in one place so list is strict before ranking
         local canUseFilter = onlyShowUsable and function(i)
             local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
@@ -196,8 +207,8 @@ function AugmentUtilityView.render(ctx)
         end
         ImGui.SameLine()
         -- Persist checkbox state: support both single-return (new state) and two-return (changed, newState) bindings
-        local cb1, cb2 = ImGui.Checkbox("Only show usable by me##AU_OnlyUsable", ctx.uiState.augmentUtilityOnlyShowUsable)
-        ctx.uiState.augmentUtilityOnlyShowUsable = (cb2 ~= nil) and cb2 or cb1
+        local cb1, cb2 = ImGui.Checkbox("Only show usable by me##AU_OnlyUsable", state.augmentUtilityOnlyShowUsable)
+        state.augmentUtilityOnlyShowUsable = (cb2 ~= nil) and cb2 or cb1
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Filter list to augments your current character can use (class, race, deity, level)")
@@ -212,14 +223,14 @@ function AugmentUtilityView.render(ctx)
         ImGui.Text("Search:")
         ImGui.SameLine()
         ImGui.SetNextItemWidth(160)
-        ctx.uiState.searchFilterAugmentUtility, _ = ImGui.InputText("##AugmentUtilitySearch", ctx.uiState.searchFilterAugmentUtility or "")
+        state.searchFilterAugmentUtility, _ = ImGui.InputText("##AugmentUtilitySearch", state.searchFilterAugmentUtility or "")
         ImGui.SameLine()
         if ImGui.Button("X##AugmentUtilitySearchClear", ImVec2(22, 0)) then
-            ctx.uiState.searchFilterAugmentUtility = ""
+            state.searchFilterAugmentUtility = ""
         end
         ImGui.Separator()
 
-        local searchLower = (ctx.uiState.searchFilterAugmentUtility or ""):lower()
+        local searchLower = (state.searchFilterAugmentUtility or ""):lower()
         local filtered = {}
         for _, cand in ipairs(filteredByUse) do
             if searchLower == "" or (cand.name or ""):lower():find(searchLower, 1, true) then
@@ -463,5 +474,19 @@ function AugmentUtilityView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Augment Utility module (4.2 state ownership — window in registry, slot/search in view)
+registry.register({
+    id          = "augmentUtility",
+    label       = "Augment Utility",
+    buttonWidth = 100,
+    tooltip     = "Add or remove augments from your gear",
+    layoutKeys  = { x = "AugmentUtilityWindowX", y = "AugmentUtilityWindowY" },
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        AugmentUtilityView.render(ctx)
+    end,
+})
 
 return AugmentUtilityView

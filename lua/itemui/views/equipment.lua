@@ -8,8 +8,19 @@ local mq = require('mq')
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
 
 local EquipmentView = {}
+
+-- Per 4.2 state ownership: timing state for refresh throttle
+local state = {
+    equipmentDeferredRefreshAt = nil,
+    equipmentLastRefreshAt = nil,
+}
+function EquipmentView.getState()
+    return state
+end
 
 local EQUIPMENT_WINDOW_WIDTH = 220
 local EQUIPMENT_WINDOW_HEIGHT = 380
@@ -41,7 +52,7 @@ local EQUIPMENT_ROW_LENGTHS = { 4, 2, 2, 2, 2, 4, 3, 4 }
 
 -- Module interface: render equipment companion window
 function EquipmentView.render(ctx)
-    if not ctx.uiState.equipmentWindowShouldDraw then return end
+    if not registry.shouldDraw("equipment") then return end
 
     -- Position: use saved position from last close (Always when forceApply so revert takes effect)
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
@@ -63,9 +74,8 @@ function EquipmentView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Equipment Companion##ItemUIEquipment", ctx.uiState.equipmentWindowOpen, windowFlags)
-    ctx.uiState.equipmentWindowOpen = winOpen
-    ctx.uiState.equipmentWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Equipment Companion##ItemUIEquipment", registry.isOpen("equipment"), windowFlags)
+    registry.setWindowState("equipment", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -223,7 +233,7 @@ function EquipmentView.render(ctx)
                             end
                             if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
                             -- Deferred refresh so icon updates after game applies swap (same-frame refresh may still see old state)
-                            ctx.uiState.equipmentDeferredRefreshAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
+                            state.equipmentDeferredRefreshAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
                         end
                     end
                 end
@@ -259,5 +269,19 @@ function EquipmentView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Equipment module (4.2 state ownership — window in registry, timing state in view)
+registry.register({
+    id          = "equipment",
+    label       = "Equipment",
+    buttonWidth = 75,
+    tooltip     = "View your worn items — click an item to swap or inspect",
+    layoutKeys  = { x = "EquipmentWindowX", y = "EquipmentWindowY" },
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        EquipmentView.render(ctx)
+    end,
+})
 
 return EquipmentView

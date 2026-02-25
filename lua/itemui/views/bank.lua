@@ -11,12 +11,15 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
+
 local BankView = {}
 
 -- Module interface: render bank window
 -- Params: context table containing all necessary state and functions from init.lua
 function BankView.render(ctx)
-    if not ctx.uiState.bankWindowShouldDraw then return end
+    if not registry.shouldDraw("bank") then return end
     
     local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
     ctx.ensureBankCacheFromStorage()
@@ -43,9 +46,8 @@ function BankView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
     
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", ctx.uiState.bankWindowOpen, windowFlags)
-    ctx.uiState.bankWindowOpen = winOpen
-    ctx.uiState.bankWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", registry.isOpen("bank"), windowFlags)
+    registry.setWindowState("bank", winOpen, winOpen)
     
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -368,5 +370,19 @@ function BankView.render(ctx)
     
     ImGui.End()
 end
+
+-- Registry: Bank module (4.2 state ownership — window in registry only)
+registry.register({
+    id          = "bank",
+    label       = "Bank",
+    buttonWidth = 60,
+    tooltip     = "View bank items; shift+click to move to inventory",
+    layoutKeys  = { x = "BankWindowX", y = "BankWindowY" },
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        BankView.render(ctx)
+    end,
+})
 
 return BankView

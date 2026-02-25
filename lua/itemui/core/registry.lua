@@ -39,6 +39,7 @@ function M.register(spec)
     if not modules[id] then
         order[#order + 1] = id
     end
+    -- displayOrder: optional number for button bar order (lower = left). Ignored if layoutConfig.CompanionButtonOrder is set.
     modules[id] = {
         spec = spec,
         windowOpen = false,

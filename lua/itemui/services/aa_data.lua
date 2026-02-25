@@ -9,6 +9,8 @@ local M = {}
 
 -- Cache: list of AA records, fingerprint, last refresh time
 local aaList = {}
+-- Tab selection (1=General, 2=Archetype, 3=Class, 4=Special); owned here per MASTER_PLAN 4.2
+local aaTab = 1
 local lastFingerprint = ""
 local lastRefreshTime = 0
 local MAX_AA_INDEX = 2000  -- Iterate Me.AltAbility(1)..(N); increase if server has more
@@ -118,6 +120,16 @@ end
 --- Return last refresh time (ms) for "Updated X ago" display.
 function M.getLastRefreshTime()
     return lastRefreshTime
+end
+
+--- Get current AA tab (1=General, 2=Archetype, 3=Class, 4=Special). Per 4.2 state ownership.
+function M.getAaTab()
+    return aaTab
+end
+
+--- Set AA tab; clamps to 1..4.
+function M.setAaTab(val)
+    aaTab = (type(val) == "number" and val >= 1 and val <= 4) and val or 1
 end
 
 return M
