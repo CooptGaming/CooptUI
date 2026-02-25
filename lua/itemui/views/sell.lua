@@ -140,24 +140,23 @@ function SellView.render(ctx, simulateSellView)
         if passFilter then table.insert(filteredSellItems, item) end
     end
     
-    local nCols = 7  -- Icon, Sell Keep Junk (left), Name, Status, Value, Stack, Type
+    local nCols = 6  -- Icon, Sell Keep Junk (left), Name, Status, Value, Type
     if ImGui.BeginTable("ItemUI_InvSell", nCols, ctx.uiState.tableFlags) then
         -- Use autofit widths if available, otherwise defaults
         local sellActionWidth = ctx.columnAutofitWidths["Sell"]["Action"] or 200
         local sellStatusWidth = ctx.columnAutofitWidths["Sell"]["Status"] or 110
         local sellValueWidth = ctx.columnAutofitWidths["Sell"]["Value"] or 85
-        local sellStackWidth = ctx.columnAutofitWidths["Sell"]["Stack"] or 55
         local sellTypeWidth = ctx.columnAutofitWidths["Sell"]["Type"] or 100
         
         local sellSortCol = (ctx.sortState.sellColumn and type(ctx.sortState.sellColumn) == "string" and ctx.sortState.sellColumn) or "Name"
-        local sellColKeys = {"", "", "Name", "Status", "Value", "Stack", "Type"}  -- col 1 = Icon, col 2 = Action
+        local sellColKeys = {"", "", "Name", "Status", "Value", "Type"}  -- col 0 = Icon, col 1 = Action
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)  -- Icon (first column)
         ImGui.TableSetupColumn("Sell Keep Junk", ImGuiTableColumnFlags.WidthFixed, sellActionWidth, 0)
-        for i = 1, 5 do
+        for i = 1, 4 do
             local key = sellColKeys[i + 2] or "Name"
             local flags = (key == "Name") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
             if key == sellSortCol then flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort) end
-            local w = (i == 1) and 0 or (i == 2 and sellStatusWidth or i == 3 and sellValueWidth or i == 4 and sellStackWidth or sellTypeWidth)
+            local w = (i == 1) and 0 or (i == 2 and sellStatusWidth or i == 3 and sellValueWidth or sellTypeWidth)
             ImGui.TableSetupColumn(key, flags, w, i)
         end
         ImGui.TableSetupScrollFreeze(2, 1)  -- Freeze Icon + Action columns
@@ -168,9 +167,9 @@ function SellView.render(ctx, simulateSellView)
             local spec = sortSpecs:Specs(1)
             if spec then
                 local col = spec.ColumnIndex + 1  -- 0-based to 1-based
-                if col >= 3 and col <= 7 then     -- Skip Icon (1) and Action (2) columns
+                if col >= 3 and col <= 6 then     -- Skip Icon (1) and Action (2) columns
                     -- Map column index to column key for sell view
-                    local colKeys = {"", "", "Name", "Status", "Value", "Stack", "Type"}
+                    local colKeys = {"", "", "Name", "Status", "Value", "Type"}
                     ctx.sortState.sellColumn = colKeys[col] or "Name"
                     ctx.sortState.sellDirection = spec.SortDirection
                     ctx.scheduleLayoutSave()
@@ -217,7 +216,6 @@ function SellView.render(ctx, simulateSellView)
                     {key = "Name", label = "Name", numeric = false},
                     {key = "Status", label = "Status", numeric = false},
                     {key = "Value", label = "Value", numeric = true},
-                    {key = "Stack", label = "Stack", numeric = true},
                     {key = "Type", label = "Type", numeric = false}
                 }
                 ctx.autofitColumns("Sell", ctx.sellItems, sellCols)
@@ -254,7 +252,6 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.PushID(rid)
                 if rawget(item, "_statsPending") then
                     if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
                     ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
                     ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
                     ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
@@ -351,7 +348,6 @@ function SellView.render(ctx, simulateSellView)
                 end
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
-                ImGui.TableNextColumn() ImGui.Text(tostring(item.stackSize or 1))
                 ImGui.TableNextColumn() ImGui.Text(item.type or "")
                 ImGui.PopID()
                 ::continue::

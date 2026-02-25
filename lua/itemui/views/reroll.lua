@@ -252,6 +252,7 @@ local function renderTabContent(ctx, track, rerollService)
                 sortCol = spec.ColumnIndex
                 sortAsc = (spec.SortDirection == ImGuiSortDirection.Ascending)
             end
+            sortSpecs.SpecsDirty = false
         end
         local sorted = {}
         for i = 1, #uniqueList do sorted[i] = uniqueList[i] end
