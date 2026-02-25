@@ -378,6 +378,7 @@ registry.register({
     buttonWidth = 60,
     tooltip     = "View bank items; shift+click to move to inventory",
     layoutKeys  = { x = "BankWindowX", y = "BankWindowY" },
+    enableKey   = "ShowBankWindow",
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

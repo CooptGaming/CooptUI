@@ -482,6 +482,7 @@ registry.register({
     buttonWidth = 100,
     tooltip     = "Add or remove augments from your gear",
     layoutKeys  = { x = "AugmentUtilityWindowX", y = "AugmentUtilityWindowY" },
+    enableKey   = "ShowAugmentUtilityWindow",
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

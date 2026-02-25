@@ -289,6 +289,13 @@ do
     layoutDefaults.AAWindowX = 0
     layoutDefaults.AAWindowY = 0
     layoutDefaults.ShowAAWindow = 1
+    layoutDefaults.ShowEquipmentWindow = 1
+    layoutDefaults.ShowBankWindow = 1
+    layoutDefaults.ShowAugmentsWindow = 1
+    layoutDefaults.ShowAugmentUtilityWindow = 1
+    layoutDefaults.ShowItemDisplayWindow = 1
+    layoutDefaults.ShowConfigWindow = 1
+    layoutDefaults.ShowRerollWindow = 1
     layoutDefaults.WidthRerollPanel = (constants.VIEWS and constants.VIEWS.WidthRerollPanel) or 520
     layoutDefaults.HeightReroll = (constants.VIEWS and constants.VIEWS.HeightReroll) or 480
     layoutDefaults.RerollWindowX = 0
@@ -584,7 +591,10 @@ local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
 local function saveLayoutToFileImmediate() layoutUtils.saveLayoutToFileImmediate() end
 local function flushLayoutSave() layoutUtils.flushLayoutSave() end
 local function saveLayoutToFile() layoutUtils.saveLayoutToFile() end
-local function loadLayoutConfig() layoutUtils.loadLayoutConfig() end
+local function loadLayoutConfig()
+    layoutUtils.loadLayoutConfig()
+    registry.applyEnabledFromLayout(layoutConfig)
+end
 local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutForView(view, w, h, bankPanelW) end
 
 -- sortOnly: when true (inv only), do not clear invTotalSlots/invTotalValue so "Items: x/y" and total value don't force recompute

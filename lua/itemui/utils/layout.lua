@@ -105,6 +105,13 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.AAWindowX then layoutDefaults.AAWindowX = tonumber(d.AAWindowX) or layoutDefaults.AAWindowX end
     if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
     if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
+    if d.ShowEquipmentWindow then layoutDefaults.ShowEquipmentWindow = tonumber(d.ShowEquipmentWindow) or layoutDefaults.ShowEquipmentWindow end
+    if d.ShowBankWindow then layoutDefaults.ShowBankWindow = tonumber(d.ShowBankWindow) or layoutDefaults.ShowBankWindow end
+    if d.ShowAugmentsWindow then layoutDefaults.ShowAugmentsWindow = tonumber(d.ShowAugmentsWindow) or layoutDefaults.ShowAugmentsWindow end
+    if d.ShowAugmentUtilityWindow then layoutDefaults.ShowAugmentUtilityWindow = tonumber(d.ShowAugmentUtilityWindow) or layoutDefaults.ShowAugmentUtilityWindow end
+    if d.ShowItemDisplayWindow then layoutDefaults.ShowItemDisplayWindow = tonumber(d.ShowItemDisplayWindow) or layoutDefaults.ShowItemDisplayWindow end
+    if d.ShowConfigWindow then layoutDefaults.ShowConfigWindow = tonumber(d.ShowConfigWindow) or layoutDefaults.ShowConfigWindow end
+    if d.ShowRerollWindow then layoutDefaults.ShowRerollWindow = tonumber(d.ShowRerollWindow) or layoutDefaults.ShowRerollWindow end
     if d.AABackupPath ~= nil then layoutDefaults.AABackupPath = (d.AABackupPath and d.AABackupPath ~= "") and d.AABackupPath or "" end
     if d.WidthRerollPanel then layoutDefaults.WidthRerollPanel = tonumber(d.WidthRerollPanel) or layoutDefaults.WidthRerollPanel end
     if d.HeightReroll then layoutDefaults.HeightReroll = tonumber(d.HeightReroll) or layoutDefaults.HeightReroll end
@@ -305,6 +312,13 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowX=" .. tostring(layoutConfig.AAWindowX or layoutDefaults.AAWindowX) .. "\n")
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
+        f:write("ShowEquipmentWindow=" .. tostring(layoutConfig.ShowEquipmentWindow or layoutDefaults.ShowEquipmentWindow) .. "\n")
+        f:write("ShowBankWindow=" .. tostring(layoutConfig.ShowBankWindow or layoutDefaults.ShowBankWindow) .. "\n")
+        f:write("ShowAugmentsWindow=" .. tostring(layoutConfig.ShowAugmentsWindow or layoutDefaults.ShowAugmentsWindow) .. "\n")
+        f:write("ShowAugmentUtilityWindow=" .. tostring(layoutConfig.ShowAugmentUtilityWindow or layoutDefaults.ShowAugmentUtilityWindow) .. "\n")
+        f:write("ShowItemDisplayWindow=" .. tostring(layoutConfig.ShowItemDisplayWindow or layoutDefaults.ShowItemDisplayWindow) .. "\n")
+        f:write("ShowConfigWindow=" .. tostring(layoutConfig.ShowConfigWindow or layoutDefaults.ShowConfigWindow) .. "\n")
+        f:write("ShowRerollWindow=" .. tostring(layoutConfig.ShowRerollWindow or layoutDefaults.ShowRerollWindow) .. "\n")
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
         f:write("WidthRerollPanel=" .. tostring(layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel) .. "\n")
         f:write("HeightReroll=" .. tostring(layoutConfig.HeightReroll or layoutDefaults.HeightReroll) .. "\n")
@@ -479,6 +493,13 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
     layoutDefaults.AAWindowX = layoutConfig.AAWindowX or layoutDefaults.AAWindowX
     layoutDefaults.AAWindowY = layoutConfig.AAWindowY or layoutDefaults.AAWindowY
     layoutDefaults.ShowAAWindow = layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow
+    layoutDefaults.ShowEquipmentWindow = layoutConfig.ShowEquipmentWindow or layoutDefaults.ShowEquipmentWindow
+    layoutDefaults.ShowBankWindow = layoutConfig.ShowBankWindow or layoutDefaults.ShowBankWindow
+    layoutDefaults.ShowAugmentsWindow = layoutConfig.ShowAugmentsWindow or layoutDefaults.ShowAugmentsWindow
+    layoutDefaults.ShowAugmentUtilityWindow = layoutConfig.ShowAugmentUtilityWindow or layoutDefaults.ShowAugmentUtilityWindow
+    layoutDefaults.ShowItemDisplayWindow = layoutConfig.ShowItemDisplayWindow or layoutDefaults.ShowItemDisplayWindow
+    layoutDefaults.ShowConfigWindow = layoutConfig.ShowConfigWindow or layoutDefaults.ShowConfigWindow
+    layoutDefaults.ShowRerollWindow = layoutConfig.ShowRerollWindow or layoutDefaults.ShowRerollWindow
     layoutDefaults.AABackupPath = layoutConfig.AABackupPath or ""
     layoutDefaults.WidthRerollPanel = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel
     layoutDefaults.HeightReroll = layoutConfig.HeightReroll or layoutDefaults.HeightReroll
@@ -554,6 +575,13 @@ function LayoutUtils.captureCurrentLayoutAsDefault()
             f:write("AAWindowX=" .. layoutDefaults.AAWindowX .. "\n")
             f:write("AAWindowY=" .. layoutDefaults.AAWindowY .. "\n")
             f:write("ShowAAWindow=" .. layoutDefaults.ShowAAWindow .. "\n")
+            f:write("ShowEquipmentWindow=" .. tostring(layoutDefaults.ShowEquipmentWindow or 1) .. "\n")
+            f:write("ShowBankWindow=" .. tostring(layoutDefaults.ShowBankWindow or 1) .. "\n")
+            f:write("ShowAugmentsWindow=" .. tostring(layoutDefaults.ShowAugmentsWindow or 1) .. "\n")
+            f:write("ShowAugmentUtilityWindow=" .. tostring(layoutDefaults.ShowAugmentUtilityWindow or 1) .. "\n")
+            f:write("ShowItemDisplayWindow=" .. tostring(layoutDefaults.ShowItemDisplayWindow or 1) .. "\n")
+            f:write("ShowConfigWindow=" .. tostring(layoutDefaults.ShowConfigWindow or 1) .. "\n")
+            f:write("ShowRerollWindow=" .. tostring(layoutDefaults.ShowRerollWindow or 1) .. "\n")
             f:write("AABackupPath=" .. tostring(layoutDefaults.AABackupPath or "") .. "\n")
             f:write("WidthRerollPanel=" .. tostring(layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520) .. "\n")
             f:write("HeightReroll=" .. tostring(layoutDefaults.HeightReroll or constants.VIEWS.HeightReroll or 480) .. "\n")
@@ -623,6 +651,13 @@ function LayoutUtils.resetLayoutToDefault()
     layoutConfig.AAWindowX = layoutDefaults.AAWindowX
     layoutConfig.AAWindowY = layoutDefaults.AAWindowY
     layoutConfig.ShowAAWindow = layoutDefaults.ShowAAWindow
+    layoutConfig.ShowEquipmentWindow = layoutDefaults.ShowEquipmentWindow
+    layoutConfig.ShowBankWindow = layoutDefaults.ShowBankWindow
+    layoutConfig.ShowAugmentsWindow = layoutDefaults.ShowAugmentsWindow
+    layoutConfig.ShowAugmentUtilityWindow = layoutDefaults.ShowAugmentUtilityWindow
+    layoutConfig.ShowItemDisplayWindow = layoutDefaults.ShowItemDisplayWindow
+    layoutConfig.ShowConfigWindow = layoutDefaults.ShowConfigWindow
+    layoutConfig.ShowRerollWindow = layoutDefaults.ShowRerollWindow
     layoutConfig.AABackupPath = layoutDefaults.AABackupPath or ""
     layoutConfig.WidthRerollPanel = layoutDefaults.WidthRerollPanel
     layoutConfig.HeightReroll = layoutDefaults.HeightReroll
@@ -702,6 +737,13 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+        layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+        layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
+        layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
+        layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)
+        layoutConfig.ShowItemDisplayWindow = LayoutUtils.loadLayoutValue(layout, "ShowItemDisplayWindow", layoutDefaults.ShowItemDisplayWindow)
+        layoutConfig.ShowConfigWindow = LayoutUtils.loadLayoutValue(layout, "ShowConfigWindow", layoutDefaults.ShowConfigWindow)
+        layoutConfig.ShowRerollWindow = LayoutUtils.loadLayoutValue(layout, "ShowRerollWindow", layoutDefaults.ShowRerollWindow)
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
         layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
         layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)
@@ -810,6 +852,13 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+    layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+    layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
+    layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
+    layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)
+    layoutConfig.ShowItemDisplayWindow = LayoutUtils.loadLayoutValue(layout, "ShowItemDisplayWindow", layoutDefaults.ShowItemDisplayWindow)
+    layoutConfig.ShowConfigWindow = LayoutUtils.loadLayoutValue(layout, "ShowConfigWindow", layoutDefaults.ShowConfigWindow)
+    layoutConfig.ShowRerollWindow = LayoutUtils.loadLayoutValue(layout, "ShowRerollWindow", layoutDefaults.ShowRerollWindow)
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
     layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
     layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)

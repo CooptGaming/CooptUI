@@ -142,16 +142,19 @@ function AugmentsView.render(ctx)
         return
     end
 
-    -- Compact table: Icon (stats on hover) | Name | Effects | Value | Add to Aug List | Add to Mythical List (Name, Effects, Value sortable)
-    local nCols = 6
+    -- Compact table: Icon (stats on hover) | Name | Effects | Value | [Add to Aug List | Add to Mythical List when Reroll enabled]
+    local showRerollColumns = registry.isEnabled("reroll")
+    local nCols = showRerollColumns and 6 or 4
     local tableFlagsAug = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("ItemUI_Augments", nCols, tableFlagsAug) then
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)   -- Icon (not sortable)
         ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
         ImGui.TableSetupColumn("Effects", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
         ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 3)
-        ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
-        ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
+        if showRerollColumns then
+            ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
+            ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
+        end
         ImGui.TableSetupScrollFreeze(1, 1)
         ImGui.TableHeadersRow()
 
@@ -166,6 +169,7 @@ function AugmentsView.render(ctx)
             sortSpecs.SpecsDirty = false
         end
         local sortCol = (state.augmentsSortColumn ~= nil) and state.augmentsSortColumn or 1
+        if not showRerollColumns and sortCol > 3 then sortCol = 1 end
         local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
         if sortCol >= 1 and sortCol <= 3 then
@@ -266,45 +270,47 @@ function AugmentsView.render(ctx)
                 ImGui.TableNextColumn()
                 ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
 
-                -- Column: Add to Aug List (reroll companion list; augments only)
-                ImGui.TableNextColumn()
-                local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
-                if augDisabled then
-                    ctx.theme.PushKeepButton(true)
-                else
-                    ctx.theme.PushKeepButton(false)
-                end
-                if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
-                    if not onAugList and ctx.requestAddToRerollList then
-                        ctx.requestAddToRerollList("aug", item)
+                if showRerollColumns then
+                    -- Column: Add to Aug List (reroll companion list; augments only)
+                    ImGui.TableNextColumn()
+                    local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
+                    if augDisabled then
+                        ctx.theme.PushKeepButton(true)
+                    else
+                        ctx.theme.PushKeepButton(false)
                     end
-                end
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
-                    ImGui.EndTooltip()
-                end
-                ctx.theme.PopButtonColors()
+                    if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
+                        if not onAugList and ctx.requestAddToRerollList then
+                            ctx.requestAddToRerollList("aug", item)
+                        end
+                    end
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
+                        ImGui.EndTooltip()
+                    end
+                    ctx.theme.PopButtonColors()
 
-                -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
-                ImGui.TableNextColumn()
-                local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
-                if mythicalDisabled then
-                    ctx.theme.PushKeepButton(true)
-                else
-                    ctx.theme.PushKeepButton(false)
-                end
-                if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
-                    if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
-                        ctx.requestAddToRerollList("mythical", item)
+                    -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
+                    ImGui.TableNextColumn()
+                    local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
+                    if mythicalDisabled then
+                        ctx.theme.PushKeepButton(true)
+                    else
+                        ctx.theme.PushKeepButton(false)
                     end
+                    if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
+                        if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
+                            ctx.requestAddToRerollList("mythical", item)
+                        end
+                    end
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
+                        ImGui.EndTooltip()
+                    end
+                    ctx.theme.PopButtonColors()
                 end
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
-                    ImGui.EndTooltip()
-                end
-                ctx.theme.PopButtonColors()
 
                 ImGui.PopID()
                 ::continue::
@@ -323,6 +329,7 @@ registry.register({
     buttonWidth = 55,
     tooltip     = "Browse all augments in your inventory with stat filtering",
     layoutKeys  = { x = "AugmentsWindowX", y = "AugmentsWindowY" },
+    enableKey   = "ShowAugmentsWindow",
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

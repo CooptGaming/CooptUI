@@ -544,7 +544,7 @@ registry.register({
     buttonWidth = 55,
     tooltip     = "Manage server augment and mythical reroll lists",
     layoutKeys  = { x = "RerollWindowX", y = "RerollWindowY" },
-    enableKey   = nil,
+    enableKey   = "ShowRerollWindow",
     onOpen      = function() end,
     onClose     = function() end,
     onTick      = nil,

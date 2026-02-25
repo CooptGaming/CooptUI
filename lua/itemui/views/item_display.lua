@@ -292,6 +292,7 @@ registry.register({
     buttonWidth = 90,
     tooltip     = "Inspect item stats and augments",
     layoutKeys  = { x = "ItemDisplayWindowX", y = "ItemDisplayWindowY" },
+    enableKey   = "ShowItemDisplayWindow",
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

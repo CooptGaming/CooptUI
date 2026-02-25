@@ -158,9 +158,10 @@ end
 
 -- Registry: Config module (4.2 state ownership — window in registry, needsLoad/advancedMode in view)
 registry.register({
-    id     = "config",
-    label  = "Settings",
-    render = function(refs)
+    id        = "config",
+    label     = "Settings",
+    enableKey = "ShowConfigWindow",
+    render    = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)
         ConfigView.render(ctx)

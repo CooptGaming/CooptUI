@@ -277,6 +277,7 @@ registry.register({
     buttonWidth = 75,
     tooltip     = "View your worn items — click an item to swap or inspect",
     layoutKeys  = { x = "EquipmentWindowX", y = "EquipmentWindowY" },
+    enableKey   = "ShowEquipmentWindow",
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

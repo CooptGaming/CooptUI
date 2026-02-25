@@ -6,6 +6,7 @@
 require('ImGui')
 
 local ConfigFilters = require('itemui.views.config_filters')
+local registry = require('itemui.core.registry')
 
 local ConfigGeneral = {}
 
@@ -88,6 +89,42 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("When enabled, epic quest items are never sold and are always looted. Optionally limit by class below.")
             ImGui.Text("Uncheck to allow selling epic items and to stop always-looting them.")
             ImGui.EndTooltip()
+        end
+        ImGui.Spacing()
+        if ImGui.CollapsingHeader("Companion windows", ImGuiTreeNodeFlags.None) then
+            renderBreadcrumb("General", "Companion windows")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Show or hide each companion's button and window. Uncheck to disable.")
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Re-enable any companion here or by editing Show*Window=1 in itemui_layout.ini")
+                ImGui.EndTooltip()
+            end
+            local companions = {
+                { id = "equipment",  key = "ShowEquipmentWindow",  label = "Equipment" },
+                { id = "bank",       key = "ShowBankWindow",       label = "Bank" },
+                { id = "augments",   key = "ShowAugmentsWindow",   label = "Augments" },
+                { id = "augmentUtility", key = "ShowAugmentUtilityWindow", label = "Augment Utility" },
+                { id = "itemDisplay", key = "ShowItemDisplayWindow", label = "Item Display" },
+                { id = "config",     key = "ShowConfigWindow",     label = "Settings" },
+                { id = "aa",        key = "ShowAAWindow",         label = "AA" },
+                { id = "reroll",    key = "ShowRerollWindow",    label = "Reroll" },
+            }
+            for _, c in ipairs(companions) do
+                local val = (tonumber(layoutConfig[c.key]) or 1) ~= 0
+                local prev = val
+                val = ImGui.Checkbox("Show " .. c.label .. " window##" .. c.id, val)
+                if prev ~= val then
+                    layoutConfig[c.key] = val and 1 or 0
+                    if not val then registry.setWindowState(c.id, false, false) end
+                    scheduleLayoutSave()
+                end
+                if c.id == "config" and ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text("Uncheck to hide the Settings button and window.")
+                    ImGui.Text("To show Settings again, set ShowConfigWindow=1 in itemui_layout.ini.")
+                    ImGui.EndTooltip()
+                end
+            end
         end
         if epicEnabled and EPIC_CLASSES and #EPIC_CLASSES > 0 then
             ImGui.Indent()

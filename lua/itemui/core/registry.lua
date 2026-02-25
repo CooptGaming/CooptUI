@@ -139,7 +139,7 @@ function M.getDrawableModules()
     local out = {}
     for _, id in ipairs(order) do
         local m = modules[id]
-        if m and m.windowShouldDraw and m.spec.render then
+        if m and m.windowShouldDraw and m.spec.render and isEnabled(m.spec) then
             out[#out + 1] = setmetatable({
                 id = m.spec.id,
                 render = m.spec.render,
@@ -203,6 +203,30 @@ end
 
 function M.isRegistered(id)
     return modules[id] ~= nil
+end
+
+function M.isEnabled(id)
+    local m = modules[id]
+    return m and isEnabled(m.spec)
+end
+
+--- Close any companion window whose enableKey is 0 in layoutConfig (call after loadLayoutConfig).
+function M.applyEnabledFromLayout(layoutConfig)
+    if not layoutConfig then return end
+    for _, id in ipairs(order) do
+        local m = modules[id]
+        if m and m.spec.enableKey then
+            if (tonumber(layoutConfig[m.spec.enableKey]) or 1) == 0 then
+                m.windowOpen = false
+                m.windowShouldDraw = false
+                m.openedAt = nil
+                if companionWindowOpenedAt then companionWindowOpenedAt[id] = nil end
+                if m.spec.onClose and type(m.spec.onClose) == "function" then
+                    m.spec.onClose()
+                end
+            end
+        end
+    end
 end
 
 return M
