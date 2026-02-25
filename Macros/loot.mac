@@ -65,7 +65,9 @@ Sub Main
 | ------------------------------------------------- |
 | Lore item cache (session-based, reduces FindItem calls)
 | Format: pipe-delimited string (e.g. "|ItemName1|ItemName2|")
+| Chunked to avoid MQ2 2048-char limit (crash to desktop when exceeded)
 /declare loreItemCache string outer
+/declare loreItemCache2 string outer
 | Chat event recovery: last item we tried to loot; set when lore-dup game message fires
 /declare lastLootAttemptName string outer
 /declare loreDupDetected bool outer
@@ -78,9 +80,13 @@ Sub Main
 /declare slotNum string outer
 
 | Session caches: fast-skip/fast-loot by name for rest of run (cleared at START LOOTING)
-| Format: pipe-delimited (e.g. "|Name1|Name2|")
+| Format: pipe-delimited (e.g. "|Name1|Name2|"). Chunked to avoid 2048-char limit.
 /declare skippedNamesThisSession string outer
+/declare skippedNamesThisSession2 string outer
 /declare lootedNamesThisSession string outer
+/declare lootedNamesThisSession2 string outer
+| Max length before switching to chunk 2 (85% of 2048 to stay safe)
+/declare runListMaxLen int outer 1740
 
 | ------------------------------------------------- |
 | CONFIGURATION VARIABLES                           |
@@ -150,11 +156,16 @@ Sub Main
 /declare currentCorpseName string outer
 /declare runLootedCount int outer 0
 /declare runLootedList string outer
+/declare runLootedList2 string outer
 /declare runLootedValues string outer
+/declare runLootedValues2 string outer
 /declare runLootedTributes string outer
+/declare runLootedTributes2 string outer
 /declare runSkippedCount int outer 0
 /declare runSkippedList string outer
+/declare runSkippedList2 string outer
 /declare runSkippedReasons string outer
+/declare runSkippedReasons2 string outer
 /declare runTotalValue int outer 0
 /declare runTributeValue int outer 0
 /declare runBestItemName string outer
@@ -244,17 +255,25 @@ Sub Main
 /hidecorpse looted
 /varset runLootedCount 0
 /varset runLootedList
+/varset runLootedList2
 /varset runLootedValues
+/varset runLootedValues2
 /varset runLootedTributes
+/varset runLootedTributes2
 /varset runSkippedCount 0
 /varset runSkippedList
+/varset runSkippedList2
 /varset runSkippedReasons
+/varset runSkippedReasons2
 /varset runTotalValue 0
 /varset runTributeValue 0
 /varset runBestItemName
 /varset runBestItemValue 0
+/varset loreItemCache2
 /varset skippedNamesThisSession
+/varset skippedNamesThisSession2
 /varset lootedNamesThisSession
+/varset lootedNamesThisSession2
 
 | Loot current mode: require corpse targeted
 /if (${doCurrentOnly}) {
@@ -461,11 +480,24 @@ sub EvaluateItem(int slot)
         /call LogSkippedItem "${lootName}" "Skip (cached this session)"
         /return
     }
+    /if (${skippedNamesThisSession2.Length} > 0 && ${skippedNamesThisSession2.Find[|${lootName}|]}) {
+        /call LogSkippedItem "${lootName}" "Skip (cached this session)"
+        /return
+    }
 
     | =========================================== |
     | SESSION CACHE: fast-loot if we already looted this name this run |
     | =========================================== |
     /if (${lootedNamesThisSession.Find[|${lootName}|]}) {
+        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /if (${decideOnly}) {
+            /call AddSlotToLootList ${slot}
+            /return
+        }
+        /call LootItemWithSound ${slot}
+        /return
+    }
+    /if (${lootedNamesThisSession2.Length} > 0 && ${lootedNamesThisSession2.Find[|${lootName}|]}) {
         /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -485,8 +517,14 @@ sub EvaluateItem(int slot)
         /declare foundItemID int local 0
         /declare cacheKey string local |${lootName}|
         
-        | Check cache first (fast string search)
+        | Check cache first (fast string search) — check both chunks
         /if (${loreItemCache.Find[${cacheKey}]}) {
+            /call LogSkippedItem "${lootName}" "Lore duplicate"
+            /call AddToSkippedSessionCache
+            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /return
+        }
+        /if (${loreItemCache2.Length} > 0 && ${loreItemCache2.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
             /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
@@ -497,8 +535,20 @@ sub EvaluateItem(int slot)
         /varset foundItemID ${FindItem[=${lootName}].ID}
         
         /if (${foundItemID} > 0) {
-            | Add to cache for future checks this session
-            /varset loreItemCache ${loreItemCache}${cacheKey}
+            | Add to cache for future checks this session (chunk when near 2048 limit)
+            /if (${Math.Calc[${loreItemCache.Length}+${cacheKey.Length}]} > ${runListMaxLen}) {
+                /if (${loreItemCache2.Length} == 0) {
+                    /varset loreItemCache2 ${cacheKey}
+                } else {
+                    /varset loreItemCache2 ${loreItemCache2}${cacheKey}
+                }
+            } else {
+                /if (${loreItemCache.Length} == 0) {
+                    /varset loreItemCache ${cacheKey}
+                } else {
+                    /varset loreItemCache ${loreItemCache}${cacheKey}
+                }
+            }
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
             /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
@@ -729,24 +779,42 @@ sub EvaluateItem(int slot)
 /return
 
 | ================================================= |
-| AddToSkippedSessionCache - Add current lootName to session skip cache |
+| AddToSkippedSessionCache - Add current lootName to session skip cache (chunked) |
 | ================================================= |
 sub AddToSkippedSessionCache
-    /if (${skippedNamesThisSession.Length} == 0) {
-        /varset skippedNamesThisSession |${lootName}|
+    /declare seg string local |${lootName}|
+    /if (${Math.Calc[${skippedNamesThisSession.Length}+${seg.Length}]} > ${runListMaxLen}) {
+        /if (${skippedNamesThisSession2.Length} == 0) {
+            /varset skippedNamesThisSession2 ${seg}
+        } else {
+            /varset skippedNamesThisSession2 ${skippedNamesThisSession2}${seg}
+        }
     } else {
-        /varset skippedNamesThisSession ${skippedNamesThisSession}|${lootName}|
+        /if (${skippedNamesThisSession.Length} == 0) {
+            /varset skippedNamesThisSession ${seg}
+        } else {
+            /varset skippedNamesThisSession ${skippedNamesThisSession}${seg}
+        }
     }
 /return
 
 | ================================================= |
-| AddToLootedSessionCache - Add current lootName to session loot cache |
+| AddToLootedSessionCache - Add current lootName to session loot cache (chunked) |
 | ================================================= |
 sub AddToLootedSessionCache
-    /if (${lootedNamesThisSession.Length} == 0) {
-        /varset lootedNamesThisSession |${lootName}|
+    /declare seg string local |${lootName}|
+    /if (${Math.Calc[${lootedNamesThisSession.Length}+${seg.Length}]} > ${runListMaxLen}) {
+        /if (${lootedNamesThisSession2.Length} == 0) {
+            /varset lootedNamesThisSession2 ${seg}
+        } else {
+            /varset lootedNamesThisSession2 ${lootedNamesThisSession2}${seg}
+        }
     } else {
-        /varset lootedNamesThisSession ${lootedNamesThisSession}|${lootName}|
+        /if (${lootedNamesThisSession.Length} == 0) {
+            /varset lootedNamesThisSession ${seg}
+        } else {
+            /varset lootedNamesThisSession ${lootedNamesThisSession}${seg}
+        }
     }
 /return
 
@@ -920,7 +988,20 @@ sub LootItem(int slot)
 | ================================================= |
 sub Event_LoreDup
     /if (${lastLootAttemptName.Length} > 0) {
-        /varset loreItemCache ${loreItemCache}|${lastLootAttemptName}|
+        /declare dupKey string local |${lastLootAttemptName}|
+        /if (${Math.Calc[${loreItemCache.Length}+${dupKey.Length}]} > ${runListMaxLen}) {
+            /if (${loreItemCache2.Length} == 0) {
+                /varset loreItemCache2 ${dupKey}
+            } else {
+                /varset loreItemCache2 ${loreItemCache2}${dupKey}
+            }
+        } else {
+            /if (${loreItemCache.Length} == 0) {
+                /varset loreItemCache ${dupKey}
+            } else {
+                /varset loreItemCache ${loreItemCache}${dupKey}
+            }
+        }
         /call LogSkippedItem "${lastLootAttemptName}" "Lore duplicate (game message)"
         /call AddToSkippedSessionCache
     }
@@ -1034,26 +1115,44 @@ sub FinishLooting
     /varset progressRunning 0
     /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
     
-    | Write loot_session.ini only when this run had items (keeps previous run visible in CoOpt UI when run had 0 loot)
+    | Write loot_session.ini only when this run had items (from chunked lists; INI format unchanged)
     /if (${runLootedCount} > 0) {
+        /declare count1 int local 0
+        /if (${runLootedList.Length} > 0) /varcalc count1 ${runLootedList.Count[|]}+1
         /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
         /declare i int local 1
+        /declare idx2 int local 0
         /for i 1 to ${runLootedCount}
-            /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
-            /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
-            /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
+            /if (${i} <= ${count1}) {
+                /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
+                /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
+                /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
+            } else {
+                /varcalc idx2 ${i}-${count1}
+                /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList2.Token[${idx2},|]}"
+                /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues2.Token[${idx2},|]}
+                /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes2.Token[${idx2},|]}
+            }
         /next i
         /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
         /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
         /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
         /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
     }
-    | Write loot_skipped.ini for CoOpt UI Skip History tab (only when this run had skips; value format name^reason)
+    | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason)
     /if (${runSkippedCount} > 0) {
+        /declare skipCount1 int local 0
+        /if (${runSkippedList.Length} > 0) /varcalc skipCount1 ${runSkippedList.Count[|]}+1
         /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
         /declare j int local 1
+        /declare jdx2 int local 0
         /for j 1 to ${runSkippedCount}
-            /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
+            /if (${j} <= ${skipCount1}) {
+                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
+            } else {
+                /varcalc jdx2 ${j}-${skipCount1}
+                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList2.Token[${jdx2},|]}^${runSkippedReasons2.Token[${jdx2},|]}"
+            }
         /next j
     }
     
@@ -1685,16 +1784,29 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /return
     }
     
-    | Append to run looted list for CoOpt UI Loot UI session (names, values, tributes pipe-delimited)
+    | Append to run looted list for CoOpt UI Loot UI session (chunked to avoid 2048 limit)
     /varcalc runLootedCount ${runLootedCount}+1
-    /if (${runLootedList.Length} > 0) {
-        /varset runLootedList ${runLootedList}|${itemName}
-        /varset runLootedValues ${runLootedValues}|${itemValue}
-        /varset runLootedTributes ${runLootedTributes}|${tribute}
+    /declare addLen int local ${Math.Calc[1+${itemName.Length}]}
+    /if (${Math.Calc[${runLootedList.Length}+${addLen}]} > ${runListMaxLen}) {
+        /if (${runLootedList2.Length} > 0) {
+            /varset runLootedList2 ${runLootedList2}|${itemName}
+            /varset runLootedValues2 ${runLootedValues2}|${itemValue}
+            /varset runLootedTributes2 ${runLootedTributes2}|${tribute}
+        } else {
+            /varset runLootedList2 ${itemName}
+            /varset runLootedValues2 ${itemValue}
+            /varset runLootedTributes2 ${tribute}
+        }
     } else {
-        /varset runLootedList ${itemName}
-        /varset runLootedValues ${itemValue}
-        /varset runLootedTributes ${tribute}
+        /if (${runLootedList.Length} > 0) {
+            /varset runLootedList ${runLootedList}|${itemName}
+            /varset runLootedValues ${runLootedValues}|${itemValue}
+            /varset runLootedTributes ${runLootedTributes}|${tribute}
+        } else {
+            /varset runLootedList ${itemName}
+            /varset runLootedValues ${itemValue}
+            /varset runLootedTributes ${tribute}
+        }
     }
     | Run receipt: total value, tribute, best item
     /varcalc runTotalValue ${runTotalValue}+${itemValue}
@@ -1750,11 +1862,22 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
 | ================================================= |
 sub LogSkippedItem(string itemName, string reason)
     /varcalc runSkippedCount ${runSkippedCount}+1
-    /if (${runSkippedList.Length} > 0) {
-        /varset runSkippedList ${runSkippedList}|${itemName}
-        /varset runSkippedReasons ${runSkippedReasons}|${reason}
+    /declare segLen int local ${Math.Calc[1+${itemName.Length}+1+${reason.Length}]}
+    /if (${Math.Calc[${runSkippedList.Length}+${segLen}]} > ${runListMaxLen}) {
+        /if (${runSkippedList2.Length} > 0) {
+            /varset runSkippedList2 ${runSkippedList2}|${itemName}
+            /varset runSkippedReasons2 ${runSkippedReasons2}|${reason}
+        } else {
+            /varset runSkippedList2 ${itemName}
+            /varset runSkippedReasons2 ${reason}
+        }
     } else {
-        /varset runSkippedList ${itemName}
-        /varset runSkippedReasons ${reason}
+        /if (${runSkippedList.Length} > 0) {
+            /varset runSkippedList ${runSkippedList}|${itemName}
+            /varset runSkippedReasons ${runSkippedReasons}|${reason}
+        } else {
+            /varset runSkippedList ${itemName}
+            /varset runSkippedReasons ${reason}
+        }
     }
 /return
