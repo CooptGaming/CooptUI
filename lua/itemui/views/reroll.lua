@@ -9,7 +9,9 @@
 local mq = require('mq')
 require('ImGui')
 local constants = require('itemui.constants')
+local context = require('itemui.context')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local registry = require('itemui.core.registry')
 
 local REROLL = constants.REROLL or {}
 local ITEMS_REQUIRED = REROLL.ITEMS_REQUIRED or 10
@@ -461,7 +463,8 @@ end
 
 -- Render the full Reroll Companion window (tabs + content).
 function RerollView.render(ctx)
-    if not ctx.uiState.rerollWindowShouldDraw then return end
+    local state = registry.getWindowState("reroll")
+    if not state.windowShouldDraw then return end
 
     local layoutConfig = ctx.layoutConfig or {}
     local layoutDefaults = ctx.layoutDefaults or {}
@@ -485,9 +488,8 @@ function RerollView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Reroll Companion##ItemUIReroll", ctx.uiState.rerollWindowOpen, windowFlags)
-    ctx.uiState.rerollWindowOpen = winOpen
-    ctx.uiState.rerollWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Reroll Companion##ItemUIReroll", state.windowOpen, windowFlags)
+    registry.setWindowState("reroll", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
@@ -534,5 +536,23 @@ function RerollView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Reroll module (Task 4.1 — second extraction)
+registry.register({
+    id          = "reroll",
+    label       = "Reroll",
+    buttonWidth = 55,
+    tooltip     = "Manage server augment and mythical reroll lists",
+    layoutKeys  = { x = "RerollWindowX", y = "RerollWindowY" },
+    enableKey   = nil,
+    onOpen      = function() end,
+    onClose     = function() end,
+    onTick      = nil,
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        RerollView.render(ctx)
+    end,
+})
 
 return RerollView

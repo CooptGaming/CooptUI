@@ -84,11 +84,6 @@ local function renderAAWindow(refs)
     AAView.render(ctx)
 end
 
-local function renderRerollWindow(refs)
-    local ctx = extendContext(buildViewContext())
-    RerollView.render(ctx)
-end
-
 local function renderLootWindow(refs)
     local ctx = extendContext(buildViewContext())
     local uiState = refs.uiState
@@ -354,7 +349,7 @@ function M.render(refs)
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
-            if uiState.rerollWindowShouldDraw and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
+            if registry.shouldDraw("reroll") and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
                 local rw = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520
                 layoutConfig.RerollWindowX = hubX + hubW + defGap
                 layoutConfig.RerollWindowY = hubY
@@ -412,7 +407,8 @@ function M.render(refs)
                 if registry.isOpen(mod.id) then
                     refs.recordCompanionWindowOpened(mod.id)
                     if mod.id == "aa" and aa_data.shouldRefresh() then aa_data.refresh() end
-                    setStatusMessage(mod.id == "aa" and "Alt Advancement window opened" or (mod.label .. " opened"))
+                    local msg = (mod.id == "aa" and "Alt Advancement window opened") or (mod.id == "reroll" and "Reroll Companion opened") or (mod.label .. " opened")
+                    setStatusMessage(msg)
                 end
             end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(mod.tooltip or ""); ImGui.EndTooltip() end
@@ -431,13 +427,6 @@ function M.render(refs)
             if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Augments window opened") end
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Browse all augments in your inventory with stat filtering"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Reroll", ImVec2(55, 0)) then
-            uiState.rerollWindowOpen = not uiState.rerollWindowOpen
-            uiState.rerollWindowShouldDraw = uiState.rerollWindowOpen
-            if uiState.rerollWindowOpen then refs.recordCompanionWindowOpened("reroll"); setStatusMessage("Reroll Companion opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Manage server augment and mythical reroll lists"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
         if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Configure sell rules, loot rules, and UI behavior"); ImGui.EndTooltip() end
@@ -747,9 +736,6 @@ function M.render(refs)
         end
         for _, mod in ipairs(registry.getDrawableModules()) do
             mod.render(refs)
-        end
-        if uiState.rerollWindowShouldDraw then
-            renderRerollWindow(refs)
         end
     end
 

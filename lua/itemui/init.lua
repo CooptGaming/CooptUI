@@ -151,7 +151,6 @@ local uiState = {
     augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
     searchFilterAugmentUtility = "",     -- filter compatible augments list by name
     augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
-    rerollWindowOpen = false, rerollWindowShouldDraw = false,
     companionWindowOpenedAt = {},  -- LIFO Esc: name -> mq.gettime() when opened
     statusMessage = "", statusMessageTime = 0,
     quantityPickerValue = "", quantityPickerMax = 1,
@@ -447,8 +446,9 @@ local function closeCompanionWindow(name)
         if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
         return
     elseif name == "reroll" then
-        uiState.rerollWindowOpen = false
-        uiState.rerollWindowShouldDraw = false
+        registry.setWindowState("reroll", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "loot" then
         uiState.lootUIOpen = false
         uiState.lootRunLootedList = {}
@@ -478,7 +478,7 @@ local function getMostRecentlyOpenedCompanion()
         { "augmentUtility", uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw },
         { "itemDisplay", uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw },
         { "aa", registry.isOpen("aa") },
-        { "reroll", uiState.rerollWindowOpen and uiState.rerollWindowShouldDraw },
+        { "reroll", registry.isOpen("reroll") },
         { "loot", uiState.lootUIOpen },
     }
     local bestName, bestT = nil, -1
@@ -1106,9 +1106,8 @@ local function handleCommand(...)
         isOpen = true
         print("\ag[ItemUI]\ax Config window opened.")
     elseif cmd == "reroll" then
-        uiState.rerollWindowOpen = true
-        uiState.rerollWindowShouldDraw = true
-        recordCompanionWindowOpened("reroll")
+        if not registry.isOpen("reroll") then registry.toggleWindow("reroll") end
+        if registry.isOpen("reroll") then recordCompanionWindowOpened("reroll") end
         shouldDraw = true
         isOpen = true
         print("\ag[ItemUI]\ax Reroll Companion opened.")
