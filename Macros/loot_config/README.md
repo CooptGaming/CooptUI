@@ -119,6 +119,12 @@ Inventory sorting is controlled by `loot_sorting.ini`:
   - When enabled: Heavy items (>minWeight) go to front bags (1-5), light items go to back bags (6-10)
 - **Future Options**: Value sorting, type sorting, custom bag assignments, bag exclusions
 
+## Run-list and session cache chunking (adding more chunks)
+
+MQ2 macro string variables are limited to **2048 characters**. Exceeding this causes a crash to desktop when many corpses/items are looted in one run. The loot macro splits run lists and session caches into **chunks** (chunk1, chunk2, chunk3, …), each capped at 1740 chars (`runListMaxLen`).
+
+**To add another chunk (e.g. chunk4):** See the comment block in `loot.mac` under "PERFORMANCE OPTIMIZATION" titled "*** CHUNKING: ... ***". In short: (1) Declare the new vars (e.g. `runLootedList4`, `runLootedValues4`, `runLootedTributes4`, `runSkippedList4`, `runSkippedReasons4`, `loreItemCache4`, `skippedNamesThisSession4`, `lootedNamesThisSession4`). (2) Reset them at "START LOOTING". (3) Add lookup checks in EvaluateItem (and lore in Event_LoreDup) for the new chunk. (4) Add an "else /if (chunkN has room)" append path in LogItem, LogSkippedItem, AddToSkippedSessionCache, AddToLootedSessionCache, and both lore-append sites. (5) In FinishLooting, add countN/skipCountN and an else branch that writes from chunkN using the correct index. The INI format written for CoOpt UI does not change.
+
 ## Future Enhancements
 
 - Lua UI for managing these lists (planned)
