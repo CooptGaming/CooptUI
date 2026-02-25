@@ -139,7 +139,9 @@ function M.getDrawableModules()
     local out = {}
     for _, id in ipairs(order) do
         local m = modules[id]
-        if m and m.windowShouldDraw and m.spec.render and isEnabled(m.spec) then
+        -- Config (Settings): when "disabled" we only hide the header button; window remains openable via /itemui config to avoid lockout (see MASTER_PLAN 4.3 note).
+        local allowed = (m and m.windowShouldDraw and m.spec.render) and (isEnabled(m.spec) or id == "config")
+        if allowed then
             out[#out + 1] = setmetatable({
                 id = m.spec.id,
                 render = m.spec.render,
