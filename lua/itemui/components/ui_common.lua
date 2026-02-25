@@ -7,6 +7,33 @@ require('ImGui')
 
 local M = {}
 
+--- Return ImVec4 for Name column sell-status color: green = Keep, red = Will Sell, white = Neutral.
+--- Uses ctx.getSellStatusForItem(item) when item.willSell/inKeep not set; otherwise row state.
+--- @param ctx table with theme, getSellStatusForItem
+--- @param item table row with optional willSell, inKeep (or from getSellStatusForItem)
+--- @return ImVec4 color for ImGui.TextColored or PushStyleColor(ImGuiCol.Text, color)
+function M.getSellStatusNameColor(ctx, item)
+    if not ctx or not item then return ImVec4(1, 1, 1, 1) end
+    local willSell, inKeep = item.willSell, item.inKeep
+    if willSell == nil or inKeep == nil then
+        local ok, st, ws, k = pcall(function()
+            if ctx.getSellStatusForItem then
+                local statusText, w, inKeepVal, inJunkVal = ctx.getSellStatusForItem(item)
+                return statusText, w, inKeepVal
+            end
+            return "", false, false
+        end)
+        if ok and ws ~= nil then willSell = ws; inKeep = k end
+    end
+    if willSell then
+        return ctx.theme and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ImVec4(0.9, 0.25, 0.25, 1)
+    end
+    if inKeep then
+        return ctx.theme and ctx.theme.ToVec4(ctx.theme.Colors.Success) or ImVec4(0.25, 0.75, 0.35, 1)
+    end
+    return ImVec4(1, 1, 1, 1)
+end
+
 --- Draw a Refresh button with tooltip and optional status messages. Call onRefresh() on click.
 --- @param ctx table context (setStatusMessage, etc.)
 --- @param id string unique button id (e.g. "Refresh##Inv")

@@ -307,7 +307,10 @@ function BankView.render(ctx)
                         -- Name column with special interaction logic
                         local dn = item.name or ""
                         if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
+                        local nameColor = ctx.getSellStatusNameColor and ctx.getSellStatusNameColor(ctx, item) or ImVec4(1, 1, 1, 1)
+                        ImGui.PushStyleColor(ImGuiCol.Text, nameColor)
                         ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
+                        ImGui.PopStyleColor(1)
                         if bankOpen then
                             if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                                 if ImGui.GetIO().KeyShift then
@@ -435,7 +438,7 @@ function BankView.render(ctx)
                             statusText, willSell = ctx.getSellStatusForItem(item)
                         end
                         if statusText == "" then statusText = "—" end
-                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
                         if statusText == "Epic" then
                             statusText = "EpicQuest"
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)

@@ -352,7 +352,7 @@ function LootUIView.render(ctx)
                         ImGui.TableNextColumn()
                         local statusText = row.statusText or "—"
                         if statusText == "Epic" then statusText = "EpicQuest" end
-                        local statusColor = (row.willSell and theme.ToVec4(theme.Colors.Warning)) or theme.ToVec4(theme.Colors.Success)
+                        local statusColor = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
                         if statusText == "EpicQuest" then statusColor = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
                         elseif statusText == "NoDrop" or statusText == "NoTrade" then statusColor = theme.ToVec4(theme.Colors.Error)
                         end
@@ -400,7 +400,7 @@ function LootUIView.render(ctx)
                             ImGui.TableNextColumn()
                             local st = row.statusText or "—"
                             if st == "Epic" then st = "EpicQuest" end
-                            local sc = (row.willSell and theme.ToVec4(theme.Colors.Warning)) or theme.ToVec4(theme.Colors.Success)
+                            local sc = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
                             if st == "EpicQuest" then sc = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
                             elseif st == "NoDrop" or st == "NoTrade" then sc = theme.ToVec4(theme.Colors.Error) end
                             ImGui.TextColored(sc, st)

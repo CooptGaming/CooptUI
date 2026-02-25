@@ -13,13 +13,10 @@ local itemHelpers = require('itemui.utils.item_helpers')
 
 local ItemTooltip = {}
 
-local TOOLTIP_MIN_WIDTH = 760  -- two columns full layout
+local TOOLTIP_MIN_WIDTH = 760  -- two columns full layout (standardized width for all items)
 local TOOLTIP_COL_WIDTH = 380  -- each column at full width
-local TOOLTIP_COMPACT_WIDTH = 560  -- narrower for items with less content
-local TOOLTIP_COMPACT_COL = 280   -- column width when compact
 local TOOLTIP_LINE_HEIGHT = 18   -- ensure stats and spell info rows fit
 local TOOLTIP_PADDING = 20       -- margin so bottom content isn't cut off
-local TOOLTIP_EXTRA_ROWS = 4     -- buffer so all stats/effects are visible (no truncation)
 -- Tooltip pre-computation cache (Task 3.4): keyed by (itemId, bag, slot, source, socketIndex); invalidate on scan
 local tooltipCache = {}
 local TOOLTIP_CACHE_MAX = 200
@@ -393,7 +390,7 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     local cacheKey = tostring(id) .. "\0" .. tostring(bag or -1) .. "\0" .. tostring(slot or -1) .. "\0" .. tostring(source) .. "\0" .. tostring(socketIndex)
     local cached = tooltipCache[cacheKey]
     if cached then
-        opts.tooltipColWidth = (cached.width == TOOLTIP_COMPACT_WIDTH) and TOOLTIP_COMPACT_COL or TOOLTIP_COL_WIDTH
+        opts.tooltipColWidth = TOOLTIP_COL_WIDTH
         return cached.effects, cached.width, cached.height
     end
     -- Pre-warm lazy fields
@@ -443,14 +440,12 @@ function ItemTooltip.prepareTooltipContent(item, ctx, opts)
     local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHelpers.itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
     if augCount < 0 then augCount = 0 end
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
-    -- Use the longer column and add buffer so all stats and spell info are visible (no cut-off)
-    local lineCount = math.max(leftRows, rightRows) + TOOLTIP_EXTRA_ROWS
+    -- Height from actual content only (no extra row buffer)
+    local lineCount = math.max(leftRows, rightRows)
     local height = math.max(300, lineCount * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING)
-    -- Use narrower width for items with less content (no effects, no augs, few rows)
-    local totalRows = leftRows + rightRows
-    local useCompact = (#effects == 0 and augCount == 0 and totalRows < 26)
-    local width = useCompact and TOOLTIP_COMPACT_WIDTH or TOOLTIP_MIN_WIDTH
-    opts.tooltipColWidth = useCompact and TOOLTIP_COMPACT_COL or TOOLTIP_COL_WIDTH
+    -- Standardized width for all items (760px)
+    local width = TOOLTIP_MIN_WIDTH
+    opts.tooltipColWidth = TOOLTIP_COL_WIDTH
     tooltipCache[cacheKey] = { effects = effects, width = width, height = height }
     if TOOLTIP_CACHE_MAX > 0 then
         local n = 0

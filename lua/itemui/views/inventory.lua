@@ -471,7 +471,7 @@ function InventoryView.render(ctx, bankOpen)
                             statusText, willSell = ctx.getSellStatusForItem(item)
                         end
                         if statusText == "" then statusText = "—" end
-                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
                         if statusText == "Epic" then
                             statusText = "EpicQuest"
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
@@ -481,6 +481,10 @@ function InventoryView.render(ctx, bankOpen)
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
                         end
                         ImGui.TextColored(statusColor, statusText)
+                    elseif colKey == "Name" then
+                        local nameText = ctx.sortColumns.getCellDisplayText(item, "Name", "Inventory")
+                        local nameColor = ctx.getSellStatusNameColor and ctx.getSellStatusNameColor(ctx, item) or ImVec4(1, 1, 1, 1)
+                        ImGui.TextColored(nameColor, nameText)
                     else
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Inventory"))
                     end
