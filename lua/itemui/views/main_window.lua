@@ -398,7 +398,7 @@ function M.render(refs)
             uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
             if uiState.equipmentWindowOpen then refs.recordCompanionWindowOpened("equipment"); setStatusMessage("Equipment Companion opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("View your worn items — click an item to swap or inspect"); ImGui.EndTooltip() end
         ImGui.SameLine()
         if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
             if ImGui.Button("AA", ImVec2(45, 0)) then
@@ -410,7 +410,7 @@ function M.render(refs)
                     setStatusMessage("Alt Advancement window opened")
                 end
             end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Track and manage Alternate Advancement abilities"); ImGui.EndTooltip() end
             ImGui.SameLine()
         end
         if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
@@ -418,24 +418,24 @@ function M.render(refs)
             uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
             if uiState.augmentUtilityWindowOpen then refs.recordCompanionWindowOpened("augmentUtility"); setStatusMessage("Augment Utility opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add or remove augments from your gear"); ImGui.EndTooltip() end
         ImGui.SameLine()
         if ImGui.Button("Augments", ImVec2(55, 0)) then
             uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
             uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
             if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Augments window opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Augments window (augment inventory, Always sell / Never loot lists, stats on hover)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Browse all augments in your inventory with stat filtering"); ImGui.EndTooltip() end
         ImGui.SameLine()
         if ImGui.Button("Reroll", ImVec2(55, 0)) then
             uiState.rerollWindowOpen = not uiState.rerollWindowOpen
             uiState.rerollWindowShouldDraw = uiState.rerollWindowOpen
             if uiState.rerollWindowOpen then refs.recordCompanionWindowOpened("reroll"); setStatusMessage("Reroll Companion opened") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Companion (augment and mythical reroll lists)"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Manage server augment and mythical reroll lists"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
         if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Configure sell rules, loot rules, and UI behavior"); ImGui.EndTooltip() end
         ImGui.SameLine()
         local prevLocked = uiState.uiLocked
         uiState.uiLocked = ImGui.Checkbox("##Lock", uiState.uiLocked)
@@ -467,7 +467,7 @@ function M.render(refs)
             uiState.bankWindowShouldDraw = uiState.bankWindowOpen
             if uiState.bankWindowOpen then refs.recordCompanionWindowOpened("bank"); if bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(bankOnline and "Open or close the bank window. Bank is online." or "Open or close the bank window. Bank is offline."); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("View your bank — green = online, red = offline snapshot"); ImGui.EndTooltip() end
         ImGui.PopStyleColor(3)
         ImGui.Separator()
 
