@@ -37,6 +37,7 @@ local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
 local Cache = require('itemui.core.cache')
 local events = require('itemui.core.events')
+local registry = require('itemui.core.registry')
 
 -- Components
 local CharacterStats = require('itemui.components.character_stats')
@@ -150,7 +151,6 @@ local uiState = {
     augmentUtilitySlotIndex = 1,          -- 1-based slot for standalone Augment Utility
     searchFilterAugmentUtility = "",     -- filter compatible augments list by name
     augmentUtilityOnlyShowUsable = true, -- when true, filter list to augments current character can use (class/race/deity/level)
-    aaWindowOpen = false, aaWindowShouldDraw = false,
     rerollWindowOpen = false, rerollWindowShouldDraw = false,
     companionWindowOpenedAt = {},  -- LIFO Esc: name -> mq.gettime() when opened
     statusMessage = "", statusMessageTime = 0,
@@ -238,6 +238,7 @@ do
     layoutDefaults.ConfirmBeforeDelete = 1
 end
 local layoutConfig = {}  -- filled by loadLayoutConfig()
+registry.init({ layoutConfig = layoutConfig, companionWindowOpenedAt = uiState.companionWindowOpenedAt })
 
 -- Column config: owned by itemui.utils.column_config (definitions, visibility, autofit widths)
 local availableColumns = columnConfig.availableColumns
@@ -442,8 +443,9 @@ local function closeCompanionWindow(name)
         uiState.removeAllQueue = nil   -- Phase 1: target changed
         uiState.optimizeQueue = nil    -- Phase 2: target changed
     elseif name == "aa" then
-        uiState.aaWindowOpen = false
-        uiState.aaWindowShouldDraw = false
+        registry.setWindowState("aa", false, false)
+        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
+        return
     elseif name == "reroll" then
         uiState.rerollWindowOpen = false
         uiState.rerollWindowShouldDraw = false
@@ -475,7 +477,7 @@ local function getMostRecentlyOpenedCompanion()
         { "augments", uiState.augmentsWindowOpen and uiState.augmentsWindowShouldDraw },
         { "augmentUtility", uiState.augmentUtilityWindowOpen and uiState.augmentUtilityWindowShouldDraw },
         { "itemDisplay", uiState.itemDisplayWindowOpen and uiState.itemDisplayWindowShouldDraw },
-        { "aa", uiState.aaWindowOpen and uiState.aaWindowShouldDraw },
+        { "aa", registry.isOpen("aa") },
         { "reroll", uiState.rerollWindowOpen and uiState.rerollWindowShouldDraw },
         { "loot", uiState.lootUIOpen },
     }

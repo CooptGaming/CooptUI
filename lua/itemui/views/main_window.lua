@@ -21,6 +21,7 @@ local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
+local registry = require('itemui.core.registry')
 
 local function buildViewContext()
     return context.build()
@@ -292,7 +293,12 @@ function M.render(refs)
             else
                 local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
                 if mostRecent then
-                    refs.closeCompanionWindow(mostRecent)
+                    if registry.isRegistered(mostRecent) then
+                        registry.setWindowState(mostRecent, false, false)
+                        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[mostRecent] = nil end
+                    else
+                        refs.closeCompanionWindow(mostRecent)
+                    end
                 else
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
@@ -343,7 +349,7 @@ function M.render(refs)
                 layoutConfig.AugmentUtilityWindowX = hubX - auw - defGap
                 layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
             end
-            if uiState.aaWindowShouldDraw and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
+            if registry.shouldDraw("aa") and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
                 local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
@@ -400,17 +406,16 @@ function M.render(refs)
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("View your worn items — click an item to swap or inspect"); ImGui.EndTooltip() end
         ImGui.SameLine()
-        if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
-            if ImGui.Button("AA", ImVec2(45, 0)) then
-                uiState.aaWindowOpen = not uiState.aaWindowOpen
-                uiState.aaWindowShouldDraw = uiState.aaWindowOpen
-                if uiState.aaWindowOpen then
-                    refs.recordCompanionWindowOpened("aa")
-                    if aa_data.shouldRefresh() then aa_data.refresh() end
-                    setStatusMessage("Alt Advancement window opened")
+        for _, mod in ipairs(registry.getEnabledModules()) do
+            if ImGui.Button(mod.label, ImVec2(mod.buttonWidth or 60, 0)) then
+                registry.toggleWindow(mod.id)
+                if registry.isOpen(mod.id) then
+                    refs.recordCompanionWindowOpened(mod.id)
+                    if mod.id == "aa" and aa_data.shouldRefresh() then aa_data.refresh() end
+                    setStatusMessage(mod.id == "aa" and "Alt Advancement window opened" or (mod.label .. " opened"))
                 end
             end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Track and manage Alternate Advancement abilities"); ImGui.EndTooltip() end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(mod.tooltip or ""); ImGui.EndTooltip() end
             ImGui.SameLine()
         end
         if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
@@ -740,8 +745,8 @@ function M.render(refs)
                 uiState.itemDisplayLocateRequestAt = nil
             end
         end
-        if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
-            renderAAWindow(refs)
+        for _, mod in ipairs(registry.getDrawableModules()) do
+            mod.render(refs)
         end
         if uiState.rerollWindowShouldDraw then
             renderRerollWindow(refs)
