@@ -252,6 +252,18 @@ function SellView.render(ctx, simulateSellView)
                 end
                 local rid = "sell_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                if rawget(item, "_statsPending") then
+                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.PopID()
+                    goto continue
+                end
                 -- Use cached row state (no INI reads per frame); Keep/Junk handlers still call add/remove + updateSellStatusForItemName
                 local actualInKeep = item.inKeep
                 local actualInJunk = item.inJunk

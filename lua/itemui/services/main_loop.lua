@@ -551,6 +551,7 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     local isBankWindowOpen, isMerchantWindowOpen, isLootWindowOpen = d.isBankWindowOpen, d.isMerchantWindowOpen, d.isLootWindowOpen
     local maybeScanInventory, maybeScanBank, maybeScanSellItems = d.maybeScanInventory, d.maybeScanBank, d.maybeScanSellItems
     local computeAndAttachSellStatus, sellStatusService, scanInventory, scanSellItems = d.computeAndAttachSellStatus, d.sellStatusService, d.scanInventory, d.scanSellItems
+    local rescanInventoryBags = d.rescanInventoryBags
     local invalidateSortCache, flushLayoutSave, loadLayoutConfig, recordCompanionWindowOpened = d.invalidateSortCache, d.flushLayoutSave, d.loadLayoutConfig, d.recordCompanionWindowOpened
     local storage, augmentOps, hasItemOnCursor, setStatusMessage = d.storage, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
     local saveLayoutToFileImmediate = d.saveLayoutToFileImmediate
@@ -588,6 +589,13 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
     if deferredScanNeeded.bank then maybeScanBank(bankOpen); deferredScanNeeded.bank = false end
     if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
+    -- MASTER_PLAN 2.6: targeted rescan for bags that had _statsPending (e.g. ID was 0 during batch)
+    if uiState.pendingStatRescanBags and next(uiState.pendingStatRescanBags) and rescanInventoryBags then
+        local bags = {}
+        for b in pairs(uiState.pendingStatRescanBags) do bags[#bags + 1] = b end
+        rescanInventoryBags(bags)
+        uiState.pendingStatRescanBags = {}
+    end
     if perfCache.sellConfigPendingRefresh then
         if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
         computeAndAttachSellStatus(inventoryItems)

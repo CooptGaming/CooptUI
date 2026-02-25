@@ -288,6 +288,9 @@ local function buildDescriptionSubstitutionTable(spell)
     return t
 end
 
+--- When true, getSpellDescription asserts no unresolved # @ $ % tokens remain after substitution (MASTER_PLAN 2.6).
+local STML_DEBUG_ASSERT = false
+
 --- Replace placeholder keys in str with values from subst. Keys replaced longest-first so $1 before $.
 local function applyDescriptionSubstitution(str, subst)
     if not str or not subst then return str end
@@ -320,6 +323,9 @@ function M.getSpellDescription(id)
         if ok and subst and next(subst) then
             desc = applyDescriptionSubstitution(desc, subst)
         end
+        if STML_DEBUG_ASSERT and desc and desc:find("[#@$%%]") then
+            error("STML: unresolved placeholder in description (spell id " .. tostring(id) .. ")")
+        end
     end
     Cache.set(cacheKey, desc, { tier = 'L2' })
     return desc
@@ -347,6 +353,7 @@ function M.getSpellCastTime(id)
 end
 
 --- Spell recast time in seconds (for clicky display). Returns nil if not available.
+--- Normalizes raw TLO value (may be ms or deciseconds) to seconds, same as getSpellCastTime.
 function M.getSpellRecastTime(id)
     if not id or id <= 0 then return nil end
     local cacheKey = 'spell:recasttime:' .. id
@@ -355,9 +362,14 @@ function M.getSpellRecastTime(id)
     local s = (mq.TLO and mq.TLO.Spell and mq.TLO.Spell(id)) or nil
     if not s or not s.RecastTime then return nil end
     local rt = s.RecastTime()
-    local sec = tonumber(rt)
-    if sec then Cache.set(cacheKey, sec, { tier = 'L2' }); return sec end
-    return nil
+    local raw = tonumber(rt)
+    if not raw then return nil end
+    local sec = raw
+    if raw >= 1000 then sec = raw / 1000
+    elseif raw >= 10 then sec = raw / 10
+    end
+    Cache.set(cacheKey, sec, { tier = 'L2' })
+    return sec
 end
 
 --- Spell duration (raw from TLO; often ticks). Returns nil if not available. Cached.
@@ -479,6 +491,7 @@ function M.getItemSpellId(item, prop)
 end
 
 --- TimerReady cache: TTL 1.5s (cooldowns in seconds; reduces TLO calls ~33%). Optional source "bank" | "inv" (default inv).
+--- When ready > 0, updates the max recast cache for this slot so we can show "recast delay = countdown start".
 function M.getTimerReady(bag, slot, source)
     if not bag or not slot then return 0 end
     source = source or "inv"
@@ -486,12 +499,29 @@ function M.getTimerReady(bag, slot, source)
     local now = mq.gettime()
     local entry = deps.perfCache.timerReadyCache[key]
     if entry and (now - entry.at) < deps.C.TIMER_READY_CACHE_TTL_MS then
-        return entry.ready or 0
+        local ready = entry.ready or 0
+        if ready > 0 and deps.perfCache.timerReadyMaxCache then
+            local m = deps.perfCache.timerReadyMaxCache[key]
+            if not m or ready > m then deps.perfCache.timerReadyMaxCache[key] = ready end
+        end
+        return ready
     end
     local itemTLO = M.getItemTLO(bag, slot, source)
     local ready = (itemTLO and itemTLO.TimerReady and itemTLO.TimerReady()) or 0
     deps.perfCache.timerReadyCache[key] = { ready = ready, at = now }
+    if ready > 0 and deps.perfCache.timerReadyMaxCache then
+        local m = deps.perfCache.timerReadyMaxCache[key]
+        if not m or ready > m then deps.perfCache.timerReadyMaxCache[key] = ready end
+    end
     return ready
+end
+
+--- Max cooldown (seconds) observed for this slot — the value the countdown starts at when you click. Nil until we've seen the item on cooldown.
+function M.getMaxRecastForSlot(bag, slot, source)
+    if not bag or not slot or not deps.perfCache or not deps.perfCache.timerReadyMaxCache then return nil end
+    source = source or "inv"
+    local key = source .. "_" .. bag .. "_" .. slot
+    return deps.perfCache.timerReadyMaxCache[key]
 end
 
 -- Slot index (0-22) to display name; WornSlots is count, WornSlot(N) returns Nth slot index.
@@ -1008,6 +1038,11 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
         -- Descriptive/tooltip-only fields: batch-load on first access to any of them
         if DESCRIPTIVE_FIELDS_SET[k] then
             if rawget(t, "_descriptive_loaded") then return rawget(t, k) end
+            -- If TLO unavailable or item ID zero (e.g. zone transition), mark pending and do not commit zeroed stats (MASTER_PLAN 2.6)
+            if not it or not it.ID or it.ID() == 0 then
+                rawset(t, "_statsPending", true)
+                return DESCRIPTIVE_STRING_FIELDS[k] and "" or 0
+            end
             if it and it.ID and it.ID() ~= 0 then
                 local clsStr, raceStr = M.getClassRaceStringsFromTLO(it)
                 local deityStr = M.getDeityStringFromTLO(it)
@@ -1027,19 +1062,16 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
                 rawset(t, "class", clsStr or "")
                 rawset(t, "race", raceStr or "")
                 rawset(t, "deity", deityStr or "")
-            else
-                rawset(t, "_tlo_unavailable", true)
-                rawset(t, "tribute", 0) rawset(t, "size", 0) rawset(t, "sizeCapacity", 0) rawset(t, "container", 0)
-                rawset(t, "stackSizeMax", rawget(t, "stackSize") or 1)
-                rawset(t, "norent", false) rawset(t, "magic", false) rawset(t, "prestige", false) rawset(t, "tradeskills", false)
-                rawset(t, "requiredLevel", 0) rawset(t, "recommendedLevel", 0) rawset(t, "instrumentMod", 0)
-                rawset(t, "instrumentType", "") rawset(t, "class", "") rawset(t, "race", "") rawset(t, "deity", "")
             end
             rawset(t, "_descriptive_loaded", true)
             return rawget(t, k)
         end
         if not STAT_FIELDS_SET[k] then return nil end
-        -- Batch-load all stat fields from TLO (Me/Inventory can be nil during zone/load)
+        -- Batch-load all stat fields from TLO. If ID zero, mark pending and do not commit zeroed stats (MASTER_PLAN 2.6)
+        if not it or not it.ID or it.ID() == 0 then
+            rawset(t, "_statsPending", true)
+            return STAT_STRING_FIELDS[k] and "" or 0
+        end
         if it and it.ID and it.ID() ~= 0 then
             for _, field in ipairs(STAT_FIELDS) do
                 local tloName = STAT_TLO_MAP[field]
@@ -1054,12 +1086,6 @@ function M.buildItemFromMQ(item, bag, slot, source, socketIndex)
                 else
                     rawset(t, field, STAT_STRING_FIELDS[field] and "" or 0)
                 end
-            end
-        else
-            -- Item no longer in slot (moved/sold) or TLO unavailable (e.g. bank closed); set defaults and mark unavailable
-            rawset(t, "_tlo_unavailable", true)
-            for _, field in ipairs(STAT_FIELDS) do
-                rawset(t, field, STAT_STRING_FIELDS[field] and "" or 0)
             end
         end
         return rawget(t, k)

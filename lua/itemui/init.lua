@@ -109,6 +109,7 @@ local perfCache = {
     layoutSaveScheduledAt = 0,
     layoutSaveDebounceMs = C.LAYOUT_SAVE_DEBOUNCE_MS,
     timerReadyCache = {},  -- key "bag_slot" -> { ready = seconds, at = mq.gettime() }
+    timerReadyMaxCache = {},  -- key "source_bag_slot" -> max seconds seen (recast delay = countdown start)
     lastScanTimeInv = 0,
     lastBankCacheTime = 0,
     sellLogPath = nil,  -- Macros/logs/item_management (set in main)
@@ -184,6 +185,7 @@ local uiState = {
     equipmentDeferredRefreshAt = nil,      -- mq.gettime() ms when to run refreshEquipmentCache again (after swap/pickup so icon updates)
     equipmentLastRefreshAt = nil,          -- Phase 2: last time we refreshed equipment cache (throttle to ~every 400ms instead of every frame)
     deferredInventoryScanAt = nil,         -- mq.gettime() ms when to run scanInventory again (after put in bags / drop so list updates)
+    pendingStatRescanBags = nil,            -- set of bag numbers to rescan (when _statsPending items seen); main_loop drains and calls rescanInventoryBags (MASTER_PLAN 2.6)
     -- Loot UI (separate window; open only on Esc or Close)
     lootUIOpen = false,
     lootRunCorpsesLooted = 0,
@@ -937,6 +939,7 @@ context_builder.init({
     getItemSpellId = function(i, p) return itemHelpers.getItemSpellId(i, p) end,
     getItemLoreText = function(it) return itemHelpers.getItemLoreText(it) end,
     getTimerReady = function(b, s, src) return itemHelpers.getTimerReady(b, s, src) end,
+    getMaxRecastForSlot = function(b, s, src) return itemHelpers.getMaxRecastForSlot(b, s, src) end,
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
@@ -1197,6 +1200,7 @@ local function buildMainLoopDeps()
         scanInventory = scanInventory,
         scanBank = scanBank,
         scanSellItems = scanSellItems,
+        rescanInventoryBags = rescanInventoryBags,
         refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
         saveLayoutToFileImmediate = saveLayoutToFileImmediate,
         removeItemFromCursor = removeItemFromCursor,

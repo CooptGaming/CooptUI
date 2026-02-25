@@ -767,25 +767,14 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
 
     -- ---- All Stats: Primary (base+heroic), Resistances, Combat/utility ----
     local itemTypeLower = (item.type and tostring(item.type):lower()) or ""
-    -- For augments: re-fetch Shielding, DamShield, HPRegen from TLO and rawset on this table so they always show.
-    -- (Some augments e.g. Barbed Dragon Bones, Jade Prism had stats in TLO but not in the table we render from.)
-    -- If more augment stats are missing in future, add that TLO name here and use rawget/fallback in combat array.
-    if itemTypeLower == "augmentation" and bag and slot and source then
-        local it = itemHelpers.getItemTLO(bag, slot, source)
-        if it and it.ID and it.ID() and it.ID() ~= 0 then
-            local try = function(tlo, name)
-                local acc = tlo[name] or tlo[name:lower()]
-                if acc and type(acc) == "function" then local ok, v = pcall(acc); if ok and v then return v end end
-                return nil
-            end
-            local v1 = try(it, "Shielding")
-            local v2 = try(it, "DamShield")
-            local v3 = try(it, "HPRegen")
-            if v1 ~= nil then rawset(item, "shielding", tonumber(v1) or v1) end
-            if v2 ~= nil then rawset(item, "damageShield", tonumber(v2) or v2) end
-            if v3 ~= nil then rawset(item, "hpRegen", tonumber(v3) or v3) end
+    -- Shielding, DamShield, HPRegen come from batch in buildItemFromMQ (STAT_TLO_MAP); read from item table only (MASTER_PLAN 2.6).
+    if rawget(item, "_statsPending") then
+        if ctx and ctx.uiState then
+            ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}
+            ctx.uiState.pendingStatRescanBags[item.bag] = true
         end
-    end
+        ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1.0), "Loading...")
+    else
     local attrs = {
         attrLine(item.str, item.heroicSTR, "Strength"),
         attrLine(item.sta, item.heroicSTA, "Stamina"),
@@ -877,6 +866,7 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
         ImGui.Columns(2, "##TooltipCols", false)
         ImGui.SetColumnWidth(0, colW)
         ImGui.SetColumnWidth(1, colW)
+    end
     end
 
     -- ---- Augment item only: "This Augmentation fits in slot types" and Restrictions ----
@@ -1021,8 +1011,10 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
                         local ctStr = (ct == math.floor(ct)) and tostring(math.floor(ct)) or string.format("%.1f", ct)
                         ImGui.Text("Casting Time: " .. ctStr)
                     end
-                    if e.recastTime ~= nil and e.recastTime > 0 then
-                        ImGui.Text("Recast Delay: " .. formatRecastDelay(e.recastTime))
+                    -- Recast delay = max cooldown observed for this slot (countdown start); fallback to spell recast until we've seen it
+                    local recastSec = (bag and slot and source and ctx and ctx.getMaxRecastForSlot) and ctx.getMaxRecastForSlot(bag, slot, source) or e.recastTime
+                    if recastSec ~= nil and recastSec > 0 then
+                        ImGui.Text("Recast Delay: " .. formatRecastDelay(recastSec))
                     end
                     ImGui.PopStyleColor()
                 end

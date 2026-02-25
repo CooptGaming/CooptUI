@@ -214,6 +214,12 @@ function InventoryView.render(ctx, bankOpen)
                 end
                 local rid = "inv_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                if rawget(item, "_statsPending") then
+                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...") end
+                    ImGui.PopID()
+                    goto continue
+                end
                 for _, colDef in ipairs(visibleCols) do
                     ImGui.TableNextColumn()
                     local colKey = colDef.key

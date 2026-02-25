@@ -297,7 +297,12 @@ function BankView.render(ctx)
                 end
                 local rid = "bank_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
-                
+                if rawget(item, "_statsPending") then
+                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...") end
+                    ImGui.PopID()
+                    goto bank_continue
+                end
                 -- Render columns dynamically based on visibleCols
                 for _, colDef in ipairs(visibleCols) do
                     ImGui.TableNextColumn()
