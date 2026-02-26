@@ -31,6 +31,36 @@ local function extendContext(ctx)
     return context.extend(ctx)
 end
 
+local function renderWelcomePanel(refs)
+    local theme = refs.theme
+    local uiState = refs.uiState
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Welcome to CoOpt UI")
+    ImGui.Separator()
+    ImGui.TextWrapped("Your unified inventory, sell, loot, and augment companion.")
+    if refs.defaultLayoutAppliedThisRun then
+        ImGui.Spacing()
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
+    end
+    ImGui.Separator()
+    if ImGui.Button("Open Inventory", ImVec2(140, 0)) then
+        if refs.setShouldDraw then refs.setShouldDraw(true) end
+        refs.mq.cmd("/keypress inventory")
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the game inventory window"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Run Setup", ImVec2(100, 0)) then
+        uiState.setupMode = true
+        uiState.setupStep = 1
+        if refs.loadLayoutConfig then refs.loadLayoutConfig() end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Resize and save window layout (Inventory, Sell, Bank)"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("I know what I'm doing", ImVec2(160, 0)) then
+        if refs.setOnboardingComplete then refs.setOnboardingComplete() end
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Dismiss this panel and show the normal view"); ImGui.EndTooltip() end
+end
+
 local function renderInventoryContent(refs)
     local ctx = extendContext(buildViewContext())
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
@@ -496,7 +526,12 @@ function M.render(refs)
         ImGui.SameLine()
 
         ImGui.BeginChild("MainContent", ImVec2(0, -C.FOOTER_HEIGHT), true)
-        renderInventoryContent(refs)
+        local showWelcomePanel = not uiState.setupMode and refs.getOnboardingComplete and not refs.getOnboardingComplete()
+        if showWelcomePanel then
+            renderWelcomePanel(refs)
+        else
+            renderInventoryContent(refs)
+        end
         ImGui.EndChild()
 
         if uiState.pendingQuantityPickup then

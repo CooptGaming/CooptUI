@@ -329,6 +329,17 @@ function ConfigGeneral.render(ctx)
             ImGui.EndTooltip()
         end
         if setupWasOn then ImGui.PopStyleColor(1) end
+        ImGui.SameLine()
+        if ImGui.Button("Show welcome panel again", ImVec2(180, 0)) then
+            if ctx.resetOnboarding then ctx.resetOnboarding() end
+            registry.setWindowState("config", false, false)
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Re-display the first-run welcome panel in the main window.")
+            ImGui.Text("Useful for testing or to see the default flow again.")
+            ImGui.EndTooltip()
+        end
     end
 end
 

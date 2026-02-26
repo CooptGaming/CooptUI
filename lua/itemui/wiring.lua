@@ -424,6 +424,24 @@ local function loadLayoutConfig()
 end
 local function saveLayoutForView(view, w, h, bankPanelW) layoutUtils.saveLayoutForView(view, w, h, bankPanelW) end
 
+-- Onboarding (first-run welcome panel): cache so we don't read INI every frame
+local onboardingCompleteCache = nil -- nil = not yet read, true = complete, false = show panel
+local function getOnboardingComplete()
+    if onboardingCompleteCache == nil then
+        local v = config.readINIValue("coopui_onboarding.ini", "Onboarding", "onboarding_complete", "FALSE")
+        onboardingCompleteCache = (v == "TRUE")
+    end
+    return onboardingCompleteCache
+end
+local function setOnboardingComplete()
+    config.writeINIValue("coopui_onboarding.ini", "Onboarding", "onboarding_complete", "TRUE")
+    onboardingCompleteCache = true
+end
+local function resetOnboarding()
+    config.writeINIValue("coopui_onboarding.ini", "Onboarding", "onboarding_complete", "FALSE")
+    onboardingCompleteCache = false
+end
+
 -- sortOnly: when true (inv only), do not clear invTotalSlots/invTotalValue so "Items: x/y" and total value don't force recompute
 -- Invalidation sets _invalid so getSortedList will recompute; we keep sorted/key/dir/etc. so incremental update can run when only one item changed.
 local function invalidateSortCache(view, sortOnly)
@@ -803,6 +821,7 @@ context_builder.init({
     captureCurrentLayoutAsDefault = function() layoutUtils.captureCurrentLayoutAsDefault() end,
     resetLayoutToDefault = function() layoutUtils.resetLayoutToDefault() end,
     revertToBundledDefaultLayoutRequest = function() uiState.revertLayoutConfirmOpen = true end,
+    resetOnboarding = resetOnboarding,
     getFixedColumns = function(v) return layoutUtils.getFixedColumns(v) end,
     toggleFixedColumn = function(v, k) return layoutUtils.toggleFixedColumn(v, k) end,
     isColumnInFixedSet = function(v, k) return layoutUtils.isColumnInFixedSet(v, k) end,
@@ -921,6 +940,7 @@ local mainWindowRefs = {
     layoutDefaults = layoutDefaults,
     saveLayoutToFile = saveLayoutToFile,
     saveLayoutForView = saveLayoutForView,
+    loadLayoutConfig = loadLayoutConfig,
     getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanion,
     closeCompanionWindow = closeCompanionWindow,
     closeGameInventoryIfOpen = closeGameInventoryIfOpen,
@@ -950,6 +970,11 @@ local mainWindowRefs = {
     maybeScanInventory = maybeScanInventory,
     maybeScanSellItems = maybeScanSellItems,
     maybeScanBank = maybeScanBank,
+    -- Onboarding (first-run welcome panel)
+    getOnboardingComplete = getOnboardingComplete,
+    setOnboardingComplete = setOnboardingComplete,
+    resetOnboarding = resetOnboarding,
+    defaultLayoutAppliedThisRun = false,
 }
 
 
@@ -1021,6 +1046,12 @@ local function handleCommand(...)
         shouldDraw = true
         isOpen = true
         print("\ag[ItemUI]\ax Config window opened.")
+    elseif cmd == "onboarding" then
+        resetOnboarding()
+        shouldDraw = true
+        isOpen = true
+        mq.cmd("/keypress inventory")
+        print("\ag[ItemUI]\ax Welcome panel will show in the main window.")
     elseif cmd == "reroll" then
         if not registry.isOpen("reroll") then registry.toggleWindow("reroll") end
         if registry.isOpen("reroll") then recordCompanionWindowOpened("reroll") end
@@ -1046,9 +1077,10 @@ local function handleCommand(...)
         uiState.configWindowOpen = false
         print("\ag[ItemUI]\ax Unloading...")
     elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|reroll|exit|help]")
+        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|onboarding|reroll|exit|help]")
         print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
+        print("  onboarding = show the first-run welcome panel again")
         print("  reroll = open Reroll Companion (augment and mythical reroll lists)")
         print("  exit  = unload ItemUI completely")
         print("\ag[ItemUI]\ax /dosell = run sell.mac (sell marked items)  |  /doloot = run loot.mac")
