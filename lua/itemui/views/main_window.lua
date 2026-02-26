@@ -37,7 +37,7 @@ local function renderWelcomePanel(refs)
     ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Welcome to CoOpt UI")
     ImGui.Separator()
     ImGui.TextWrapped("Your unified inventory, sell, loot, and augment companion.")
-    if refs.defaultLayoutAppliedThisRun then
+    if refs.defaultLayoutAppliedThisRun and refs.defaultLayoutAppliedThisRun() then
         ImGui.Spacing()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
     end

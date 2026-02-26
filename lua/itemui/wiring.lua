@@ -931,6 +931,8 @@ context_builder.init({
 })
 context.logUpvalueCounts(C)
 
+local defaultLayoutAppliedThisRun = false
+
 local mainWindowRefs = {
     getShouldDraw = function() return shouldDraw end,
     setShouldDraw = function(v) shouldDraw = v end,
@@ -974,7 +976,7 @@ local mainWindowRefs = {
     getOnboardingComplete = getOnboardingComplete,
     setOnboardingComplete = setOnboardingComplete,
     resetOnboarding = resetOnboarding,
-    defaultLayoutAppliedThisRun = false,
+    defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
 }
 
 
@@ -1205,7 +1207,7 @@ local function main()
     if not defaultLayout.hasExistingLayout() then
         local ok, err = defaultLayout.applyBundledDefaultLayout()
         if ok then
-            -- loadLayoutConfig() below will load the newly applied default
+            defaultLayoutAppliedThisRun = true
         elseif err and err ~= "" then
             if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
         end
