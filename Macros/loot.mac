@@ -1927,6 +1927,9 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /varset runBestItemName ${itemName}
     }
     
+    | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event()
+    /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
+    
     | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)
     /if (${quietMode}) /return
     

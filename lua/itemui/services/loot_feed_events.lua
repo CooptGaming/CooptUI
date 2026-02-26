@@ -1,0 +1,78 @@
+--[[
+    Loot Feed Events (Task 7.8) — real-time loot feed via mq.event().
+    Listens for [ItemUI Loot] name|value|tribute lines echoed by loot.mac and appends
+    each item to the loot feed (lootRunLootedItems, run totals, lootHistory) so items
+    appear as they are looted. Processed in main_loop's mq.doevents().
+    Integrates with macro bridge (4.4): feed is event-driven; progress bar and
+    end-of-run session read remain via bridge.
+]]
+
+local mq = require('mq')
+
+local M = {}
+local deps
+
+-- Pattern: [ItemUI Loot] name|value|tribute (value and tribute are numbers; name may not contain |)
+local EVENT_NAME = "ItemUILootItem"
+local LINE_PATTERN = "#*#[ItemUI Loot] #*#"
+
+local function onLootItemLine(line)
+    if not line or type(line) ~= "string" then return end
+    local payload = line:match("%[ItemUI Loot%]%s*(.+)$")
+    if not payload or payload == "" then return end
+    local parts = {}
+    for part in (payload .. "|"):gmatch("(.-)|") do
+        parts[#parts + 1] = part
+    end
+    if #parts < 3 then return end
+    local name = (parts[1] and parts[1]:match("^%s*(.-)%s*$")) or ""
+    if name == "" then return end
+    local value = tonumber(parts[2]) or 0
+    local tribute = tonumber(parts[3]) or 0
+
+    local uiState = deps and deps.uiState
+    local getSellStatusForItem = deps and deps.getSellStatusForItem
+    local LOOT_HISTORY_MAX = (deps and deps.LOOT_HISTORY_MAX) or 200
+    if not uiState then return end
+
+    local statusText, willSell = "—", false
+    if getSellStatusForItem then
+        statusText, willSell = getSellStatusForItem({ name = name })
+        if statusText == "" then statusText = "—" end
+    end
+
+    local runItems = uiState.lootRunLootedItems
+    if not runItems then
+        runItems = {}
+        uiState.lootRunLootedItems = runItems
+    end
+    table.insert(runItems, {
+        name = name,
+        value = value,
+        tribute = tribute,
+        statusText = statusText,
+        willSell = willSell,
+    })
+
+    uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
+    uiState.lootRunTributeValue = (uiState.lootRunTributeValue or 0) + tribute
+    if value > (uiState.lootRunBestItemValue or 0) then
+        uiState.lootRunBestItemValue = value
+        uiState.lootRunBestItemName = name
+    end
+
+    local hist = uiState.lootHistory
+    if not hist then
+        hist = {}
+        uiState.lootHistory = hist
+    end
+    table.insert(hist, { name = name, value = value, statusText = statusText, willSell = willSell })
+    while #hist > LOOT_HISTORY_MAX do table.remove(hist, 1) end
+end
+
+function M.init(d)
+    deps = d
+    mq.event(EVENT_NAME, LINE_PATTERN, onLootItemLine)
+end
+
+return M

@@ -6,6 +6,7 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local lootFeedEvents = require('itemui.services.loot_feed_events')
 
 local d  -- deps, set by init()
 
@@ -207,26 +208,38 @@ local function phase5_lootMacro(now)
         if uiState.lootUIOpen and macroBridge and macroBridge.getLootSession then
             session = macroBridge.getLootSession()
             if session and session.count and session.count > 0 then
-                uiState.lootRunLootedList = {}
-                uiState.lootRunLootedItems = {}
+                -- Merge session into existing feed (event-driven items may already be present; add any missed)
+                local existing = uiState.lootRunLootedItems or {}
+                local seen = {}
+                for _, row in ipairs(existing) do
+                    if row.name and row.name ~= "" then seen[row.name] = true end
+                end
+                uiState.lootRunLootedList = uiState.lootRunLootedList or {}
                 for i, row in ipairs(session.items or {}) do
                     local name = row.name
                     if name and name ~= "" then
-                        table.insert(uiState.lootRunLootedList, name)
-                        local statusText, willSell = "—", false
-                        if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
-                            statusText, willSell = getSellStatusForItem({ name = name })
-                            if statusText == "" then statusText = "—" end
+                        if not seen[name] then
+                            seen[name] = true
+                            table.insert(uiState.lootRunLootedList, name)
+                            local statusText, willSell = "—", false
+                            if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
+                                statusText, willSell = getSellStatusForItem({ name = name })
+                                if statusText == "" then statusText = "—" end
+                            end
+                            table.insert(existing, {
+                                name = name,
+                                value = row.value or 0,
+                                tribute = row.tribute or 0,
+                                statusText = statusText,
+                                willSell = willSell
+                            })
+                            if not uiState.lootHistory then loadLootHistoryFromFile() end
+                            if not uiState.lootHistory then uiState.lootHistory = {} end
+                            table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
                         end
-                        table.insert(uiState.lootRunLootedItems, {
-                            name = name,
-                            value = row.value or 0,
-                            tribute = row.tribute or 0,
-                            statusText = statusText,
-                            willSell = willSell
-                        })
                     end
                 end
+                uiState.lootRunLootedItems = existing
             end
         end
         if uiState.lootUIOpen then
@@ -248,18 +261,15 @@ local function phase5_lootMacro(now)
                     lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                 end
             end
-            -- Populate session summary and loot history whenever we have session (not only when skipped path exists)
+            -- Session summary (authoritative totals from macro) and loot history cap
             if session then
                 uiState.lootRunTotalValue = session.totalValue or 0
                 uiState.lootRunTributeValue = session.tributeValue or 0
                 uiState.lootRunBestItemName = session.bestItemName or ""
                 uiState.lootRunBestItemValue = session.bestItemValue or 0
-                if not uiState.lootHistory then loadLootHistoryFromFile() end
-                if not uiState.lootHistory then uiState.lootHistory = {} end
-                for _, row in ipairs(uiState.lootRunLootedItems or {}) do
-                    table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
+                if uiState.lootHistory then
+                    while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
                 end
-                while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
                 lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
             end
             uiState.lootRunFinished = true
@@ -926,6 +936,7 @@ local M = {}
 
 function M.init(deps)
     d = deps
+    lootFeedEvents.init(d)
 end
 
 function M.tick(now)
