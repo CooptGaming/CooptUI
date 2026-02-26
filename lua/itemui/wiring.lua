@@ -1210,6 +1210,8 @@ local function main()
             defaultLayoutAppliedThisRun = true
         elseif err and err ~= "" then
             if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
+            local diag = require('itemui.core.diagnostics')
+            diag.recordError("First-run layout", "Default layout apply failed", err)
         end
     end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility

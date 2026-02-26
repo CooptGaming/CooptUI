@@ -22,6 +22,7 @@ local ConfigView = require('itemui.views.config')
 local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
+local diagnostics = require('itemui.core.diagnostics')
 
 local function buildViewContext()
     return context.build()
@@ -701,6 +702,63 @@ function M.render(refs)
         end
         if uiState.statusMessage ~= "" then
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), uiState.statusMessage)
+        end
+        local errCount = diagnostics.getErrorCount()
+        if errCount > 0 then
+            ImGui.SameLine()
+            local theme = refs.theme
+            ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Warning))
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, theme.ToVec4(theme.Colors.Warning))
+            if ImGui.Button("!##Diagnostics", ImVec2(22, 0)) then
+                uiState.diagnosticsPanelOpen = true
+            end
+            ImGui.PopStyleColor(2)
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text(string.format("%d recent error(s) — click to open diagnostics", errCount))
+                ImGui.EndTooltip()
+            end
+        end
+        if uiState.diagnosticsPanelOpen and not ImGui.IsPopupOpen("Diagnostics##ItemUI") then
+            ImGui.OpenPopup("Diagnostics##ItemUI")
+            uiState.diagnosticsPanelOpen = false
+        end
+        if ImGui.BeginPopupModal("Diagnostics##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Header), "Diagnostics")
+            ImGui.Separator()
+            local configPath = (refs.config and refs.config.CONFIG_PATH) and refs.config.CONFIG_PATH or "—"
+            local charName = (refs.mq and refs.mq.TLO and refs.mq.TLO.Me and refs.mq.TLO.Me.Name) and refs.mq.TLO.Me.Name() or "—"
+            local version = (refs.C and refs.C.VERSION) and refs.C.VERSION or "—"
+            ImGui.Text("Config path: " .. tostring(configPath))
+            ImGui.Text("Character: " .. tostring(charName))
+            ImGui.Text("Version: " .. tostring(version))
+            ImGui.Text("Last scan: —")
+            ImGui.Spacing()
+            ImGui.Text("Module status:")
+            for _, mod in ipairs(registry.getEnabledModules() or {}) do
+                local open = registry.isOpen(mod.id)
+                ImGui.Text(string.format("  %s: %s", mod.label or mod.id, open and "open" or "closed"))
+            end
+            ImGui.Separator()
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Recent errors:")
+            local errs = diagnostics.getErrors()
+            for i = 1, #errs do
+                local e = errs[i]
+                local ts = e.timestamp and os.date("%H:%M:%S", e.timestamp) or "?"
+                ImGui.TextWrapped(string.format("[%s] %s: %s", ts, e.source, e.message))
+                if e.err and e.err ~= "" then
+                    ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "  " .. e.err)
+                end
+            end
+            ImGui.Spacing()
+            if ImGui.Button("Clear errors", ImVec2(100, 0)) then
+                diagnostics.clearErrors()
+            end
+            ImGui.SameLine()
+            if ImGui.Button("Close", ImVec2(80, 0)) then
+                ImGui.CloseCurrentPopup()
+            end
+            ImGui.EndPopup()
         end
         ImGui.End()
 

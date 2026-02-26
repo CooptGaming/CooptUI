@@ -96,7 +96,11 @@ local function saveToFile()
         local f = io.open(path, "w")
         if f then f:write(table.concat(lines, "\n")); f:close() end
     end)
-    if not ok and setStatusMessageFn then setStatusMessageFn("Could not save reroll list cache") end
+    if not ok then
+        if setStatusMessageFn then setStatusMessageFn("Could not save reroll list cache") end
+        local diag = require('itemui.core.diagnostics')
+        diag.recordError("Reroll", "Could not save reroll list cache", err)
+    end
 end
 
 -- Load cache from char storage on init so lists persist across UI reloads.
@@ -117,6 +121,9 @@ local function loadFromFile()
     if ok and data and type(data) == "table" then
         if type(data.aug) == "table" then augList = data.aug end
         if type(data.mythical) == "table" then mythicalList = data.mythical end
+    elseif not ok then
+        local diag = require('itemui.core.diagnostics')
+        diag.recordError("Reroll", "Could not load reroll list cache", data)
     end
 end
 

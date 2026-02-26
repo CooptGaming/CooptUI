@@ -12,6 +12,7 @@ local constants = require('itemui.constants')
 local layout_io = require('itemui.utils.layout_io')
 local layout_columns = require('itemui.utils.layout_columns')
 local layout_setup = require('itemui.utils.layout_setup')
+local diagnostics = require('itemui.core.diagnostics')
 
 local LayoutUtils = {}
 
@@ -297,8 +298,9 @@ function LayoutUtils.saveLayoutToFileImmediate()
         end
         f:close()
     end)
-    if not ok and print then
-        print(string.format("\ar[ItemUI]\ax saveLayoutToFileImmediate failed: %s", tostring(err)))
+    if not ok then
+        if print then print(string.format("\ar[ItemUI]\ax saveLayoutToFileImmediate failed: %s", tostring(err))) end
+        diagnostics.recordError("Layout", "Save layout to file failed", err)
     end
 end
 

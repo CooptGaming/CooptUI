@@ -121,9 +121,11 @@ end
 function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if not item then return end
     opts = opts or {}
-    local ok = pcall(function() ItemTooltip.renderItemDisplayContent(item, ctx, opts) end)
+    local ok, err = pcall(function() ItemTooltip.renderItemDisplayContent(item, ctx, opts) end)
     if not ok then
         ImGui.Text("Item stats")
+        local diagnostics = require('itemui.core.diagnostics')
+        diagnostics.recordError("Item tooltip", "Tooltip render failed", err)
     end
 end
 

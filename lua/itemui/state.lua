@@ -49,6 +49,7 @@ local uiState = {
     sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
     revertLayoutConfirmOpen = false,
+    diagnosticsPanelOpen = false,
     layoutRevertedApplyFrames = 0,
     resetWindowPositionsRequested = false,
     searchFilterInv = "", searchFilterBank = "",

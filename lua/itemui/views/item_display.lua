@@ -50,11 +50,13 @@ local function renderOneItemContent(ctx, entry)
     local effects, _w, _h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
     opts.effects = effects
     opts.tooltipColWidth = nil
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         ItemTooltip.renderItemDisplayContent(showItem, ctx, opts)
     end)
     if not ok then
         ImGui.TextColored(ImVec4(0.9, 0.3, 0.3, 1.0), "Error drawing item stats.")
+        local diagnostics = require('itemui.core.diagnostics')
+        diagnostics.recordError("Item Display", "Error drawing item stats", err)
     end
 end
 

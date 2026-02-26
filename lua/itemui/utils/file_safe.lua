@@ -4,6 +4,7 @@
     do not throw and break the main loop. Use for storage and layout persistence.
 --]]
 
+local diagnostics_ok, diagnostics = pcall(require, 'itemui.core.diagnostics')
 local M = {}
 
 --- Write content to path. Returns true on success, false on error (logs once).
@@ -26,6 +27,9 @@ function M.safeWrite(path, content)
             if err and err ~= "io.open failed" then
                 print(string.format("\ar[ItemUI]\ax %s", tostring(err)))
             end
+        end
+        if diagnostics_ok and diagnostics and diagnostics.recordError then
+            diagnostics.recordError("File", "Write failed: " .. tostring(path), err)
         end
         return false
     end

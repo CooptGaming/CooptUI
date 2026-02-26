@@ -9,6 +9,7 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
 local constants = require('itemui.constants')
+local diagnostics = require('itemui.core.diagnostics')
 local LootUIView = {}
 
 -- Per 4.2 state ownership: all Loot UI companion state
@@ -511,6 +512,7 @@ function LootUIView.render(ctx)
     local ok, err = pcall(drawContent)
     if not ok then
         if mq and mq.log then mq.log("Loot UI: %s", tostring(err)) else print("Loot UI:", err) end
+        diagnostics.recordError("Loot UI", "Draw content failed", err)
     end
     ImGui.End()
 end

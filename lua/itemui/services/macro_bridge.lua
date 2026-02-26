@@ -149,6 +149,8 @@ local function emit(event, data)
             local ok, err = pcall(callback, data)
             if not ok then
                 print(string.format("[MacroBridge] Error in %s callback: %s", event, tostring(err)))
+                local diag = require('itemui.core.diagnostics')
+                diag.recordError("MacroBridge", "Callback error: " .. tostring(event), err)
             end
         end
     end

@@ -10,6 +10,7 @@ local constants = require('itemui.constants')
 local context = require('itemui.context')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
+local diagnostics = require('itemui.core.diagnostics')
 
 local AAView = {}
 
@@ -152,6 +153,7 @@ local function doExport(ctx)
         ctx.setStatusMessage("Exported to " .. fname)
     else
         ctx.setStatusMessage("Export failed: " .. tostring(err))
+        diagnostics.recordError("AA Export", "Export failed", err)
     end
 end
 
@@ -195,6 +197,9 @@ local function parseAABackup(path)
         end
         f:close()
     end)
+    if not ok and err then
+        diagnostics.recordError("AA Import", "Could not parse backup file", err)
+    end
     return ok and aas or nil, meta
 end
 
