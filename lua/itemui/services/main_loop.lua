@@ -321,7 +321,7 @@ end
 -- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
 local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
-    processSellQueue()
+    processSellQueue(now)
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
         -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
@@ -413,19 +413,16 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         end
     end
     if uiState.pendingDestroyAction then
-        local pd = uiState.pendingDestroyAction
-        uiState.pendingDestroyAction = nil
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
         uiState.quantityPickerValue = ""
-        itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
+        itemOps.advanceDestroyStateMachine(now)
     end
     if uiState.pendingMoveAction then
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
         uiState.quantityPickerValue = ""
-        itemOps.executeMoveAction(uiState.pendingMoveAction)
-        uiState.pendingMoveAction = nil
+        itemOps.advanceMoveStateMachine(now)
     end
     -- Reroll bank-to-bag: one move per tick (so each item lands before the next); stack moves set pendingMoveAction
     -- and are completed in the block above. Only when no move is in flight do we start the next or trigger the roll.
