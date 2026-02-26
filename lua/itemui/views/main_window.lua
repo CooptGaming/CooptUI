@@ -23,6 +23,7 @@ local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
 local diagnostics = require('itemui.core.diagnostics')
+local tutorial = require('itemui.views.tutorial')
 
 local function buildViewContext()
     return context.build()
@@ -32,34 +33,58 @@ local function extendContext(ctx)
     return context.extend(ctx)
 end
 
-local function renderWelcomePanel(refs)
+local function renderSetupStep0Content(refs)
     local theme = refs.theme
     local uiState = refs.uiState
-    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Welcome to CoOpt UI")
+    local configEpicClasses = refs.configEpicClasses or {}
+    local EPIC_CLASSES = refs.EPIC_CLASSES or {}
+    local config = refs.config
+    local invalidateSellConfigCache = refs.invalidateSellConfigCache or function() end
+    local invalidateLootConfigCache = refs.invalidateLootConfigCache or function() end
+    local classLabel = refs.classLabel or function(c) return tostring(c) end
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Epic quest item protection")
     ImGui.Separator()
-    ImGui.TextWrapped("Your unified inventory, sell, loot, and augment companion.")
-    if refs.defaultLayoutAppliedThisRun and refs.defaultLayoutAppliedThisRun() then
+    ImGui.TextWrapped("Optionally choose which classes' epic quest items are protected from selling and always looted. You can skip or select your class(es).")
+    ImGui.Spacing()
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Epic items for selected classes will never be sold and will always be looted.")
+    ImGui.Spacing()
+    if EPIC_CLASSES and #EPIC_CLASSES > 0 then
+        ImGui.Text("Classes:")
+        local nSelected = 0
+        for _, cls in ipairs(EPIC_CLASSES) do
+            if configEpicClasses[cls] == true then nSelected = nSelected + 1 end
+        end
+        ImGui.SameLine()
+        if ImGui.SmallButton("Select all##setup_epic") then
+            for _, cls in ipairs(EPIC_CLASSES) do
+                configEpicClasses[cls] = true
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "TRUE") end
+            end
+            invalidateSellConfigCache()
+            invalidateLootConfigCache()
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.SmallButton("Clear all##setup_epic") then
+            for _, cls in ipairs(EPIC_CLASSES) do
+                configEpicClasses[cls] = false
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "FALSE") end
+            end
+            invalidateSellConfigCache()
+            invalidateLootConfigCache()
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all"); ImGui.EndTooltip() end
         ImGui.Spacing()
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
+        for _, cls in ipairs(EPIC_CLASSES) do
+            local v = ImGui.Checkbox(classLabel(cls) .. "##setup_epic_" .. cls, configEpicClasses[cls] == true)
+            if v ~= (configEpicClasses[cls] == true) then
+                configEpicClasses[cls] = v
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE") end
+                invalidateSellConfigCache()
+                invalidateLootConfigCache()
+            end
+        end
     end
-    ImGui.Separator()
-    if ImGui.Button("Open Inventory", ImVec2(140, 0)) then
-        if refs.setShouldDraw then refs.setShouldDraw(true) end
-        refs.mq.cmd("/keypress inventory")
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the game inventory window"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Run Setup", ImVec2(100, 0)) then
-        uiState.setupMode = true
-        uiState.setupStep = 1
-        if refs.loadLayoutConfig then refs.loadLayoutConfig() end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Resize and save window layout (Inventory, Sell, Bank)"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("I know what I'm doing", ImVec2(160, 0)) then
-        if refs.setOnboardingComplete then refs.setOnboardingComplete() end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Dismiss this panel and show the normal view"); ImGui.EndTooltip() end
 end
 
 local function renderInventoryContent(refs)
@@ -68,7 +93,7 @@ local function renderInventoryContent(refs)
     local bankOpen = refs.isBankWindowOpen and refs.isBankWindowOpen()
     local lootOpen = refs.isLootWindowOpen and refs.isLootWindowOpen()
     local uiState = refs.uiState
-    local simulateSellView = (uiState.setupMode and uiState.setupStep == 2)
+    local simulateSellView = (uiState.setupMode and (uiState.setupStep == 3 or uiState.setupStep == 4))
     if false then
         LootView.render(ctx)
         return
@@ -256,12 +281,12 @@ function M.render(refs)
     local saveLayoutForView = refs.saveLayoutForView or function() end
 
     local curView
-    if uiState.setupMode and uiState.setupStep == 1 then
-        curView = "Inventory"
-    elseif uiState.setupMode and uiState.setupStep == 2 then
-        curView = "Sell"
-    elseif uiState.setupMode and uiState.setupStep == 3 then
-        curView = "Inventory"
+    if uiState.setupMode then
+        if uiState.setupStep == 3 or uiState.setupStep == 4 then
+            curView = "Sell"
+        else
+            curView = "Inventory"  -- steps 1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13
+        end
     else
         curView = (merchOpen and "Sell") or "Inventory"
     end
@@ -305,6 +330,7 @@ function M.render(refs)
         refs.setOpen(winOpen)
         if not winOpen then
             refs.setShouldDraw(false)
+            uiState.welcomeSkippedThisSession = false
             uiState.configWindowOpen = false
             refs.closeGameInventoryIfOpen()
             ImGui.End()
@@ -335,6 +361,7 @@ function M.render(refs)
                 else
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
+                    uiState.welcomeSkippedThisSession = false
                     refs.setOpen(false)
                     uiState.configWindowOpen = false
                     refs.closeGameInventoryIfOpen()
@@ -478,48 +505,7 @@ function M.render(refs)
         ImGui.Separator()
 
         if uiState.setupMode then
-            if uiState.setupStep == 1 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 1 of 3: Inventory — Resize the window and columns as you like.")
-                ImGui.SameLine()
-                if ImGui.Button("Next", ImVec2(60, 0)) then
-                    local w, h = ImGui.GetWindowSize()
-                    if w and h and w > 0 and h > 0 then saveLayoutForView("Inventory", w, h, nil) end
-                    uiState.setupStep = 2
-                    print("\ag[ItemUI]\ax Saved Inventory layout. Step 2: Open a merchant, then resize and click Next.")
-                end
-            elseif uiState.setupStep == 2 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 2 of 3: Sell view — Resize the window and columns, then click Next.")
-                if not merchOpen then
-                    ImGui.SameLine()
-                    ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), "(Simulated view - no merchant needed)")
-                end
-                if refs.sellItems and #refs.sellItems == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
-                    local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-                    local invO = (_w and _w.Open and _w.Open()) or false
-                    local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
-                    refs.maybeScanInventory(invO); refs.maybeScanSellItems(merchO)
-                end
-                if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 1 end
-                ImGui.SameLine()
-                if ImGui.Button("Next", ImVec2(60, 0)) then
-                    local w, h = ImGui.GetWindowSize()
-                    if w and h and w > 0 and h > 0 then saveLayoutForView("Sell", w, h, nil) end
-                    uiState.setupStep = 3
-                    uiState.bankWindowOpen = true
-                    uiState.bankWindowShouldDraw = true
-                    refs.recordCompanionWindowOpened("bank")
-                    print("\ag[ItemUI]\ax Saved Sell layout. Step 3: Open the bank window and resize it, then Save & finish.")
-                end
-            elseif uiState.setupStep == 3 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 3 of 3: Open and resize the Bank window, then save.")
-                if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 2; uiState.bankWindowOpen = false; uiState.bankWindowShouldDraw = false end
-                ImGui.SameLine()
-                if ImGui.Button("Save & finish", ImVec2(100, 0)) then
-                    uiState.setupMode = false
-                    uiState.setupStep = 0
-                    print("\ag[ItemUI]\ax Setup complete! Your layout is saved.")
-                end
-            end
+            tutorial.renderSetupBar(refs)
             ImGui.Separator()
         end
 
@@ -527,9 +513,156 @@ function M.render(refs)
         ImGui.SameLine()
 
         ImGui.BeginChild("MainContent", ImVec2(0, -C.FOOTER_HEIGHT), true)
-        local showWelcomePanel = not uiState.setupMode and refs.getOnboardingComplete and not refs.getOnboardingComplete()
+        local showWelcomePanel = not uiState.setupMode and refs.getOnboardingComplete and not refs.getOnboardingComplete() and not uiState.welcomeSkippedThisSession
         if showWelcomePanel then
-            renderWelcomePanel(refs)
+            tutorial.renderWelcomeScreen(refs)
+        elseif uiState.setupMode and uiState.setupStep == 1 then
+            tutorial.renderDescriptionOverlay(1, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 2 then
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 3 then
+            if refs.sellItems and #(refs.sellItems or {}) == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
+                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+                local invO = (_w and _w.Open and _w.Open()) or false
+                local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
+                refs.maybeScanInventory(invO)
+                refs.maybeScanSellItems(merchO)
+            end
+            tutorial.renderDescriptionOverlay(3, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 4 then
+            if refs.sellItems and #(refs.sellItems or {}) == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
+                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+                local invO = (_w and _w.Open and _w.Open()) or false
+                local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
+                refs.maybeScanInventory(invO)
+                refs.maybeScanSellItems(merchO)
+            end
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 5 then
+            tutorial.renderDescriptionOverlay(5, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 6 then
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 7 then
+            tutorial.renderDescriptionOverlay(7, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 8 then
+            if not uiState.setupCompanionsOpenedAtStep8 then
+                for _, mod in ipairs(registry.getEnabledModules() or {}) do
+                    registry.setWindowState(mod.id, true, true)
+                    if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened(mod.id) end
+                end
+                uiState.setupCompanionsOpenedAtStep8 = true
+            end
+            if not uiState.setupSampleItemShownInDisplay and refs.addItemDisplayTab then
+                if refs.equipmentCache then
+                    for i = 1, 23 do
+                        local it = refs.equipmentCache[i]
+                        if it and it.bag ~= nil and it.slot ~= nil then
+                            refs.addItemDisplayTab(it, "equipped")
+                            uiState.setupSampleItemShownInDisplay = true
+                            break
+                        end
+                    end
+                end
+                if not uiState.setupSampleItemShownInDisplay and refs.inventoryItems then
+                    for _, entry in ipairs(refs.inventoryItems) do
+                        if entry and (entry.bag ~= nil or entry.slot ~= nil) then
+                            local it = (entry.item and (entry.item.bag ~= nil or entry.item.slot ~= nil)) and entry.item or { bag = entry.bag, slot = entry.slot, name = (entry.item and entry.item.name) or "" }
+                            refs.addItemDisplayTab(it, entry.source or "inv")
+                            uiState.setupSampleItemShownInDisplay = true
+                            break
+                        end
+                    end
+                end
+            end
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 9 then
+            tutorial.renderDescriptionOverlay(9, refs)
+        elseif uiState.setupMode and (uiState.setupStep == 10 or uiState.setupStep == 11) then
+            local theme = refs.theme
+            local config = refs.config
+            local configSellFlags = refs.configSellFlags or {}
+            local configLootFlags = refs.configLootFlags or {}
+            local configLootValues = refs.configLootValues or {}
+            local invalidateSellConfigCache = refs.invalidateSellConfigCache or function() end
+            if uiState.setupStep == 10 then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Sell protection")
+                ImGui.Separator()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Items with these flags will never be sold when you use Sell.")
+                ImGui.Spacing()
+                local function sellFlag(name, key, tooltip)
+                    local v = ImGui.Checkbox(name, configSellFlags[key])
+                    if v ~= configSellFlags[key] then
+                        configSellFlags[key] = v
+                        if config and config.writeINIValue then config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                        invalidateSellConfigCache()
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+                end
+                sellFlag("Protect NoDrop", "protectNoDrop", "Never sell items with the NoDrop flag")
+                sellFlag("Protect NoTrade", "protectNoTrade", "Never sell items with the NoTrade flag")
+                sellFlag("Protect Lore", "protectLore", "Never sell Lore items (unique)")
+                ImGui.Spacing()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
+            elseif uiState.setupStep == 11 then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Loot rules")
+                ImGui.Separator()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "When looting (e.g. /doloot), items matching these rules will be picked up.")
+                ImGui.Spacing()
+                local function lootFlag(name, key, tooltip)
+                    local v = ImGui.Checkbox(name, configLootFlags[key])
+                    if v ~= configLootFlags[key] then
+                        configLootFlags[key] = v
+                        if config and config.writeLootINIValue then config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+                end
+                lootFlag("Auto-loot quest items", "lootQuest", "Loot items with the Quest flag")
+                lootFlag("Auto-loot collectibles", "lootCollectible", "Loot items with the Collectible flag")
+                ImGui.Spacing()
+                ImGui.Text("Min value (non-stack)")
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper. Non-stackable items worth less are skipped."); ImGui.EndTooltip() end
+                local minVal = tonumber(configLootValues.minLoot) or 0
+                local minStr = tostring(minVal)
+                ImGui.SameLine(180)
+                ImGui.SetNextItemWidth(120)
+                minStr, _ = ImGui.InputText("##SetupMinLoot", minStr, ImGuiInputTextFlags.CharsDecimal)
+                local n = tonumber(minStr)
+                if n and n >= 0 and n ~= (configLootValues.minLoot or 0) then
+                    configLootValues.minLoot = math.floor(n)
+                    if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
+                end
+                ImGui.Text("Min value (stack)")
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Stackable items worth less per unit are skipped."); ImGui.EndTooltip() end
+                local minStackVal = tonumber(configLootValues.minStack) or 0
+                local minStackStr = tostring(minStackVal)
+                ImGui.SameLine(180)
+                ImGui.SetNextItemWidth(120)
+                minStackStr, _ = ImGui.InputText("##SetupMinLootStack", minStackStr, ImGuiInputTextFlags.CharsDecimal)
+                local nStack = tonumber(minStackStr)
+                if nStack and nStack >= 0 and nStack ~= (configLootValues.minStack or 0) then
+                    configLootValues.minStack = math.floor(nStack)
+                    if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
+                end
+                ImGui.Spacing()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
+            end
+        elseif uiState.setupMode and uiState.setupStep == 12 then
+            renderSetupStep0Content(refs)
+            ImGui.Spacing()
+            do
+                local t = refs.theme
+                if t and t.ToVec4 and t.Colors and t.Colors.Muted then
+                    ImGui.TextColored(t:ToVec4(t.Colors.Muted), "Additional settings can be found in the Settings window.")
+                else
+                    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "Additional settings can be found in the Settings window.")
+                end
+            end
+        elseif uiState.setupMode and uiState.setupStep == 13 then
+            tutorial.renderDescriptionOverlay(13, refs)
         else
             renderInventoryContent(refs)
         end

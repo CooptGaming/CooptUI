@@ -320,7 +320,13 @@ function ConfigGeneral.render(ctx)
         if setupWasOn then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Warning)) end
         if ImGui.Button("Initial Setup", ImVec2(120, 0)) then
             uiState.setupMode = not uiState.setupMode
-            if uiState.setupMode then uiState.setupStep = 1; loadLayoutConfig() else uiState.setupStep = 0 end
+            if uiState.setupMode then
+                uiState.setupStep = 0
+                if ctx.loadConfigCache then ctx.loadConfigCache() end
+                if loadLayoutConfig then loadLayoutConfig() end
+            else
+                uiState.setupStep = 0
+            end
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()

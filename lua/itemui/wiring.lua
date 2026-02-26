@@ -48,6 +48,7 @@ local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
 local rerollService = require('itemui.services.reroll_service')
 local MainWindow = require('itemui.views.main_window')
+local ConfigFilters = require('itemui.views.config_filters')
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
@@ -977,6 +978,22 @@ local mainWindowRefs = {
     setOnboardingComplete = setOnboardingComplete,
     resetOnboarding = resetOnboarding,
     defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
+    -- Setup wizard (Task 5.4): config cache, epic classes, default layout
+    configSellFlags = configSellFlags,
+    configLootFlags = configLootFlags,
+    configLootValues = configLootValues,
+    configEpicClasses = configEpicClasses,
+    EPIC_CLASSES = rules.EPIC_CLASSES,
+    loadConfigCache = loadConfigCache,
+    invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
+    invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
+    defaultLayoutHasExistingLayout = function() return defaultLayout.hasExistingLayout() end,
+    applyBundledDefaultLayout = function() return defaultLayout.applyBundledDefaultLayout() end,
+    scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
+    classLabel = function(cls) return ConfigFilters.classLabel(cls) end,
+    addItemDisplayTab = addItemDisplayTab,
+    equipmentCache = equipmentCache,
+    inventoryItems = inventoryItems,
 }
 
 
@@ -1037,10 +1054,16 @@ local function handleCommand(...)
         print("\ag[ItemUI]\ax Refreshed")
     elseif cmd == "setup" then
         uiState.setupMode = not uiState.setupMode
-        if uiState.setupMode then uiState.setupStep = 1; loadLayoutConfig() else uiState.setupStep = 0 end
+        if uiState.setupMode then
+            uiState.setupStep = 0
+            loadConfigCache()
+            loadLayoutConfig()
+        else
+            uiState.setupStep = 0
+        end
         shouldDraw = true
         isOpen = true
-        print(uiState.setupMode and "\ag[ItemUI]\ax Setup: Step 1 of 3 — Resize the Inventory view, then click Next." or "\ar[ItemUI]\ax Setup off.")
+        print(uiState.setupMode and "\ag[ItemUI]\ax Setup: Step 0 of 8 — Epic protection (optional), then layout and rules." or "\ar[ItemUI]\ax Setup off.")
     elseif cmd == "config" then
         uiState.configWindowOpen = true
         uiState.configNeedsLoad = true
