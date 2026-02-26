@@ -66,12 +66,16 @@ end
 -- Auto-bag and block new pickups for ACTIVATION_GUARD_MS to prevent rapid pickup/bag cycles.
 local function phase1b_activationGuard(now)
     local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    if not uiState then return end
+    if not (d.layoutConfig and d.layoutConfig.ActivationGuardEnabled ~= false) then return end
     local C = constants.TIMING
     local guardMs = C and C.ACTIVATION_GUARD_MS or 450
-    local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 200
+    local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 500
     if not hasItemOnCursor or not hasItemOnCursor() then return end
     local lp = uiState.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
+    if uiState.pendingQuantityPickup then return end
+    if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return end
     local clearedAt = uiState.lastPickupClearedAt or 0
     if (now - clearedAt) <= graceMs then return end
     mq.cmd('/autoinv')
@@ -321,6 +325,7 @@ end
 -- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
 local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
+    if not uiState then return end
     processSellQueue(now)
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
@@ -496,7 +501,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
         uiState.insertConfirmationSetAt = mq.gettime()
     end
-    if uiState.pendingQuantityPickup then
+    local pq = uiState.pendingQuantityPickup
+    if pq and type(pq) == "table" then
         local nowQ = mq.gettime()
         if uiState.pendingQuantityPickupTimeoutAt and nowQ >= uiState.pendingQuantityPickupTimeoutAt then
             uiState.pendingQuantityPickup = nil
@@ -510,14 +516,14 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             if not qtyWndOpen and not hasCursor then
                 local itemExists = false
                 local Me = mq.TLO and mq.TLO.Me
-                if uiState.pendingQuantityPickup.source == "bank" then
-                    local bn = Me and Me.Bank and Me.Bank(uiState.pendingQuantityPickup.bag)
+                if pq.source == "bank" then
+                    local bn = Me and Me.Bank and Me.Bank(pq.bag)
                     local sz = bn and bn.Container and bn.Container()
-                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(uiState.pendingQuantityPickup.slot)) or bn
+                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(pq.slot)) or bn
                     itemExists = it and it.ID and it.ID() and it.ID() > 0
                 else
-                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. uiState.pendingQuantityPickup.bag)
-                    local it = pack and pack.Item and pack.Item(uiState.pendingQuantityPickup.slot)
+                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. pq.bag)
+                    local it = pack and pack.Item and pack.Item(pq.slot)
                     itemExists = it and it.ID and it.ID() and it.ID() > 0
                 end
                 if not itemExists then

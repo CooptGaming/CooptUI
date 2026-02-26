@@ -118,6 +118,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
+    if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end
     if d.SellViewLocked then uiState.sellViewLocked = setBool(d.SellViewLocked) end
@@ -263,6 +264,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
+        f:write("ActivationGuardEnabled=" .. ((layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled) and "1" or "0") .. "\n")
         f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
         f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
         f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
@@ -415,6 +417,7 @@ function LayoutUtils.loadLayoutConfig()
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
+        layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
         uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
         uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
         uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)

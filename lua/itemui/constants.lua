@@ -71,7 +71,7 @@ M.TIMING = {
     -- Click-through protection: after detecting item on cursor we didn't initiate (e.g. focus click-through), block new pickups this long
     ACTIVATION_GUARD_MS = 450,
     -- Grace period after we clear lastPickup before treating "item on cursor" as unexpected (allows game to process drop)
-    UNEXPECTED_CURSOR_GRACE_MS = 200,
+    UNEXPECTED_CURSOR_GRACE_MS = 500,
     ITEM_OPS_DELAY_SHORT_MS = 100,
     ITEM_OPS_DELAY_MEDIUM_MS = 150,
     ITEM_OPS_DELAY_INITIAL_MS = 200,

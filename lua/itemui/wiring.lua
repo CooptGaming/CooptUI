@@ -1117,6 +1117,7 @@ end
 local function buildMainLoopDeps()
     return {
         uiState = uiState,
+        layoutConfig = layoutConfig,
         scanState = scanState,
         sellMacState = sellMacState,
         lootMacState = lootMacState,

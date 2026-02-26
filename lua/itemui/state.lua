@@ -97,6 +97,7 @@ do
     layoutDefaults.SyncBankWindow = 1
     layoutDefaults.SuppressWhenLootMac = 0
     layoutDefaults.ConfirmBeforeDelete = 1
+    layoutDefaults.ActivationGuardEnabled = 1
 end
 
 local layoutConfig = {}
