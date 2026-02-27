@@ -605,6 +605,11 @@ function M.advanceMoveStateMachine(now)
     end
 
     if phase == "pickup" then
+        -- Mark intentional pickup so activation guard doesn't treat it as unexpected.
+        state.lastPickup.bag = action.bag
+        state.lastPickup.slot = action.slot
+        state.lastPickup.source = action.source
+        state.lastPickupSetThisFrame = true
         if action.source == "inv" then
             mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
         else
