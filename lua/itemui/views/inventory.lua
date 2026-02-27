@@ -302,42 +302,14 @@ function InventoryView.render(ctx, bankOpen)
                         end
                         if ImGui.IsItemHovered() then
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                                ItemTooltip.beginItemTooltip(760, 420)
                             local opts = { source = "inv", bag = item.bag, slot = item.slot }
-                            local slotIndex, equippedItem = ItemTooltip.getComparisonTarget(showItem, ctx, "inv")
-                            if slotIndex ~= nil and equippedItem and equippedItem.name then
-                                local ok, err = pcall(function()
-                                    ItemTooltip.renderComparisonTooltip(showItem, equippedItem, slotIndex, ctx, opts)
-                                end)
-                                if not ok then
-                                    local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
-                                    opts.effects = effects
-                                    ItemTooltip.beginItemTooltip(w, h)
-                                    ImGui.Text("Stats")
-                                    ImGui.Separator()
-                                    ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
-                                end
-                                ImGui.EndTooltip()
-                            elseif slotIndex ~= nil then
-                                local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
-                                opts.effects = effects
-                                ItemTooltip.beginItemTooltip(w, h)
-                                ImGui.Text("Stats")
-                                ImGui.Separator()
-                                local slotLabel = (ctx.getEquipmentSlotLabel and ctx.getEquipmentSlotLabel(slotIndex)) or ("Slot " .. slotIndex)
-                                ImGui.TextColored(ImVec4(0.5, 0.75, 0.5, 1.0), "Equipped in " .. slotLabel .. ": (empty) — you can equip this item.")
-                                ImGui.Spacing()
-                                ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
-                                ImGui.EndTooltip()
-                            else
-                                local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
-                                opts.effects = effects
-                                ItemTooltip.beginItemTooltip(w, h)
-                                ImGui.Text("Stats")
-                                ImGui.Separator()
-                                ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
-                                ImGui.EndTooltip()
-                            end
+                            local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
+                            opts.effects = effects
+                            ItemTooltip.beginItemTooltip(w, h)
+                            ImGui.Text("Stats")
+                            ImGui.Separator()
+                            ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                            ImGui.EndTooltip()
                         end
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                             ImGui.OpenPopup("ItemContextInv_" .. rid)
