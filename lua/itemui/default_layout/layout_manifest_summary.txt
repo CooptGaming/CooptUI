@@ -1,7 +1,7 @@
 CoOpt UI Default Layout Snapshot
 =================================
-Capture time: 2026-02-24T05:28:12.851080+00:00
-Version token: 20260224052812
+Capture time: 2026-02-25T12:00:00.000000+00:00
+Version token: 20260225120000
 CoOpt UI version: 0.8.0-alpha
 Checksum: 016cf8b0ae5fbe51
 

@@ -55,9 +55,13 @@ M.TIMING = {
     -- Item Display locate highlight
     ITEM_DISPLAY_LOCATE_CLEAR_SEC = 3,
 
+    -- IPC (macro bridge): version for sell_progress, sell_failed, loot_progress, loot_session, loot_skipped
+    IPC_PROTOCOL_VERSION = 1,
+
     -- Loot
-    LOOT_POLL_MS = 500,
+    LOOT_POLL_MS = 100,   -- poll progress more often so bar updates per corpse (was 500)
     LOOT_POLL_MS_IDLE = 1000,
+    LOOT_SESSION_READ_DELAY_MS = 150,  -- defer reading loot_session.ini after macro stop so macro can finish writing
     LOOT_DEFER_MS = 2000,
     LOOT_MYTHICAL_DECISION_SEC = 300,
 
@@ -67,7 +71,7 @@ M.TIMING = {
     -- Click-through protection: after detecting item on cursor we didn't initiate (e.g. focus click-through), block new pickups this long
     ACTIVATION_GUARD_MS = 450,
     -- Grace period after we clear lastPickup before treating "item on cursor" as unexpected (allows game to process drop)
-    UNEXPECTED_CURSOR_GRACE_MS = 200,
+    UNEXPECTED_CURSOR_GRACE_MS = 500,
     ITEM_OPS_DELAY_SHORT_MS = 100,
     ITEM_OPS_DELAY_MEDIUM_MS = 150,
     ITEM_OPS_DELAY_INITIAL_MS = 200,

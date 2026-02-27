@@ -27,9 +27,7 @@ try {
     # Remove dev-only files from release staging
     $itemuiStaged = Join-Path $luaDest "itemui"
     Remove-Item -Path (Join-Path $itemuiStaged "docs") -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path (Join-Path $itemuiStaged "test_rules.lua") -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $itemuiStaged "upvalue_check.lua") -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path (Join-Path $itemuiStaged "phase7_check.ps1") -Force -ErrorAction SilentlyContinue
 
     Copy-Item -Path (Join-Path $RepoRoot "lua\scripttracker") -Destination (Join-Path $luaDest "scripttracker") -Recurse -Force
     Copy-Item -Path (Join-Path $RepoRoot "lua\coopui") -Destination (Join-Path $luaDest "coopui") -Recurse -Force

@@ -6,6 +6,7 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local lootFeedEvents = require('itemui.services.loot_feed_events')
 
 local d  -- deps, set by init()
 
@@ -66,12 +67,16 @@ end
 -- Auto-bag and block new pickups for ACTIVATION_GUARD_MS to prevent rapid pickup/bag cycles.
 local function phase1b_activationGuard(now)
     local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    if not uiState then return end
+    if not (d.layoutConfig and d.layoutConfig.ActivationGuardEnabled ~= false) then return end
     local C = constants.TIMING
     local guardMs = C and C.ACTIVATION_GUARD_MS or 450
-    local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 200
+    local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 500
     if not hasItemOnCursor or not hasItemOnCursor() then return end
     local lp = uiState.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
+    if uiState.pendingQuantityPickup then return end
+    if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return end
     local clearedAt = uiState.lastPickupClearedAt or 0
     if (now - clearedAt) <= graceMs then return end
     mq.cmd('/autoinv')
@@ -107,38 +112,35 @@ local function phase2_periodicPersist(now)
     end
 end
 
--- Phase 3: Auto-sell request processing
+-- Phase 3: Auto-sell request processing (dispatches by sellMode: macro or lua)
 local function phase3_autoSellRequest()
-    local uiState, runSellMacro, setStatusMessage = d.uiState, d.runSellMacro, d.setStatusMessage
+    local uiState, runSellMacro = d.uiState, d.runSellMacro
     if uiState.autoSellRequested then
         uiState.autoSellRequested = false
         runSellMacro()
-        setStatusMessage("Running sell macro...")
     end
 end
 
--- Phase 4: Sell macro finish detection + failed items (P0-01: deferred scan, no mq.delay)
+-- Phase 4: Sell macro finish detection + failed items (via macro bridge; P0-01: deferred scan, no mq.delay)
+-- Use bridge running state (includes file-based fallback) so we detect finish and schedule inventory refresh even when Macro.Name() doesn't match
 local function phase4_sellMacroFinish(now)
-    local uiState, sellMacState, config, setStatusMessage, C, perfCache = d.uiState, d.sellMacState, d.config, d.setStatusMessage, d.C, d.perfCache
-    local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-    local mn = macroName:lower()
-    local sellMacRunning = (mn == "sell" or mn == "sell.mac")
+    local uiState, sellMacState, setStatusMessage, C = d.uiState, d.sellMacState, d.setStatusMessage, d.C
+    local macroBridge = d.macroBridge
+    -- Use live TLO only so bar hides when macro process ends (Issue 1)
+    local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning())
     if sellMacState.lastRunning and not sellMacRunning then
+        -- Clear bridge sell state so no consumer sees stale running/smoothedFrac
+        if macroBridge and macroBridge.clearSellState then macroBridge.clearSellState() end
         sellMacState.smoothedFrac = 0
         sellMacState.pendingScan = true
         sellMacState.finishedAt = now
         sellMacState.failedItems = {}
         sellMacState.failedCount = 0
-        if perfCache.sellLogPath then
-            local failedPath = perfCache.sellLogPath .. "\\sell_failed.ini"
-            local countStr = config.safeIniValueByPath(failedPath, "Failed", "count", "0")
-            local count = tonumber(countStr) or 0
-            if count > 0 then
-                sellMacState.failedCount = count
-                for i = 1, count do
-                    local item = config.safeIniValueByPath(failedPath, "Failed", "item" .. i, "")
-                    if item and item ~= "" then table.insert(sellMacState.failedItems, item) end
-                end
+        if macroBridge and macroBridge.getSellFailed then
+            local failedItems, failedCount = macroBridge.getSellFailed()
+            if failedCount and failedCount > 0 then
+                sellMacState.failedCount = failedCount
+                sellMacState.failedItems = failedItems or {}
                 sellMacState.showFailedUntil = now + C.SELL_FAILED_DISPLAY_MS
                 uiState.statusMessage = ""
             else
@@ -152,17 +154,24 @@ local function phase4_sellMacroFinish(now)
     sellMacState.lastRunning = sellMacRunning
 end
 
--- Phase 5: Loot macro management (progress, mythical alerts, session, deferred scan)
+-- Phase 5: Loot macro management (progress, mythical alerts, session, deferred scan; via macro bridge)
+-- Use bridge running state (includes file-based fallback from loot_progress.ini) so we detect finish and populate tables/history even when Macro.Name() doesn't match
 local function phase5_lootMacro(now)
     local uiState, lootMacState, lootLoopRefs, config, getSellStatusForItem, loadLootHistoryFromFile, loadSkipHistoryFromFile =
         d.uiState, d.lootMacState, d.lootLoopRefs, d.config, d.getSellStatusForItem, d.loadLootHistoryFromFile, d.loadSkipHistoryFromFile
     local LOOT_HISTORY_MAX = d.LOOT_HISTORY_MAX
-    local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-    local mn = macroName:lower()
-    local lootMacRunning = (mn == "loot" or mn == "loot.mac")
+    local macroBridge = d.macroBridge
+    local lootState = (macroBridge and macroBridge.getLootState and macroBridge.getLootState()) or {}
+    local lootMacRunning = (macroBridge and macroBridge.isLootMacroRunning and macroBridge.isLootMacroRunning()) or (lootState.running == true)
     if lootMacRunning and not lootMacState.lastRunning and not uiState.suppressWhenLootMac then
         uiState.lootUIOpen = true
         uiState.lootRunFinished = false
+        uiState.lootRunLootedItems = {}
+        uiState.lootRunLootedList = {}
+        uiState.lootRunTotalValue = 0
+        uiState.lootRunTributeValue = 0
+        uiState.lootRunBestItemName = ""
+        uiState.lootRunBestItemValue = 0
         d.recordCompanionWindowOpened("loot")
     end
     if lootMacState.lastRunning and not lootMacRunning then
@@ -170,6 +179,7 @@ local function phase5_lootMacro(now)
         lootMacState.finishedAt = now
         d.scanState.inventoryBagsDirty = true
         lootLoopRefs.pendingSession = true
+        lootLoopRefs.pendingSessionAt = now
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
             local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
@@ -197,51 +207,49 @@ local function phase5_lootMacro(now)
             end
         end
     end
-    if lootLoopRefs.pendingSession then
+    local sessionReadDelay = constants.TIMING.LOOT_SESSION_READ_DELAY_MS or 150
+    if lootLoopRefs.pendingSession and (now - (lootLoopRefs.pendingSessionAt or 0)) >= sessionReadDelay then
         lootLoopRefs.pendingSession = nil
-        if uiState.lootUIOpen then
-            local sessionPath = config.getLootConfigFile and config.getLootConfigFile("loot_session.ini")
-            if sessionPath and sessionPath ~= "" then
-                local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
-                local count = tonumber(countStr) or 0
-                if count > 0 then
-                    uiState.lootRunLootedList = {}
-                    uiState.lootRunLootedItems = {}
-                    for i = 1, count do
-                        local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
-                        if name and name ~= "" then
+        lootLoopRefs.pendingSessionAt = 0
+        local session = nil
+        if uiState.lootUIOpen and macroBridge and macroBridge.getLootSession then
+            session = macroBridge.getLootSession()
+            if session and session.count and session.count > 0 then
+                -- Merge session into existing feed (event-driven items may already be present; add any missed)
+                local existing = uiState.lootRunLootedItems or {}
+                local seen = {}
+                for _, row in ipairs(existing) do
+                    if row.name and row.name ~= "" then seen[row.name] = true end
+                end
+                uiState.lootRunLootedList = uiState.lootRunLootedList or {}
+                for i, row in ipairs(session.items or {}) do
+                    local name = row.name
+                    if name and name ~= "" then
+                        if not seen[name] then
+                            seen[name] = true
                             table.insert(uiState.lootRunLootedList, name)
-                            local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
-                            local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
                             local statusText, willSell = "—", false
                             if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
                                 statusText, willSell = getSellStatusForItem({ name = name })
                                 if statusText == "" then statusText = "—" end
                             end
-                            table.insert(uiState.lootRunLootedItems, {
+                            table.insert(existing, {
                                 name = name,
-                                value = tonumber(valStr) or 0,
-                                tribute = tonumber(tribStr) or 0,
+                                value = row.value or 0,
+                                tribute = row.tribute or 0,
                                 statusText = statusText,
                                 willSell = willSell
                             })
+                            if not uiState.lootHistory then loadLootHistoryFromFile() end
+                            if not uiState.lootHistory then uiState.lootHistory = {} end
+                            table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
                         end
                     end
-                    local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
-                    local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
-                    uiState.lootRunTotalValue = tonumber(sv) or 0
-                    uiState.lootRunTributeValue = tonumber(tv) or 0
-                    uiState.lootRunBestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
-                    uiState.lootRunBestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
-                    if not uiState.lootHistory then loadLootHistoryFromFile() end
-                    if not uiState.lootHistory then uiState.lootHistory = {} end
-                    for _, row in ipairs(uiState.lootRunLootedItems) do
-                        table.insert(uiState.lootHistory, { name = row.name, value = row.value, statusText = row.statusText, willSell = row.willSell })
-                    end
-                    while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
-                    lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                 end
+                uiState.lootRunLootedItems = existing
             end
+        end
+        if uiState.lootUIOpen then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if skippedPath and skippedPath ~= "" then
                 local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
@@ -260,48 +268,57 @@ local function phase5_lootMacro(now)
                     lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                 end
             end
+            -- Session summary (authoritative totals from macro) and loot history cap
+            if session then
+                uiState.lootRunTotalValue = session.totalValue or 0
+                uiState.lootRunTributeValue = session.tributeValue or 0
+                uiState.lootRunBestItemName = session.bestItemName or ""
+                uiState.lootRunBestItemValue = session.bestItemValue or 0
+                if uiState.lootHistory then
+                    while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                end
+                lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
+            end
             uiState.lootRunFinished = true
         end
     end
     local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
     if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
         lootLoopRefs.pollAt = now
-        local progPath = config.getLootConfigFile and config.getLootConfigFile("loot_progress.ini")
-        if progPath and progPath ~= "" and config.readLootProgressSection then
-            local corpses, total, current = config.readLootProgressSection(progPath)
+        if macroBridge and macroBridge.pollLootProgress then
+            local corpses, total, current = macroBridge.pollLootProgress()
             uiState.lootRunCorpsesLooted = corpses
             uiState.lootRunTotalCorpses = total
             uiState.lootRunCurrentCorpse = current or ""
         end
-        if lootMacRunning then
-            local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
-            if alertPath and alertPath ~= "" then
-                local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-                if itemName and itemName ~= "" then
-                    local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                    local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                    local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                    uiState.lootMythicalAlert = {
-                        itemName = itemName,
-                        corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                        decision = decision,
-                        itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                        timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                        iconId = tonumber(iconStr) or 0
-                    }
-                    if decision == "pending" then
-                        if not prevName or prevName ~= itemName then
-                            uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
-                        end
-                    else
-                        uiState.lootMythicalDecisionStartAt = nil
+        -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait
+        local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
+        if alertPath and alertPath ~= "" then
+            local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+            if itemName and itemName ~= "" then
+                local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+                local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+                local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
+                uiState.lootMythicalAlert = {
+                    itemName = itemName,
+                    corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+                    decision = decision,
+                    itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+                    timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+                    iconId = tonumber(iconStr) or 0
+                }
+                if decision == "pending" then
+                    if not prevName or prevName ~= itemName then
+                        uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
                     end
                     uiState.lootUIOpen = true
                     d.recordCompanionWindowOpened("loot")
                 else
-                    uiState.lootMythicalAlert = nil
                     uiState.lootMythicalDecisionStartAt = nil
                 end
+            else
+                uiState.lootMythicalAlert = nil
+                uiState.lootMythicalDecisionStartAt = nil
             end
         end
     end
@@ -323,8 +340,10 @@ end
 
 -- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
 local function phase7_sellQueueQuantityDestroyMoveAugment(now)
-    local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
-    processSellQueue()
+    local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage, sellBatch = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage, d.sellBatch
+    if not uiState then return end
+    processSellQueue(now)
+    if sellBatch and sellBatch.advance then sellBatch.advance(now) end
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
         -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
@@ -416,19 +435,16 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         end
     end
     if uiState.pendingDestroyAction then
-        local pd = uiState.pendingDestroyAction
-        uiState.pendingDestroyAction = nil
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
         uiState.quantityPickerValue = ""
-        itemOps.performDestroyItem(pd.bag, pd.slot, pd.name, pd.qty)
+        itemOps.advanceDestroyStateMachine(now)
     end
     if uiState.pendingMoveAction then
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
         uiState.quantityPickerValue = ""
-        itemOps.executeMoveAction(uiState.pendingMoveAction)
-        uiState.pendingMoveAction = nil
+        itemOps.advanceMoveStateMachine(now)
     end
     -- Reroll bank-to-bag: one move per tick (so each item lands before the next); stack moves set pendingMoveAction
     -- and are completed in the block above. Only when no move is in flight do we start the next or trigger the roll.
@@ -502,7 +518,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
         uiState.insertConfirmationSetAt = mq.gettime()
     end
-    if uiState.pendingQuantityPickup then
+    local pq = uiState.pendingQuantityPickup
+    if pq and type(pq) == "table" then
         local nowQ = mq.gettime()
         if uiState.pendingQuantityPickupTimeoutAt and nowQ >= uiState.pendingQuantityPickupTimeoutAt then
             uiState.pendingQuantityPickup = nil
@@ -516,14 +533,14 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             if not qtyWndOpen and not hasCursor then
                 local itemExists = false
                 local Me = mq.TLO and mq.TLO.Me
-                if uiState.pendingQuantityPickup.source == "bank" then
-                    local bn = Me and Me.Bank and Me.Bank(uiState.pendingQuantityPickup.bag)
+                if pq.source == "bank" then
+                    local bn = Me and Me.Bank and Me.Bank(pq.bag)
                     local sz = bn and bn.Container and bn.Container()
-                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(uiState.pendingQuantityPickup.slot)) or bn
+                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(pq.slot)) or bn
                     itemExists = it and it.ID and it.ID() and it.ID() > 0
                 else
-                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. uiState.pendingQuantityPickup.bag)
-                    local it = pack and pack.Item and pack.Item(uiState.pendingQuantityPickup.slot)
+                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. pq.bag)
+                    local it = pack and pack.Item and pack.Item(pq.slot)
                     itemExists = it and it.ID and it.ID() and it.ID() > 0
                 end
                 if not itemExists then
@@ -548,6 +565,7 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     local isBankWindowOpen, isMerchantWindowOpen, isLootWindowOpen = d.isBankWindowOpen, d.isMerchantWindowOpen, d.isLootWindowOpen
     local maybeScanInventory, maybeScanBank, maybeScanSellItems = d.maybeScanInventory, d.maybeScanBank, d.maybeScanSellItems
     local computeAndAttachSellStatus, sellStatusService, scanInventory, scanSellItems = d.computeAndAttachSellStatus, d.sellStatusService, d.scanInventory, d.scanSellItems
+    local rescanInventoryBags = d.rescanInventoryBags
     local invalidateSortCache, flushLayoutSave, loadLayoutConfig, recordCompanionWindowOpened = d.invalidateSortCache, d.flushLayoutSave, d.loadLayoutConfig, d.recordCompanionWindowOpened
     local storage, augmentOps, hasItemOnCursor, setStatusMessage = d.storage, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
     local saveLayoutToFileImmediate = d.saveLayoutToFileImmediate
@@ -585,6 +603,13 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
     if deferredScanNeeded.bank then maybeScanBank(bankOpen); deferredScanNeeded.bank = false end
     if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
+    -- MASTER_PLAN 2.6: targeted rescan for bags that had _statsPending (e.g. ID was 0 during batch)
+    if uiState.pendingStatRescanBags and next(uiState.pendingStatRescanBags) and rescanInventoryBags then
+        local bags = {}
+        for b in pairs(uiState.pendingStatRescanBags) do bags[#bags + 1] = b end
+        rescanInventoryBags(bags)
+        uiState.pendingStatRescanBags = {}
+    end
     if perfCache.sellConfigPendingRefresh then
         if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
         computeAndAttachSellStatus(inventoryItems)
@@ -628,18 +653,18 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         if not userOpening and elapsed >= C.LOOT_PENDING_SCAN_DELAY_MS then
             scanInventory()
             invalidateSortCache("inv")
+            lootMacState.pendingScan = false
         end
-        lootMacState.pendingScan = false
     end
-    -- P0-01: Deferred sell macro finish scan (no mq.delay in loop)
+    -- P0-01: Deferred sell macro finish scan (no mq.delay in loop). Only clear pendingScan after we actually scan.
     if sellMacState.pendingScan then
         local elapsed = now - (sellMacState.finishedAt or 0)
         if elapsed >= C.SELL_PENDING_SCAN_DELAY_MS then
             scanInventory()
             if isMerchantWindowOpen() then scanSellItems() end
             invalidateSortCache("inv"); invalidateSortCache("sell")
+            sellMacState.pendingScan = false
         end
-        sellMacState.pendingScan = false
     end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
         if not shouldDraw then
@@ -657,7 +682,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = merchOpen
             elseif merchOpen and not lastMerchantState then
-                maybeScanInventory(invOpen)
+                -- Defer scans to next frame so sell window opens instantly (no blocking scan on open).
+                deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = true
                 deferredScanNeeded.bank = bankOpen
             else
@@ -666,6 +692,11 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.sell = merchOpen
             end
         end
+    end
+    -- Merchant just opened while companion already visible (e.g. from bank): defer scans so we don't block this frame.
+    if (merchOpen and not lastMerchantState) and shouldDraw then
+        deferredScanNeeded.inventory = invOpen
+        deferredScanNeeded.sell = true
     end
     if bankOpen and not shouldDraw then
         setShouldDraw(true)
@@ -918,9 +949,11 @@ local M = {}
 
 function M.init(deps)
     d = deps
+    lootFeedEvents.init(d)
 end
 
 function M.tick(now)
+    if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
     phase2_periodicPersist(now)

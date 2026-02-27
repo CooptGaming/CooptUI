@@ -71,6 +71,15 @@ local function getChangedBags()
     return changed
 end
 
+--- Update lastBagFingerprints for the given bags only. Used before targetedRescanBags when caller knows which bags changed.
+local function updateFingerprintsForBags(bagList)
+    if not bagList or #bagList == 0 then return end
+    local lastBagFingerprints = env.scanState.lastBagFingerprints
+    for _, bagNum in ipairs(bagList) do
+        lastBagFingerprints[bagNum] = buildBagFingerprint(bagNum)
+    end
+end
+
 -- Inventory scan
 function M.scanInventory()
     local t0 = mq.gettime()
@@ -130,6 +139,8 @@ function M.scanInventory()
         print(string.format("\ag[ItemUI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+    if env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 -- Incremental scan state (internal to this module)
@@ -221,6 +232,7 @@ local function targetedRescanBags(changedBags)
     local t0 = mq.gettime()
     local inventoryItems = env.inventoryItems
     local buildItemFromMQ = env.buildItemFromMQ
+    if env.perfCache.loreHaveCache then env.perfCache.loreHaveCache = {} end
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
     -- Build O(1) lookup set for changed bag numbers
@@ -255,6 +267,14 @@ local function targetedRescanBags(changedBags)
     end
     -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
     env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()
+end
+
+--- Rescan only the given inventory bags (1-based pack numbers). Updates fingerprints for those bags then runs targetedRescanBags.
+--- Use when the caller knows which bags changed (e.g. after move, destroy, drop). For unknown bags use maybeScanInventory or scanInventory.
+function M.rescanInventoryBags(bagList)
+    if not bagList or #bagList == 0 then return end
+    updateFingerprintsForBags(bagList)
+    targetedRescanBags(bagList)
 end
 
 -- Bank scan
@@ -304,6 +324,8 @@ function M.scanBank()
             scanState.lastPersistSaveTime = now
         end
     end
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+    if env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 function M.ensureBankCacheFromStorage()
@@ -360,6 +382,7 @@ function M.scanSellItems()
     for i = #sellItems, 1, -1 do sellItems[i] = nil end
     for i, v in ipairs(newItems) do sellItems[i] = v end
 
+    if env.invalidateTooltipCache then env.invalidateTooltipCache() end
     scanSellItemsRunning = false
 end
 

@@ -4,6 +4,13 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ## [Unreleased]
 
+### Removed (Batch 2 cleanup — MASTER_PLAN 6.1, 6.5)
+- Dev/test scripts: `lua/itemui/test_rules.lua`, `test_augment_stat_debug.lua`, `phase7_check.ps1`; `lua/test_equipped.lua`, `test_spell_effect_dump.lua`, `test_ac_atk.lua`, `ac_atk_helper.lua`, `ac_atk_usage_example.lua`, `eval.lua`; `lua/mq/eval.lua`, `ImGuiFileDialog.lua`
+- `Macros/loot copy.mac`, `coopt_layout_capture.py`; root-level `bankinv_refresh.txt`, `sell_config.ini`, `perky_config.ini`
+- Unused state modules: `lua/coopui/core/state.lua`, `lua/itemui/core/state.lua`
+- Phase-specific docs moved to `lua/itemui/docs/archive/` (keep CURRENT_STATUS, PROJECT_ROADMAP)
+- Build script now excludes only `docs/` and `upvalue_check.lua` from release zip (removed files no longer in repo)
+
 ---
 
 ## [0.8.5-alpha] — 2026-02-23

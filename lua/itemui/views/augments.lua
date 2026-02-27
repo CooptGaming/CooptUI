@@ -10,8 +10,20 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
 
 local AugmentsView = {}
+
+-- Per 4.2 state ownership: search and sort state
+local state = {
+    searchFilterAugments = "",
+    augmentsSortColumn = nil,
+    augmentsSortDirection = nil,
+}
+function AugmentsView.getState()
+    return state
+end
 
 local AUGMENT_TYPE = "Augmentation"
 local AUGMENTS_WINDOW_WIDTH = 560
@@ -39,9 +51,8 @@ end
 
 -- Module interface: render augments pop-out window (owns ImGui.Begin/End like BankView)
 function AugmentsView.render(ctx)
-    if not ctx.uiState.augmentsWindowShouldDraw then return end
+    if not registry.shouldDraw("augments") then return end
 
-    local augmentsWindowOpen = ctx.uiState.augmentsWindowOpen
     local layoutConfig = ctx.layoutConfig
 
     -- Position: use saved or default (Always when forceApply so revert takes effect)
@@ -64,9 +75,8 @@ function AugmentsView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Augments Companion##ItemUIAugments", augmentsWindowOpen, windowFlags)
-    ctx.uiState.augmentsWindowOpen = winOpen
-    ctx.uiState.augmentsWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Augments Companion##ItemUIAugments", registry.isOpen("augments"), windowFlags)
+    registry.setWindowState("augments", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -109,12 +119,12 @@ function AugmentsView.render(ctx)
     ImGui.Text("Search:")
     ImGui.SameLine()
     ImGui.SetNextItemWidth(160)
-    ctx.uiState.searchFilterAugments, _ = ImGui.InputText("##AugmentsSearch", ctx.uiState.searchFilterAugments or "")
+    state.searchFilterAugments, _ = ImGui.InputText("##AugmentsSearch", state.searchFilterAugments or "")
     ImGui.SameLine()
-    if ImGui.Button("X##AugmentsSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterAugments = "" end
+    if ImGui.Button("X##AugmentsSearchClear", ImVec2(22, 0)) then state.searchFilterAugments = "" end
     ImGui.Separator()
 
-    local searchLower = (ctx.uiState.searchFilterAugments or ""):lower()
+    local searchLower = (state.searchFilterAugments or ""):lower()
     local filtered = {}
     for _, it in ipairs(augments) do
         if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
@@ -132,16 +142,19 @@ function AugmentsView.render(ctx)
         return
     end
 
-    -- Compact table: Icon (stats on hover) | Name | Effects | Value | Add to Aug List | Add to Mythical List (Name, Effects, Value sortable)
-    local nCols = 6
+    -- Compact table: Icon (stats on hover) | Name | Effects | Value | [Add to Aug List | Add to Mythical List when Reroll enabled]
+    local showRerollColumns = registry.isEnabled("reroll")
+    local nCols = showRerollColumns and 6 or 4
     local tableFlagsAug = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("ItemUI_Augments", nCols, tableFlagsAug) then
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)   -- Icon (not sortable)
         ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
         ImGui.TableSetupColumn("Effects", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
         ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 3)
-        ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
-        ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
+        if showRerollColumns then
+            ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
+            ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
+        end
         ImGui.TableSetupScrollFreeze(1, 1)
         ImGui.TableHeadersRow()
 
@@ -150,13 +163,14 @@ function AugmentsView.render(ctx)
         if sortSpecs and sortSpecs.SpecsDirty and sortSpecs.SpecsCount > 0 then
             local spec = sortSpecs:Specs(1)
             if spec then
-                ctx.uiState.augmentsSortColumn = spec.ColumnIndex
-                ctx.uiState.augmentsSortDirection = spec.SortDirection
+                state.augmentsSortColumn = spec.ColumnIndex
+                state.augmentsSortDirection = spec.SortDirection
             end
             sortSpecs.SpecsDirty = false
         end
-        local sortCol = (ctx.uiState.augmentsSortColumn ~= nil) and ctx.uiState.augmentsSortColumn or 1
-        local sortDir = ctx.uiState.augmentsSortDirection or ImGuiSortDirection.Ascending
+        local sortCol = (state.augmentsSortColumn ~= nil) and state.augmentsSortColumn or 1
+        if not showRerollColumns and sortCol > 3 then sortCol = 1 end
+        local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
         if sortCol >= 1 and sortCol <= 3 then
             table.sort(filtered, function(a, b)
@@ -226,47 +240,10 @@ function AugmentsView.render(ctx)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
-                if ImGui.BeginPopupContextItem("ItemContextAugmentsIcon_" .. rid) then
-                    if ImGui.MenuItem("CoOp UI Item Display") then
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                    end
-                    if ImGui.MenuItem("Inspect") then
-                        if hasCursor then ctx.removeItemFromCursor()
-                        else
-                            local Me = mq.TLO and mq.TLO.Me
-                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                            local tlo = pack and pack.Item and pack.Item(item.slot)
-                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
-                        end
-                    end
-                    -- Reroll list: contextual — augment shows Add/Remove Augment List; mythical-eligible shows Add/Remove Mythical List (augments view = all rows are augments)
-                    if rerollService and nameKey ~= "" then
-                        ImGui.Separator()
-                        -- Augment: one of Add or Remove
-                        if onAugList then
-                            if ImGui.MenuItem("Remove from Augment List") then
-                                if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
-                            end
-                        else
-                            if ImGui.MenuItem("Add to Augment List") then
-                                if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end
-                            end
-                        end
-                        -- Mythical-eligible: one of Add or Remove
-                        if isMythicalEligible then
-                            if onMythicalList then
-                                if ImGui.MenuItem("Remove from Mythical List") then
-                                    if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
-                                end
-                            else
-                                if ImGui.MenuItem("Add to Mythical List") then
-                                    if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end
-                                end
-                            end
-                        end
-                    end
-                    ImGui.EndPopup()
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    ImGui.OpenPopup("ItemContextAugmentsIcon_" .. rid)
                 end
+                ctx.renderItemContextMenu(ctx, item, { source = "augments", popupId = "ItemContextAugmentsIcon_" .. rid, bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false, hasCursor = hasCursor })
 
                 -- Column: Name
                 ImGui.TableNextColumn()
@@ -277,7 +254,7 @@ function AugmentsView.render(ctx)
                     ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                    ImGui.OpenPopup("ItemContextAugmentsIcon_" .. rid)
                 end
 
                 -- Column: Effects (only what exists)
@@ -293,45 +270,47 @@ function AugmentsView.render(ctx)
                 ImGui.TableNextColumn()
                 ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
 
-                -- Column: Add to Aug List (reroll companion list; augments only)
-                ImGui.TableNextColumn()
-                local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
-                if augDisabled then
-                    ctx.theme.PushKeepButton(true)
-                else
-                    ctx.theme.PushKeepButton(false)
-                end
-                if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
-                    if not onAugList and ctx.requestAddToRerollList then
-                        ctx.requestAddToRerollList("aug", item)
+                if showRerollColumns then
+                    -- Column: Add to Aug List (reroll companion list; augments only)
+                    ImGui.TableNextColumn()
+                    local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
+                    if augDisabled then
+                        ctx.theme.PushKeepButton(true)
+                    else
+                        ctx.theme.PushKeepButton(false)
                     end
-                end
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
-                    ImGui.EndTooltip()
-                end
-                ctx.theme.PopButtonColors()
+                    if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
+                        if not onAugList and ctx.requestAddToRerollList then
+                            ctx.requestAddToRerollList("aug", item)
+                        end
+                    end
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
+                        ImGui.EndTooltip()
+                    end
+                    ctx.theme.PopButtonColors()
 
-                -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
-                ImGui.TableNextColumn()
-                local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
-                if mythicalDisabled then
-                    ctx.theme.PushKeepButton(true)
-                else
-                    ctx.theme.PushKeepButton(false)
-                end
-                if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
-                    if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
-                        ctx.requestAddToRerollList("mythical", item)
+                    -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
+                    ImGui.TableNextColumn()
+                    local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
+                    if mythicalDisabled then
+                        ctx.theme.PushKeepButton(true)
+                    else
+                        ctx.theme.PushKeepButton(false)
                     end
+                    if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
+                        if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
+                            ctx.requestAddToRerollList("mythical", item)
+                        end
+                    end
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
+                        ImGui.EndTooltip()
+                    end
+                    ctx.theme.PopButtonColors()
                 end
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
-                    ImGui.EndTooltip()
-                end
-                ctx.theme.PopButtonColors()
 
                 ImGui.PopID()
                 ::continue::
@@ -342,5 +321,20 @@ function AugmentsView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Augments module (4.2 state ownership — window in registry, search/sort in view)
+registry.register({
+    id          = "augments",
+    label       = "Augments",
+    buttonWidth = 55,
+    tooltip     = "Browse all augments in your inventory with stat filtering",
+    layoutKeys  = { x = "AugmentsWindowX", y = "AugmentsWindowY" },
+    enableKey   = "ShowAugmentsWindow",
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        AugmentsView.render(ctx)
+    end,
+})
 
 return AugmentsView

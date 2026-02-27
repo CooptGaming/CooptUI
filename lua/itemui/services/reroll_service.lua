@@ -22,6 +22,14 @@ local mythicalList = {}  -- { { id = number, name = string }, ... }
 local pendingAugListAt = nil      -- mq.gettime() when we sent !auglist; accept lines until this + LIST_PARSE_MS
 local pendingMythicalListAt = nil  -- same for !mythicallist
 local setStatusMessageFn = function() end
+
+-- Per 4.2 state ownership: add flow and bank-move state owned by reroll_service
+local state = {
+    pendingRerollAdd = nil,         -- { list, bag, slot, source, itemId, itemName, step, sentAt }
+    pendingRerollBankMoves = nil,   -- { list, items, nextIndex } for main_loop to move items to bank
+    pendingAugRollComplete = nil,   -- true when waiting for augment roll result on cursor
+    pendingAugRollCompleteAt = nil,-- mq.gettime() for timeout
+}
 local getRerollListStoragePathFn = nil  -- optional: function() return path end for persistence
 -- When adding via pickup flow: after we send !augadd/!mythicaladd, we wait for a list line containing this id then call callback (put back, update UI).
 local pendingAddAckId = nil
@@ -88,7 +96,11 @@ local function saveToFile()
         local f = io.open(path, "w")
         if f then f:write(table.concat(lines, "\n")); f:close() end
     end)
-    if not ok and setStatusMessageFn then setStatusMessageFn("Could not save reroll list cache") end
+    if not ok then
+        if setStatusMessageFn then setStatusMessageFn("Could not save reroll list cache") end
+        local diag = require('itemui.core.diagnostics')
+        diag.recordError("Reroll", "Could not save reroll list cache", err)
+    end
 end
 
 -- Load cache from char storage on init so lists persist across UI reloads.
@@ -109,6 +121,9 @@ local function loadFromFile()
     if ok and data and type(data) == "table" then
         if type(data.aug) == "table" then augList = data.aug end
         if type(data.mythical) == "table" then mythicalList = data.mythical end
+    elseif not ok then
+        local diag = require('itemui.core.diagnostics')
+        diag.recordError("Reroll", "Could not load reroll list cache", data)
     end
 end
 
@@ -371,6 +386,11 @@ function M.isCursorIdInList(listEntries)
         if e.id == cursorId then return true end
     end
     return false
+end
+
+--- Return state table for 4.2 ownership; init wires uiState.* to this so existing code unchanged.
+function M.getState()
+    return state
 end
 
 return M

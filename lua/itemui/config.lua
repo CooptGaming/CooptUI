@@ -15,16 +15,25 @@ local SHARED_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/shared_confi
 local LOOT_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/loot_config') or ""
 local CHARS_PATH = basePath ~= "" and (CONFIG_PATH .. '/Chars') or ""
 
+-- Resolve MacroQuest path when called (so paths work if config loaded before Path was set)
+local function getBasePath()
+    local p = (mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()) and mq.TLO.MacroQuest.Path() or ""
+    return (p and p ~= "") and p or basePath
+end
+
 local function getConfigFile(f)
-    return CONFIG_PATH ~= "" and (CONFIG_PATH .. '/' .. f) or nil
+    local base = getBasePath()
+    return base ~= "" and (base .. '/Macros/sell_config/' .. f) or nil
 end
 
 local function getSharedConfigFile(f)
-    return SHARED_CONFIG_PATH ~= "" and (SHARED_CONFIG_PATH .. '/' .. f) or nil
+    local base = getBasePath()
+    return base ~= "" and (base .. '/Macros/shared_config/' .. f) or nil
 end
 
 local function getLootConfigFile(f)
-    return LOOT_CONFIG_PATH ~= "" and (LOOT_CONFIG_PATH .. '/' .. f) or nil
+    local base = getBasePath()
+    return base ~= "" and (base .. '/Macros/loot_config/' .. f) or nil
 end
 
 local function getCharStoragePath(charName, filename)

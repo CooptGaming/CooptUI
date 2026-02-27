@@ -6,8 +6,12 @@
 local mq = require('mq')
 require('ImGui')
 local config = require('itemui.config')
-
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local aa_data = require('itemui.services.aa_data')
+local registry = require('itemui.core.registry')
+local diagnostics = require('itemui.core.diagnostics')
+
 local AAView = {}
 
 local TAB_NAMES = { "General", "Archetype", "Class", "Special" }
@@ -149,6 +153,7 @@ local function doExport(ctx)
         ctx.setStatusMessage("Exported to " .. fname)
     else
         ctx.setStatusMessage("Export failed: " .. tostring(err))
+        diagnostics.recordError("AA Export", "Export failed", err)
     end
 end
 
@@ -192,6 +197,9 @@ local function parseAABackup(path)
         end
         f:close()
     end)
+    if not ok and err then
+        diagnostics.recordError("AA Import", "Could not parse backup file", err)
+    end
     return ok and aas or nil, meta
 end
 
@@ -253,7 +261,8 @@ local function stepImport(ctx)
 end
 
 function AAView.render(ctx)
-    if not ctx.uiState.aaWindowShouldDraw then return end
+    local state = registry.getWindowState("aa")
+    if not state.windowShouldDraw then return end
 
     local layoutConfig = ctx.layoutConfig
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
@@ -274,9 +283,8 @@ function AAView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI AAs Companion (Work in Progress)##ItemUIAA", ctx.uiState.aaWindowOpen, windowFlags)
-    ctx.uiState.aaWindowOpen = winOpen
-    ctx.uiState.aaWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI AAs Companion (Work in Progress)##ItemUIAA", state.windowOpen, windowFlags)
+    registry.setWindowState("aa", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -562,11 +570,33 @@ function AAView.render(ctx)
     end
     ImGui.SameLine(ImGui.GetWindowWidth() - 70)
     if ImGui.Button("Done", ImVec2(60, 0)) then
-        ctx.uiState.aaWindowOpen = false
-        ctx.uiState.aaWindowShouldDraw = false
+        registry.setWindowState("aa", false, false)
     end
 
     ImGui.End()
 end
+
+-- Registry: AA module (Task 4.1 — first extraction)
+registry.register({
+    id          = "aa",
+    label       = "AA",
+    buttonWidth = 45,
+    tooltip     = "Track and manage Alternate Advancement abilities",
+    layoutKeys  = { x = "AAWindowX", y = "AAWindowY" },
+    enableKey   = "ShowAAWindow",
+    onOpen      = function() end,
+    onClose     = function() end,
+    onTick      = nil,
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        ctx.refreshAA = aa_data.refresh
+        ctx.getAAList = aa_data.getList
+        ctx.getAAPointsSummary = aa_data.getPointsSummary
+        ctx.shouldRefreshAA = aa_data.shouldRefresh
+        ctx.getAALastRefreshTime = aa_data.getLastRefreshTime
+        AAView.render(ctx)
+    end,
+})
 
 return AAView

@@ -72,14 +72,12 @@ This is the canonical list of project files under version control and included i
 | `lua/itemui/rules.lua` | willSell, willLoot, epic protection rules |
 | `lua/itemui/storage.lua` | Per-char inventory/bank persistence |
 | `lua/itemui/upvalue_check.lua` | Upvalue / module checks |
-| `lua/itemui/test_rules.lua` | Rules test helpers |
 | `lua/itemui/README.md` | ItemUI readme |
 | `lua/itemui/components/filters.lua` | Filter UI components |
 | `lua/itemui/components/progressbar.lua` | Progress bar component |
 | `lua/itemui/components/searchbar.lua` | Search bar component |
 | `lua/itemui/core/cache.lua` | Cache logic |
 | `lua/itemui/core/events.lua` | Event handling |
-| `lua/itemui/core/state.lua` | State management |
 | `lua/itemui/services/filter_service.lua` | Filter service |
 | `lua/itemui/services/macro_bridge.lua` | Macro bridge |
 | `lua/itemui/services/scan.lua` | Scan service |
@@ -97,7 +95,6 @@ This is the canonical list of project files under version control and included i
 | `lua/itemui/views/loot.lua` | Loot view |
 | `lua/itemui/views/sell.lua` | Sell view |
 | `lua/itemui/docs/*.md` | ItemUI design/phase docs (optional in release zip) |
-| `lua/itemui/phase7_check.ps1` | Dev/test script (optional in release zip) |
 
 ### 3.2 Lua — ScriptTracker (`lua/scripttracker/`)
 
@@ -193,7 +190,6 @@ CoOpt UI_vX.Y.zip
 │   │   ├── rules.lua
 │   │   ├── storage.lua
 │   │   ├── upvalue_check.lua
-│   │   ├── test_rules.lua
 │   │   ├── README.md
 │   │   ├── components/
 │   │   │   ├── filters.lua
@@ -201,8 +197,7 @@ CoOpt UI_vX.Y.zip
 │   │   │   └── searchbar.lua
 │   │   ├── core/
 │   │   │   ├── cache.lua
-│   │   │   ├── events.lua
-│   │   │   └── state.lua
+│   │   │   └── events.lua
 │   │   ├── services/
 │   │   │   ├── filter_service.lua
 │   │   │   ├── macro_bridge.lua

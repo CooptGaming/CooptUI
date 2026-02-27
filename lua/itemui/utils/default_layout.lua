@@ -16,6 +16,8 @@ local OVERLAY_SNIPPET = "overlay_snippet.ini"
 local MANIFEST = "layout_manifest.json"
 local VERSION_MARKER = "default_layout_version.txt"
 local OVERLAY_INI = "MacroQuest_Overlay.ini"
+local BAK_RETENTION_DAYS = 7
+local BAK_TIMESTAMP_SUFFIX = ".ts"
 
 --- Path to MQ root (MacroQuest.Path); nil if not available.
 function M.getMQRoot()
@@ -32,11 +34,26 @@ function M.getBundledDefaultLayoutPath()
 end
 
 --- True if user has an existing layout (itemui_layout.ini exists and has content).
+--- Hardened: .bak with content => true; file unreadable => true; file missing or empty/whitespace => false.
 function M.hasExistingLayout()
     local path = config.getConfigFile(LAYOUT_INI)
     if not path or path == "" then return false end
-    local content = file_safe.safeReadAll(path)
-    return content and #content:gsub("%s", "") > 0
+    path = path:gsub("/", "\\")
+    local backupPath = path .. ".bak"
+    local bakContent = file_safe.safeReadAll(backupPath)
+    if bakContent and #bakContent:gsub("%s", "") > 0 then
+        return true
+    end
+    local f = io.open(path, "r")
+    if not f then
+        return false
+    end
+    local content = f:read("*all")
+    f:close()
+    if content == nil then
+        return true
+    end
+    return #content:gsub("%s", "") > 0
 end
 
 --- Read version token from layout_manifest.json in bundled default_layout. Returns nil if not found.
@@ -48,6 +65,21 @@ function M.getBundledDefaultVersionToken()
     if not content or content == "" then return nil end
     local v = content:match('"versionToken"%s*:%s*"([^"]*)"')
     return v
+end
+
+--- Remove .bak and its timestamp file if the backup is older than BAK_RETENTION_DAYS (R10).
+local function removeBackupIfOlderThanRetention(backupPath)
+    if not backupPath or backupPath == "" then return end
+    local tsPath = backupPath .. BAK_TIMESTAMP_SUFFIX
+    local tsContent = file_safe.safeReadAll(tsPath)
+    if not tsContent or tsContent == "" then return end
+    local ts = tonumber(tsContent:match("^%s*(%d+)%s*$"))
+    if not ts then return end
+    local now = os.time()
+    if now - ts >= BAK_RETENTION_DAYS * 24 * 3600 then
+        pcall(function() os.remove(backupPath) end)
+        pcall(function() os.remove(tsPath) end)
+    end
 end
 
 --- Read applied default version from Macros/sell_config/default_layout_version.txt
@@ -78,13 +110,14 @@ function M.applyBundledDefaultLayout()
     end
     layoutDest = layoutDest:gsub("/", "\\")
     local sellConfigPath = layoutDest:match("^(.+)\\[^\\]+$") or layoutDest
-    -- Backup existing layout before overwrite (for safe rollback)
     local backupPath = layoutDest .. ".bak"
+    removeBackupIfOlderThanRetention(backupPath)
     local existing = file_safe.safeReadAll(layoutDest)
     if existing and existing ~= "" then
         if not file_safe.safeWrite(backupPath, existing) then
             return false, "Could not create backup of current layout."
         end
+        file_safe.safeWrite(backupPath .. BAK_TIMESTAMP_SUFFIX, tostring(os.time()))
     end
     if not file_safe.safeWrite(layoutDest, layoutContent) then
         if existing and existing ~= "" then file_safe.safeWrite(layoutDest, existing) end
@@ -108,8 +141,7 @@ function M.applyBundledDefaultLayout()
         local versionPath = sellConfigPath .. "\\" .. VERSION_MARKER
         file_safe.safeWrite(versionPath, versionToken)
     end
-    -- Remove backup on success
-    pcall(function() os.remove(backupPath) end)
+    -- R10: do not delete .bak on success; it is removed only after BAK_RETENTION_DAYS
     return true
 end
 

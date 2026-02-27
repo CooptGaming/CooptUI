@@ -1,7 +1,8 @@
 --[[
     ItemUI - Item Operations Service
-    Item manipulation (add/remove), movement (inv<->bank), sell queue, flags.
+    Item manipulation (add/remove), movement (inv<->bank), manual sell (single item), flags.
     Part of CoOpt UI — EverQuest EMU Companion
+    Manual Sell: one item at a time, no queue. Auto Sell is separate (runs sell macro).
 --]]
 
 local mq = require('mq')
@@ -9,8 +10,33 @@ local constants = require('itemui.constants')
 
 local M = {}
 local deps  -- set by init()
-local sellQueue = {}
-local isSelling = false
+
+-- Per 4.2 state ownership: destroy, move, quantity picker, cursor/pickup
+-- sellState: nil when idle; else { phase, item = {name, bag, slot}, enteredAt, pollCount? } for non-blocking sell (task 1.3)
+local state = {
+    sellState = nil,
+    pendingDestroy = nil,
+    pendingDestroyAction = nil,
+    destroyQuantityValue = "",
+    destroyQuantityMax = 1,
+    pendingMoveAction = nil,
+    quantityPickerValue = "",
+    quantityPickerMax = 1,
+    quantityPickerSubmitPending = nil,
+    pendingQuantityPickup = nil,
+    pendingQuantityPickupTimeoutAt = nil,
+    pendingQuantityAction = nil,
+    pendingScriptConsume = nil,
+    lastPickup = { bag = nil, slot = nil, source = nil },
+    lastPickupSetThisFrame = false,
+    lastPickupClearedAt = 0,
+    activationGuardUntil = 0,
+    hadItemOnCursorLastFrame = false,
+    hasItemOnCursorThisFrame = nil,
+}
+function M.getState()
+    return state
+end
 
 function M.init(d)
     deps = d
@@ -21,63 +47,126 @@ function M.setTransferStampPath(path)
 end
 
 -- ============================================================================
--- Sell Queue
+-- Manual Sell (single item, no queue — task 1.3)
 -- ============================================================================
 
+--- Start selling one item to the vendor. Manual override: sells this item immediately (non-blocking state machine).
+--- Returns false if a sell is already in progress, merchant closed, or item missing. No queue; one item at a time.
 function M.queueItemForSelling(itemData)
-    if isSelling then
-        deps.setStatusMessage("Already selling, please wait...")
+    if state.sellState ~= nil then
+        deps.setStatusMessage("Already selling, please wait.")
         return false
     end
-    table.insert(sellQueue, { name = itemData.name, bag = itemData.bag, slot = itemData.slot, id = itemData.id })
-    deps.setStatusMessage("Queued for sell")
-    return true
-end
-
-function M.processSellQueue()
-    if #sellQueue == 0 or isSelling then return end
     if not deps.isMerchantWindowOpen() then
-        sellQueue = {}
-        return
+        deps.setStatusMessage("Open a merchant to sell.")
+        return false
     end
-    isSelling = true
-    local itemToSell = table.remove(sellQueue, 1)
-    local itemName, bagNum, slotNum = itemToSell.name, itemToSell.bag, itemToSell.slot
+    local bagNum, slotNum = itemData.bag, itemData.slot
     local Me = mq.TLO and mq.TLO.Me
     local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
     local item = pack and pack.Item and pack.Item(slotNum)
     if not item or not item.ID or not item.ID() or item.ID() == 0 then
-        isSelling = false
-        return
+        deps.setStatusMessage("Item not found in pack.")
+        return false
     end
-    mq.delay(constants.TIMING.ITEM_OPS_DELAY_INITIAL_MS)
-    mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
-    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS)
-    local selected = false
-    for i = 1, 10 do
-        local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
-        if wnd and wnd.Text and wnd.Text() == itemName then selected = true; break end
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
-    end
-    if not selected then
-        isSelling = false
-        return
-    end
-    mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
-    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS)
-    for i = 1, 15 do
-        local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
-        local sel = (wnd and wnd.Text and wnd.Text()) or ""
-        if sel == "" or sel ~= itemName then
-            local v = pack and pack.Item and pack.Item(slotNum)
-            if not v or not v.ID or not v.ID() or v.ID() == 0 then break end
+    state.sellState = {
+        phase = "initial_delay",
+        item = { name = itemData.name, bag = bagNum, slot = slotNum, id = itemData.id },
+        enteredAt = mq.gettime and mq.gettime() or 0,
+    }
+    deps.setStatusMessage("Selling...")
+    return true
+end
+
+--- Advance manual sell state machine one step per frame (task 1.3). Pass current time from main_loop. No queue; sell is started by queueItemForSelling (Sell button).
+function M.processSellQueue(now)
+    now = now or (mq.gettime and mq.gettime() or 0)
+    local T = constants.TIMING
+    local INITIAL_MS = T.ITEM_OPS_DELAY_INITIAL_MS
+    local DELAY_MS = T.ITEM_OPS_DELAY_MS
+
+    -- If a sell is in progress, run one step of the state machine
+    if state.sellState ~= nil then
+        local ss = state.sellState
+        local itemName, bagNum, slotNum = ss.item.name, ss.item.bag, ss.item.slot
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
+
+        -- Merchant closed mid-sell: abort (no queue to clear)
+        if not deps.isMerchantWindowOpen() then
+            state.sellState = nil
+            deps.setStatusMessage("Merchant closed; sell cancelled.")
+            return
         end
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
+
+        if ss.phase == "initial_delay" then
+            if (now - ss.enteredAt) < INITIAL_MS then return end
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
+            ss.phase = "after_pickup_delay"
+            ss.enteredAt = now
+            return
+        end
+
+        if ss.phase == "after_pickup_delay" then
+            if (now - ss.enteredAt) < DELAY_MS then return end
+            ss.phase = "wait_selected"
+            ss.enteredAt = now
+            ss.pollCount = 0
+            return
+        end
+
+        if ss.phase == "wait_selected" then
+            local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
+            local sel = (wnd and wnd.Text and wnd.Text()) or ""
+            if sel == itemName then
+                ss.phase = "click_sell_delay"
+                ss.enteredAt = now
+                return
+            end
+            ss.pollCount = (ss.pollCount or 0) + 1
+            if ss.pollCount >= 10 then
+                state.sellState = nil
+                deps.setStatusMessage("Sell failed; item not selected.")
+                return
+            end
+            return
+        end
+
+        if ss.phase == "click_sell_delay" then
+            if (now - ss.enteredAt) < DELAY_MS then return end
+            mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
+            ss.phase = "wait_sold"
+            ss.enteredAt = now
+            ss.pollCount = 0
+            return
+        end
+
+        if ss.phase == "wait_sold" then
+            local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
+            local sel = (wnd and wnd.Text and wnd.Text()) or ""
+            local slotItem = pack and pack.Item and pack.Item(slotNum)
+            local slotId = (slotItem and slotItem.ID and slotItem.ID()) or 0
+            local itemGone = (not slotItem or not slotItem.ID or slotId == 0)
+            local labelCleared = (sel == "" or sel ~= itemName)
+            if labelCleared and itemGone then
+                M.removeItemFromInventoryBySlot(bagNum, slotNum)
+                M.removeItemFromSellItemsBySlot(bagNum, slotNum)
+                state.sellState = nil
+                deps.setStatusMessage(string.format("Sold: %s", itemName))
+                return
+            end
+            ss.pollCount = (ss.pollCount or 0) + 1
+            if ss.pollCount >= 15 then
+                state.sellState = nil
+                deps.setStatusMessage("Sell may have failed; check inventory.")
+                return
+            end
+            return
+        end
+        return
     end
-    M.removeItemFromInventoryBySlot(bagNum, slotNum)
-    M.removeItemFromSellItemsBySlot(bagNum, slotNum)
-    isSelling = false
-    deps.setStatusMessage(string.format("Sold: %s", itemName))
+
+    -- Idle: nothing to do. Selling is started only by queueItemForSelling (Sell button); no queue.
 end
 
 -- ============================================================================
@@ -234,30 +323,33 @@ function M.removeItemFromBankBySlot(bag, slot)
     end
 end
 
-function M.addItemToBank(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, weight, clicky, container)
+function M.addItemToBank(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, weight, clicky, container, icon)
     weight = weight or 0
     clicky = clicky or 0
     container = container or 0
+    icon = tonumber(icon) or 0
     local row = {
         bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", weight = weight, nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0, clicky = clicky, container = container
+        stackSize = stackSize or 1, type = itemType or "", weight = weight, icon = icon,
+        nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
+        collectible = collectible or false, heirloom = heirloom or false, attuneable = attuneable or false, augSlots = augSlots or 0,
+        clicky = clicky, container = container
     }
     deps.invalidateSortCache("bank")
     table.insert(deps.bankItems, row)
     if deps.isBankWindowOpen() then
-        table.insert(deps.bankCache, { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, weight = row.weight })
+        table.insert(deps.bankCache, { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, weight = row.weight, icon = row.icon })
         deps.perfCache.lastBankCacheTime = os.time()
     end
 end
 
-function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots)
+function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, icon)
+    icon = tonumber(icon) or 0
     deps.invalidateSortCache("inv")
     local row = { bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", nodrop = nodrop or false, notrade = notrade or false,
-        lore = lore or false, quest = quest or false, collectible = collectible or false, heirloom = heirloom or false,
-        attuneable = attuneable or false, augSlots = augSlots or 0 }
+        stackSize = stackSize or 1, type = itemType or "", icon = icon,
+        nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
+        collectible = collectible or false, heirloom = heirloom or false, attuneable = attuneable or false, augSlots = augSlots or 0 }
     if deps.scanState and deps.scanState.nextAcquiredSeq then
         row.acquiredSeq = deps.scanState.nextAcquiredSeq
         deps.scanState.nextAcquiredSeq = deps.scanState.nextAcquiredSeq + 1
@@ -267,7 +359,8 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
     local ws, reason = deps.sellStatus.willItemBeSold(row)
     row.willSell, row.sellReason = ws, reason or ""
     local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
-        stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
+        stackSize = row.stackSize, type = row.type, icon = row.icon,
+        nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,
         collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots,
         inKeep = row.inKeep, inJunk = row.inJunk, willSell = row.willSell, sellReason = row.sellReason }
     deps.invalidateSortCache("sell")
@@ -418,18 +511,19 @@ function M.moveInvToBank(invBag, invSlot)
     end
     if not bb or not bs then deps.setStatusMessage("No free bank slot"); return false end
     if stackSize > 1 then
-        deps.uiState.pendingMoveAction = {
+        state.pendingMoveAction = {
             source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
             mergeIntoExisting = mergeIntoExisting,
-            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container }
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container, icon = row.icon },
+            phase = "start",
         }
-        if deps.uiState.pendingMoveAction.row then deps.uiState.pendingMoveAction.row.clicky = deps.getItemSpellId(row, "Clicky") end
+        if state.pendingMoveAction.row then state.pendingMoveAction.row.clicky = deps.getItemSpellId(row, "Clicky") end
         return true
     end
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', invBag, invSlot)
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bb, bs)
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
+    state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+    state.lastPickupClearedAt = mq.gettime()
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     M.removeItemFromInventoryBySlot(invBag, invSlot)
     M.removeItemFromSellItemsBySlot(invBag, invSlot)
@@ -437,7 +531,7 @@ function M.moveInvToBank(invBag, invSlot)
         if mergeIntoExisting then
             addQtyToBankStack(bb, bs, 1, row.value)
         else
-            M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container)
+            M.addItemToBank(bb, bs, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, deps.getItemSpellId(row, "Clicky"), row.container, row.icon)
         end
         deps.setStatusMessage(string.format("Moved to bank: %s", row.name or "item"))
     end
@@ -459,78 +553,149 @@ function M.moveBankToInv(bagIdx, slotIdx)
     if not ib or not is_ then deps.setStatusMessage("No free inventory slot"); return false end
     local stackSize = (row and row.stackSize and row.stackSize > 0) and row.stackSize or 1
     if stackSize > 1 then
-        deps.uiState.pendingMoveAction = {
+        state.pendingMoveAction = {
             source = "bank", bag = bagIdx, slot = slotIdx, destBag = ib, destSlot = is_, qty = stackSize,
-            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots }
+            row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, icon = row.icon },
+            phase = "start",
         }
         return true
     end
     mq.cmdf('/itemnotify in bank%d %d leftmouseup', bagIdx, slotIdx)
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
+    state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+    state.lastPickupClearedAt = mq.gettime()
     if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
     if row then
         M.removeItemFromBankBySlot(bagIdx, slotIdx)
-        M.addItemToInventory(ib, is_, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots)
+        M.addItemToInventory(ib, is_, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.icon)
         deps.setStatusMessage(string.format("Moved to inventory: %s", row.name or "item"))
     end
     return true
 end
 
---- Run a deferred stack move (inv<->bank). Closes QuantityWnd, picks with qty, drops, updates lists. Call from main loop only.
-function M.executeMoveAction(action)
+local MOVE_QTY_WINDOW_TIMEOUT_MS = 2000
+
+--- Advance move state machine one step per frame (task 1.3). Call from main_loop when pendingMoveAction is set. Clears state.pendingMoveAction when done or on failure.
+function M.advanceMoveStateMachine(now)
+    now = now or (mq.gettime and mq.gettime() or 0)
+    local action = state.pendingMoveAction
     if not action or not action.source then return end
-    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-    if w and w.Open and w.Open() then
-        mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
-    end
-    if action.source == "inv" then
-        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
-    else
-        mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.bag, action.slot)
-    end
+    local T = constants.TIMING
+    local MEDIUM_MS = T.ITEM_OPS_DELAY_MEDIUM_MS
+    local SHORT_MS = T.ITEM_OPS_DELAY_SHORT_MS
     local qty = (action.qty and action.qty > 0) and action.qty or 1
-    if qty > 1 then
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS, function()
-            local ww = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            return ww and ww.Open and ww.Open()
-        end)
+    local phase = action.phase or "start"
+
+    if phase == "start" then
+        local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+        if w and w.Open and w.Open() then
+            mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
+            action.phase = "close_qty_delay"
+            action.enteredAt = now
+            return
+        end
+        action.phase = "pickup"
+        return
+    end
+
+    if phase == "close_qty_delay" then
+        if (now - (action.enteredAt or 0)) < MEDIUM_MS then return end
+        action.phase = "pickup"
+        return
+    end
+
+    if phase == "pickup" then
+        if action.source == "inv" then
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
+        else
+            mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.bag, action.slot)
+        end
+        if qty > 1 then
+            action.phase = "wait_qty_window"
+            action.enteredAt = now
+        else
+            action.phase = "pickup_delay"
+            action.enteredAt = now
+        end
+        return
+    end
+
+    if phase == "pickup_delay" then
+        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
+        action.phase = "drop"
+        return
+    end
+
+    if phase == "wait_qty_window" then
         local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
         if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
             mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
-            mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
-            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-            mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
+            action.phase = "qty_accept_delay"
+            action.enteredAt = now
+            return
         end
-    else
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
+        if (now - (action.enteredAt or 0)) >= MOVE_QTY_WINDOW_TIMEOUT_MS then
+            state.pendingMoveAction = nil
+            deps.setStatusMessage("Quantity window did not open.")
+            if deps.hasItemOnCursor and deps.hasItemOnCursor() then mq.cmd('/autoinv') end
+            return
+        end
+        return
     end
-    if action.source == "inv" then
-        mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.destBag, action.destSlot)
-    else
-        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.destBag, action.destSlot)
+
+    if phase == "qty_accept_delay" then
+        if (now - (action.enteredAt or 0)) < MEDIUM_MS then return end
+        mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+        action.phase = "qty_close_delay"
+        action.enteredAt = now
+        return
     end
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
-    if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
-    local row = action.row
-    if action.source == "inv" then
-        M.removeItemFromInventoryBySlot(action.bag, action.slot)
-        M.removeItemFromSellItemsBySlot(action.bag, action.slot)
-        if row then
-            if action.mergeIntoExisting then
-                addQtyToBankStack(action.destBag, action.destSlot, action.qty or row.stackSize or 1, row.value)
-            else
-                M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0)
+
+    if phase == "qty_close_delay" then
+        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
+        action.phase = "drop"
+        return
+    end
+
+    if phase == "drop" then
+        if deps.hasItemOnCursor and not deps.hasItemOnCursor() then
+            state.pendingMoveAction = nil
+            deps.setStatusMessage("Move failed; no item on cursor.")
+            return
+        end
+        if action.source == "inv" then
+            mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.destBag, action.destSlot)
+        else
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.destBag, action.destSlot)
+        end
+        state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+        state.lastPickupClearedAt = mq.gettime()
+        if deps.transferStampPath then local f = io.open(deps.transferStampPath, "w"); if f then f:write(tostring(os.time())); f:close() end end
+        action.phase = "done"
+        return
+    end
+
+    if phase == "done" then
+        local row = action.row
+        if action.source == "inv" then
+            M.removeItemFromInventoryBySlot(action.bag, action.slot)
+            M.removeItemFromSellItemsBySlot(action.bag, action.slot)
+            if row then
+                if action.mergeIntoExisting then
+                    addQtyToBankStack(action.destBag, action.destSlot, action.qty or row.stackSize or 1, row.value)
+                else
+                    M.addItemToBank(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.weight, row.clicky or 0, row.container or 0, row.icon)
+                end
             end
+            deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
+            if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.bag }) end
+        else
+            M.removeItemFromBankBySlot(action.bag, action.slot)
+            if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots, row.icon) end
+            deps.setStatusMessage(row and string.format("Moved to inventory: %s", row.name or "item") or "Moved to inventory")
+            if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.destBag }) end
         end
-        deps.setStatusMessage(row and string.format("Moved to bank: %s", row.name or "item") or "Moved to bank")
-    else
-        M.removeItemFromBankBySlot(action.bag, action.slot)
-        if row then M.addItemToInventory(action.destBag, action.destSlot, row.name, row.id, row.value, row.totalValue, row.stackSize, row.type, row.nodrop, row.notrade, row.lore, row.quest, row.collectible, row.heirloom, row.attuneable, row.augSlots) end
-        deps.setStatusMessage(row and string.format("Moved to inventory: %s", row.name or "item") or "Moved to inventory")
+        state.pendingMoveAction = nil
     end
 end
 
@@ -539,9 +704,14 @@ end
 -- ============================================================================
 
 --- Return true if this row should be hidden (item is on cursor or just picked up from this slot).
+--- Do not hide when quantity picker is open for this slot (stack pickup): wait until quantity is selected and taken.
 function M.shouldHideRowForCursor(item, source)
     if not item or not source then return false end
-    local lp = deps.uiState.lastPickup
+    local pq = state.pendingQuantityPickup
+    if pq and pq.bag == item.bag and pq.slot == item.slot and pq.source == source then
+        return false  -- waiting for quantity selection; keep row visible so user sees the stack
+    end
+    local lp = state.lastPickup
     if not lp or lp.source ~= source then return false end
     if lp.bag ~= item.bag or lp.slot ~= item.slot then return false end
     return true
@@ -552,14 +722,14 @@ end
 function M.pickupFromSlot(bag, slot, source)
     if not bag or not slot or (source ~= "inv" and source ~= "bank") then return end
     local now = mq.gettime()
-    if deps.uiState.activationGuardUntil and now < deps.uiState.activationGuardUntil then
+    if state.activationGuardUntil and now < state.activationGuardUntil then
         if deps.setStatusMessage then deps.setStatusMessage("Please wait...") end
         return
     end
-    deps.uiState.lastPickup.bag = bag
-    deps.uiState.lastPickup.slot = slot
-    deps.uiState.lastPickup.source = source
-    deps.uiState.lastPickupSetThisFrame = true
+    state.lastPickup.bag = bag
+    state.lastPickup.slot = slot
+    state.lastPickup.source = source
+    state.lastPickupSetThisFrame = true
     if source == "inv" then
         mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
     else
@@ -575,11 +745,11 @@ function M.dropAtSlot(bag, slot, source)
     else
         mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
     end
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
+    state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+    state.lastPickupClearedAt = mq.gettime()
     deps.invalidateSortCache(source == "inv" and "inv" or "bank")
     if source == "inv" then
-        if deps.maybeScanInventory then deps.maybeScanInventory() end
+        if deps.rescanInventoryBags then deps.rescanInventoryBags({ bag }) end
         deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
         if deps.setStatusMessage then deps.setStatusMessage("Dropped in pack") end
     end
@@ -595,10 +765,10 @@ function M.putCursorInBags()
         return false
     end
     mq.cmdf('/itemnotify in pack%d %d leftmouseup', ib, is_)
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
+    state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+    state.lastPickupClearedAt = mq.gettime()
     deps.setStatusMessage("Put in bags")
-    if deps.scanInventory then deps.scanInventory() end
+    if deps.rescanInventoryBags then deps.rescanInventoryBags({ ib }) end
     -- Deferred scan so list shows new item after game applies move (immediate scan may run before client updates)
     deps.uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
     return true
@@ -606,7 +776,7 @@ end
 
 function M.removeItemFromCursor()
     if not M.hasItemOnCursor() then return false end
-    local lp = deps.uiState.lastPickup
+    local lp = state.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) and lp.slot ~= nil then
         if lp.source == "bank" then
             mq.cmdf('/itemnotify in bank%d %d leftmouseup', lp.bag, lp.slot)
@@ -620,8 +790,8 @@ function M.removeItemFromCursor()
         else
             mq.cmdf('/itemnotify in pack%d %d leftmouseup', lp.bag, lp.slot)
         end
-        deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-        deps.uiState.lastPickupClearedAt = mq.gettime()
+        state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+        state.lastPickupClearedAt = mq.gettime()
     else
         mq.cmd('/autoinv')
     end
@@ -630,45 +800,104 @@ end
 
 -- ============================================================================
 -- Destroy item (inventory only; runs from main loop via pendingDestroyAction)
+-- Non-blocking state machine (task 1.3): main_loop calls advanceDestroyStateMachine(now).
 -- ============================================================================
---- Close QuantityWnd if open (so our destroy flow controls quantity). Uses Cancel to avoid moving items.
-local function closeQuantityWndIfOpen()
-    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-    if w and w.Open and w.Open() then
-        mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
-    end
-end
 
---- Pick up item (optionally with qty for stacks), destroy with /destroy, update lists and save. Call from main loop only.
---- qty: number to destroy (default 1). When > 1 we use QuantityWnd to pick that many then /destroy.
-function M.performDestroyItem(bag, slot, itemName, qty)
-    if not bag or not slot then return end
-    qty = (qty and qty > 0) and math.floor(qty) or 1
-    closeQuantityWndIfOpen()
-    mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
-    mq.delay(constants.TIMING.ITEM_OPS_DELAY_MS, function()
+local DESTROY_QTY_WINDOW_TIMEOUT_MS = 2000
+
+--- Advance destroy state machine one step per frame (task 1.3). Call from main_loop when pendingDestroyAction is set. Clears state.pendingDestroyAction when done or on failure.
+function M.advanceDestroyStateMachine(now)
+    now = now or (mq.gettime and mq.gettime() or 0)
+    local action = state.pendingDestroyAction
+    if not action or not action.bag or not action.slot then return end
+    local T = constants.TIMING
+    local MEDIUM_MS = T.ITEM_OPS_DELAY_MEDIUM_MS
+    local SHORT_MS = T.ITEM_OPS_DELAY_SHORT_MS
+    local qty = (action.qty and action.qty > 0) and math.floor(action.qty) or 1
+    local phase = action.phase or "start"
+    action.phase = phase
+
+    if phase == "start" then
         local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-        return w and w.Open and w.Open()
-    end)
-    local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-    if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
-        mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS)
-        mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
-    else
-        mq.delay(constants.TIMING.ITEM_OPS_DELAY_SHORT_MS)
+        if w and w.Open and w.Open() then
+            mq.cmd('/notify QuantityWnd QTYW_Cancel_Button leftmouseup')
+            action.phase = "close_qty_delay"
+            action.enteredAt = now
+            return
+        end
+        action.phase = "pickup"
+        return
     end
-    mq.cmd('/destroy')
-    deps.uiState.lastPickup.bag, deps.uiState.lastPickup.slot, deps.uiState.lastPickup.source = nil, nil, nil
-    deps.uiState.lastPickupClearedAt = mq.gettime()
-    M.reduceStackOrRemoveBySlot(bag, slot, qty)
-    if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
-    if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
-    local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
-    if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
-    deps.setStatusMessage(msg)
+
+    if phase == "close_qty_delay" then
+        if (now - (action.enteredAt or 0)) < MEDIUM_MS then return end
+        action.phase = "pickup"
+        return
+    end
+
+    if phase == "pickup" then
+        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
+        if qty > 1 then
+            action.phase = "wait_qty_window"
+            action.enteredAt = now
+        else
+            action.phase = "pickup_delay"
+            action.enteredAt = now
+        end
+        return
+    end
+
+    if phase == "pickup_delay" then
+        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
+        action.phase = "confirm_destroy"
+        return
+    end
+
+    if phase == "wait_qty_window" then
+        local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+        if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
+            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
+            action.phase = "qty_accept_delay"
+            action.enteredAt = now
+            return
+        end
+        if (now - (action.enteredAt or 0)) >= DESTROY_QTY_WINDOW_TIMEOUT_MS then
+            state.pendingDestroyAction = nil
+            deps.setStatusMessage("Quantity window did not open; destroy cancelled.")
+            if deps.hasItemOnCursor and deps.hasItemOnCursor() then mq.cmd('/autoinv') end
+            return
+        end
+        return
+    end
+
+    if phase == "qty_accept_delay" then
+        if (now - (action.enteredAt or 0)) < MEDIUM_MS then return end
+        mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+        action.phase = "qty_close_delay"
+        action.enteredAt = now
+        return
+    end
+
+    if phase == "qty_close_delay" then
+        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
+        action.phase = "confirm_destroy"
+        return
+    end
+
+    if phase == "confirm_destroy" then
+        mq.cmd('/destroy')
+        state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+        state.lastPickupClearedAt = mq.gettime()
+        M.reduceStackOrRemoveBySlot(action.bag, action.slot, qty)
+        if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
+        if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
+        if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.bag }) end
+        local itemName = action.name
+        local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
+        if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
+        deps.setStatusMessage(msg)
+        state.pendingDestroyAction = nil
+    end
 end
 
 return M

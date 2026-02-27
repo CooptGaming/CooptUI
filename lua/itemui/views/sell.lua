@@ -32,7 +32,6 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.Button("Auto Sell", ImVec2(100, 0)) then
         if not simulateSellView then
             ctx.uiState.autoSellRequested = true
-            ctx.setStatusMessage("Running sell macro...")
         end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(simulateSellView and "Simulated view - Auto Sell disabled" or "Run /macro sell confirm to sell marked items"); ImGui.EndTooltip() end
@@ -56,37 +55,45 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.Separator()
     
-    -- Sell progress bar: prominent placement when sell.mac is running (visible in sell view)
+    -- Sell progress bar: Lua batch (sellMacState.luaRunning) or macro bridge
     do
-        local macroName = (mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""
-        local mn = macroName:lower()
-        -- Macro.Name may return "sell" or "sell.mac" depending on MQ version
-        local sellMacRunning = (mn == "sell" or mn == "sell.mac")
-        if sellMacRunning and ctx.perfCache.sellLogPath then
-            local config = require('itemui.config')
-            local progPath = ctx.perfCache.sellLogPath .. "\\sell_progress.ini"
-            local totalStr = config.safeIniValueByPath(progPath, "Progress", "total", "0")
-            local currentStr = config.safeIniValueByPath(progPath, "Progress", "current", "0")
-            local remainingStr = config.safeIniValueByPath(progPath, "Progress", "remaining", "0")
-            local total = tonumber(totalStr) or 0
-            local current = tonumber(currentStr) or 0
-            local remaining = tonumber(remainingStr) or 0
-            -- Smooth bar: lerp toward target to avoid jumpy updates and flashing
-            local targetFrac = (total > 0) and math.min(1, math.max(0, current / total)) or 0
-            local lerpSpeed = 0.35  -- higher = faster catch-up
-            ctx.sellMacState.smoothedFrac = ctx.sellMacState.smoothedFrac + (targetFrac - ctx.sellMacState.smoothedFrac) * lerpSpeed
-            ctx.sellMacState.smoothedFrac = math.min(1, math.max(0, ctx.sellMacState.smoothedFrac))
-            -- Fixed-size child to prevent layout shift (reduces flashing)
+        local sellMacState = ctx.sellMacState or {}
+        local luaRunning = sellMacState.luaRunning
+        if luaRunning then
+            local total = sellMacState.total or 0
+            local current = sellMacState.current or 0
+            local remaining = sellMacState.remaining or 0
+            local smoothedFrac = sellMacState.smoothedFrac or 0
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                 if total > 0 then
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
-                    ctx.theme.RenderProgressBar(ctx.sellMacState.smoothedFrac, ImVec2(-1, 24), overlay)
+                    ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
                 else
-                    ctx.theme.TextSuccess("Sell macro running...")
+                    ctx.theme.TextSuccess("Selling...")
                 end
             end
             ImGui.EndChild()
             ImGui.Separator()
+        else
+            local macroBridge = ctx.macroBridge
+            local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
+            local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning())
+            if sellMacRunning and macroBridge and macroBridge.getSellProgress then
+                local total = prog.total or 0
+                local current = prog.current or 0
+                local remaining = prog.remaining or 0
+                local smoothedFrac = prog.smoothedFrac or 0
+                if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
+                    if total > 0 then
+                        local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
+                        ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
+                    else
+                        ctx.theme.TextSuccess("Sell macro running...")
+                    end
+                end
+                ImGui.EndChild()
+                ImGui.Separator()
+            end
         end
     end
     
@@ -140,24 +147,23 @@ function SellView.render(ctx, simulateSellView)
         if passFilter then table.insert(filteredSellItems, item) end
     end
     
-    local nCols = 7  -- Icon, Sell Keep Junk (left), Name, Status, Value, Stack, Type
+    local nCols = 6  -- Icon, Sell Keep Junk (left), Name, Status, Value, Type
     if ImGui.BeginTable("ItemUI_InvSell", nCols, ctx.uiState.tableFlags) then
         -- Use autofit widths if available, otherwise defaults
         local sellActionWidth = ctx.columnAutofitWidths["Sell"]["Action"] or 200
         local sellStatusWidth = ctx.columnAutofitWidths["Sell"]["Status"] or 110
         local sellValueWidth = ctx.columnAutofitWidths["Sell"]["Value"] or 85
-        local sellStackWidth = ctx.columnAutofitWidths["Sell"]["Stack"] or 55
         local sellTypeWidth = ctx.columnAutofitWidths["Sell"]["Type"] or 100
         
         local sellSortCol = (ctx.sortState.sellColumn and type(ctx.sortState.sellColumn) == "string" and ctx.sortState.sellColumn) or "Name"
-        local sellColKeys = {"", "", "Name", "Status", "Value", "Stack", "Type"}  -- col 1 = Icon, col 2 = Action
+        local sellColKeys = {"", "", "Name", "Status", "Value", "Type"}  -- col 0 = Icon, col 1 = Action
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)  -- Icon (first column)
         ImGui.TableSetupColumn("Sell Keep Junk", ImGuiTableColumnFlags.WidthFixed, sellActionWidth, 0)
-        for i = 1, 5 do
+        for i = 1, 4 do
             local key = sellColKeys[i + 2] or "Name"
             local flags = (key == "Name") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
             if key == sellSortCol then flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort) end
-            local w = (i == 1) and 0 or (i == 2 and sellStatusWidth or i == 3 and sellValueWidth or i == 4 and sellStackWidth or sellTypeWidth)
+            local w = (i == 1) and 0 or (i == 2 and sellStatusWidth or i == 3 and sellValueWidth or sellTypeWidth)
             ImGui.TableSetupColumn(key, flags, w, i)
         end
         ImGui.TableSetupScrollFreeze(2, 1)  -- Freeze Icon + Action columns
@@ -168,9 +174,9 @@ function SellView.render(ctx, simulateSellView)
             local spec = sortSpecs:Specs(1)
             if spec then
                 local col = spec.ColumnIndex + 1  -- 0-based to 1-based
-                if col >= 3 and col <= 7 then     -- Skip Icon (1) and Action (2) columns
+                if col >= 3 and col <= 6 then     -- Skip Icon (1) and Action (2) columns
                     -- Map column index to column key for sell view
-                    local colKeys = {"", "", "Name", "Status", "Value", "Stack", "Type"}
+                    local colKeys = {"", "", "Name", "Status", "Value", "Type"}
                     ctx.sortState.sellColumn = colKeys[col] or "Name"
                     ctx.sortState.sellDirection = spec.SortDirection
                     ctx.scheduleLayoutSave()
@@ -217,7 +223,6 @@ function SellView.render(ctx, simulateSellView)
                     {key = "Name", label = "Name", numeric = false},
                     {key = "Status", label = "Status", numeric = false},
                     {key = "Value", label = "Value", numeric = true},
-                    {key = "Stack", label = "Stack", numeric = true},
                     {key = "Type", label = "Type", numeric = false}
                 }
                 ctx.autofitColumns("Sell", ctx.sellItems, sellCols)
@@ -252,6 +257,17 @@ function SellView.render(ctx, simulateSellView)
                 end
                 local rid = "sell_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                if rawget(item, "_statsPending") then
+                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.PopID()
+                    goto continue
+                end
                 -- Use cached row state (no INI reads per frame); Keep/Junk handlers still call add/remove + updateSellStatusForItemName
                 local actualInKeep = item.inKeep
                 local actualInJunk = item.inJunk
@@ -273,48 +289,10 @@ function SellView.render(ctx, simulateSellView)
                     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                     ImGui.EndTooltip()
                 end
-                if ImGui.BeginPopupContextItem("ItemContextSellIcon_" .. rid) then
-                    if ImGui.MenuItem("CoOp UI Item Display") then
-                        if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
-                    end
-                    if ImGui.MenuItem("Inspect") then
-                        if hasCursor then ctx.removeItemFromCursor()
-                        else
-                            local Me = mq.TLO and mq.TLO.Me
-                            local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
-                            local tlo = pack and pack.Item and pack.Item(item.slot)
-                            if tlo and tlo.ID and tlo.ID() and tlo.ID() > 0 and tlo.Inspect then tlo.Inspect() end
-                        end
-                    end
-                    -- Reroll list: only for augments or mythicals; show Add or Remove per list
-                    local rerollService = ctx.rerollService
-                    if rerollService then
-                        local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
-                        local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
-                        local isAugment = (itemTypeTrim == "Augmentation")
-                        local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
-                        if nameKey ~= "" and (isAugment or isMythicalEligible) then
-                            ImGui.Separator()
-                            local augList = rerollService.getAugList and rerollService.getAugList() or {}
-                            local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                            local itemId = item.id or item.ID
-                            local onAugList, onMythicalList = false, false
-                            if itemId then
-                                for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                                for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                            end
-                            if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-                            if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                            if isAugment then
-                                if onAugList then if ImGui.MenuItem("Remove from Augment List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end end else if ImGui.MenuItem("Add to Augment List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", item) end end end
-                            end
-                            if isMythicalEligible then
-                                if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", item) end end end
-                            end
-                        end
-                    end
-                    ImGui.EndPopup()
+                if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                    ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
+                ctx.renderItemContextMenu(ctx, item, { source = "sell", popupId = "ItemContextSellIcon_" .. rid, bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false, hasCursor = hasCursor })
                 -- Column 2: Sell Keep Junk buttons
                 ImGui.TableNextColumn()
                 ctx.theme.PushDeleteButton()
@@ -344,12 +322,15 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.TableNextColumn()
                 local dn = item.name or ""
                 if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
+                local nameColor = ctx.getSellStatusNameColor and ctx.getSellStatusNameColor(ctx, item) or ImVec4(1, 1, 1, 1)
+                ImGui.PushStyleColor(ImGuiCol.Text, nameColor)
                 ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
+                ImGui.PopStyleColor(1)
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
                     ctx.pickupFromSlot(item.bag, item.slot, "inv")
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                    if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "inv") end
+                    ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
                 ImGui.TableNextColumn()
                 -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank
@@ -363,7 +344,7 @@ function SellView.render(ctx, simulateSellView)
                 else
                     statusText = "—"
                 end
-                local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
                 if statusText == "Epic" then
                     statusText = "EpicQuest"
                     statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
@@ -374,7 +355,6 @@ function SellView.render(ctx, simulateSellView)
                 end
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
-                ImGui.TableNextColumn() ImGui.Text(tostring(item.stackSize or 1))
                 ImGui.TableNextColumn() ImGui.Text(item.type or "")
                 ImGui.PopID()
                 ::continue::

@@ -9,10 +9,13 @@ local mq = require('mq')
 local config = require('itemui.config')
 local file_safe = require('itemui.utils.file_safe')
 local constants = require('itemui.constants')
+local layout_io = require('itemui.utils.layout_io')
+local layout_columns = require('itemui.utils.layout_columns')
+local layout_setup = require('itemui.utils.layout_setup')
+local diagnostics = require('itemui.core.diagnostics')
 
 local LayoutUtils = {}
 
-local LAYOUT_INI = constants.LAYOUT_INI
 local LAYOUT_SECTION = constants.LAYOUT_SECTION
 
 -- Module interface: Initialize layout utils with dependencies
@@ -29,42 +32,37 @@ function LayoutUtils.init(deps)
     LayoutUtils.initColumnVisibility = deps.initColumnVisibility
     LayoutUtils.availableColumns = deps.availableColumns or {}
     
+    layout_columns.init({
+        columnVisibility = deps.columnVisibility,
+        layoutConfig = deps.layoutConfig,
+        availableColumns = deps.availableColumns or {},
+        saveLayoutToFileImmediate = function() LayoutUtils.saveLayoutToFileImmediate() end,
+    })
+    layout_setup.init({
+        layoutDefaults = LayoutUtils.layoutDefaults,
+        layoutConfig = LayoutUtils.layoutConfig,
+        uiState = LayoutUtils.uiState,
+        columnVisibility = LayoutUtils.columnVisibility,
+        sortState = LayoutUtils.sortState,
+        perfCache = LayoutUtils.perfCache,
+        getLayoutFilePath = function() return LayoutUtils.getLayoutFilePath() end,
+        parseLayoutFileFull = function() return LayoutUtils.parseLayoutFileFull() end,
+        initColumnVisibility = function() LayoutUtils.initColumnVisibility() end,
+        applyDefaultsFromParsed = function(p) LayoutUtils.applyDefaultsFromParsed(p) end,
+        saveLayoutToFile = function() LayoutUtils.saveLayoutToFile() end,
+    })
+    
     -- Debug: Enable to trace layout save/load
     LayoutUtils.DEBUG = false  -- Set to true to enable debug logging
 end
 
--- Get layout file path
+-- Delegate INI path and parse to layout_io (Phase D extraction 8)
 function LayoutUtils.getLayoutFilePath()
-    return config.getConfigFile(LAYOUT_INI)
+    return layout_io.getLayoutFilePath()
 end
 
--- Parse entire layout INI once; returns all sections (avoids 3x file reads on loadLayoutConfig).
--- Uses safe read: on error or missing file returns empty sections so startup never throws.
 function LayoutUtils.parseLayoutFileFull()
-    local path = LayoutUtils.getLayoutFilePath()
-    if not path then return { defaults = {}, layout = {}, columnVisibilityDefaults = {}, columnVisibility = {} } end
-    local content = file_safe.safeReadAll(path)
-    if not content or content == "" then return { defaults = {}, layout = {}, columnVisibilityDefaults = {}, columnVisibility = {} } end
-    local sections = { defaults = {}, layout = {}, columnVisibilityDefaults = {}, columnVisibility = {} }
-    local current = nil
-    for line in (content .. "\n"):gmatch("(.-)\n") do
-        line = line:match("^%s*(.-)%s*$")
-        if line:match("^%[") then
-            if line == "[Defaults]" then current = "defaults"
-            elseif line == "[" .. LAYOUT_SECTION .. "]" then current = "layout"
-            elseif line == "[ColumnVisibilityDefaults]" then current = "columnVisibilityDefaults"
-            elseif line == "[ColumnVisibility]" then current = "columnVisibility"
-            else current = nil end
-        elseif current and line:find("=") then
-            local k, v = line:match("^([^=]+)=(.*)$")
-            if k and v then
-                k = k:match("^%s*(.-)%s*$")
-                v = v:match("^%s*(.-)%s*$")
-                sections[current][k] = v
-            end
-        end
-    end
-    return sections
+    return layout_io.parseLayoutFileFull()
 end
 
 -- Apply defaults from parsed INI
@@ -105,6 +103,13 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.AAWindowX then layoutDefaults.AAWindowX = tonumber(d.AAWindowX) or layoutDefaults.AAWindowX end
     if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
     if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
+    if d.ShowEquipmentWindow then layoutDefaults.ShowEquipmentWindow = tonumber(d.ShowEquipmentWindow) or layoutDefaults.ShowEquipmentWindow end
+    if d.ShowBankWindow then layoutDefaults.ShowBankWindow = tonumber(d.ShowBankWindow) or layoutDefaults.ShowBankWindow end
+    if d.ShowAugmentsWindow then layoutDefaults.ShowAugmentsWindow = tonumber(d.ShowAugmentsWindow) or layoutDefaults.ShowAugmentsWindow end
+    if d.ShowAugmentUtilityWindow then layoutDefaults.ShowAugmentUtilityWindow = tonumber(d.ShowAugmentUtilityWindow) or layoutDefaults.ShowAugmentUtilityWindow end
+    if d.ShowItemDisplayWindow then layoutDefaults.ShowItemDisplayWindow = tonumber(d.ShowItemDisplayWindow) or layoutDefaults.ShowItemDisplayWindow end
+    if d.ShowConfigWindow then layoutDefaults.ShowConfigWindow = tonumber(d.ShowConfigWindow) or layoutDefaults.ShowConfigWindow end
+    if d.ShowRerollWindow then layoutDefaults.ShowRerollWindow = tonumber(d.ShowRerollWindow) or layoutDefaults.ShowRerollWindow end
     if d.AABackupPath ~= nil then layoutDefaults.AABackupPath = (d.AABackupPath and d.AABackupPath ~= "") and d.AABackupPath or "" end
     if d.WidthRerollPanel then layoutDefaults.WidthRerollPanel = tonumber(d.WidthRerollPanel) or layoutDefaults.WidthRerollPanel end
     if d.HeightReroll then layoutDefaults.HeightReroll = tonumber(d.HeightReroll) or layoutDefaults.HeightReroll end
@@ -113,6 +118,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
+    if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end
     if d.SellViewLocked then uiState.sellViewLocked = setBool(d.SellViewLocked) end
@@ -130,45 +136,9 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     end
 end
 
--- Apply column visibility from parsed INI
--- For Inventory and Bank: also populate fixedColumnOrder (ordered list for fixed-display mode)
+-- Delegate column visibility and fixed-column logic to layout_columns (Phase D extraction 9)
 function LayoutUtils.applyColumnVisibilityFromParsed(parsed)
-    local cv = parsed.columnVisibility or {}
-    local columnVisibility = LayoutUtils.columnVisibility
-    local layoutConfig = LayoutUtils.layoutConfig
-    local availableColumns = LayoutUtils.availableColumns
-    
-    layoutConfig.fixedColumnOrder = layoutConfig.fixedColumnOrder or { Inventory = {}, Bank = {} }
-    
-    for view, v in pairs(cv) do
-        if columnVisibility[view] then
-            for colKey, _ in pairs(columnVisibility[view]) do columnVisibility[view][colKey] = false end
-            local ordered = {}
-            for colKey in (v or ""):gmatch("([^/]+)") do
-                colKey = colKey:match("^%s*(.-)%s*$")
-                if columnVisibility[view][colKey] ~= nil then
-                    columnVisibility[view][colKey] = true
-                    table.insert(ordered, colKey)
-                end
-            end
-            -- Store ordered list for Inventory/Bank (fixed-display mode)
-            if (view == "Inventory" or view == "Bank") and #ordered > 0 then
-                layoutConfig.fixedColumnOrder[view] = ordered
-            end
-        end
-    end
-    
-    -- Default fixed columns if not loaded or empty (Inventory and Bank only)
-    for _, view in ipairs({"Inventory", "Bank"}) do
-        local list = layoutConfig.fixedColumnOrder[view]
-        if not list or #list == 0 then
-            local defaults = {}
-            for _, colDef in ipairs(availableColumns[view] or {}) do
-                if colDef.default then table.insert(defaults, colDef.key) end
-            end
-            layoutConfig.fixedColumnOrder[view] = defaults
-        end
-    end
+    layout_columns.applyColumnVisibilityFromParsed(parsed)
 end
 
 -- Load column visibility from INI (standalone - parses file; use applyColumnVisibilityFromParsed when already parsed)
@@ -179,40 +149,12 @@ function LayoutUtils.loadColumnVisibility()
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
 end
 
--- Parse entire layout INI once; returns map of key->value for [Layout] section. Safe read: returns {} on error.
 function LayoutUtils.parseLayoutFile()
-    local path = LayoutUtils.getLayoutFilePath()
-    if not path then return {} end
-    local content = file_safe.safeReadAll(path)
-    if not content or content == "" then return {} end
-    local layout = {}
-    local inLayout = false
-    for line in (content .. "\n"):gmatch("(.-)\n") do
-        line = line:match("^%s*(.-)%s*$")
-        if line:match("^%[") then
-            inLayout = (line == "[" .. LAYOUT_SECTION .. "]")
-        elseif inLayout and line:find("=") then
-            local k, v = line:match("^([^=]+)=(.*)$")
-            if k and v then
-                k = k:match("^%s*(.-)%s*$")
-                v = v:match("^%s*(.-)%s*$")
-                layout[k] = v
-            end
-        end
-    end
-    return layout
+    return layout_io.parseLayoutFile()
 end
 
--- Load layout value from parsed layout with type conversion
 function LayoutUtils.loadLayoutValue(layout, key, default)
-    if not layout then return default end
-    local val = layout[key]
-    if not val or val == "" then return default end
-    if key == "AlignToContext" or key == "UILocked" or key == "SyncBankWindow" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "SellViewLocked" or key == "InvViewLocked" or key == "BankViewLocked" then
-        return (val == "1" or val == "true")
-    end
-    if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" then return val end  -- string (column key)
-    return tonumber(val) or default
+    return layout_io.loadLayoutValue(layout, key, default)
 end
 
 -- Schedule layout save (debounced) - use for sort clicks, tab switches, etc.
@@ -305,6 +247,13 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowX=" .. tostring(layoutConfig.AAWindowX or layoutDefaults.AAWindowX) .. "\n")
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
+        f:write("ShowEquipmentWindow=" .. tostring(layoutConfig.ShowEquipmentWindow or layoutDefaults.ShowEquipmentWindow) .. "\n")
+        f:write("ShowBankWindow=" .. tostring(layoutConfig.ShowBankWindow or layoutDefaults.ShowBankWindow) .. "\n")
+        f:write("ShowAugmentsWindow=" .. tostring(layoutConfig.ShowAugmentsWindow or layoutDefaults.ShowAugmentsWindow) .. "\n")
+        f:write("ShowAugmentUtilityWindow=" .. tostring(layoutConfig.ShowAugmentUtilityWindow or layoutDefaults.ShowAugmentUtilityWindow) .. "\n")
+        f:write("ShowItemDisplayWindow=" .. tostring(layoutConfig.ShowItemDisplayWindow or layoutDefaults.ShowItemDisplayWindow) .. "\n")
+        f:write("ShowConfigWindow=" .. tostring(layoutConfig.ShowConfigWindow or layoutDefaults.ShowConfigWindow) .. "\n")
+        f:write("ShowRerollWindow=" .. tostring(layoutConfig.ShowRerollWindow or layoutDefaults.ShowRerollWindow) .. "\n")
         f:write("AABackupPath=" .. tostring(layoutConfig.AABackupPath or "") .. "\n")
         f:write("WidthRerollPanel=" .. tostring(layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel) .. "\n")
         f:write("HeightReroll=" .. tostring(layoutConfig.HeightReroll or layoutDefaults.HeightReroll) .. "\n")
@@ -315,6 +264,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
+        f:write("ActivationGuardEnabled=" .. ((layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled) and "1" or "0") .. "\n")
         f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
         f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
         f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
@@ -350,8 +300,9 @@ function LayoutUtils.saveLayoutToFileImmediate()
         end
         f:close()
     end)
-    if not ok and print then
-        print(string.format("\ar[ItemUI]\ax saveLayoutToFileImmediate failed: %s", tostring(err)))
+    if not ok then
+        if print then print(string.format("\ar[ItemUI]\ax saveLayoutToFileImmediate failed: %s", tostring(err))) end
+        diagnostics.recordError("Layout", "Save layout to file failed", err)
     end
 end
 
@@ -367,68 +318,20 @@ function LayoutUtils.flushLayoutSave()
     end
 end
 
--- Save column visibility (delegates to saveLayoutToFileImmediate for consolidated save)
 function LayoutUtils.saveColumnVisibility()
-    LayoutUtils.saveLayoutToFileImmediate()
+    layout_columns.saveColumnVisibility()
 end
 
--- Toggle a column in the fixed list (Inventory/Bank). Adds if not present, removes if present.
--- Changes apply on next UI open. Returns new state (true = in list, false = removed).
 function LayoutUtils.toggleFixedColumn(view, colKey)
-    if view ~= "Inventory" and view ~= "Bank" then return nil end
-    local layoutConfig = LayoutUtils.layoutConfig
-    layoutConfig.fixedColumnOrder = layoutConfig.fixedColumnOrder or { Inventory = {}, Bank = {} }
-    local list = layoutConfig.fixedColumnOrder[view] or {}
-    local found = nil
-    for i, k in ipairs(list) do
-        if k == colKey then found = i; break end
-    end
-    if found then
-        if #list <= 1 then return true end  -- Keep at least one column
-        table.remove(list, found)
-        LayoutUtils.saveLayoutToFileImmediate()
-        return false
-    else
-        table.insert(list, colKey)
-        LayoutUtils.saveLayoutToFileImmediate()
-        return true
-    end
+    return layout_columns.toggleFixedColumn(view, colKey)
 end
 
--- Check if column is in the fixed list (Inventory/Bank)
 function LayoutUtils.isColumnInFixedSet(view, colKey)
-    if view ~= "Inventory" and view ~= "Bank" then return false end
-    local layoutConfig = LayoutUtils.layoutConfig
-    local list = layoutConfig.fixedColumnOrder and layoutConfig.fixedColumnOrder[view] or {}
-    for _, k in ipairs(list) do
-        if k == colKey then return true end
-    end
-    return false
+    return layout_columns.isColumnInFixedSet(view, colKey)
 end
 
--- Get fixed column list for Inventory/Bank (ordered; used for fixed-display mode with ImGui SaveSettings)
--- Returns array of colDefs. Falls back to getVisibleColumns-style default if no fixed list.
 function LayoutUtils.getFixedColumns(view)
-    if view ~= "Inventory" and view ~= "Bank" then return {} end
-    local layoutConfig = LayoutUtils.layoutConfig
-    local availableColumns = LayoutUtils.availableColumns
-    local colDefByKey = {}
-    for _, colDef in ipairs(availableColumns[view] or {}) do
-        colDefByKey[colDef.key] = colDef
-    end
-    local ordered = layoutConfig.fixedColumnOrder and layoutConfig.fixedColumnOrder[view] or {}
-    local result = {}
-    for _, colKey in ipairs(ordered) do
-        local colDef = colDefByKey[colKey]
-        if colDef then table.insert(result, colDef) end
-    end
-    if #result == 0 then
-        -- Fallback: default columns from availableColumns
-        for _, colDef in ipairs(availableColumns[view] or {}) do
-            if colDef.default then table.insert(result, colDef) end
-        end
-    end
-    return result
+    return layout_columns.getFixedColumns(view)
 end
 
 -- Save layout to file (delegates to saveLayoutToFileImmediate)
@@ -436,218 +339,13 @@ function LayoutUtils.saveLayoutToFile()
     LayoutUtils.saveLayoutToFileImmediate()
 end
 
--- Capture current layout state as snapshot (defaults)
+-- Capture current layout state as snapshot (defaults); reset layout to defaults (Phase D extraction 10: layout_setup)
 function LayoutUtils.captureCurrentLayoutAsDefault()
-    local layoutDefaults = LayoutUtils.layoutDefaults
-    local layoutConfig = LayoutUtils.layoutConfig
-    local uiState = LayoutUtils.uiState
-    local columnVisibility = LayoutUtils.columnVisibility
-    
-    -- Capture current configuration values
-    layoutDefaults.WidthInventory = layoutConfig.WidthInventory or layoutDefaults.WidthInventory
-    layoutDefaults.Height = layoutConfig.Height or layoutDefaults.Height
-    layoutDefaults.WidthSell = layoutConfig.WidthSell or layoutDefaults.WidthSell
-    layoutDefaults.WidthLoot = layoutConfig.WidthLoot or layoutDefaults.WidthLoot
-    layoutDefaults.WidthBankPanel = layoutConfig.WidthBankPanel or layoutDefaults.WidthBankPanel
-    layoutDefaults.HeightBank = layoutConfig.HeightBank or layoutDefaults.HeightBank
-    layoutDefaults.WidthLootPanel = layoutConfig.WidthLootPanel or layoutDefaults.WidthLootPanel
-    layoutDefaults.HeightLoot = layoutConfig.HeightLoot or layoutDefaults.HeightLoot
-    layoutDefaults.LootWindowX = layoutConfig.LootWindowX or layoutDefaults.LootWindowX
-    layoutDefaults.LootWindowY = layoutConfig.LootWindowY or layoutDefaults.LootWindowY
-    -- Capture bank window position if it's open
-    if uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-        layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
-        layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
-    else
-        layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
-        layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
-    end
-    layoutDefaults.WidthAugmentsPanel = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel
-    layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
-    layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
-    layoutDefaults.AugmentsWindowY = layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY
-    layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
-    layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
-    layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
-    layoutDefaults.HeightItemDisplay = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay
-    layoutDefaults.AugmentUtilityWindowX = layoutConfig.AugmentUtilityWindowX or layoutDefaults.AugmentUtilityWindowX
-    layoutDefaults.AugmentUtilityWindowY = layoutConfig.AugmentUtilityWindowY or layoutDefaults.AugmentUtilityWindowY
-    layoutDefaults.WidthAugmentUtilityPanel = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel
-    layoutDefaults.HeightAugmentUtility = layoutConfig.HeightAugmentUtility or layoutDefaults.HeightAugmentUtility
-    layoutDefaults.WidthAAPanel = layoutConfig.WidthAAPanel or layoutDefaults.WidthAAPanel
-    layoutDefaults.HeightAA = layoutConfig.HeightAA or layoutDefaults.HeightAA
-    layoutDefaults.AAWindowX = layoutConfig.AAWindowX or layoutDefaults.AAWindowX
-    layoutDefaults.AAWindowY = layoutConfig.AAWindowY or layoutDefaults.AAWindowY
-    layoutDefaults.ShowAAWindow = layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow
-    layoutDefaults.AABackupPath = layoutConfig.AABackupPath or ""
-    layoutDefaults.WidthRerollPanel = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel
-    layoutDefaults.HeightReroll = layoutConfig.HeightReroll or layoutDefaults.HeightReroll
-    layoutDefaults.RerollWindowX = layoutConfig.RerollWindowX or layoutDefaults.RerollWindowX
-    layoutDefaults.RerollWindowY = layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY
-    layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
-    layoutDefaults.AlignToMerchant = uiState.alignToMerchant and 1 or 0
-    layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
-    layoutDefaults.SyncBankWindow = uiState.syncBankWindow and 1 or 0
-    layoutDefaults.SuppressWhenLootMac = uiState.suppressWhenLootMac and 1 or 0
-    layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
-    -- Save ImGui table settings (column widths) - this captures current column widths
-    if ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
-    
-    -- Save defaults to a separate section in the INI file (safe: pcall so write failure doesn't throw)
-    local path = LayoutUtils.getLayoutFilePath()
-    if path then
-        local content = file_safe.safeReadAll(path) or ""
-        local lines = {}
-        local inDefaults = false
-        local inColDefaults = false
-        for line in content:gmatch("[^\n]+") do
-            if line:match("^%s*%[Defaults%]") then
-                inDefaults = true
-            elseif line:match("^%s*%[ColumnVisibilityDefaults%]") then
-                inColDefaults = true
-            elseif line:match("^%s*%[") then
-                inDefaults = false
-                inColDefaults = false
-                if not line:match("^%s*%[Defaults%]") and not line:match("^%s*%[ColumnVisibilityDefaults%]") then
-                    table.insert(lines, line)
-                end
-            elseif not inDefaults and not inColDefaults then
-                table.insert(lines, line)
-            end
-        end
-
-        local ok, err = pcall(function()
-            local f = io.open(path, "w")
-            if not f then error("io.open write failed") end
-            for _, line in ipairs(lines) do
-                f:write(line .. "\n")
-            end
-            f:write("\n[Defaults]\n")
-            f:write("AlignToContext=" .. layoutDefaults.AlignToContext .. "\n")
-            f:write("UILocked=" .. layoutDefaults.UILocked .. "\n")
-            f:write("WidthInventory=" .. layoutDefaults.WidthInventory .. "\n")
-            f:write("Height=" .. layoutDefaults.Height .. "\n")
-            f:write("WidthSell=" .. layoutDefaults.WidthSell .. "\n")
-            f:write("WidthLoot=" .. layoutDefaults.WidthLoot .. "\n")
-            f:write("WidthBankPanel=" .. layoutDefaults.WidthBankPanel .. "\n")
-            f:write("HeightBank=" .. layoutDefaults.HeightBank .. "\n")
-            f:write("BankWindowX=" .. layoutDefaults.BankWindowX .. "\n")
-            f:write("BankWindowY=" .. layoutDefaults.BankWindowY .. "\n")
-            f:write("WidthLootPanel=" .. tostring(layoutDefaults.WidthLootPanel or 420) .. "\n")
-            f:write("HeightLoot=" .. tostring(layoutDefaults.HeightLoot or 380) .. "\n")
-            f:write("LootWindowX=" .. tostring(layoutDefaults.LootWindowX or 0) .. "\n")
-            f:write("LootWindowY=" .. tostring(layoutDefaults.LootWindowY or 0) .. "\n")
-            f:write("WidthAugmentsPanel=" .. layoutDefaults.WidthAugmentsPanel .. "\n")
-            f:write("HeightAugments=" .. layoutDefaults.HeightAugments .. "\n")
-            f:write("AugmentsWindowX=" .. layoutDefaults.AugmentsWindowX .. "\n")
-            f:write("AugmentsWindowY=" .. layoutDefaults.AugmentsWindowY .. "\n")
-            f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
-            f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
-            f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
-            f:write("HeightItemDisplay=" .. tostring(layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay) .. "\n")
-            f:write("AugmentUtilityWindowX=" .. tostring(layoutDefaults.AugmentUtilityWindowX or 0) .. "\n")
-            f:write("AugmentUtilityWindowY=" .. tostring(layoutDefaults.AugmentUtilityWindowY or 0) .. "\n")
-            f:write("WidthAugmentUtilityPanel=" .. tostring(layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel) .. "\n")
-            f:write("HeightAugmentUtility=" .. tostring(layoutDefaults.HeightAugmentUtility or 480) .. "\n")
-            f:write("WidthAAPanel=" .. layoutDefaults.WidthAAPanel .. "\n")
-            f:write("HeightAA=" .. layoutDefaults.HeightAA .. "\n")
-            f:write("AAWindowX=" .. layoutDefaults.AAWindowX .. "\n")
-            f:write("AAWindowY=" .. layoutDefaults.AAWindowY .. "\n")
-            f:write("ShowAAWindow=" .. layoutDefaults.ShowAAWindow .. "\n")
-            f:write("AABackupPath=" .. tostring(layoutDefaults.AABackupPath or "") .. "\n")
-            f:write("WidthRerollPanel=" .. tostring(layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520) .. "\n")
-            f:write("HeightReroll=" .. tostring(layoutDefaults.HeightReroll or constants.VIEWS.HeightReroll or 480) .. "\n")
-            f:write("RerollWindowX=" .. tostring(layoutDefaults.RerollWindowX or 0) .. "\n")
-            f:write("RerollWindowY=" .. tostring(layoutDefaults.RerollWindowY or 0) .. "\n")
-            f:write("SyncBankWindow=" .. layoutDefaults.SyncBankWindow .. "\n")
-            f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
-            f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
-            f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
-            f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
-            f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
-            f:write("\n[ColumnVisibilityDefaults]\n")
-            for view, cols in pairs(columnVisibility) do
-                local visibleCols = {}
-                for colKey, visible in pairs(cols) do
-                    if visible then table.insert(visibleCols, colKey) end
-                end
-                f:write(view .. "=" .. table.concat(visibleCols, "/") .. "\n")
-            end
-            f:close()
-        end)
-        if not ok and print then
-            print(string.format("\ar[ItemUI]\ax captureCurrentLayoutAsDefault write failed: %s", tostring(err)))
-        end
-    end
-    
-    print("\ag[ItemUI]\ax Current layout configuration captured as default! (Window sizes, positions, column widths, column visibility, and all settings)")
+    layout_setup.captureCurrentLayoutAsDefault()
 end
 
--- Reset layout to defaults
 function LayoutUtils.resetLayoutToDefault()
-    local layoutConfig = LayoutUtils.layoutConfig
-    local layoutDefaults = LayoutUtils.layoutDefaults
-    local uiState = LayoutUtils.uiState
-    
-    local parsed = LayoutUtils.parseLayoutFileFull()
-    LayoutUtils.initColumnVisibility()
-    LayoutUtils.applyDefaultsFromParsed(parsed)
-    
-    -- Reset all layout values to defaults
-    layoutConfig.WidthInventory = layoutDefaults.WidthInventory
-    layoutConfig.Height = layoutDefaults.Height
-    layoutConfig.WidthSell = layoutDefaults.WidthSell
-    layoutConfig.WidthLoot = layoutDefaults.WidthLoot
-    layoutConfig.WidthBankPanel = layoutDefaults.WidthBankPanel
-    layoutConfig.HeightBank = layoutDefaults.HeightBank
-    layoutConfig.BankWindowX = layoutDefaults.BankWindowX
-    layoutConfig.BankWindowY = layoutDefaults.BankWindowY
-    layoutConfig.WidthLootPanel = layoutDefaults.WidthLootPanel
-    layoutConfig.HeightLoot = layoutDefaults.HeightLoot
-    layoutConfig.LootWindowX = layoutDefaults.LootWindowX
-    layoutConfig.LootWindowY = layoutDefaults.LootWindowY
-    layoutConfig.WidthAugmentsPanel = layoutDefaults.WidthAugmentsPanel
-    layoutConfig.HeightAugments = layoutDefaults.HeightAugments
-    layoutConfig.AugmentsWindowX = layoutDefaults.AugmentsWindowX
-    layoutConfig.AugmentsWindowY = layoutDefaults.AugmentsWindowY
-    layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
-    layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
-    layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel
-    layoutConfig.HeightItemDisplay = layoutDefaults.HeightItemDisplay
-    layoutConfig.AugmentUtilityWindowX = layoutDefaults.AugmentUtilityWindowX
-    layoutConfig.AugmentUtilityWindowY = layoutDefaults.AugmentUtilityWindowY
-    layoutConfig.WidthAugmentUtilityPanel = layoutDefaults.WidthAugmentUtilityPanel
-    layoutConfig.HeightAugmentUtility = layoutDefaults.HeightAugmentUtility
-    layoutConfig.WidthAAPanel = layoutDefaults.WidthAAPanel
-    layoutConfig.HeightAA = layoutDefaults.HeightAA
-    layoutConfig.AAWindowX = layoutDefaults.AAWindowX
-    layoutConfig.AAWindowY = layoutDefaults.AAWindowY
-    layoutConfig.ShowAAWindow = layoutDefaults.ShowAAWindow
-    layoutConfig.AABackupPath = layoutDefaults.AABackupPath or ""
-    layoutConfig.WidthRerollPanel = layoutDefaults.WidthRerollPanel
-    layoutConfig.HeightReroll = layoutDefaults.HeightReroll
-    layoutConfig.RerollWindowX = layoutDefaults.RerollWindowX or 0
-    layoutConfig.RerollWindowY = layoutDefaults.RerollWindowY or 0
-    local sortState = LayoutUtils.sortState
-    if sortState then
-        sortState.aaColumn = "Title"
-        sortState.aaDirection = ImGuiSortDirection.Ascending
-        sortState.aaTab = 1
-    end
-    uiState.alignToContext = (layoutDefaults.AlignToContext == 1)
-    uiState.uiLocked = (layoutDefaults.UILocked == 1)
-    uiState.syncBankWindow = (layoutDefaults.SyncBankWindow == 1)
-    uiState.suppressWhenLootMac = (layoutDefaults.SuppressWhenLootMac == 1)
-    uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
-    -- Save the reset configuration
-    LayoutUtils.saveLayoutToFile()
-    
-    -- Force reload to apply changes immediately
-    local perfCache = LayoutUtils.perfCache
-    if perfCache then perfCache.layoutNeedsReload = true end
-    
-    print("\ag[ItemUI]\ax Layout reset to default! (Window sizes, column visibility, and settings restored)")
-    print("\ay[ItemUI]\ax Note: Window sizes will apply on next reload. Close and reopen CoOpt UI Inventory Companion.")
+    layout_setup.resetLayoutToDefault()
 end
 
 -- Load layout config from INI file
@@ -702,6 +400,13 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+        layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+        layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
+        layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
+        layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)
+        layoutConfig.ShowItemDisplayWindow = LayoutUtils.loadLayoutValue(layout, "ShowItemDisplayWindow", layoutDefaults.ShowItemDisplayWindow)
+        layoutConfig.ShowConfigWindow = LayoutUtils.loadLayoutValue(layout, "ShowConfigWindow", layoutDefaults.ShowConfigWindow)
+        layoutConfig.ShowRerollWindow = LayoutUtils.loadLayoutValue(layout, "ShowRerollWindow", layoutDefaults.ShowRerollWindow)
         layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
         layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
         layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)
@@ -712,6 +417,7 @@ function LayoutUtils.loadLayoutConfig()
         uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
+        layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
         uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
         uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
         uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
@@ -810,6 +516,13 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
+    layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+    layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
+    layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
+    layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)
+    layoutConfig.ShowItemDisplayWindow = LayoutUtils.loadLayoutValue(layout, "ShowItemDisplayWindow", layoutDefaults.ShowItemDisplayWindow)
+    layoutConfig.ShowConfigWindow = LayoutUtils.loadLayoutValue(layout, "ShowConfigWindow", layoutDefaults.ShowConfigWindow)
+    layoutConfig.ShowRerollWindow = LayoutUtils.loadLayoutValue(layout, "ShowRerollWindow", layoutDefaults.ShowRerollWindow)
     layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
     layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
     layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)

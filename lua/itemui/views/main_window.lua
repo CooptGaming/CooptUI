@@ -21,6 +21,9 @@ local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.config')
 local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
+local registry = require('itemui.core.registry')
+local diagnostics = require('itemui.core.diagnostics')
+local tutorial = require('itemui.views.tutorial')
 
 local function buildViewContext()
     return context.build()
@@ -30,13 +33,67 @@ local function extendContext(ctx)
     return context.extend(ctx)
 end
 
+local function renderSetupStep0Content(refs)
+    local theme = refs.theme
+    local uiState = refs.uiState
+    local configEpicClasses = refs.configEpicClasses or {}
+    local EPIC_CLASSES = refs.EPIC_CLASSES or {}
+    local config = refs.config
+    local invalidateSellConfigCache = refs.invalidateSellConfigCache or function() end
+    local invalidateLootConfigCache = refs.invalidateLootConfigCache or function() end
+    local classLabel = refs.classLabel or function(c) return tostring(c) end
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Epic quest item protection")
+    ImGui.Separator()
+    ImGui.TextWrapped("Optionally choose which classes' epic quest items are protected from selling and always looted. You can skip or select your class(es).")
+    ImGui.Spacing()
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Epic items for selected classes will never be sold and will always be looted.")
+    ImGui.Spacing()
+    if EPIC_CLASSES and #EPIC_CLASSES > 0 then
+        ImGui.Text("Classes:")
+        local nSelected = 0
+        for _, cls in ipairs(EPIC_CLASSES) do
+            if configEpicClasses[cls] == true then nSelected = nSelected + 1 end
+        end
+        ImGui.SameLine()
+        if ImGui.SmallButton("Select all##setup_epic") then
+            for _, cls in ipairs(EPIC_CLASSES) do
+                configEpicClasses[cls] = true
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "TRUE") end
+            end
+            invalidateSellConfigCache()
+            invalidateLootConfigCache()
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.SmallButton("Clear all##setup_epic") then
+            for _, cls in ipairs(EPIC_CLASSES) do
+                configEpicClasses[cls] = false
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "FALSE") end
+            end
+            invalidateSellConfigCache()
+            invalidateLootConfigCache()
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all"); ImGui.EndTooltip() end
+        ImGui.Spacing()
+        for _, cls in ipairs(EPIC_CLASSES) do
+            local v = ImGui.Checkbox(classLabel(cls) .. "##setup_epic_" .. cls, configEpicClasses[cls] == true)
+            if v ~= (configEpicClasses[cls] == true) then
+                configEpicClasses[cls] = v
+                if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE") end
+                invalidateSellConfigCache()
+                invalidateLootConfigCache()
+            end
+        end
+    end
+end
+
 local function renderInventoryContent(refs)
     local ctx = extendContext(buildViewContext())
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
     local bankOpen = refs.isBankWindowOpen and refs.isBankWindowOpen()
     local lootOpen = refs.isLootWindowOpen and refs.isLootWindowOpen()
     local uiState = refs.uiState
-    local simulateSellView = (uiState.setupMode and uiState.setupStep == 2)
+    local simulateSellView = (uiState.setupMode and (uiState.setupStep == 3 or uiState.setupStep == 4))
     if false then
         LootView.render(ctx)
         return
@@ -81,11 +138,6 @@ local function renderAAWindow(refs)
     ctx.shouldRefreshAA = function() return aa_data.shouldRefresh() end
     ctx.getAALastRefreshTime = function() return aa_data.getLastRefreshTime() end
     AAView.render(ctx)
-end
-
-local function renderRerollWindow(refs)
-    local ctx = extendContext(buildViewContext())
-    RerollView.render(ctx)
 end
 
 local function renderLootWindow(refs)
@@ -229,12 +281,12 @@ function M.render(refs)
     local saveLayoutForView = refs.saveLayoutForView or function() end
 
     local curView
-    if uiState.setupMode and uiState.setupStep == 1 then
-        curView = "Inventory"
-    elseif uiState.setupMode and uiState.setupStep == 2 then
-        curView = "Sell"
-    elseif uiState.setupMode and uiState.setupStep == 3 then
-        curView = "Inventory"
+    if uiState.setupMode then
+        if uiState.setupStep == 3 or uiState.setupStep == 4 then
+            curView = "Sell"
+        else
+            curView = "Inventory"  -- steps 1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13
+        end
     else
         curView = (merchOpen and "Sell") or "Inventory"
     end
@@ -278,11 +330,19 @@ function M.render(refs)
         refs.setOpen(winOpen)
         if not winOpen then
             refs.setShouldDraw(false)
+            uiState.welcomeSkippedThisSession = false
             uiState.configWindowOpen = false
             refs.closeGameInventoryIfOpen()
             ImGui.End()
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
+        end
+        -- Request keyboard capture so ESC closes companion only, not native EQ bags (LIFO fix)
+        if winVis then
+            pcall(function()
+                if ImGui.SetNextFrameWantCaptureKeyboard then ImGui.SetNextFrameWantCaptureKeyboard(true)
+                elseif ImGui.GetIO and ImGui.GetIO().SetNextFrameWantCaptureKeyboard then ImGui.GetIO().SetNextFrameWantCaptureKeyboard(true) end
+            end)
         end
         if ImGui.IsKeyPressed(ImGuiKey.Escape) then
             if uiState.pendingQuantityPickup then
@@ -292,10 +352,16 @@ function M.render(refs)
             else
                 local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
                 if mostRecent then
-                    refs.closeCompanionWindow(mostRecent)
+                    if registry.isRegistered(mostRecent) then
+                        registry.setWindowState(mostRecent, false, false)
+                        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[mostRecent] = nil end
+                    else
+                        refs.closeCompanionWindow(mostRecent)
+                    end
                 else
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
+                    uiState.welcomeSkippedThisSession = false
                     refs.setOpen(false)
                     uiState.configWindowOpen = false
                     refs.closeGameInventoryIfOpen()
@@ -319,43 +385,36 @@ function M.render(refs)
         end
         local itemUIWidth = ImGui.GetWindowWidth()
 
-        if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw and uiState.itemUIPositionX and uiState.itemUIPositionY and itemUIWidth then
-            local bankX = uiState.itemUIPositionX + itemUIWidth + constants.UI.WINDOW_GAP
-            local bankY = uiState.itemUIPositionY
-            layoutConfig.BankWindowX = bankX
-            layoutConfig.BankWindowY = bankY
-        end
-
         local hubX, hubY = uiState.itemUIPositionX, uiState.itemUIPositionY
         local hubW, hubH = itemUIWidth, (ImGui.GetWindowSize and select(2, ImGui.GetWindowSize())) or constants.VIEWS.Height
         local defGap = constants.UI.WINDOW_GAP
         local eqW = layoutConfig.WidthEquipmentPanel or constants.UI.EQUIPMENT_PANEL_WIDTH
         local eqH = layoutConfig.HeightEquipment or constants.UI.EQUIPMENT_PANEL_HEIGHT
         if hubX and hubY and hubW then
-            if uiState.equipmentWindowShouldDraw and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
+            if registry.shouldDraw("equipment") and (layoutConfig.EquipmentWindowX or 0) == 0 and (layoutConfig.EquipmentWindowY or 0) == 0 then
                 layoutConfig.EquipmentWindowX = hubX - eqW - defGap
                 layoutConfig.EquipmentWindowY = hubY
             end
-            if uiState.itemDisplayWindowShouldDraw and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
+            if registry.shouldDraw("itemDisplay") and (layoutConfig.ItemDisplayWindowX or 0) == 0 and (layoutConfig.ItemDisplayWindowY or 0) == 0 then
                 layoutConfig.ItemDisplayWindowX = hubX + hubW + defGap
                 layoutConfig.ItemDisplayWindowY = hubY
             end
-            if uiState.augmentsWindowShouldDraw and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
+            if registry.shouldDraw("augments") and (layoutConfig.AugmentsWindowX or 0) == 0 and (layoutConfig.AugmentsWindowY or 0) == 0 then
                 local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
                 layoutConfig.AugmentsWindowX = hubX - aw - defGap
                 layoutConfig.AugmentsWindowY = hubY + eqH + defGap
             end
-            if uiState.augmentUtilityWindowShouldDraw and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
+            if registry.shouldDraw("augmentUtility") and (layoutConfig.AugmentUtilityWindowX or 0) == 0 and (layoutConfig.AugmentUtilityWindowY or 0) == 0 then
                 local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
                 layoutConfig.AugmentUtilityWindowX = hubX - auw - defGap
                 layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
             end
-            if uiState.aaWindowShouldDraw and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
+            if registry.shouldDraw("aa") and (layoutConfig.AAWindowX or 0) == 0 and (layoutConfig.AAWindowY or 0) == 0 then
                 local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
                 layoutConfig.AAWindowX = hubX + hubW + defGap
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
-            if uiState.rerollWindowShouldDraw and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
+            if registry.shouldDraw("reroll") and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
                 local rw = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520
                 layoutConfig.RerollWindowX = hubX + hubW + defGap
                 layoutConfig.RerollWindowY = hubY
@@ -364,52 +423,71 @@ function M.render(refs)
                 layoutConfig.LootWindowX = hubX + hubW + defGap
                 layoutConfig.LootWindowY = hubY
             end
+            if registry.shouldDraw("bank") and (layoutConfig.BankWindowX or 0) == 0 and (layoutConfig.BankWindowY or 0) == 0 then
+                layoutConfig.BankWindowX = hubX + hubW + defGap
+                layoutConfig.BankWindowY = hubY
+            end
         end
 
-        if ImGui.Button("Equipment", ImVec2(75, 0)) then
-            uiState.equipmentWindowOpen = not uiState.equipmentWindowOpen
-            uiState.equipmentWindowShouldDraw = uiState.equipmentWindowOpen
-            if uiState.equipmentWindowOpen then refs.recordCompanionWindowOpened("equipment"); setStatusMessage("Equipment Companion opened") end
+        -- Reset Window Positions: re-apply hub-relative defaults for all companions (positions only)
+        if uiState.resetWindowPositionsRequested and hubX and hubY and hubW then
+            local defGapReset = constants.UI.WINDOW_GAP
+            local eqW = layoutConfig.WidthEquipmentPanel or constants.UI.EQUIPMENT_PANEL_WIDTH
+            local eqH = layoutConfig.HeightEquipment or constants.UI.EQUIPMENT_PANEL_HEIGHT
+            layoutConfig.EquipmentWindowX = hubX - eqW - defGapReset
+            layoutConfig.EquipmentWindowY = hubY
+            layoutConfig.ItemDisplayWindowX = hubX + hubW + defGapReset
+            layoutConfig.ItemDisplayWindowY = hubY
+            local aw = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel or 560
+            layoutConfig.AugmentsWindowX = hubX - aw - defGapReset
+            layoutConfig.AugmentsWindowY = hubY + eqH + defGapReset
+            local auw = layoutConfig.WidthAugmentUtilityPanel or layoutDefaults.WidthAugmentUtilityPanel or constants.VIEWS.WidthAugmentUtilityPanel
+            layoutConfig.AugmentUtilityWindowX = hubX - auw - defGapReset
+            layoutConfig.AugmentUtilityWindowY = hubY + math.floor(eqH * 0.45)
+            local idH = layoutConfig.HeightItemDisplay or layoutDefaults.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
+            layoutConfig.AAWindowX = hubX + hubW + defGapReset
+            layoutConfig.AAWindowY = hubY + idH + defGapReset
+            layoutConfig.RerollWindowX = hubX + hubW + defGapReset
+            layoutConfig.RerollWindowY = hubY
+            layoutConfig.LootWindowX = hubX + hubW + defGapReset
+            layoutConfig.LootWindowY = hubY
+            layoutConfig.BankWindowX = hubX + hubW + defGapReset
+            layoutConfig.BankWindowY = hubY
+            uiState.resetWindowPositionsRequested = false
+            uiState.layoutRevertedApplyFrames = 5
+            if refs.scheduleLayoutSave then refs.scheduleLayoutSave() end
+            if setStatusMessage then setStatusMessage("Window positions reset to hub-relative defaults.") end
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Equipment Companion (current equipped items)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 then
-            if ImGui.Button("AA", ImVec2(45, 0)) then
-                uiState.aaWindowOpen = not uiState.aaWindowOpen
-                uiState.aaWindowShouldDraw = uiState.aaWindowOpen
-                if uiState.aaWindowOpen then
-                    refs.recordCompanionWindowOpened("aa")
-                    if aa_data.shouldRefresh() then aa_data.refresh() end
-                    setStatusMessage("Alt Advancement window opened")
+
+        local bankOnline = refs.isBankWindowOpen and refs.isBankWindowOpen()
+        for _, mod in ipairs(registry.getEnabledModules()) do
+            if mod.id == "bank" then
+                if bankOnline then
+                    ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Keep.Normal))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Keep.Hover))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Keep.Active))
+                else
+                    ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Delete.Normal))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Delete.Hover))
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Delete.Active))
                 end
             end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Alt Advancement window (view, train, backup/restore AAs)"); ImGui.EndTooltip() end
+            if ImGui.Button(mod.label, ImVec2(mod.buttonWidth or 60, 0)) then
+                registry.toggleWindow(mod.id)
+                if registry.isOpen(mod.id) then
+                    refs.recordCompanionWindowOpened(mod.id)
+                    if mod.id == "aa" and aa_data.shouldRefresh() then aa_data.refresh() end
+                    if mod.id == "bank" and bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end
+                    if mod.id == "config" then uiState.configNeedsLoad = true end
+                    local msg = (mod.id == "aa" and "Alt Advancement window opened") or (mod.id == "reroll" and "Reroll Companion opened") or (mod.label .. " opened")
+                    setStatusMessage(msg)
+                end
+            end
+            if mod.id == "bank" then ImGui.PopStyleColor(3) end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(mod.tooltip or ""); ImGui.EndTooltip() end
             ImGui.SameLine()
         end
-        if ImGui.Button("Augment Utility", ImVec2(100, 0)) then
-            uiState.augmentUtilityWindowOpen = not uiState.augmentUtilityWindowOpen
-            uiState.augmentUtilityWindowShouldDraw = uiState.augmentUtilityWindowOpen
-            if uiState.augmentUtilityWindowOpen then refs.recordCompanionWindowOpened("augmentUtility"); setStatusMessage("Augment Utility opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Insert/remove augments (use Item Display tab as target)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Filter", ImVec2(55, 0)) then
-            uiState.augmentsWindowOpen = not uiState.augmentsWindowOpen
-            uiState.augmentsWindowShouldDraw = uiState.augmentsWindowOpen
-            if uiState.augmentsWindowOpen then refs.recordCompanionWindowOpened("augments"); setStatusMessage("Filter window opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Filter window (Always sell / Never loot, stats on hover; extended filtering later)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        if ImGui.Button("Reroll", ImVec2(55, 0)) then
-            uiState.rerollWindowOpen = not uiState.rerollWindowOpen
-            uiState.rerollWindowShouldDraw = uiState.rerollWindowOpen
-            if uiState.rerollWindowOpen then refs.recordCompanionWindowOpened("reroll"); setStatusMessage("Reroll Companion opened") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open Reroll Companion (augment and mythical reroll lists)"); ImGui.EndTooltip() end
         ImGui.SameLine(ImGui.GetWindowWidth() - 210)
-        if ImGui.Button("Settings", ImVec2(70, 0)) then uiState.configWindowOpen = true; uiState.configNeedsLoad = true; refs.recordCompanionWindowOpened("config") end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open CoOpt UI Settings"); ImGui.EndTooltip() end
-        ImGui.SameLine()
         local prevLocked = uiState.uiLocked
         uiState.uiLocked = ImGui.Checkbox("##Lock", uiState.uiLocked)
         if prevLocked ~= uiState.uiLocked then
@@ -424,69 +502,10 @@ function M.render(refs)
             end
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(uiState.uiLocked and "Pin: UI locked (click to unlock and resize)" or "Pin: UI unlocked (click to lock)"); ImGui.EndTooltip() end
-        ImGui.SameLine()
-        local bankOnline = refs.isBankWindowOpen and refs.isBankWindowOpen()
-        if bankOnline then
-            ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Keep.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Keep.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Keep.Active))
-        else
-            ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Delete.Normal))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, refs.theme.ToVec4(refs.theme.Colors.Delete.Hover))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, refs.theme.ToVec4(refs.theme.Colors.Delete.Active))
-        end
-        if ImGui.Button("Bank", ImVec2(60, 0)) then
-            uiState.bankWindowOpen = not uiState.bankWindowOpen
-            uiState.bankWindowShouldDraw = uiState.bankWindowOpen
-            if uiState.bankWindowOpen then refs.recordCompanionWindowOpened("bank"); if bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(bankOnline and "Open or close the bank window. Bank is online." or "Open or close the bank window. Bank is offline."); ImGui.EndTooltip() end
-        ImGui.PopStyleColor(3)
         ImGui.Separator()
 
         if uiState.setupMode then
-            if uiState.setupStep == 1 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 1 of 3: Inventory — Resize the window and columns as you like.")
-                ImGui.SameLine()
-                if ImGui.Button("Next", ImVec2(60, 0)) then
-                    local w, h = ImGui.GetWindowSize()
-                    if w and h and w > 0 and h > 0 then saveLayoutForView("Inventory", w, h, nil) end
-                    uiState.setupStep = 2
-                    print("\ag[ItemUI]\ax Saved Inventory layout. Step 2: Open a merchant, then resize and click Next.")
-                end
-            elseif uiState.setupStep == 2 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 2 of 3: Sell view — Resize the window and columns, then click Next.")
-                if not merchOpen then
-                    ImGui.SameLine()
-                    ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), "(Simulated view - no merchant needed)")
-                end
-                if refs.sellItems and #refs.sellItems == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
-                    local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-                    local invO = (_w and _w.Open and _w.Open()) or false
-                    local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
-                    refs.maybeScanInventory(invO); refs.maybeScanSellItems(merchO)
-                end
-                if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 1 end
-                ImGui.SameLine()
-                if ImGui.Button("Next", ImVec2(60, 0)) then
-                    local w, h = ImGui.GetWindowSize()
-                    if w and h and w > 0 and h > 0 then saveLayoutForView("Sell", w, h, nil) end
-                    uiState.setupStep = 3
-                    uiState.bankWindowOpen = true
-                    uiState.bankWindowShouldDraw = true
-                    refs.recordCompanionWindowOpened("bank")
-                    print("\ag[ItemUI]\ax Saved Sell layout. Step 3: Open the bank window and resize it, then Save & finish.")
-                end
-            elseif uiState.setupStep == 3 then
-                ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Step 3 of 3: Open and resize the Bank window, then save.")
-                if ImGui.Button("Back", ImVec2(50, 0)) then uiState.setupStep = 2; uiState.bankWindowOpen = false; uiState.bankWindowShouldDraw = false end
-                ImGui.SameLine()
-                if ImGui.Button("Save & finish", ImVec2(100, 0)) then
-                    uiState.setupMode = false
-                    uiState.setupStep = 0
-                    print("\ag[ItemUI]\ax Setup complete! Your layout is saved.")
-                end
-            end
+            tutorial.renderSetupBar(refs)
             ImGui.Separator()
         end
 
@@ -494,7 +513,159 @@ function M.render(refs)
         ImGui.SameLine()
 
         ImGui.BeginChild("MainContent", ImVec2(0, -C.FOOTER_HEIGHT), true)
-        renderInventoryContent(refs)
+        local showWelcomePanel = not uiState.setupMode and refs.getOnboardingComplete and not refs.getOnboardingComplete() and not uiState.welcomeSkippedThisSession
+        if showWelcomePanel then
+            tutorial.renderWelcomeScreen(refs)
+        elseif uiState.setupMode and uiState.setupStep == 1 then
+            tutorial.renderDescriptionOverlay(1, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 2 then
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 3 then
+            if refs.sellItems and #(refs.sellItems or {}) == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
+                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+                local invO = (_w and _w.Open and _w.Open()) or false
+                local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
+                refs.maybeScanInventory(invO)
+                refs.maybeScanSellItems(merchO)
+            end
+            tutorial.renderDescriptionOverlay(3, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 4 then
+            if refs.sellItems and #(refs.sellItems or {}) == 0 and refs.maybeScanInventory and refs.maybeScanSellItems then
+                local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+                local invO = (_w and _w.Open and _w.Open()) or false
+                local merchO = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
+                refs.maybeScanInventory(invO)
+                refs.maybeScanSellItems(merchO)
+            end
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 5 then
+            tutorial.renderDescriptionOverlay(5, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 6 then
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 7 then
+            tutorial.renderDescriptionOverlay(7, refs)
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 8 then
+            if not uiState.setupCompanionsOpenedAtStep8 then
+                for _, mod in ipairs(registry.getEnabledModules() or {}) do
+                    registry.setWindowState(mod.id, true, true)
+                    if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened(mod.id) end
+                end
+                uiState.setupCompanionsOpenedAtStep8 = true
+            end
+            if not uiState.setupSampleItemShownInDisplay and refs.addItemDisplayTab then
+                if refs.equipmentCache then
+                    for i = 1, 23 do
+                        local it = refs.equipmentCache[i]
+                        if it and it.bag ~= nil and it.slot ~= nil then
+                            refs.addItemDisplayTab(it, "equipped")
+                            uiState.setupSampleItemShownInDisplay = true
+                            break
+                        end
+                    end
+                end
+                if not uiState.setupSampleItemShownInDisplay and refs.inventoryItems then
+                    for _, entry in ipairs(refs.inventoryItems) do
+                        if entry and (entry.bag ~= nil or entry.slot ~= nil) then
+                            local it = (entry.item and (entry.item.bag ~= nil or entry.item.slot ~= nil)) and entry.item or { bag = entry.bag, slot = entry.slot, name = (entry.item and entry.item.name) or "" }
+                            refs.addItemDisplayTab(it, entry.source or "inv")
+                            uiState.setupSampleItemShownInDisplay = true
+                            break
+                        end
+                    end
+                end
+            end
+            renderInventoryContent(refs)
+        elseif uiState.setupMode and uiState.setupStep == 9 then
+            tutorial.renderDescriptionOverlay(9, refs)
+        elseif uiState.setupMode and (uiState.setupStep == 10 or uiState.setupStep == 11) then
+            local theme = refs.theme
+            local config = refs.config
+            local configSellFlags = refs.configSellFlags or {}
+            local configLootFlags = refs.configLootFlags or {}
+            local configLootValues = refs.configLootValues or {}
+            local invalidateSellConfigCache = refs.invalidateSellConfigCache or function() end
+            if uiState.setupStep == 10 then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Sell protection")
+                ImGui.Separator()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Items with these flags will never be sold when you use Sell.")
+                ImGui.Spacing()
+                local function sellFlag(name, key, tooltip)
+                    local v = ImGui.Checkbox(name, configSellFlags[key])
+                    if v ~= configSellFlags[key] then
+                        configSellFlags[key] = v
+                        if config and config.writeINIValue then config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                        invalidateSellConfigCache()
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+                end
+                sellFlag("Protect NoDrop", "protectNoDrop", "Never sell items with the NoDrop flag")
+                sellFlag("Protect NoTrade", "protectNoTrade", "Never sell items with the NoTrade flag")
+                sellFlag("Protect Lore", "protectLore", "Never sell Lore items (unique)")
+                ImGui.Spacing()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
+            elseif uiState.setupStep == 11 then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Loot rules")
+                ImGui.Separator()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "When looting (e.g. /doloot), items matching these rules will be picked up.")
+                ImGui.Spacing()
+                local function lootFlag(name, key, tooltip)
+                    local v = ImGui.Checkbox(name, configLootFlags[key])
+                    if v ~= configLootFlags[key] then
+                        configLootFlags[key] = v
+                        if config and config.writeLootINIValue then config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
+                end
+                lootFlag("Auto-loot quest items", "lootQuest", "Loot items with the Quest flag")
+                lootFlag("Auto-loot collectibles", "lootCollectible", "Loot items with the Collectible flag")
+                ImGui.Spacing()
+                ImGui.Text("Min value (non-stack)")
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper. Non-stackable items worth less are skipped."); ImGui.EndTooltip() end
+                local minVal = tonumber(configLootValues.minLoot) or 0
+                local minStr = tostring(minVal)
+                ImGui.SameLine(180)
+                ImGui.SetNextItemWidth(120)
+                minStr, _ = ImGui.InputText("##SetupMinLoot", minStr, ImGuiInputTextFlags.CharsDecimal)
+                local n = tonumber(minStr)
+                if n and n >= 0 and n ~= (configLootValues.minLoot or 0) then
+                    configLootValues.minLoot = math.floor(n)
+                    if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
+                end
+                ImGui.Text("Min value (stack)")
+                if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Stackable items worth less per unit are skipped."); ImGui.EndTooltip() end
+                local minStackVal = tonumber(configLootValues.minStack) or 0
+                local minStackStr = tostring(minStackVal)
+                ImGui.SameLine(180)
+                ImGui.SetNextItemWidth(120)
+                minStackStr, _ = ImGui.InputText("##SetupMinLootStack", minStackStr, ImGuiInputTextFlags.CharsDecimal)
+                local nStack = tonumber(minStackStr)
+                if nStack and nStack >= 0 and nStack ~= (configLootValues.minStack or 0) then
+                    configLootValues.minStack = math.floor(nStack)
+                    if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
+                end
+                ImGui.Spacing()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
+            end
+        elseif uiState.setupMode and uiState.setupStep == 12 then
+            renderSetupStep0Content(refs)
+            ImGui.Spacing()
+            do
+                local t = refs.theme
+                if t and t.ToVec4 and t.Colors and t.Colors.Muted then
+                    ImGui.TextColored(t:ToVec4(t.Colors.Muted), "Additional settings can be found in the Settings window.")
+                else
+                    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "Additional settings can be found in the Settings window.")
+                end
+            end
+        elseif uiState.setupMode and uiState.setupStep == 13 then
+            tutorial.renderDescriptionOverlay(13, refs)
+        else
+            renderInventoryContent(refs)
+        end
         ImGui.EndChild()
 
         if uiState.pendingQuantityPickup then
@@ -665,14 +836,68 @@ function M.render(refs)
         if uiState.statusMessage ~= "" then
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), uiState.statusMessage)
         end
+        local errCount = diagnostics.getErrorCount()
+        if errCount > 0 then
+            ImGui.SameLine()
+            local theme = refs.theme
+            ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Warning))
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, theme.ToVec4(theme.Colors.Warning))
+            if ImGui.Button("!##Diagnostics", ImVec2(22, 0)) then
+                uiState.diagnosticsPanelOpen = true
+            end
+            ImGui.PopStyleColor(2)
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text(string.format("%d recent error(s) — click to open diagnostics", errCount))
+                ImGui.EndTooltip()
+            end
+        end
+        if uiState.diagnosticsPanelOpen and not ImGui.IsPopupOpen("Diagnostics##ItemUI") then
+            ImGui.OpenPopup("Diagnostics##ItemUI")
+            uiState.diagnosticsPanelOpen = false
+        end
+        if ImGui.BeginPopupModal("Diagnostics##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Header), "Diagnostics")
+            ImGui.Separator()
+            local configPath = (refs.config and refs.config.CONFIG_PATH) and refs.config.CONFIG_PATH or "—"
+            local charName = (refs.mq and refs.mq.TLO and refs.mq.TLO.Me and refs.mq.TLO.Me.Name) and refs.mq.TLO.Me.Name() or "—"
+            local version = (refs.C and refs.C.VERSION) and refs.C.VERSION or "—"
+            ImGui.Text("Config path: " .. tostring(configPath))
+            ImGui.Text("Character: " .. tostring(charName))
+            ImGui.Text("Version: " .. tostring(version))
+            ImGui.Text("Last scan: —")
+            ImGui.Spacing()
+            ImGui.Text("Module status:")
+            for _, mod in ipairs(registry.getEnabledModules() or {}) do
+                local open = registry.isOpen(mod.id)
+                ImGui.Text(string.format("  %s: %s", mod.label or mod.id, open and "open" or "closed"))
+            end
+            ImGui.Separator()
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Recent errors:")
+            local errs = diagnostics.getErrors()
+            for i = 1, #errs do
+                local e = errs[i]
+                local ts = e.timestamp and os.date("%H:%M:%S", e.timestamp) or "?"
+                ImGui.TextWrapped(string.format("[%s] %s: %s", ts, e.source, e.message))
+                if e.err and e.err ~= "" then
+                    ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "  " .. e.err)
+                end
+            end
+            ImGui.Spacing()
+            if ImGui.Button("Clear errors", ImVec2(100, 0)) then
+                diagnostics.clearErrors()
+            end
+            ImGui.SameLine()
+            if ImGui.Button("Close", ImVec2(80, 0)) then
+                ImGui.CloseCurrentPopup()
+            end
+            ImGui.EndPopup()
+        end
         ImGui.End()
 
-        if uiState.configWindowOpen then
-            local ctx = extendContext(buildViewContext())
-            ConfigView.render(ctx)
-        end
+        -- Config rendered via registry.getDrawableModules()
 
-        if uiState.equipmentWindowShouldDraw then
+        if registry.shouldDraw("equipment") then
             local now = mq.gettime()
             local shouldRefresh = false
             if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
@@ -689,20 +914,16 @@ function M.render(refs)
             uiState.equipmentLastRefreshAt = nil
         end
         if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
-            if refs.scanInventory then refs.scanInventory() end
+            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
+            local invOpen = (invWnd and invWnd.Open and invWnd.Open()) or false
+            if refs.maybeScanInventory then refs.maybeScanInventory(invOpen) end
             uiState.deferredInventoryScanAt = nil
         end
-        renderEquipmentWindow(refs)
-        renderBankWindow(refs)
-        if uiState.augmentsWindowShouldDraw then
-            renderAugmentsWindow(refs)
-        end
-        if uiState.augmentUtilityWindowShouldDraw then
-            renderAugmentUtilityWindow(refs)
-        end
-        if uiState.itemDisplayWindowShouldDraw then
-            renderItemDisplayWindow(refs)
-        end
+        -- Equipment rendered via registry.getDrawableModules()
+        -- Bank rendered via registry.getDrawableModules()
+        -- Augments rendered via registry.getDrawableModules()
+        -- Augment Utility rendered via registry.getDrawableModules()
+        -- Item Display rendered via registry.getDrawableModules()
         if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
             local now = mq.gettime()
             local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
@@ -711,11 +932,8 @@ function M.render(refs)
                 uiState.itemDisplayLocateRequestAt = nil
             end
         end
-        if (tonumber(layoutConfig.ShowAAWindow) or 1) ~= 0 and uiState.aaWindowShouldDraw then
-            renderAAWindow(refs)
-        end
-        if uiState.rerollWindowShouldDraw then
-            renderRerollWindow(refs)
+        for _, mod in ipairs(registry.getDrawableModules()) do
+            mod.render(refs)
         end
     end
 

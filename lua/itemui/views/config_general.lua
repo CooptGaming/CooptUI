@@ -6,6 +6,7 @@
 require('ImGui')
 
 local ConfigFilters = require('itemui.views.config_filters')
+local registry = require('itemui.core.registry')
 
 local ConfigGeneral = {}
 
@@ -48,26 +49,6 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Uncheck to place CoOpt UI Inventory Companion freely.")
             ImGui.EndTooltip()
         end
-        local prevSync = uiState.syncBankWindow
-        uiState.syncBankWindow = ImGui.Checkbox("Enable bank window sync", uiState.syncBankWindow)
-        if prevSync ~= uiState.syncBankWindow then
-            saveLayoutToFile()
-            if uiState.syncBankWindow and uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-                local itemUIX, itemUIY = ImGui.GetWindowPos()
-                local itemUIW = ImGui.GetWindowWidth()
-                if itemUIX and itemUIY and itemUIW then
-                    layoutConfig.BankWindowX = itemUIX + itemUIW + 10
-                    layoutConfig.BankWindowY = itemUIY
-                    saveLayoutToFile()
-                end
-            end
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("When enabled, the bank window follows CoOpt UI Inventory Companion position.")
-            ImGui.Text("Uncheck to move the bank window independently.")
-            ImGui.EndTooltip()
-        end
         local enableLootUI = not uiState.suppressWhenLootMac
         local prevEnableLootUI = enableLootUI
         enableLootUI = ImGui.Checkbox("Enable Loot UI during looting", enableLootUI)
@@ -108,6 +89,42 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("When enabled, epic quest items are never sold and are always looted. Optionally limit by class below.")
             ImGui.Text("Uncheck to allow selling epic items and to stop always-looting them.")
             ImGui.EndTooltip()
+        end
+        ImGui.Spacing()
+        if ImGui.CollapsingHeader("Companion windows", ImGuiTreeNodeFlags.None) then
+            renderBreadcrumb("General", "Companion windows")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Show or hide each companion's button and window. Uncheck to disable.")
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Re-enable any companion here or by editing Show*Window=1 in itemui_layout.ini")
+                ImGui.EndTooltip()
+            end
+            local companions = {
+                { id = "equipment",  key = "ShowEquipmentWindow",  label = "Equipment" },
+                { id = "bank",       key = "ShowBankWindow",       label = "Bank" },
+                { id = "augments",   key = "ShowAugmentsWindow",   label = "Augments" },
+                { id = "augmentUtility", key = "ShowAugmentUtilityWindow", label = "Augment Utility" },
+                { id = "itemDisplay", key = "ShowItemDisplayWindow", label = "Item Display" },
+                { id = "config",     key = "ShowConfigWindow",     label = "Settings" },
+                { id = "aa",        key = "ShowAAWindow",         label = "AA" },
+                { id = "reroll",    key = "ShowRerollWindow",    label = "Reroll" },
+            }
+            for _, c in ipairs(companions) do
+                local val = (tonumber(layoutConfig[c.key]) or 1) ~= 0
+                local prev = val
+                val = ImGui.Checkbox("Show " .. c.label .. " window##" .. c.id, val)
+                if prev ~= val then
+                    layoutConfig[c.key] = val and 1 or 0
+                    if not val then registry.setWindowState(c.id, false, false) end
+                    scheduleLayoutSave()
+                end
+                if c.id == "config" and ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text("Uncheck to hide the Settings button and window.")
+                    ImGui.Text("To show Settings again, set ShowConfigWindow=1 in itemui_layout.ini.")
+                    ImGui.EndTooltip()
+                end
+            end
         end
         if epicEnabled and EPIC_CLASSES and #EPIC_CLASSES > 0 then
             ImGui.Indent()
@@ -181,6 +198,7 @@ function ConfigGeneral.render(ctx)
         sellFlag("Enable Quest protection", "protectQuest", "Never sell items with the Quest flag")
         sellFlag("Enable Collectible protection", "protectCollectible", "Never sell items with the Collectible flag")
         sellFlag("Enable Heirloom protection", "protectHeirloom", "Never sell items with the Heirloom flag")
+        sellFlag("Enable sell history log", "enableSellHistoryLog", "Append each sold item to Macros/logs/item_management/sell_history.log. Off by default to avoid I/O delays when opening sell or between items.")
         ImGui.Spacing()
         ImGui.Text("Value thresholds (copper)")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper"); ImGui.EndTooltip() end
@@ -240,6 +258,8 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         lootFlag("Enable pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "Loot Companion will open and pause so you can choose Take or Pass (5 min).")
         lootFlag("Enable alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
+        lootFlag("Enable live loot feed", "enableLiveLootFeed", "When on, ItemUI Loot tab updates in real time as items are looted (one echo per item). When off, macro is slightly faster and Current/History load when the macro completes.")
+        lootFlag("Quiet loot (suppress console echo)", "quietMode", "When on, the loot macro does not echo Evaluating, Skipping, LOOTING, Corpses Remaining, or startup banner. Reduces console spam and slight overhead.")
         ImGui.Spacing()
         ImGui.Text("Loot delay (ticks)")
         local ticks = tonumber(configLootFlags.lootDelayTicks)
@@ -303,7 +323,13 @@ function ConfigGeneral.render(ctx)
         if setupWasOn then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Warning)) end
         if ImGui.Button("Initial Setup", ImVec2(120, 0)) then
             uiState.setupMode = not uiState.setupMode
-            if uiState.setupMode then uiState.setupStep = 1; loadLayoutConfig() else uiState.setupStep = 0 end
+            if uiState.setupMode then
+                uiState.setupStep = 0
+                if ctx.loadConfigCache then ctx.loadConfigCache() end
+                if loadLayoutConfig then loadLayoutConfig() end
+            else
+                uiState.setupStep = 0
+            end
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
@@ -312,6 +338,17 @@ function ConfigGeneral.render(ctx)
             ImGui.EndTooltip()
         end
         if setupWasOn then ImGui.PopStyleColor(1) end
+        ImGui.SameLine()
+        if ImGui.Button("Show welcome panel again", ImVec2(180, 0)) then
+            if ctx.resetOnboarding then ctx.resetOnboarding() end
+            registry.setWindowState("config", false, false)
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Re-display the first-run welcome panel in the main window.")
+            ImGui.Text("Useful for testing or to see the default flow again.")
+            ImGui.EndTooltip()
+        end
     end
 end
 

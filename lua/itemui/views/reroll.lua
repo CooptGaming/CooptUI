@@ -9,7 +9,9 @@
 local mq = require('mq')
 require('ImGui')
 local constants = require('itemui.constants')
+local context = require('itemui.context')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local registry = require('itemui.core.registry')
 
 local REROLL = constants.REROLL or {}
 local ITEMS_REQUIRED = REROLL.ITEMS_REQUIRED or 10
@@ -252,6 +254,7 @@ local function renderTabContent(ctx, track, rerollService)
                 sortCol = spec.ColumnIndex
                 sortAsc = (spec.SortDirection == ImGuiSortDirection.Ascending)
             end
+            sortSpecs.SpecsDirty = false
         end
         local sorted = {}
         for i = 1, #uniqueList do sorted[i] = uniqueList[i] end
@@ -295,6 +298,20 @@ local function renderTabContent(ctx, track, rerollService)
             -- Row ID must include index so duplicate list entries (same item twice) get unique ImGui IDs
             local rowId = "reroll_" .. track .. "_" .. tostring(i) .. "_" .. tostring(entry.id)
             local locationOk = inInv or (inBank and bankConnected)
+            -- Resolve inv/bank item for tooltip and shared context menu
+            local invItem, bankItem, tipItem, tipSource = nil, nil, nil, nil
+            for _, inv in ipairs(inventoryItems) do
+                if (inv.id or inv.ID) == entry.id then invItem = inv; break end
+            end
+            if not invItem then
+                for _, bn in ipairs(bankList) do
+                    if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
+                end
+            end
+            tipItem = invItem or bankItem
+            tipSource = invItem and "inv" or "bank"
+            local menuItem = { name = entry.name, id = entry.id, type = isAug and "Augmentation" or nil }
+            if tipItem then menuItem.bag = tipItem.bag; menuItem.slot = tipItem.slot; menuItem.inKeep = tipItem.inKeep; menuItem.inJunk = tipItem.inJunk end
 
             ImGui.TableNextColumn()
             ImGui.PushID(rowId)
@@ -307,18 +324,6 @@ local function renderTabContent(ctx, track, rerollService)
             ImGui.PopStyleColor(1)
             if ImGui.IsItemHovered() then
                 -- Tooltip: try to show item details from inventory or bank if we have it
-                local invItem = nil
-                local bankItem = nil
-                for _, inv in ipairs(inventoryItems) do
-                    if (inv.id or inv.ID) == entry.id then invItem = inv; break end
-                end
-                if not invItem then
-                    for _, bn in ipairs(bankList) do
-                        if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
-                    end
-                end
-                local tipItem = invItem or bankItem
-                local tipSource = invItem and "inv" or "bank"
                 if tipItem and ctx.getItemStatsForTooltip then
                     local showItem = ctx.getItemStatsForTooltip(tipItem, tipSource)
                     if showItem then
@@ -342,12 +347,14 @@ local function renderTabContent(ctx, track, rerollService)
             if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
                 ctx.uiState[selectedKey] = entry.id
             end
-            if ImGui.BeginPopupContextItem() then
-                if ImGui.MenuItem("Remove from list") then
-                    ctx.uiState[pendingRemoveKey] = entry.id
-                end
-                ImGui.EndPopup()
-            end
+            ctx.renderItemContextMenu(ctx, menuItem, {
+                source = "reroll",
+                popupId = "ItemContextReroll_" .. rowId,
+                bankOpen = bankConnected,
+                hasCursor = hasCursor,
+                onRemoveFromRerollList = function(id) ctx.uiState[pendingRemoveKey] = id end,
+                rerollEntryId = entry.id,
+            })
             ImGui.PopID()
 
             ImGui.TableNextColumn()
@@ -456,7 +463,8 @@ end
 
 -- Render the full Reroll Companion window (tabs + content).
 function RerollView.render(ctx)
-    if not ctx.uiState.rerollWindowShouldDraw then return end
+    local state = registry.getWindowState("reroll")
+    if not state.windowShouldDraw then return end
 
     local layoutConfig = ctx.layoutConfig or {}
     local layoutDefaults = ctx.layoutDefaults or {}
@@ -480,9 +488,8 @@ function RerollView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Reroll Companion##ItemUIReroll", ctx.uiState.rerollWindowOpen, windowFlags)
-    ctx.uiState.rerollWindowOpen = winOpen
-    ctx.uiState.rerollWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Reroll Companion##ItemUIReroll", state.windowOpen, windowFlags)
+    registry.setWindowState("reroll", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
@@ -529,5 +536,23 @@ function RerollView.render(ctx)
 
     ImGui.End()
 end
+
+-- Registry: Reroll module (Task 4.1 — second extraction)
+registry.register({
+    id          = "reroll",
+    label       = "Reroll",
+    buttonWidth = 55,
+    tooltip     = "Manage server augment and mythical reroll lists",
+    layoutKeys  = { x = "RerollWindowX", y = "RerollWindowY" },
+    enableKey   = "ShowRerollWindow",
+    onOpen      = function() end,
+    onClose     = function() end,
+    onTick      = nil,
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        RerollView.render(ctx)
+    end,
+})
 
 return RerollView

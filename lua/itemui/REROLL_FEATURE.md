@@ -5,13 +5,13 @@
 **Chosen approach: New companion window with two internal tabs (Augments | Mythicals).**
 
 - **Why not a new tab in the main Inventory view:** The main content area is context-driven (Inventory vs Sell vs Loot), not a tab bar. Adding Reroll as a fourth context would dilute the primary use case and require another mode switch.
-- **Why not the Filter section:** The Filter window is for “Always sell / Never loot” and augment lists; it is not a server-backed list. Reroll is a separate system (server commands, list from chat, roll consumption).
+- **Why not the Augments window:** The Augments window is for “Always sell / Never loot” and augment lists; it is not a server-backed list. Reroll is a separate system (server commands, list from chat, roll consumption).
 - **Why a companion window:** Matches existing CoOpt UI pattern: Bank, Equipment, Augments, Augment Utility, Item Display, AA, and Loot are all separate companion windows opened by header buttons. The Reroll Companion fits this model and keeps the main hub uncluttered.
 - **Why two tabs inside:** Augments and Mythicals are parallel tracks with identical command shapes (!augadd / !mythicaladd, etc.). One window with two tabs avoids two nearly identical windows and shares layout/position.
 
 ## Access
 
-- **Header:** Click “Reroll” in the CoOpt UI Inventory Companion header (next to Filter).
+- **Header:** Click “Reroll” in the CoOpt UI Inventory Companion header (next to Augments).
 - **Slash command:** `/itemui reroll` or `/inv reroll` (consistent with `/itemui config`).
 
 ## Server Integration

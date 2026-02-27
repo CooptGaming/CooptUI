@@ -11,53 +11,26 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 
 local constants = require('itemui.constants')
+local context = require('itemui.context')
+local registry = require('itemui.core.registry')
+
 local BankView = {}
 
 -- Module interface: render bank window
 -- Params: context table containing all necessary state and functions from init.lua
 function BankView.render(ctx)
-    if not ctx.uiState.bankWindowShouldDraw then return end
+    if not registry.shouldDraw("bank") then return end
     
     local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
     ctx.ensureBankCacheFromStorage()
     local list = bankOpen and ctx.bankItems or ctx.bankCache
     
-    -- Window positioning
+    -- Window positioning: free-float with saved position; hub-relative default when 0,0 is set in main_window
     local bankX = ctx.layoutConfig.BankWindowX
     local bankY = ctx.layoutConfig.BankWindowY
-    
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
-    if ctx.uiState.syncBankWindow then
-        -- When synced, use the position calculated in renderUI (stored in layoutConfig)
-        -- This position is updated every frame when sync is enabled
-        if bankX and bankY then
-            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), ImGuiCond.Always)
-        end
-    else
-        -- When not synced, use saved position or calculate initial position
-        if bankX and bankY and bankX ~= 0 and bankY ~= 0 then
-            -- Use saved position (Always when forceApply so revert takes effect)
-            ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
-        elseif ctx.uiState.alignToContext then
-            -- Calculate initial position relative to ItemUI (if snapping is enabled)
-            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            if invWnd and invWnd.Open and invWnd.Open() then
-                local invX, invY = tonumber(invWnd.X and invWnd.X()) or 0, tonumber(invWnd.Y and invWnd.Y()) or 0
-                local invW = tonumber(invWnd.Width and invWnd.Width()) or 0
-                if invX and invY and invW > 0 then
-                    -- ItemUI position = InventoryWindow.X + InventoryWindow.Width + spacing
-                    local itemUIX = invX + invW + constants.UI.WINDOW_GAP
-                    local itemUIY = invY
-                    local itemUIW = ctx.layoutConfig.WidthInventory or constants.VIEWS.WidthInventory
-                    local calculatedX = itemUIX + itemUIW + constants.UI.WINDOW_GAP
-                    ImGui.SetNextWindowPos(ImVec2(calculatedX, itemUIY), ImGuiCond.FirstUseEver)
-                    -- Save this calculated position for future use
-                    ctx.layoutConfig.BankWindowX = calculatedX
-                    ctx.layoutConfig.BankWindowY = itemUIY
-                    ctx.scheduleLayoutSave()  -- Schedule debounced save
-                end
-            end
-        end
+    if bankX and bankY then
+        ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
     
     -- Window size (Always when forceApply so revert takes effect)
@@ -73,9 +46,8 @@ function BankView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
     
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", ctx.uiState.bankWindowOpen, windowFlags)
-    ctx.uiState.bankWindowOpen = winOpen
-    ctx.uiState.bankWindowShouldDraw = winOpen
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", registry.isOpen("bank"), windowFlags)
+    registry.setWindowState("bank", winOpen, winOpen)
     
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
@@ -90,17 +62,14 @@ function BankView.render(ctx)
         end
     end
     
-    -- Save position when window is moved (only if not synced, or when sync is disabled)
-    if not ctx.uiState.syncBankWindow then
-        local currentX, currentY = ImGui.GetWindowPos()
-        if currentX and currentY then
-            -- Only save if position actually changed (to avoid constant file writes)
-            if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or 
-               not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
-                ctx.layoutConfig.BankWindowX = currentX
-                ctx.layoutConfig.BankWindowY = currentY
-                ctx.scheduleLayoutSave()  -- Schedule debounced save (was immediate save causing spam)
-            end
+    -- Save position when window is moved
+    local currentX, currentY = ImGui.GetWindowPos()
+    if currentX and currentY then
+        if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or
+           not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
+            ctx.layoutConfig.BankWindowX = currentX
+            ctx.layoutConfig.BankWindowY = currentY
+            ctx.scheduleLayoutSave()
         end
     end
     
@@ -297,7 +266,12 @@ function BankView.render(ctx)
                 end
                 local rid = "bank_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
-                
+                if rawget(item, "_statsPending") then
+                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...") end
+                    ImGui.PopID()
+                    goto bank_continue
+                end
                 -- Render columns dynamically based on visibleCols
                 for _, colDef in ipairs(visibleCols) do
                     ImGui.TableNextColumn()
@@ -307,7 +281,10 @@ function BankView.render(ctx)
                         -- Name column with special interaction logic
                         local dn = item.name or ""
                         if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
+                        local nameColor = ctx.getSellStatusNameColor and ctx.getSellStatusNameColor(ctx, item) or ImVec4(1, 1, 1, 1)
+                        ImGui.PushStyleColor(ImGuiCol.Text, nameColor)
                         ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
+                        ImGui.PopStyleColor(1)
                         if bankOpen then
                             if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                                 if ImGui.GetIO().KeyShift then
@@ -336,7 +313,7 @@ function BankView.render(ctx)
                             end
                         end
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-                            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
+                            ImGui.OpenPopup("ItemContextBankIcon_" .. rid)
                         end
                     elseif colKey == "Icon" then
                         if ctx.drawItemIcon then
@@ -355,77 +332,10 @@ function BankView.render(ctx)
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
                             ImGui.EndTooltip()
                         end
-                        if ImGui.BeginPopupContextItem("ItemContextBankIcon_" .. rid) then
-                            local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
-                            if isScriptItem then
-                                if ImGui.MenuItem("Add All to Alt Currency") then
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                    local it = bn and bn.Item and bn.Item(item.slot)
-                                    local stack = (it and it.Stack and it.Stack()) or 0
-                                    if stack < 1 then
-                                        if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
-                                    else
-                                        ctx.uiState.pendingScriptConsume = {
-                                            bag = item.bag, slot = item.slot, source = "bank",
-                                            totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
-                                        }
-                                    end
-                                end
-                                if ImGui.MenuItem("Add Selected to Alt Currency") then
-                                    local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
-                                    ctx.uiState.pendingQuantityPickup = {
-                                        bag = item.bag, slot = item.slot, source = "bank",
-                                        maxQty = maxQty, itemName = item.name, intent = "script_consume"
-                                    }
-                                    ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS
-                                    ctx.uiState.quantityPickerValue = "1"
-                                    ctx.uiState.quantityPickerMax = maxQty
-                                end
-                            else
-                            if ImGui.MenuItem("CoOp UI Item Display") then
-                                if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, "bank") end
-                            end
-                            if ImGui.MenuItem("Inspect") then
-                                if hasCursor then ctx.removeItemFromCursor()
-                                else
-                                    local Me = mq.TLO and mq.TLO.Me
-                                    local bn = Me and Me.Bank and Me.Bank(item.bag)
-                                    local sz = bn and bn.Container and bn.Container()
-                                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(item.slot)) or bn
-                                    if it and it.ID and it.ID() and it.ID() > 0 and it.Inspect then it.Inspect() end
-                                end
-                            end
-                            -- Reroll list: only for augments or mythicals; show Add or Remove per list
-                            local rerollService = ctx.rerollService
-                            if rerollService then
-                                local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
-                                local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$")
-                                local isAugment = (itemTypeTrim == "Augmentation")
-                                local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
-                                if nameKey ~= "" and (isAugment or isMythicalEligible) then
-                                    ImGui.Separator()
-                                    local augList = rerollService.getAugList and rerollService.getAugList() or {}
-                                    local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                                    local itemId = item.id or item.ID
-                                    local onAugList, onMythicalList = false, false
-                                    if itemId then
-                                        for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                                        for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                                    end
-                                    if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-                                    if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
-                                    if isAugment then
-                                        if onAugList then if ImGui.MenuItem("Remove from Augment List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end end else if ImGui.MenuItem("Add to Augment List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("aug", { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" }) end end end
-                                    end
-                                    if isMythicalEligible then
-                                        if onMythicalList then if ImGui.MenuItem("Remove from Mythical List") then if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end end else if ImGui.MenuItem("Add to Mythical List") then if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" }) end end end
-                                    end
-                                end
-                            end
-                            end
-                            ImGui.EndPopup()
+                        if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                            ImGui.OpenPopup("ItemContextBankIcon_" .. rid)
                         end
+                        ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                     elseif colKey == "Status" then
                         local statusText, willSell = "", false
                         if item.sellReason ~= nil and item.willSell ~= nil then
@@ -435,7 +345,7 @@ function BankView.render(ctx)
                             statusText, willSell = ctx.getSellStatusForItem(item)
                         end
                         if statusText == "" then statusText = "—" end
-                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Warning) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
+                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
                         if statusText == "Epic" then
                             statusText = "EpicQuest"
                             statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
@@ -460,5 +370,20 @@ function BankView.render(ctx)
     
     ImGui.End()
 end
+
+-- Registry: Bank module (4.2 state ownership — window in registry only)
+registry.register({
+    id          = "bank",
+    label       = "Bank",
+    buttonWidth = 60,
+    tooltip     = "View bank items; shift+click to move to inventory",
+    layoutKeys  = { x = "BankWindowX", y = "BankWindowY" },
+    enableKey   = "ShowBankWindow",
+    render      = function(refs)
+        local ctx = context.build()
+        ctx = context.extend(ctx)
+        BankView.render(ctx)
+    end,
+})
 
 return BankView

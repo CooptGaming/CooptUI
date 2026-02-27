@@ -111,7 +111,6 @@ Start with [docs/COOPUI_OVERVIEW.md](COOPUI_OVERVIEW.md) for product scope and w
 
 | File | Purpose |
 |------|---------|
-| `test_rules.lua` | Unit tests for sell/loot rule evaluation |
 | `upvalue_check.lua` | Upvalue count checker for build validation |
 
 ---
@@ -212,7 +211,7 @@ The zip includes:
 - `resources/UIFiles/Default/` (UI files)
 - `DEPLOY.md`, `CHANGELOG.md`
 
-Dev files excluded: `lua/itemui/docs/`, `test_rules.lua`, `upvalue_check.lua`, `phase7_check.ps1`.
+Dev files excluded: `lua/itemui/docs/`, `upvalue_check.lua`.
 
 ### Release Workflow
 
@@ -252,14 +251,6 @@ return {
 
 ## Testing
 
-### Unit Tests
-
-```
-/lua run itemui/test_rules
-```
-
-Tests sell and loot rule evaluation using mock caches. Requires MQ2Lua and the IntegrationTests framework (`lua/IntegrationTests/mqTest.lua`).
-
 ### Upvalue Check
 
 `lua/itemui/upvalue_check.lua` — validates that `context.build()` stays under 60 upvalues. Run to ensure new code doesn't exceed Lua limits.
@@ -295,4 +286,4 @@ Historical phase and design docs have been moved to `lua/itemui/docs/archive/`. 
 - **Upvalue limit**: Run `upvalue_check.lua` after changes. If `context.build()` approaches 60 upvalues, consolidate into tables.
 - **200-local limit**: Use state tables (`uiState`, etc.) instead of loose local variables.
 - **Config changes**: Add new INI keys to both `config_cache.lua` (for ItemUI) and the corresponding macro (for sell.mac/loot.mac).
-- **Testing**: Run `test_rules.lua` after changing sell/loot logic. Manual smoke test in-game for UI changes.
+- **Testing**: Manual smoke test in-game for UI and sell/loot logic. Run `upvalue_check.lua` after changes that touch context.

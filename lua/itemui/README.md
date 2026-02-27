@@ -99,9 +99,7 @@ For detailed migration information, see [SELLUI_MIGRATION_GUIDE.md](docs/SELLUI_
 
 ## Testing
 
-- **Rules unit tests:** `/lua run itemui/test_rules`
-- Tests sell and loot rule evaluation (keep/junk/protected, skip/always-loot) using mock caches.
-- Requires MQ2Lua and the IntegrationTests framework (`lua/IntegrationTests/mqTest.lua`).
+- Rule evaluation is in `itemui.rules`; test sell/loot behavior manually in-game. Run `upvalue_check.lua` to verify context upvalue limit (test_rules.lua was removed in Batch 2 cleanup).
 
 ## Files
 

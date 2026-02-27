@@ -11,6 +11,25 @@ local constants = require('itemui.constants')
 local M = {}
 local deps  -- set by init()
 
+-- Per 4.2 state ownership: insert/remove queues and confirmation/cursor state
+local state = {
+    pendingRemoveAugment = nil,
+    pendingInsertAugment = nil,
+    waitingForRemoveConfirmation = false,
+    waitingForInsertConfirmation = false,
+    waitingForInsertCursorClear = false,
+    waitingForRemoveCursorPopulated = false,
+    insertCursorClearTimeoutAt = nil,
+    removeCursorPopulatedTimeoutAt = nil,
+    insertConfirmationSetAt = nil,
+    removeConfirmationSetAt = nil,
+    removeAllQueue = nil,
+    optimizeQueue = nil,
+}
+function M.getState()
+    return state
+end
+
 local INSERT_DELAY_MS = constants.TIMING.AUGMENT_INSERT_DELAY_MS
 local REMOVE_OPEN_DELAY_MS = constants.TIMING.AUGMENT_REMOVE_OPEN_DELAY_MS
 local REMOVE_AFTER_RIGHTCLICK_MS = 150
