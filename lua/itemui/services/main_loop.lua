@@ -381,9 +381,18 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
             if w and w.Open and w.Open() then
                 mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
-                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-                uiState.pendingQuantityAction = nil
+                action.phase = "qty_accept"
+                action.phaseEnteredAt = now
             end
+            return
+        end
+
+        -- Settle between slider set and Accept so EQ commits the slider value (mirrors item_ops move machine, ~150ms)
+        if phase == "qty_accept" then
+            local settleMs = (constants.TIMING and constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS) or 150
+            if (now - (action.phaseEnteredAt or 0)) < settleMs then return end
+            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+            uiState.pendingQuantityAction = nil
         end
     end
     -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
