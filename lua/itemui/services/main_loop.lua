@@ -76,6 +76,7 @@ local function phase1b_activationGuard(now)
     local lp = uiState.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
     if uiState.pendingQuantityPickup then return end
+    if uiState.pendingAugRollComplete then return end  -- roll result arrives on cursor from server
     if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return end
     local clearedAt = uiState.lastPickupClearedAt or 0
     if (now - clearedAt) <= graceMs then return end
