@@ -1,6 +1,6 @@
 --[[
     ItemUI - Augment Operations Service
-    Insert/remove augments: pickup + /insertaug, open game Item Display + /notify for remove.
+    Insert/remove augments: state machines (Task 6.4), no mq.delay in op flow.
     Part of CoOpt UI — EverQuest EMU Companion
 --]]
 
@@ -30,19 +30,20 @@ function M.getState()
     return state
 end
 
-local INSERT_DELAY_MS = constants.TIMING.AUGMENT_INSERT_DELAY_MS
-local REMOVE_OPEN_DELAY_MS = constants.TIMING.AUGMENT_REMOVE_OPEN_DELAY_MS
+local T = constants.TIMING
+local INSERT_DELAY_MS = T.AUGMENT_INSERT_DELAY_MS
+local REMOVE_OPEN_DELAY_MS = T.AUGMENT_REMOVE_OPEN_DELAY_MS
 local REMOVE_AFTER_RIGHTCLICK_MS = 150
--- Control name for "Remove" / "Extract" in the context menu after right-clicking socket. Discover via Window Inspector.
-local REMOVE_MENU_CONTROL = nil  -- e.g. "IDW_RemoveAugmentButton" or popup window name + control
+local DISPLAY_OPEN_TIMEOUT_MS = T.AUGMENT_DISPLAY_OPEN_TIMEOUT_MS or 4000
+local SETTLE_AFTER_CLICK_MS = T.AUGMENT_SETTLE_AFTER_CLICK_MS or 200
+local REMOVE_MENU_CONTROL = nil
 
 function M.init(d)
     deps = d
 end
 
 -- ============================================================================
--- Insert augment: put augment on cursor, then either /insertaug target (first slot)
--- or open Item Display and click the selected socket (slotIndex 1-based).
+-- Helpers
 -- ============================================================================
 
 local function resolveItemDisplayWindowName()
@@ -62,7 +63,7 @@ local function resolveItemDisplayWindowName()
     return "ItemDisplayWindow"
 end
 
---- Return true if the game's Item Display window is open (so we can skip close or clear waiting state).
+--- Return true if the game's Item Display window is open.
 function M.isItemDisplayWindowOpen()
     local name = resolveItemDisplayWindowName()
     if not name or name == "" then return false end
@@ -72,14 +73,17 @@ function M.isItemDisplayWindowOpen()
     return ok and openVal == true
 end
 
---- Close the game's Item Display window. No-op if already closed. Prefer DoClose (reliable on custom UIs).
+--- Close the game's Item Display window. No-op if already closed.
 function M.closeItemDisplayWindow()
     if not M.isItemDisplayWindowOpen() then return end
     local name = resolveItemDisplayWindowName()
     if not name or name == "" then return end
     mq.cmdf('/invoke ${Window[%s].DoClose}', name)
-    mq.delay(50)
 end
+
+-- ============================================================================
+-- Insert: state machine (phase_pickup -> settle -> inspect | /insertaug -> wait_display_open -> click_socket -> wait_confirm)
+-- ============================================================================
 
 function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSlot, targetSource)
     if not targetItem or not augmentItem then
@@ -101,53 +105,109 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         deps.setStatusMessage("Clear cursor first.")
         return false
     end
-    -- Pick up augment
-    if src == "bank" then
-        mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
-    else
-        mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
-    end
-    mq.delay(INSERT_DELAY_MS)
-
-    -- Specific slot: open Item Display for target item, then click that socket (game places cursor item into it)
-    if slotIndex and slotIndex >= 1 and slotIndex <= 6 and targetBag and targetSlot and targetSource then
-        local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
-        if not it or not it.Inspect then
-            deps.setStatusMessage("Could not get target item to inspect.")
-            return false
-        end
-        it.Inspect()
-        mq.delay(REMOVE_OPEN_DELAY_MS)
-        local windowName = resolveItemDisplayWindowName()
-        local controlName = string.format("IDW_Socket_Slot_%d_Item", slotIndex)
-        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
-        mq.delay(200)
-        if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
-        -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
-        deps.setStatusMessage(string.format("Inserted %s into slot %d", augmentItem.name or "augment", slotIndex))
-        return true
-    end
-
-    -- First-available slot: use /insertaug (no slot parameter)
-    local targetId = targetItem.id or targetItem.ID
-    local targetName = targetItem.name or targetItem.Name
-    if targetId and targetId ~= 0 then
-        mq.cmdf('/insertaug %d', targetId)
-    elseif targetName and targetName ~= "" then
-        mq.cmdf('/insertaug "%s"', targetName:gsub('"', '\\"'):sub(1, 64))
-    else
-        deps.setStatusMessage("Target item has no ID or name.")
-        return false
-    end
-    mq.delay(200)
-    if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
-    -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
-    deps.setStatusMessage(string.format("Inserted %s", augmentItem.name or "augment"))
+    state.pendingInsertAugment = {
+        targetItem = targetItem,
+        augmentItem = augmentItem,
+        slotIndex = slotIndex,
+        targetBag = targetBag,
+        targetSlot = targetSlot,
+        targetSource = targetSource,
+        phase = "pickup",
+    }
     return true
 end
 
+function M.advanceInsert(now)
+    local pa = state.pendingInsertAugment
+    if not pa then return end
+    now = now or mq.gettime()
+    local phase = pa.phase or "pickup"
+    local src = (pa.augmentItem and (pa.augmentItem.source or "inv")) and (pa.augmentItem.source or "inv"):lower() or "inv"
+    local bag = (pa.augmentItem and pa.augmentItem.bag) or 0
+    local slot = (pa.augmentItem and pa.augmentItem.slot) or 0
+
+    if phase == "pickup" then
+        if deps.hasItemOnCursor and deps.hasItemOnCursor() then
+            deps.setStatusMessage("Clear cursor first.")
+            state.pendingInsertAugment = nil
+            return
+        end
+        if src == "bank" and deps.isBankWindowOpen and not deps.isBankWindowOpen() then
+            deps.setStatusMessage("Open bank first to use augment from bank.")
+            state.pendingInsertAugment = nil
+            return
+        end
+        if src == "bank" then
+            mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
+        else
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', bag, slot)
+        end
+        pa.phase = "settle_pickup"
+        pa.phaseEnteredAt = now
+        return
+    end
+
+    if phase == "settle_pickup" then
+        if (now - (pa.phaseEnteredAt or 0)) < INSERT_DELAY_MS then return end
+        local slotIndex, targetBag, targetSlot, targetSource = pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource
+        if slotIndex and slotIndex >= 1 and slotIndex <= 6 and targetBag and targetSlot and targetSource then
+            local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
+            if not it or not it.Inspect then
+                deps.setStatusMessage("Could not get target item to inspect.")
+                state.pendingInsertAugment = nil
+                return
+            end
+            it.Inspect()
+            pa.phase = "wait_display_open"
+            pa.phaseEnteredAt = now
+        else
+            local targetId = (pa.targetItem and (pa.targetItem.id or pa.targetItem.ID)) or 0
+            local targetName = (pa.targetItem and (pa.targetItem.name or pa.targetItem.Name)) or ""
+            if targetId and targetId ~= 0 then
+                mq.cmdf('/insertaug %d', targetId)
+            elseif targetName and targetName ~= "" then
+                mq.cmdf('/insertaug "%s"', targetName:gsub('"', '\\"'):sub(1, 64))
+            else
+                deps.setStatusMessage("Target item has no ID or name.")
+                state.pendingInsertAugment = nil
+                return
+            end
+            if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
+            state.insertConfirmationSetAt = now
+            state.pendingInsertAugment = nil
+            deps.setStatusMessage(string.format("Inserted %s", (pa.augmentItem and pa.augmentItem.name) or "augment"))
+        end
+        return
+    end
+
+    if phase == "wait_display_open" then
+        if (now - (pa.phaseEnteredAt or 0)) > DISPLAY_OPEN_TIMEOUT_MS then
+            deps.setStatusMessage("Item Display did not open; insert timed out.")
+            M.closeItemDisplayWindow()
+            state.pendingInsertAugment = nil
+            return
+        end
+        if not M.isItemDisplayWindowOpen() then return end
+        if (now - (pa.phaseEnteredAt or 0)) < SETTLE_AFTER_CLICK_MS then return end
+        local windowName = resolveItemDisplayWindowName()
+        local controlName = string.format("IDW_Socket_Slot_%d_Item", pa.slotIndex or 1)
+        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+        pa.phase = "settle_after_click"
+        pa.phaseEnteredAt = now
+        return
+    end
+
+    if phase == "settle_after_click" then
+        if (now - (pa.phaseEnteredAt or 0)) < SETTLE_AFTER_CLICK_MS then return end
+        if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
+        state.insertConfirmationSetAt = now
+        state.pendingInsertAugment = nil
+        deps.setStatusMessage(string.format("Inserted %s into slot %d", (pa.augmentItem and pa.augmentItem.name) or "augment", pa.slotIndex or 0))
+    end
+end
+
 -- ============================================================================
--- Remove augment: open game Item Display, right-click socket, click Remove menu
+-- Remove: state machine (phase_inspect -> wait_display_open -> click_socket -> settle -> click_remove -> wait_confirm)
 -- ============================================================================
 
 function M.removeAugment(bag, slot, source, slotIndex)
@@ -160,43 +220,60 @@ function M.removeAugment(bag, slot, source, slotIndex)
         deps.setStatusMessage("Could not get item to inspect.")
         return false
     end
-    it.Inspect()
-    mq.delay(REMOVE_OPEN_DELAY_MS)
-    -- Resolve the game Item Display window name: DisplayItem[n].Window.Name (1-based index 1..6)
-    local windowName = nil
-    for i = 1, 6 do
-        local di = mq.TLO and mq.TLO.DisplayItem and mq.TLO.DisplayItem(i)
-        if di and di.Window then
-            local win = di.Window
-            local ok, nameVal = pcall(function()
-                if win.Name then return win.Name() end
-                return nil
-            end)
-            if ok and nameVal and type(nameVal) == "string" and nameVal ~= "" and nameVal ~= "TRUE" then
-                windowName = nameVal
-                break
-            end
-        end
-    end
-    if not windowName or windowName == "" then
-        windowName = "ItemDisplayWindow"  -- fallback from EQUI_ItemDisplay.xml
-    end
-    local controlName = string.format("IDW_Socket_Slot_%d_Item", slotIndex)
-    -- Use leftmouseup on the socket (per game UI; rightmouseup can be invalid on this control)
-    mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
-    mq.delay(REMOVE_AFTER_RIGHTCLICK_MS)
-    if REMOVE_MENU_CONTROL then
-        mq.cmdf('/notify %s %s leftmouseup', windowName, REMOVE_MENU_CONTROL)
-        mq.delay(150)
-    end
-    -- Confirmation dialog is handled in main loop (waitingForRemoveConfirmation) so we catch it
-    -- whenever it appears after user clicks Remove. Tell init we're expecting it.
-    if deps.setWaitingForRemoveConfirmation then
-        deps.setWaitingForRemoveConfirmation(true)
-    end
-    -- Phase 0: no mid-op scan; main loop runs one scan when remove completes (cursor has item)
-    deps.setStatusMessage(string.format("Remove augment from slot %d (check game window for dialogs)", slotIndex))
+    state.pendingRemoveAugment = {
+        bag = bag,
+        slot = slot,
+        source = source,
+        slotIndex = slotIndex,
+        phase = "inspect",
+    }
     return true
+end
+
+function M.advanceRemove(now)
+    local ra = state.pendingRemoveAugment
+    if not ra then return end
+    now = now or mq.gettime()
+    local phase = ra.phase or "inspect"
+
+    if phase == "inspect" then
+        local it = deps.getItemTLO and deps.getItemTLO(ra.bag, ra.slot, ra.source)
+        if it and it.Inspect then it.Inspect() end
+        ra.phase = "wait_display_open"
+        ra.phaseEnteredAt = now
+        return
+    end
+
+    if phase == "wait_display_open" then
+        if (now - (ra.phaseEnteredAt or 0)) > DISPLAY_OPEN_TIMEOUT_MS then
+            deps.setStatusMessage("Item Display did not open; remove timed out.")
+            M.closeItemDisplayWindow()
+            state.pendingRemoveAugment = nil
+            return
+        end
+        if not M.isItemDisplayWindowOpen() then return end
+        if (now - (ra.phaseEnteredAt or 0)) < REMOVE_OPEN_DELAY_MS then return end
+        local windowName = resolveItemDisplayWindowName()
+        local controlName = string.format("IDW_Socket_Slot_%d_Item", ra.slotIndex)
+        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+        ra.phase = "settle_after_click"
+        ra.phaseEnteredAt = now
+        return
+    end
+
+    if phase == "settle_after_click" then
+        if (now - (ra.phaseEnteredAt or 0)) < REMOVE_AFTER_RIGHTCLICK_MS then return end
+        if REMOVE_MENU_CONTROL then
+            local windowName = resolveItemDisplayWindowName()
+            mq.cmdf('/notify %s %s leftmouseup', windowName, REMOVE_MENU_CONTROL)
+        end
+        ra.phase = "wait_confirm"
+        ra.phaseEnteredAt = now
+        if deps.setWaitingForRemoveConfirmation then deps.setWaitingForRemoveConfirmation(true) end
+        state.removeConfirmationSetAt = now
+        state.pendingRemoveAugment = nil
+        deps.setStatusMessage(string.format("Remove augment from slot %d (check game window for dialogs)", ra.slotIndex))
+    end
 end
 
 return M

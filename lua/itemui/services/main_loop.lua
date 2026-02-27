@@ -502,11 +502,9 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
         if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
     end
+    -- Task 6.4: augment insert/remove are state machines; advance each tick, do not clear and call once
     if uiState.pendingRemoveAugment then
-        local ra = uiState.pendingRemoveAugment
-        uiState.pendingRemoveAugment = nil
-        augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
-        uiState.removeConfirmationSetAt = mq.gettime()
+        augmentOps.advanceRemove(now)
     end
     if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
         and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear then
@@ -523,15 +521,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 augmentItem = step.augmentItem,
                 slotIndex = step.slotIndex,
             }
-            uiState.insertConfirmationSetAt = mq.gettime()
         end
     end
     if uiState.pendingInsertAugment then
-        local pa = uiState.pendingInsertAugment
-        uiState.pendingInsertAugment = nil
         uiState.itemDisplayAugmentSlotActive = nil
-        augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
-        uiState.insertConfirmationSetAt = mq.gettime()
+        augmentOps.advanceInsert(now)
     end
     local pq = uiState.pendingQuantityPickup
     if pq and type(pq) == "table" then

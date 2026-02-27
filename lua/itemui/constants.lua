@@ -51,6 +51,8 @@ M.TIMING = {
     AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = 6000,
     AUGMENT_REMOVE_OPEN_DELAY_MS = 400,
     AUGMENT_INSERT_DELAY_MS = 250,
+    AUGMENT_DISPLAY_OPEN_TIMEOUT_MS = 4000,  -- Risk R4: wait for Item Display to open
+    AUGMENT_SETTLE_AFTER_CLICK_MS = 200,     -- Risk R4: minimum settle per phase
 
     -- Item Display locate highlight
     ITEM_DISPLAY_LOCATE_CLEAR_SEC = 3,
