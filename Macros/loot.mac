@@ -135,6 +135,7 @@ Sub Main
 /declare pauseAlertCorpseName string outer
 /declare mythicalDecisionResult string outer
 /declare quietMode bool outer FALSE
+/declare enableLiveLootFeed bool outer FALSE
 
 | Epic Items (when alwaysLootEpic - chunked to avoid buffer overflow, do NOT merge)
 | When epic_classes.ini has any class=TRUE, only those classes' lists are loaded; else full epic_items_exact.ini
@@ -318,15 +319,17 @@ Sub Main
 /ini "${configPath}/loot_progress.ini" Protocol Version 1
 /ini "${configPath}/loot_progress.ini" Progress line "1##0##${totalCorpses}##"
 
-/echo ==========================================
-/echo Loot Macro v4.0 Started
-/echo ==========================================
-/echo Config: Min Value=${minLootValue}, Min Stack=${minLootValueStack}
-/echo Config: Tribute Override=${tributeOverride}
-/if (${enableSorting} && ${enableWeightSort}) {
-    /echo Config: Weight Sorting Enabled (threshold: ${minWeight})
-} else {
-    /echo Config: Sorting Disabled
+/if (!${quietMode}) {
+    /echo ==========================================
+    /echo Loot Macro v4.0 Started
+    /echo ==========================================
+    /echo Config: Min Value=${minLootValue}, Min Stack=${minLootValueStack}
+    /echo Config: Tribute Override=${tributeOverride}
+    /if (${enableSorting} && ${enableWeightSort}) {
+        /echo Config: Weight Sorting Enabled (threshold: ${minWeight})
+    } else {
+        /echo Config: Sorting Disabled
+    }
 }
 :mainlootloop
     
@@ -359,7 +362,7 @@ Sub Main
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     } else {
         /tar npccorpse${If[${Alert}, noalert ${Alert},]}
-        /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
+        /if (!${quietMode}) /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     }
     
@@ -368,7 +371,7 @@ Sub Main
     
     | --- Verify we're close enough to loot ---
     /if (${Target.Distance} > 20) {
-        /echo Warning: Too far from corpse (${Target.Distance} units) - skipping
+        /if (!${quietMode}) /echo Warning: Too far from corpse (${Target.Distance} units) - skipping
         /goto :mainlootloop
     }
     
@@ -1483,6 +1486,11 @@ sub LoadConfig(bool verbose)
     } else {
         /varset quietMode FALSE
     }
+    /if (${Ini[${flagsFile},Settings,enableLiveLootFeed].Length}) {
+        /varset enableLiveLootFeed ${Ini[${flagsFile},Settings,enableLiveLootFeed]}
+    } else {
+        /varset enableLiveLootFeed FALSE
+    }
     /if (${Ini[${flagsFile},Settings,lootDelayTicks].Length}) {
         /varset lootDelayTicks ${Ini[${flagsFile},Settings,lootDelayTicks]}
     } else {
@@ -1927,9 +1935,9 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /varset runBestItemName ${itemName}
     }
     
-    | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event()
-    /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
-    
+    | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event() when enableLiveLootFeed=TRUE
+    /if (${enableLiveLootFeed}) /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
+
     | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)
     /if (${quietMode}) /return
     
