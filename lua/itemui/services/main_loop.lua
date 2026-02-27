@@ -291,34 +291,39 @@ local function phase5_lootMacro(now)
             uiState.lootRunTotalCorpses = total
             uiState.lootRunCurrentCorpse = current or ""
         end
-        -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait
+        -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait.
+        -- Task 6.2: short-circuit when itemName empty and lootMythicalAlert already nil to avoid 5 INI reads per poll.
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
             local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-            if itemName and itemName ~= "" then
-                local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                uiState.lootMythicalAlert = {
-                    itemName = itemName,
-                    corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                    decision = decision,
-                    itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                    timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                    iconId = tonumber(iconStr) or 0
-                }
-                if decision == "pending" then
-                    if not prevName or prevName ~= itemName then
-                        uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+            if (not itemName or itemName == "") and not uiState.lootMythicalAlert then
+                -- Skip: no mythical item and already nil
+            else
+                if itemName and itemName ~= "" then
+                    local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+                    local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+                    local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
+                    uiState.lootMythicalAlert = {
+                        itemName = itemName,
+                        corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+                        decision = decision,
+                        itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+                        timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+                        iconId = tonumber(iconStr) or 0
+                    }
+                    if decision == "pending" then
+                        if not prevName or prevName ~= itemName then
+                            uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+                        end
+                        uiState.lootUIOpen = true
+                        d.recordCompanionWindowOpened("loot")
+                    else
+                        uiState.lootMythicalDecisionStartAt = nil
                     end
-                    uiState.lootUIOpen = true
-                    d.recordCompanionWindowOpened("loot")
                 else
+                    uiState.lootMythicalAlert = nil
                     uiState.lootMythicalDecisionStartAt = nil
                 end
-            else
-                uiState.lootMythicalAlert = nil
-                uiState.lootMythicalDecisionStartAt = nil
             end
         end
     end
