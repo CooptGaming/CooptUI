@@ -346,7 +346,7 @@
       "hash": "1fb9dc789044c77737779684fe24288c845d70fed6dce5748eeddb510318f331"
     },
     {
-      "path": "lua/itemui/wiring.lua",
+      "path": "lua/itemui/app.lua",
       "hash": "e1c214f04101f72fdd2d737b1c5913b2ab8644bdee98cf9478198cba1b4e761c"
     },
     {
