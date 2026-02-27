@@ -137,6 +137,8 @@ function M.advanceInsert(now)
             state.pendingInsertAugment = nil
             return
         end
+        -- Mark this as an intentional pickup so phase1b click-through protection doesn't autoinv it.
+        if deps.markExpectedPickup then deps.markExpectedPickup(bag, slot, src) end
         if src == "bank" then
             mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
         else
@@ -149,6 +151,13 @@ function M.advanceInsert(now)
 
     if phase == "settle_pickup" then
         if (now - (pa.phaseEnteredAt or 0)) < INSERT_DELAY_MS then return end
+        if deps.hasItemOnCursor and not deps.hasItemOnCursor() then
+            if (now - (pa.phaseEnteredAt or 0)) > DISPLAY_OPEN_TIMEOUT_MS then
+                deps.setStatusMessage("Failed to pick up augment on cursor.")
+                state.pendingInsertAugment = nil
+            end
+            return
+        end
         local slotIndex, targetBag, targetSlot, targetSource = pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource
         if slotIndex and slotIndex >= 1 and slotIndex <= 6 and targetBag and targetSlot and targetSource then
             local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
@@ -175,7 +184,6 @@ function M.advanceInsert(now)
             if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
             state.insertConfirmationSetAt = now
             state.pendingInsertAugment = nil
-            deps.setStatusMessage(string.format("Inserted %s", (pa.augmentItem and pa.augmentItem.name) or "augment"))
         end
         return
     end
@@ -188,7 +196,8 @@ function M.advanceInsert(now)
             return
         end
         if not M.isItemDisplayWindowOpen() then return end
-        if (now - (pa.phaseEnteredAt or 0)) < SETTLE_AFTER_CLICK_MS then return end
+        -- Match the original, working flow: wait full display-open settle before socket click.
+        if (now - (pa.phaseEnteredAt or 0)) < REMOVE_OPEN_DELAY_MS then return end
         local windowName = resolveItemDisplayWindowName()
         local controlName = string.format("IDW_Socket_Slot_%d_Item", pa.slotIndex or 1)
         mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
@@ -202,7 +211,6 @@ function M.advanceInsert(now)
         if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
         state.insertConfirmationSetAt = now
         state.pendingInsertAugment = nil
-        deps.setStatusMessage(string.format("Inserted %s into slot %d", (pa.augmentItem and pa.augmentItem.name) or "augment", pa.slotIndex or 0))
     end
 end
 

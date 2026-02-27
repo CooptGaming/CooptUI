@@ -381,18 +381,9 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
             if w and w.Open and w.Open() then
                 mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
-                action.phase = "qty_accept"
-                action.phaseEnteredAt = now
+                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+                uiState.pendingQuantityAction = nil
             end
-            return
-        end
-
-        -- Settle between slider set and Accept so EQ commits the slider value (mirrors item_ops move machine, ~150ms)
-        if phase == "qty_accept" then
-            local settleMs = (constants.TIMING and constants.TIMING.ITEM_OPS_DELAY_MEDIUM_MS) or 150
-            if (now - (action.phaseEnteredAt or 0)) < settleMs then return end
-            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-            uiState.pendingQuantityAction = nil
         end
     end
     -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
@@ -516,7 +507,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         augmentOps.advanceRemove(now)
     end
     if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
-        and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear then
+        and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear
+        and not hasItemOnCursor() then
         local oq = uiState.optimizeQueue
         local step = table.remove(oq.steps, 1)
         if step and step.slotIndex and step.augmentItem then
@@ -822,7 +814,15 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     end
     if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
         if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-        if hasItemOnCursor() then setStatusMessage("Insert may have failed; check cursor.") end
+        if hasItemOnCursor() then
+            setStatusMessage("Insert may have failed; check cursor.")
+        else
+            -- No confirm dialog appeared, but cursor cleared: treat as completed insert.
+            resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
+        end
         uiState.waitingForInsertConfirmation = false
         uiState.insertConfirmationSetAt = nil
     end
@@ -848,6 +848,9 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             uiState.insertCursorClearTimeoutAt = nil
             uiState.insertConfirmationSetAt = nil
             resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
         end
     end
     if uiState.waitingForRemoveCursorPopulated then

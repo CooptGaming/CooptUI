@@ -596,6 +596,12 @@ augmentOps.init({
     scanBank = function() scanService.scanBank() end,
     isBankWindowOpen = isBankWindowOpen,
     hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
+    markExpectedPickup = function(bag, slot, source)
+        uiState.lastPickup.bag = bag
+        uiState.lastPickup.slot = slot
+        uiState.lastPickup.source = source
+        uiState.lastPickupSetThisFrame = true
+    end,
     setWaitingForRemoveConfirmation = function(v) uiState.waitingForRemoveConfirmation = v end,
     setWaitingForInsertConfirmation = function(v) uiState.waitingForInsertConfirmation = v end,
 })
