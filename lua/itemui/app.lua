@@ -326,89 +326,9 @@ local function setStatusMessage(msg) itemHelpers.setStatusMessage(msg) end
 local function getItemSpellId(item, prop) return itemHelpers.getItemSpellId(item, prop) end
 local function getSpellName(id) return itemHelpers.getSpellName(id) end
 
--- Companion windows: LIFO close order (record open time; Esc closes most recently opened)
+-- Companion windows: lifecycle state is owned by registry (openedAt + LIFO close).
 local function recordCompanionWindowOpened(name)
-    uiState.companionWindowOpenedAt = uiState.companionWindowOpenedAt or {}
-    uiState.companionWindowOpenedAt[name] = mq.gettime()
-end
-local function closeCompanionWindow(name)
-    if name == "config" then
-        registry.setWindowState("config", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "equipment" then
-        registry.setWindowState("equipment", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "bank" then
-        registry.setWindowState("bank", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "augments" then
-        registry.setWindowState("augments", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "augmentUtility" then
-        registry.setWindowState("augmentUtility", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "itemDisplay" then
-        registry.setWindowState("itemDisplay", false, false)
-        ItemDisplayView.getState().itemDisplayTabs = {}
-        ItemDisplayView.getState().itemDisplayActiveTabIndex = 1
-        uiState.removeAllQueue = nil   -- Phase 1: target changed
-        uiState.optimizeQueue = nil    -- Phase 2: target changed
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "aa" then
-        registry.setWindowState("aa", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "reroll" then
-        registry.setWindowState("reroll", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "loot" then
-        uiState.lootUIOpen = false
-        uiState.lootRunLootedList = {}
-        uiState.lootRunLootedItems = {}
-        uiState.lootRunCorpsesLooted = 0
-        uiState.lootRunTotalCorpses = 0
-        uiState.lootRunCurrentCorpse = ""
-        uiState.lootRunFinished = false
-        uiState.lootMythicalAlert = nil
-        uiState.lootMythicalDecisionStartAt = nil
-        uiState.lootMythicalFeedback = nil
-        uiState.lootRunTotalValue = 0
-        uiState.lootRunTributeValue = 0
-        uiState.lootRunBestItemName = ""
-        uiState.lootRunBestItemValue = 0
-    end
-    if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-end
-local function getMostRecentlyOpenedCompanion()
-    local at = uiState.companionWindowOpenedAt
-    if not at then return nil end
-    local candidates = {
-        { "config", registry.isOpen("config") },
-        { "equipment", registry.isOpen("equipment") },
-        { "bank", registry.isOpen("bank") },
-        { "augments", registry.isOpen("augments") },
-        { "augmentUtility", registry.isOpen("augmentUtility") },
-        { "itemDisplay", registry.isOpen("itemDisplay") },
-        { "aa", registry.isOpen("aa") },
-        { "reroll", registry.isOpen("reroll") },
-        { "loot", uiState.lootUIOpen },
-    }
-    local bestName, bestT = nil, -1
-    for _, c in ipairs(candidates) do
-        local nam, open = c[1], c[2]
-        if open and at[nam] and at[nam] > bestT then
-            bestT = at[nam]
-            bestName = nam
-        end
-    end
-    return bestName
+    registry.recordOpened(name)
 end
 
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
@@ -951,8 +871,28 @@ local mainWindowRefs = {
     saveLayoutToFile = saveLayoutToFile,
     saveLayoutForView = saveLayoutForView,
     loadLayoutConfig = loadLayoutConfig,
-    getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanion,
-    closeCompanionWindow = closeCompanionWindow,
+    getMostRecentlyOpenedCompanion = function()
+        return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
+    end,
+    closeCompanionWindow = function(name)
+        return registry.closeWindow(name, function(closedId)
+            if closedId ~= "loot" then return end
+            uiState.lootUIOpen = false
+            uiState.lootRunLootedList = {}
+            uiState.lootRunLootedItems = {}
+            uiState.lootRunCorpsesLooted = 0
+            uiState.lootRunTotalCorpses = 0
+            uiState.lootRunCurrentCorpse = ""
+            uiState.lootRunFinished = false
+            uiState.lootMythicalAlert = nil
+            uiState.lootMythicalDecisionStartAt = nil
+            uiState.lootMythicalFeedback = nil
+            uiState.lootRunTotalValue = 0
+            uiState.lootRunTributeValue = 0
+            uiState.lootRunBestItemName = ""
+            uiState.lootRunBestItemValue = 0
+        end)
+    end,
     closeGameInventoryIfOpen = closeGameInventoryIfOpen,
     closeGameMerchantIfOpen = closeGameMerchantIfOpen,
     recordCompanionWindowOpened = recordCompanionWindowOpened,

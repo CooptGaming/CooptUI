@@ -37,6 +37,18 @@ local function isEnabled(spec)
     return (tonumber(layoutConfig[spec.enableKey]) or 1) ~= 0
 end
 
+function M.recordOpened(id)
+    if not id or id == "" then return end
+    local now = mq.gettime()
+    local m = modules[id]
+    if m then
+        m.openedAt = now
+    end
+    if companionWindowOpenedAt then
+        companionWindowOpenedAt[id] = now
+    end
+end
+
 function M.register(spec)
     if not spec or not spec.id then return end
     cacheDirty = true
@@ -140,25 +152,55 @@ function M.toggleWindow(id)
 end
 
 function M.closeNewestOpen()
+    local bestId = M.getNewestOpen()
+    if not bestId then return nil end
+    M.closeWindow(bestId)
+    return bestId
+end
+
+function M.closeWindow(id, cleanupFn)
+    if not id or id == "" then return false end
     cacheDirty = true
-    local bestId, bestT = nil, -1
-    for _, id in ipairs(order) do
-        local m = modules[id]
-        if m and m.windowShouldDraw and m.openedAt and m.openedAt > bestT then
-            bestT = m.openedAt
-            bestId = id
+    local m = modules[id]
+    if m then
+        m.windowOpen = false
+        m.windowShouldDraw = false
+        m.openedAt = nil
+        if companionWindowOpenedAt then
+            companionWindowOpenedAt[id] = nil
+        end
+        if m.spec.onClose and type(m.spec.onClose) == "function" then
+            m.spec.onClose()
+        end
+    else
+        if companionWindowOpenedAt then
+            companionWindowOpenedAt[id] = nil
         end
     end
-    if not bestId then return nil end
-    local m = modules[bestId]
-    m.windowOpen = false
-    m.windowShouldDraw = false
-    m.openedAt = nil
-    if companionWindowOpenedAt then
-        companionWindowOpenedAt[bestId] = nil
+    if cleanupFn and type(cleanupFn) == "function" then
+        cleanupFn(id)
     end
-    if m.spec.onClose and type(m.spec.onClose) == "function" then
-        m.spec.onClose()
+    return true
+end
+
+function M.getNewestOpen(isOpenFn)
+    local bestId, bestT = nil, -1
+    local opened = companionWindowOpenedAt or {}
+    for id, openedAt in pairs(opened) do
+        local t = tonumber(openedAt) or -1
+        if t >= 0 then
+            local m = modules[id]
+            local isOpen = false
+            if m then
+                isOpen = m.windowShouldDraw == true
+            elseif isOpenFn and type(isOpenFn) == "function" then
+                isOpen = isOpenFn(id) == true
+            end
+            if isOpen and t > bestT then
+                bestT = t
+                bestId = id
+            end
+        end
     end
     return bestId
 end

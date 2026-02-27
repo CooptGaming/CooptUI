@@ -353,12 +353,7 @@ function M.render(refs)
             else
                 local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
                 if mostRecent then
-                    if registry.isRegistered(mostRecent) then
-                        registry.setWindowState(mostRecent, false, false)
-                        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[mostRecent] = nil end
-                    else
-                        refs.closeCompanionWindow(mostRecent)
-                    end
+                    if refs.closeCompanionWindow then refs.closeCompanionWindow(mostRecent) end
                 else
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
