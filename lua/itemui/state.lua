@@ -165,6 +165,8 @@ local scanState = {
     nextAcquiredSeq = 1,
     lastGetChangedBagsTime = 0,
     inventoryBagsDirty = false,
+    --- Task 6.3: set when computeAndAttachSellStatus runs; cleared when a scan updates item lists. Used to skip redundant status computation.
+    sellStatusAttachedAt = nil,
 }
 local deferredScanNeeded = { inventory = false, bank = false, sell = false }
 

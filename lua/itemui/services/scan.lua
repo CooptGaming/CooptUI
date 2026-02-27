@@ -83,6 +83,7 @@ end
 -- Inventory scan
 function M.scanInventory()
     local t0 = mq.gettime()
+    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being rebuilt
     local inventoryItems = env.inventoryItems
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
@@ -192,6 +193,7 @@ function M.processIncrementalScan()
     for _, it in ipairs(inventoryItems) do
         if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
     end
+    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being updated
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
     for _, it in ipairs(incrementalScanState.newItems) do
         table.insert(inventoryItems, it)
@@ -229,6 +231,7 @@ end
 
 local function targetedRescanBags(changedBags)
     if not changedBags or #changedBags == 0 then return end
+    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being updated
     local t0 = mq.gettime()
     local inventoryItems = env.inventoryItems
     local buildItemFromMQ = env.buildItemFromMQ
@@ -279,6 +282,7 @@ end
 
 -- Bank scan
 function M.scanBank()
+    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being rebuilt
     local bankItems = env.bankItems
     local bankCache = env.bankCache
     env.invalidateSortCache("bank")
@@ -381,6 +385,7 @@ function M.scanSellItems()
     -- Atomic swap: clear and repopulate in one non-yielding block
     for i = #sellItems, 1, -1 do sellItems[i] = nil end
     for i, v in ipairs(newItems) do sellItems[i] = v end
+    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list was rebuilt
 
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
     scanSellItemsRunning = false
@@ -390,6 +395,7 @@ function M.loadSnapshotsFromDisk()
     local loaded = false
     local invItems, _, nextSeq = env.storage.loadInventory()
     if invItems and #invItems > 0 then
+        env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being replaced
         for i = #env.inventoryItems, 1, -1 do env.inventoryItems[i] = nil end
         for _, it in ipairs(invItems) do table.insert(env.inventoryItems, it) end
         if nextSeq then env.scanState.nextAcquiredSeq = nextSeq end

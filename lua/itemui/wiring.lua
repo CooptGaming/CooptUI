@@ -1013,7 +1013,10 @@ local function runSellMacroLegacy()
     scanInventory()
     if isMerchantWindowOpen() then scanSellItems() end
     if #inventoryItems > 0 then
-        computeAndAttachSellStatus(inventoryItems)
+        if not scanState.sellStatusAttachedAt then
+            computeAndAttachSellStatus(inventoryItems)
+            scanState.sellStatusAttachedAt = mq.gettime()
+        end
         storage.ensureCharFolderExists()
         storage.saveInventory(inventoryItems)
         storage.writeSellCache(inventoryItems)

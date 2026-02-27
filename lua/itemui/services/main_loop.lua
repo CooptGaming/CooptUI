@@ -99,7 +99,10 @@ local function phase2_periodicPersist(now)
                 storage.saveInventory(sellItems)
                 storage.writeSellCache(sellItems)
             elseif #inventoryItems > 0 then
-                computeAndAttachSellStatus(inventoryItems)
+                if not scanState.sellStatusAttachedAt then
+                    computeAndAttachSellStatus(inventoryItems)
+                    scanState.sellStatusAttachedAt = now
+                end
                 storage.saveInventory(inventoryItems)
                 storage.writeSellCache(inventoryItems)
             end
@@ -617,9 +620,12 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     end
     if perfCache.sellConfigPendingRefresh then
         if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
-        computeAndAttachSellStatus(inventoryItems)
-        if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
-        if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+        if not scanState.sellStatusAttachedAt then
+            computeAndAttachSellStatus(inventoryItems)
+            if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
+            if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+            scanState.sellStatusAttachedAt = now
+        end
         perfCache.sellConfigPendingRefresh = false
     end
 
