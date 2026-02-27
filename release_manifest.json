@@ -274,7 +274,7 @@
       "hash": "d8eacdec3dc3a63b7cacdad9d83d52ff2fa1dfb0377a266eeb2b203a9e7450b2"
     },
     {
-      "path": "lua/itemui/views/config.lua",
+      "path": "lua/itemui/views/settings.lua",
       "hash": "e12f743167d5bc1954133bd3e4d8e0673807dbf61c75b34785226a70cce381b2"
     },
     {

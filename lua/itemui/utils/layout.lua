@@ -115,15 +115,11 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightReroll then layoutDefaults.HeightReroll = tonumber(d.HeightReroll) or layoutDefaults.HeightReroll end
     if d.RerollWindowX then layoutDefaults.RerollWindowX = tonumber(d.RerollWindowX) or layoutDefaults.RerollWindowX end
     if d.RerollWindowY then layoutDefaults.RerollWindowY = tonumber(d.RerollWindowY) or layoutDefaults.RerollWindowY end
-    if d.SyncBankWindow then layoutDefaults.SyncBankWindow = setBool(d.SyncBankWindow) and 1 or 0 end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
     if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end
-    if d.SellViewLocked then uiState.sellViewLocked = setBool(d.SellViewLocked) end
-    if d.InvViewLocked then uiState.invViewLocked = setBool(d.InvViewLocked) end
-    if d.BankViewLocked then uiState.bankViewLocked = setBool(d.BankViewLocked) end
     local cvd = parsed.columnVisibilityDefaults or {}
     for view, v in pairs(cvd) do
         if columnVisibility[view] then
@@ -215,7 +211,6 @@ function LayoutUtils.saveLayoutToFileImmediate()
         end
         f:write("[" .. LAYOUT_SECTION .. "]\n")
         f:write("AlignToContext=" .. (uiState.alignToContext and "1" or "0") .. "\n")
-        f:write("AlignToMerchant=" .. (uiState.alignToMerchant and "1" or "0") .. "\n")
         f:write("UILocked=" .. (uiState.uiLocked and "1" or "0") .. "\n")
         f:write("WidthInventory=" .. tostring(layoutConfig.WidthInventory or layoutDefaults.WidthInventory) .. "\n")
         f:write("Height=" .. tostring(layoutConfig.Height or layoutDefaults.Height) .. "\n")
@@ -261,13 +256,9 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("RerollWindowY=" .. tostring(layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY or 0) .. "\n")
         f:write("WidthConfig=" .. tostring(layoutConfig.WidthConfig or constants.VIEWS.WidthConfig) .. "\n")
         f:write("HeightConfig=" .. tostring(layoutConfig.HeightConfig or 420) .. "\n")
-        f:write("SyncBankWindow=" .. (uiState.syncBankWindow and "1" or "0") .. "\n")
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
         f:write("ActivationGuardEnabled=" .. ((layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled) and "1" or "0") .. "\n")
-        f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
-        f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
-        f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
         f:write("ConfigTab=" .. tostring(filterState.configTab) .. "\n")
         f:write("FilterSubTab=" .. tostring(filterState.filterSubTab) .. "\n")
         f:write("InvSortColumn=" .. tostring(sortState.invColumn or "Name") .. "\n")
@@ -368,7 +359,6 @@ function LayoutUtils.loadLayoutConfig()
         LayoutUtils.applyDefaultsFromParsed(perfCache.layoutCached)
         local layout = perfCache.layoutCached.layout or {}
         uiState.alignToContext = LayoutUtils.loadLayoutValue(layout, "AlignToContext", layoutDefaults.AlignToContext == 1)
-        uiState.alignToMerchant = LayoutUtils.loadLayoutValue(layout, "AlignToMerchant", false)
         uiState.uiLocked = LayoutUtils.loadLayoutValue(layout, "UILocked", layoutDefaults.UILocked == 1)
         layoutConfig.WidthInventory = LayoutUtils.loadLayoutValue(layout, "WidthInventory", layoutDefaults.WidthInventory)
         layoutConfig.Height = LayoutUtils.loadLayoutValue(layout, "Height", layoutDefaults.Height)
@@ -414,13 +404,9 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.RerollWindowY = LayoutUtils.loadLayoutValue(layout, "RerollWindowY", layoutDefaults.RerollWindowY or 0)
         layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
         layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
-        uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
         layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
-        uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
-        uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
-        uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
         local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
         -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
         filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
@@ -485,7 +471,6 @@ function LayoutUtils.loadLayoutConfig()
     LayoutUtils.applyDefaultsFromParsed(parsed)
     local layout = parsed.layout or {}
     uiState.alignToContext = LayoutUtils.loadLayoutValue(layout, "AlignToContext", layoutDefaults.AlignToContext == 1)
-    uiState.alignToMerchant = LayoutUtils.loadLayoutValue(layout, "AlignToMerchant", false)
     uiState.uiLocked = LayoutUtils.loadLayoutValue(layout, "UILocked", layoutDefaults.UILocked == 1)
     layoutConfig.WidthInventory = LayoutUtils.loadLayoutValue(layout, "WidthInventory", layoutDefaults.WidthInventory)
     layoutConfig.Height = LayoutUtils.loadLayoutValue(layout, "Height", layoutDefaults.Height)
@@ -530,12 +515,8 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.RerollWindowY = LayoutUtils.loadLayoutValue(layout, "RerollWindowY", layoutDefaults.RerollWindowY or 0)
     layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
     layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
-    uiState.syncBankWindow = LayoutUtils.loadLayoutValue(layout, "SyncBankWindow", layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
     uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
-    uiState.sellViewLocked = LayoutUtils.loadLayoutValue(layout, "SellViewLocked", true)
-    uiState.invViewLocked = LayoutUtils.loadLayoutValue(layout, "InvViewLocked", true)
-    uiState.bankViewLocked = LayoutUtils.loadLayoutValue(layout, "BankViewLocked", true)
     local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
     -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
     filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1

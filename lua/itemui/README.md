@@ -99,7 +99,7 @@ For detailed migration information, see [SELLUI_MIGRATION_GUIDE.md](docs/SELLUI_
 
 ## Testing
 
-- Rule evaluation is in `itemui.rules`; test sell/loot behavior manually in-game. Run `upvalue_check.lua` to verify context upvalue limit (test_rules.lua was removed in Batch 2 cleanup).
+- Rule evaluation is in `itemui.rules`; test sell/loot behavior manually in-game.
 
 ## Files
 

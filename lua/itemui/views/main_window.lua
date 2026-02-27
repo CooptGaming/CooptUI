@@ -18,7 +18,7 @@ local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local LootUIView = require('itemui.views.loot_ui')
 local LootView = require('itemui.views.loot')
-local ConfigView = require('itemui.views.config')
+local ConfigView = require('itemui.views.settings')
 local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
@@ -339,6 +339,7 @@ function M.render(refs)
         end
         -- Request keyboard capture so ESC closes companion only, not native EQ bags (LIFO fix)
         if winVis then
+            -- Intentionally silent pcall: ImGui.SetNextFrameWantCaptureKeyboard may not exist in all MQ/ImGui builds; no diagnostics needed.
             pcall(function()
                 if ImGui.SetNextFrameWantCaptureKeyboard then ImGui.SetNextFrameWantCaptureKeyboard(true)
                 elseif ImGui.GetIO and ImGui.GetIO().SetNextFrameWantCaptureKeyboard then ImGui.GetIO().SetNextFrameWantCaptureKeyboard(true) end

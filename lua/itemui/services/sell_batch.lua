@@ -285,7 +285,7 @@ function M.advance(now)
             if io and io.removeItemFromSellItemsBySlot then io.removeItemFromSellItemsBySlot(bagNum, slotNum) end
             if getSellHistoryLogEnabled() then logSellHistory(itemName, cur.item.totalValue, cur.item.sellReason) end
             if getSellVerboseLog() then
-                print(string.format("\ag[ItemUI]\ax [LUA SELL] %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
+                print(string.format("\ag[ItemUI]\ax %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
             end
             batchState.soldCount = batchState.soldCount + 1
             batchState.current = nil

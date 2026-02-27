@@ -77,9 +77,7 @@ function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.RerollWindowX = layoutConfig.RerollWindowX or layoutDefaults.RerollWindowX
     layoutDefaults.RerollWindowY = layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY
     layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
-    layoutDefaults.AlignToMerchant = uiState.alignToMerchant and 1 or 0
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
-    layoutDefaults.SyncBankWindow = uiState.syncBankWindow and 1 or 0
     layoutDefaults.SuppressWhenLootMac = uiState.suppressWhenLootMac and 1 or 0
     layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
     if ImGui and ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
@@ -156,12 +154,8 @@ function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightReroll=" .. tostring(layoutDefaults.HeightReroll or constants.VIEWS.HeightReroll or 480) .. "\n")
             f:write("RerollWindowX=" .. tostring(layoutDefaults.RerollWindowX or 0) .. "\n")
             f:write("RerollWindowY=" .. tostring(layoutDefaults.RerollWindowY or 0) .. "\n")
-            f:write("SyncBankWindow=" .. layoutDefaults.SyncBankWindow .. "\n")
             f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
             f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
-            f:write("SellViewLocked=" .. (uiState.sellViewLocked and "1" or "0") .. "\n")
-            f:write("InvViewLocked=" .. (uiState.invViewLocked and "1" or "0") .. "\n")
-            f:write("BankViewLocked=" .. (uiState.bankViewLocked and "1" or "0") .. "\n")
             f:write("\n[ColumnVisibilityDefaults]\n")
             for view, cols in pairs(columnVisibility) do
                 local visibleCols = {}
@@ -234,7 +228,6 @@ function layout_setup_resetLayoutToDefault()
     end
     uiState.alignToContext = (layoutDefaults.AlignToContext == 1)
     uiState.uiLocked = (layoutDefaults.UILocked == 1)
-    uiState.syncBankWindow = (layoutDefaults.SyncBankWindow == 1)
     uiState.suppressWhenLootMac = (layoutDefaults.SuppressWhenLootMac == 1)
     uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     if saveLayoutToFile then saveLayoutToFile() end

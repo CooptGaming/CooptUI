@@ -1,7 +1,8 @@
 --[[
-    Config View - Orchestrator for CoOpt UI Settings window.
+    Settings View - Orchestrator for CoOpt UI Settings window.
     Renders tab bar and delegates to config_general, config_sell, config_loot, config_shared.
     Part of ItemUI Phase 7 / Task 07: Split config view.
+    Renamed from views/config.lua to avoid confusion with root config.lua (INI utilities).
 --]]
 
 local mq = require('mq')

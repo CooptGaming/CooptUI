@@ -4,6 +4,7 @@
     are applied in init.lua where those module refs exist.
 --]]
 
+require('ImGui')  -- state.lua uses ImGuiSortDirection.*; explicit require avoids load-order dependency
 local CoopVersion = require('coopui.version')
 local constants = require('itemui.constants')
 
@@ -41,12 +42,9 @@ local perfCache = {
 local uiState = {
     windowPositioned = false,
     alignToContext = true,
-    alignToMerchant = false,
     uiLocked = true,
-    syncBankWindow = false,
     suppressWhenLootMac = false,
     itemUIPositionX = nil, itemUIPositionY = nil,
-    sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
     revertLayoutConfirmOpen = false,
     diagnosticsPanelOpen = false,
@@ -94,7 +92,6 @@ do
     layoutDefaults.AABackupPath = ""
     layoutDefaults.AlignToContext = 1
     layoutDefaults.UILocked = 1
-    layoutDefaults.SyncBankWindow = 1
     layoutDefaults.SuppressWhenLootMac = 0
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1

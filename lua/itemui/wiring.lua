@@ -40,7 +40,7 @@ local SellView = require('itemui.views.sell')
 local BankView = require('itemui.views.bank')
 local EquipmentView = require('itemui.views.equipment')
 local LootView = require('itemui.views.loot')
-local ConfigView = require('itemui.views.config')
+local ConfigView = require('itemui.views.settings')
 local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
 local AugmentUtilityView = require('itemui.views.augment_utility')
@@ -931,7 +931,6 @@ context_builder.init({
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
-context.logUpvalueCounts(C)
 
 local defaultLayoutAppliedThisRun = false
 
