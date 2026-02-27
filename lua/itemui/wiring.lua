@@ -31,6 +31,7 @@ local scanService = require('itemui.services.scan')
 local sellStatusService = require('itemui.services.sell_status')
 local itemOps = require('itemui.services.item_ops')
 local augmentOps = require('itemui.services.augment_ops')
+local sellBatch = require('itemui.services.sell_batch')
 local mainLoop = require('itemui.services.main_loop')
 
 -- Phase 5: View modules
@@ -1000,9 +1001,16 @@ local mainWindowRefs = {
 -- ============================================================================
 -- Commands & main
 -- ============================================================================
---- Write ItemUI's sell list and progress before running macro (sell.mac uses sell_cache.ini).
-local function runSellMacro()
-    -- Refresh inventory, compute sell status, save cache + sell_cache.ini so macro sees current list
+--- Read sell engine mode from sell_flags.ini. Returns "macro" or "lua". Default macro.
+local function getSellMode()
+    local v = (config.readINIValue and config.readINIValue("sell_flags.ini", "Settings", "sellMode", "macro")) or "macro"
+    v = (v or ""):lower()
+    if v == "lua" then return "lua" end
+    return "macro"
+end
+
+--- Legacy path: write sell cache and progress, then run sell.mac (unchanged behavior).
+local function runSellMacroLegacy()
     scanInventory()
     if isMerchantWindowOpen() then scanSellItems() end
     if #inventoryItems > 0 then
@@ -1017,6 +1025,30 @@ local function runSellMacro()
         macroBridge.writeSellProgress(count, 0)
     end
     mq.cmd('/macro sell confirm')
+end
+
+--- Dispatch sell: by sellMode or forceMode ("macro" | "lua"). /dosell and Auto Sell use getSellMode(); /itemui sell legacy|lua overrides.
+local function runSellMacro(forceMode)
+    if sellBatch.isRunning() then
+        setStatusMessage("Sell already in progress.")
+        return
+    end
+    local mode = forceMode or getSellMode()
+    if mode == "lua" then
+        scanInventory()
+        if isMerchantWindowOpen() then scanSellItems() end
+        if #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+        local list = {}
+        for _, it in ipairs(sellItems) do
+            if it.willSell then list[#list + 1] = it end
+        end
+        if sellBatch.startBatch(list) then
+            setStatusMessage("Selling...")
+        end
+    else
+        runSellMacroLegacy()
+        setStatusMessage("Running sell macro...")
+    end
 end
 
 local function handleCommand(...)
@@ -1101,6 +1133,16 @@ local function handleCommand(...)
         isOpen = false
         uiState.configWindowOpen = false
         print("\ag[ItemUI]\ax Unloading...")
+    elseif cmd == "sell" or (cmd:sub(1, 5) == "sell " and #cmd > 5) then
+        local args = {...}
+        local sub = (cmd == "sell" and args[2]) and (tostring(args[2])):lower() or (cmd:match("^sell%s+(%S+)") or ""):lower()
+        if sub == "legacy" then
+            runSellMacro("macro")
+        elseif sub == "lua" then
+            runSellMacro("lua")
+        else
+            print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
+        end
     elseif cmd == "help" then
         print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|onboarding|reroll|exit|help]")
         print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
@@ -1108,7 +1150,8 @@ local function handleCommand(...)
         print("  onboarding = show the first-run welcome panel again")
         print("  reroll = open Reroll Companion (augment and mythical reroll lists)")
         print("  exit  = unload ItemUI completely")
-        print("\ag[ItemUI]\ax /dosell = run sell.mac (sell marked items)  |  /doloot = run loot.mac")
+        print("  sell legacy = run sell.mac  |  sell lua = run Lua sell (see sell_flags.ini sellMode)")
+        print("\ag[ItemUI]\ax /dosell = run sell (macro or Lua per sellMode)  |  /doloot = run loot.mac")
     else
         print("\ar[ItemUI]\ax Unknown: " .. cmd .. " — use /itemui help")
     end
@@ -1157,6 +1200,9 @@ local function buildMainLoopDeps()
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         runSellMacro = runSellMacro,
+        getSellMode = getSellMode,
+        runSellMacroLegacy = runSellMacroLegacy,
+        sellBatch = sellBatch,
         config = config,
         loadLootHistoryFromFile = loadLootHistoryFromFile,
         loadSkipHistoryFromFile = loadSkipHistoryFromFile,
@@ -1270,7 +1316,9 @@ local function main()
         if scanState.lastPersistSaveTime == 0 then scanState.lastPersistSaveTime = mq.gettime() end
     end
 
-    mainLoop.init(buildMainLoopDeps())
+    local d = buildMainLoopDeps()
+    mainLoop.init(d)
+    sellBatch.init(d)
     while not terminate do
         mainLoop.tick(mq.gettime())
     end

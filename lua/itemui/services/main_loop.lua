@@ -112,13 +112,12 @@ local function phase2_periodicPersist(now)
     end
 end
 
--- Phase 3: Auto-sell request processing
+-- Phase 3: Auto-sell request processing (dispatches by sellMode: macro or lua)
 local function phase3_autoSellRequest()
-    local uiState, runSellMacro, setStatusMessage = d.uiState, d.runSellMacro, d.setStatusMessage
+    local uiState, runSellMacro = d.uiState, d.runSellMacro
     if uiState.autoSellRequested then
         uiState.autoSellRequested = false
         runSellMacro()
-        setStatusMessage("Running sell macro...")
     end
 end
 
@@ -127,9 +126,11 @@ end
 local function phase4_sellMacroFinish(now)
     local uiState, sellMacState, setStatusMessage, C = d.uiState, d.sellMacState, d.setStatusMessage, d.C
     local macroBridge = d.macroBridge
-    local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
-    local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning()) or (prog.running == true)
+    -- Use live TLO only so bar hides when macro process ends (Issue 1)
+    local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning())
     if sellMacState.lastRunning and not sellMacRunning then
+        -- Clear bridge sell state so no consumer sees stale running/smoothedFrac
+        if macroBridge and macroBridge.clearSellState then macroBridge.clearSellState() end
         sellMacState.smoothedFrac = 0
         sellMacState.pendingScan = true
         sellMacState.finishedAt = now
@@ -339,9 +340,10 @@ end
 
 -- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
 local function phase7_sellQueueQuantityDestroyMoveAugment(now)
-    local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
+    local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage, sellBatch = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage, d.sellBatch
     if not uiState then return end
     processSellQueue(now)
+    if sellBatch and sellBatch.advance then sellBatch.advance(now) end
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
         -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
@@ -680,7 +682,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = merchOpen
             elseif merchOpen and not lastMerchantState then
-                maybeScanInventory(invOpen)
+                -- Defer scans to next frame so sell window opens instantly (no blocking scan on open).
+                deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = true
                 deferredScanNeeded.bank = bankOpen
             else
@@ -689,6 +692,11 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.sell = merchOpen
             end
         end
+    end
+    -- Merchant just opened while companion already visible (e.g. from bank): defer scans so we don't block this frame.
+    if (merchOpen and not lastMerchantState) and shouldDraw then
+        deferredScanNeeded.inventory = invOpen
+        deferredScanNeeded.sell = true
     end
     if bankOpen and not shouldDraw then
         setShouldDraw(true)

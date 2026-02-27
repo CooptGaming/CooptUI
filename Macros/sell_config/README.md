@@ -53,6 +53,8 @@ This directory contains modular configuration files for the sell macro. Each fil
   - `protectHeirloom`: Never sell items with Heirloom flag - Default: TRUE
   - `protectAttuneable`: Never sell items with Attuneable flag - Default: FALSE
   - `protectAugSlots`: Never sell items with augmentation slots - Default: FALSE
+  - `sellMode`: Sell engine – `macro` = run sell.mac (default), `lua` = native Lua sell (faster). Use `/itemui sell legacy` to force sell.mac regardless.
+  - `sellVerboseLog`: When using Lua sell, set to `TRUE` to print each sold item to the console (e.g. `[ItemUI] [LUA SELL] ItemName x1 (Value: 0) - Sell`). Default: FALSE.
 
 ### `sell_value.ini`
 - **Purpose**: Value thresholds and lag handling for sell operations

@@ -278,6 +278,13 @@ function MacroBridge.getSellProgress()
     }
 end
 
+-- Clear sell state so progress bar and consumers don't see stale running/smoothedFrac (Issue 1)
+function MacroBridge.clearSellState()
+    MacroBridge.state.sell.running = false
+    MacroBridge.state.sell.smoothedFrac = 0
+    MacroBridge.state.sell.progress = { total = 0, current = 0, remaining = 0 }
+end
+
 -- Get loot macro state
 function MacroBridge.getLootState()
     return {
@@ -435,19 +442,9 @@ function MacroBridge.poll()
     end
     MacroBridge.state.lastPollTime = now
     
-    -- Check sell.mac state: live TLO first, then fallback to sell_progress.ini so UI works even when macro name isn't detected
+    -- Check sell.mac state: live TLO only for "running" so bar hides when macro ends (Issue 1)
     local liveSellRunning = isMacroRunning("sell")
     local sellRunning = liveSellRunning
-    if not liveSellRunning then
-        local progress = readSellProgress()
-        if progress and progress.total > 0 then
-            if progress.current < progress.total then
-                sellRunning = true
-            else
-                sellRunning = false
-            end
-        end
-    end
     local wasRunning = MacroBridge.state.sell.lastRunning
     
     if sellRunning and not wasRunning then

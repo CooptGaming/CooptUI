@@ -198,6 +198,7 @@ function ConfigGeneral.render(ctx)
         sellFlag("Enable Quest protection", "protectQuest", "Never sell items with the Quest flag")
         sellFlag("Enable Collectible protection", "protectCollectible", "Never sell items with the Collectible flag")
         sellFlag("Enable Heirloom protection", "protectHeirloom", "Never sell items with the Heirloom flag")
+        sellFlag("Enable sell history log", "enableSellHistoryLog", "Append each sold item to Macros/logs/item_management/sell_history.log. Off by default to avoid I/O delays when opening sell or between items.")
         ImGui.Spacing()
         ImGui.Text("Value thresholds (copper)")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper"); ImGui.EndTooltip() end

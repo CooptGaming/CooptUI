@@ -105,10 +105,11 @@ Sub Main
 /declare maxKeepValue int outer
 /declare tributeKeepOverride int outer
 
-| Lag handling: wait time (ticks) and retries for sell operations
-/declare sellWaitTicks int outer 18
+| Lag handling: wait time (deciseconds) and retries for sell operations. Lower sellWaitTicks = less freeze per item; increase in sell_value.ini if sells fail on high-lag.
+/declare sellWaitTicks int outer 10
 /declare sellRetries int outer 4
 /declare sellMaxTimeoutSeconds int outer 60
+/declare logPathEnsured bool outer FALSE
 
 | ------------------------------------------------- |
 | SELL CACHE (ItemUI: only sell items in list)      |
@@ -657,6 +658,7 @@ sub ProcessSellItem(int bag, int slot, string reason)
         | For stackables, wait for QuantityWnd before clicking Accept (handles lag)
         /if (${stackCount} > 1) /delay 6 ${Window[QuantityWnd].Open}
         /notify QuantityWnd QTYW_Accept_Button leftmouseup
+        | Wait up to sellWaitTicks deciseconds (0.1s each) for slot to clear; this is the main per-item pause. Reduce sellWaitTicks in sell_value.ini if game feels sluggish.
         /delay ${sellWaitTicks} !${Me.Inventory[pack${bag}].Item[${slot}].ID}
         /if (!${Me.Inventory[pack${bag}].Item[${slot}].ID}) /varset sold TRUE
         /if (!${sold} && ${attempt} <= ${sellRetries}) {
@@ -725,7 +727,7 @@ sub LoadConfig(bool verbose)
         /if (${Ini[${valueFile},Settings,sellWaitTicks].Length}) {
             /varset sellWaitTicks ${Ini[${valueFile},Settings,sellWaitTicks]}
         } else {
-            /varset sellWaitTicks 18
+            /varset sellWaitTicks 10
         }
         /if (${Ini[${valueFile},Settings,sellRetries].Length}) {
             /varset sellRetries ${Ini[${valueFile},Settings,sellRetries]}
@@ -998,7 +1000,7 @@ sub LoadConfig(bool verbose)
     /if (${Ini[${valueFile},Settings,sellWaitTicks].Length}) {
         /varset sellWaitTicks ${Ini[${valueFile},Settings,sellWaitTicks]}
     } else {
-        /varset sellWaitTicks 18
+        /varset sellWaitTicks 10
     }
     
     /if (${Ini[${valueFile},Settings,sellRetries].Length}) {
@@ -1154,19 +1156,19 @@ sub LogItem(string action, string itemName, int itemValue, string reason)
         /return
     }
     
-    | Ensure the item_management directory exists
-    | Try to create a temporary file in the directory to force directory creation
-    /declare tempDirFile string local ${logPath}/.dir_check
-    /if (!${File[${tempDirFile}].Exists}) {
-        /declare dirHandle int local ${File[${tempDirFile}].Open[write]}
-        /if (${dirHandle}) {
-            /call ${File[${tempDirFile}].Close}
-            | Delete the temp file
-            /delete ${tempDirFile}
+    | Ensure the item_management directory exists once per run (avoids repeated file I/O per item)
+    /if (!${logPathEnsured}) {
+        /declare tempDirFile string local ${logPath}/.dir_check
+        /if (!${File[${tempDirFile}].Exists}) {
+            /declare dirHandle int local ${File[${tempDirFile}].Open[write]}
+            /if (${dirHandle}) {
+                /call ${File[${tempDirFile}].Close}
+                /delete ${tempDirFile}
+            }
+        } else {
+            /if (${File[${tempDirFile}].Exists}) /delete ${tempDirFile}
         }
-    } else {
-        | Directory exists, clean up temp file if it's still there
-        /if (${File[${tempDirFile}].Exists}) /delete ${tempDirFile}
+        /varset logPathEnsured TRUE
     }
     
     | Create log entry

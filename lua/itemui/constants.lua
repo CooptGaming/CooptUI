@@ -206,7 +206,7 @@ function M.buildC(version)
         MAX_INVENTORY_BAGS = L.MAX_INVENTORY_BAGS,
         LAYOUT_INI = M.LAYOUT_INI,
         LAYOUT_SECTION = M.LAYOUT_SECTION,
-        PROFILE_ENABLED = false,
+        PROFILE_ENABLED = true,
         PROFILE_THRESHOLD_MS = 30,
         UPVALUE_DEBUG = false,
         STATUS_MSG_SECS = T.STATUS_MSG_SECS,

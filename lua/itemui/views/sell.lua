@@ -32,7 +32,6 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.Button("Auto Sell", ImVec2(100, 0)) then
         if not simulateSellView then
             ctx.uiState.autoSellRequested = true
-            ctx.setStatusMessage("Running sell macro...")
         end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(simulateSellView and "Simulated view - Auto Sell disabled" or "Run /macro sell confirm to sell marked items"); ImGui.EndTooltip() end
@@ -56,26 +55,45 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.Separator()
     
-    -- Sell progress bar: via macro bridge (show when macro running by live check or bridge state so bar appears even if poll throttled)
+    -- Sell progress bar: Lua batch (sellMacState.luaRunning) or macro bridge
     do
-        local macroBridge = ctx.macroBridge
-        local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
-        local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning()) or (prog.running == true)
-        if sellMacRunning and macroBridge and macroBridge.getSellProgress then
-            local total = prog.total or 0
-            local current = prog.current or 0
-            local remaining = prog.remaining or 0
-            local smoothedFrac = prog.smoothedFrac or 0
+        local sellMacState = ctx.sellMacState or {}
+        local luaRunning = sellMacState.luaRunning
+        if luaRunning then
+            local total = sellMacState.total or 0
+            local current = sellMacState.current or 0
+            local remaining = sellMacState.remaining or 0
+            local smoothedFrac = sellMacState.smoothedFrac or 0
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                 if total > 0 then
                     local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
                     ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
                 else
-                    ctx.theme.TextSuccess("Sell macro running...")
+                    ctx.theme.TextSuccess("Selling...")
                 end
             end
             ImGui.EndChild()
             ImGui.Separator()
+        else
+            local macroBridge = ctx.macroBridge
+            local prog = (macroBridge and macroBridge.getSellProgress and macroBridge.getSellProgress()) or {}
+            local sellMacRunning = (macroBridge and macroBridge.isSellMacroRunning and macroBridge.isSellMacroRunning())
+            if sellMacRunning and macroBridge and macroBridge.getSellProgress then
+                local total = prog.total or 0
+                local current = prog.current or 0
+                local remaining = prog.remaining or 0
+                local smoothedFrac = prog.smoothedFrac or 0
+                if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
+                    if total > 0 then
+                        local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
+                        ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
+                    else
+                        ctx.theme.TextSuccess("Sell macro running...")
+                    end
+                end
+                ImGui.EndChild()
+                ImGui.Separator()
+            end
         end
     end
     
