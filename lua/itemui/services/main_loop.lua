@@ -7,8 +7,13 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
+local ItemDisplayView = require('itemui.views.item_display')
 
 local d  -- deps, set by init()
+
+local function getItemDisplayState()
+    return ItemDisplayView.getState()
+end
 
 local function resolveAugmentQueueStep(queueType)
     local uiState, scanInventory, isBankWindowOpen, scanBank, refreshActiveItemDisplayTab, setStatusMessage =
@@ -18,7 +23,8 @@ local function resolveAugmentQueueStep(queueType)
             local oq = uiState.optimizeQueue
             local step = table.remove(oq.steps, 1)
             if step and step.slotIndex and step.augmentItem then
-                local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+                local itemDisplayState = getItemDisplayState()
+                local tab = (itemDisplayState.itemDisplayTabs and itemDisplayState.itemDisplayActiveTabIndex and itemDisplayState.itemDisplayTabs[itemDisplayState.itemDisplayActiveTabIndex]) or nil
                 local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
                 uiState.pendingInsertAugment = {
                     targetItem = targetItem,
@@ -513,7 +519,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         local oq = uiState.optimizeQueue
         local step = table.remove(oq.steps, 1)
         if step and step.slotIndex and step.augmentItem then
-            local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+            local itemDisplayState = getItemDisplayState()
+            local tab = (itemDisplayState.itemDisplayTabs and itemDisplayState.itemDisplayActiveTabIndex and itemDisplayState.itemDisplayTabs[itemDisplayState.itemDisplayActiveTabIndex]) or nil
             local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
             uiState.pendingInsertAugment = {
                 targetItem = targetItem,
@@ -526,7 +533,7 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         end
     end
     if uiState.pendingInsertAugment then
-        uiState.itemDisplayAugmentSlotActive = nil
+        getItemDisplayState().itemDisplayAugmentSlotActive = nil
         augmentOps.advanceInsert(now)
     end
     local pq = uiState.pendingQuantityPickup

@@ -13,6 +13,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local ItemDisplayView = require('itemui.views.item_display')
 
 local BankView = {}
 
@@ -260,7 +261,7 @@ function BankView.render(ctx)
                 local item = filteredBank[i]
                 if not item then goto bank_continue end
                 ImGui.TableNextRow()
-                local loc = ctx.uiState.itemDisplayLocateRequest
+                local loc = ItemDisplayView.getState().itemDisplayLocateRequest
                 if loc and loc.source == "bank" and loc.bag == item.bag and loc.slot == item.slot then
                     ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImVec4(0.25, 0.45, 0.75, 0.45)))
                 end

@@ -100,12 +100,6 @@ do
             if k == "augmentUtilityOnlyShowUsable" then return AugmentUtilityView.getState().augmentUtilityOnlyShowUsable end
             if k == "itemDisplayWindowOpen" then return registry.isOpen("itemDisplay") end
             if k == "itemDisplayWindowShouldDraw" then return registry.shouldDraw("itemDisplay") end
-            if k == "itemDisplayTabs" then return ItemDisplayView.getState().itemDisplayTabs end
-            if k == "itemDisplayActiveTabIndex" then return ItemDisplayView.getState().itemDisplayActiveTabIndex end
-            if k == "itemDisplayRecent" then return ItemDisplayView.getState().itemDisplayRecent end
-            if k == "itemDisplayLocateRequest" then return ItemDisplayView.getState().itemDisplayLocateRequest end
-            if k == "itemDisplayLocateRequestAt" then return ItemDisplayView.getState().itemDisplayLocateRequestAt end
-            if k == "itemDisplayAugmentSlotActive" then return ItemDisplayView.getState().itemDisplayAugmentSlotActive end
             if k == "bankWindowOpen" then return registry.isOpen("bank") end
             if k == "bankWindowShouldDraw" then return registry.shouldDraw("bank") end
             if k == "configWindowOpen" then return registry.isOpen("config") end
@@ -154,12 +148,6 @@ do
             if k == "searchFilterAugmentUtility" then AugmentUtilityView.getState().searchFilterAugmentUtility = v; return end
             if k == "augmentUtilityOnlyShowUsable" then AugmentUtilityView.getState().augmentUtilityOnlyShowUsable = v; return end
             if k == "itemDisplayWindowOpen" or k == "itemDisplayWindowShouldDraw" then registry.setWindowState("itemDisplay", v, v); return end
-            if k == "itemDisplayTabs" then ItemDisplayView.getState().itemDisplayTabs = v; return end
-            if k == "itemDisplayActiveTabIndex" then ItemDisplayView.getState().itemDisplayActiveTabIndex = v; return end
-            if k == "itemDisplayRecent" then ItemDisplayView.getState().itemDisplayRecent = v; return end
-            if k == "itemDisplayLocateRequest" then ItemDisplayView.getState().itemDisplayLocateRequest = v; return end
-            if k == "itemDisplayLocateRequestAt" then ItemDisplayView.getState().itemDisplayLocateRequestAt = v; return end
-            if k == "itemDisplayAugmentSlotActive" then ItemDisplayView.getState().itemDisplayAugmentSlotActive = v; return end
             if k == "bankWindowOpen" or k == "bankWindowShouldDraw" then registry.setWindowState("bank", v, v); return end
             if k == "configWindowOpen" then registry.setWindowState("config", v, v); return end
             if k == "configNeedsLoad" then ConfigView.getState().configNeedsLoad = v; return end
@@ -638,9 +626,10 @@ local function getItemStatsForTooltipRef(item, source)
 end
 --- Phase 0: refresh active Item Display tab's item from TLO (call after scan when augment insert/remove completes).
 local function refreshActiveItemDisplayTab()
-    local tabs = uiState.itemDisplayTabs
+    local idState = ItemDisplayView.getState()
+    local tabs = idState.itemDisplayTabs
     if not tabs or #tabs == 0 then return end
-    local aidx = uiState.itemDisplayActiveTabIndex or 1
+    local aidx = idState.itemDisplayActiveTabIndex or 1
     if aidx < 1 or aidx > #tabs then return end
     local tab = tabs[aidx]
     if not tab or tab.bag == nil or tab.slot == nil then return end
@@ -653,16 +642,17 @@ local function addItemDisplayTab(item, source)
     local showItem = getItemStatsForTooltipRef(item, source) or item
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
     if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+    local idState = ItemDisplayView.getState()
     -- If this item already has a tab, switch to it instead of adding a duplicate
-    for idx, tab in ipairs(uiState.itemDisplayTabs) do
+    for idx, tab in ipairs(idState.itemDisplayTabs) do
         if tab.bag == item.bag and tab.slot == item.slot and tab.source == source then
             tab.item = showItem
             tab.label = label
-            uiState.itemDisplayActiveTabIndex = idx
+            idState.itemDisplayActiveTabIndex = idx
             uiState.removeAllQueue = nil   -- Phase 1: tab switched
             uiState.optimizeQueue = nil    -- Phase 2: tab switched
             local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
-            local recent = uiState.itemDisplayRecent
+            local recent = idState.itemDisplayRecent
             for i = #recent, 1, -1 do
                 if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
                     table.remove(recent, i)
@@ -677,15 +667,15 @@ local function addItemDisplayTab(item, source)
             return
         end
     end
-    uiState.itemDisplayTabs[#uiState.itemDisplayTabs + 1] = {
+    idState.itemDisplayTabs[#idState.itemDisplayTabs + 1] = {
         bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
     }
-    uiState.itemDisplayActiveTabIndex = #uiState.itemDisplayTabs
+    idState.itemDisplayActiveTabIndex = #idState.itemDisplayTabs
     uiState.removeAllQueue = nil   -- Phase 1: new tab added
     uiState.optimizeQueue = nil    -- Phase 2: new tab added
     -- Recent: prepend, dedupe by bag/slot/source, cap at N
     local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
-    local recent = uiState.itemDisplayRecent
+    local recent = idState.itemDisplayRecent
     for i = #recent, 1, -1 do
         if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
             table.remove(recent, i)

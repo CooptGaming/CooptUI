@@ -920,12 +920,13 @@ function M.render(refs)
         -- Augments rendered via registry.getDrawableModules()
         -- Augment Utility rendered via registry.getDrawableModules()
         -- Item Display rendered via registry.getDrawableModules()
-        if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
+        local itemDisplayState = ItemDisplayView.getState()
+        if itemDisplayState.itemDisplayLocateRequest and itemDisplayState.itemDisplayLocateRequestAt then
             local now = mq.gettime()
             local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
-            if now - uiState.itemDisplayLocateRequestAt > clearMs then
-                uiState.itemDisplayLocateRequest = nil
-                uiState.itemDisplayLocateRequestAt = nil
+            if now - itemDisplayState.itemDisplayLocateRequestAt > clearMs then
+                itemDisplayState.itemDisplayLocateRequest = nil
+                itemDisplayState.itemDisplayLocateRequestAt = nil
             end
         end
         for _, mod in ipairs(registry.getDrawableModules()) do
