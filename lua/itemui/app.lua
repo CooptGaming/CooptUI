@@ -33,6 +33,7 @@ local itemOps = require('itemui.services.item_ops')
 local augmentOps = require('itemui.services.augment_ops')
 local sellBatch = require('itemui.services.sell_batch')
 local mainLoop = require('itemui.services.main_loop')
+local commands = require('itemui.commands')
 
 -- Phase 5: View modules
 local InventoryView = require('itemui.views.inventory')
@@ -1059,111 +1060,45 @@ local function runSellMacro(forceMode)
     end
 end
 
-local function handleCommand(...)
-    local cmd = (({...})[1] or ""):lower()
-    if cmd == "" or cmd == "toggle" then
-        shouldDraw = not shouldDraw
-        if shouldDraw then
-            local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
-            -- If inv closed, open it so /inv and I key give same behavior (inv open + fresh scan)
-            if not invO then mq.cmd('/keypress inventory'); invO = true end
-            isOpen = true; loadLayoutConfig(); maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
-            uiState.equipmentWindowOpen = true
-            uiState.equipmentWindowShouldDraw = true
-            recordCompanionWindowOpened("equipment")
-        else
-            closeGameInventoryIfOpen()
-        end
-    elseif cmd == "show" then
-        shouldDraw, isOpen = true, true
-        local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-        local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
-        loadLayoutConfig()
-        maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
-        uiState.equipmentWindowOpen = true
-        uiState.equipmentWindowShouldDraw = true
-        recordCompanionWindowOpened("equipment")
-    elseif cmd == "hide" then
-        shouldDraw, isOpen = false, false
-        closeGameInventoryIfOpen()
-    elseif cmd == "refresh" then
-        scanInventory()
-        if isBankWindowOpen() then scanBank() end
-        if isMerchantWindowOpen() then scanSellItems() end
-        print("\ag[ItemUI]\ax Refreshed")
-    elseif cmd == "setup" then
-        uiState.setupMode = not uiState.setupMode
-        if uiState.setupMode then
-            uiState.setupStep = 0
-            loadConfigCache()
-            loadLayoutConfig()
-        else
-            uiState.setupStep = 0
-        end
-        shouldDraw = true
-        isOpen = true
-        print(uiState.setupMode and "\ag[ItemUI]\ax Setup: Step 0 of 8 — Epic protection (optional), then layout and rules." or "\ar[ItemUI]\ax Setup off.")
-    elseif cmd == "config" then
-        uiState.configWindowOpen = true
-        uiState.configNeedsLoad = true
-        recordCompanionWindowOpened("config")
-        shouldDraw = true
-        isOpen = true
-        print("\ag[ItemUI]\ax Config window opened.")
-    elseif cmd == "onboarding" then
-        resetOnboarding()
-        shouldDraw = true
-        isOpen = true
-        mq.cmd("/keypress inventory")
-        print("\ag[ItemUI]\ax Welcome panel will show in the main window.")
-    elseif cmd == "reroll" then
-        if not registry.isOpen("reroll") then registry.toggleWindow("reroll") end
-        if registry.isOpen("reroll") then recordCompanionWindowOpened("reroll") end
-        shouldDraw = true
-        isOpen = true
-        print("\ag[ItemUI]\ax Reroll Companion opened.")
-    elseif cmd == "exit" or cmd == "quit" or cmd == "unload" then
-        storage.ensureCharFolderExists()
-        if #sellItems > 0 then
-            storage.saveInventory(sellItems)
-            storage.writeSellCache(sellItems)
-        elseif #inventoryItems > 0 then
-            computeAndAttachSellStatus(inventoryItems)
-            storage.saveInventory(inventoryItems)
-            storage.writeSellCache(inventoryItems)
-        end
-        if (bankItems and #bankItems > 0) or (bankCache and #bankCache > 0) then
-            storage.saveBank(bankItems and #bankItems > 0 and bankItems or bankCache)
-        end
-        terminate = true
-        shouldDraw = false
-        isOpen = false
-        uiState.configWindowOpen = false
-        print("\ag[ItemUI]\ax Unloading...")
-    elseif cmd == "sell" or (cmd:sub(1, 5) == "sell " and #cmd > 5) then
-        local args = {...}
-        local sub = (cmd == "sell" and args[2]) and (tostring(args[2])):lower() or (cmd:match("^sell%s+(%S+)") or ""):lower()
-        if sub == "legacy" then
-            runSellMacro("macro")
-        elseif sub == "lua" then
-            runSellMacro("lua")
-        else
-            print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
-        end
-    elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|onboarding|reroll|exit|help]")
-        print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
-        print("  config = open ItemUI & Loot settings (or click Settings in the header)")
-        print("  onboarding = show the first-run welcome panel again")
-        print("  reroll = open Reroll Companion (augment and mythical reroll lists)")
-        print("  exit  = unload ItemUI completely")
-        print("  sell legacy = run sell.mac  |  sell lua = run Lua sell (see sell_flags.ini sellMode)")
-        print("\ag[ItemUI]\ax /dosell = run sell (macro or Lua per sellMode)  |  /doloot = run loot.mac")
-    else
-        print("\ar[ItemUI]\ax Unknown: " .. cmd .. " — use /itemui help")
-    end
-end
+commands.init({
+    shouldDraw = {
+        get = function() return shouldDraw end,
+        set = function(v) shouldDraw = v end,
+    },
+    isOpen = {
+        get = function() return isOpen end,
+        set = function(v) isOpen = v end,
+    },
+    terminate = {
+        set = function(v) terminate = v end,
+    },
+    loadLayoutConfig = loadLayoutConfig,
+    scanInventory = scanInventory,
+    isBankWindowOpen = isBankWindowOpen,
+    isMerchantWindowOpen = isMerchantWindowOpen,
+    isLootWindowOpen = isLootWindowOpen,
+    maybeScanInventory = maybeScanInventory,
+    maybeScanBank = maybeScanBank,
+    maybeScanSellItems = maybeScanSellItems,
+    scanSellItems = scanSellItems,
+    scanBank = scanBank,
+    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    recordCompanionWindowOpened = recordCompanionWindowOpened,
+    uiState = uiState,
+    registry = registry,
+    runSellMacro = runSellMacro,
+    loadConfigCache = loadConfigCache,
+    resetOnboarding = resetOnboarding,
+    setStatusMessage = setStatusMessage,
+    computeAndAttachSellStatus = computeAndAttachSellStatus,
+    inventoryItems = inventoryItems,
+    sellItems = sellItems,
+    bankItems = bankItems,
+    bankCache = bankCache,
+    storage = storage,
+    flushLayoutSave = flushLayoutSave,
+})
+local handleCommand = commands.handleCommand
 
 local function buildMainLoopDeps()
     return {

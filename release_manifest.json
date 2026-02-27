@@ -74,6 +74,10 @@
       "hash": "317f48162c6f4996220fe5454543900987250b180a1ede00d5396c0a8054452a"
     },
     {
+      "path": "lua/itemui/commands.lua",
+      "hash": "daadee0536307bd1afcdebe71bf9ece9113c89926c511c134d23979e48c0b45c"
+    },
+    {
       "path": "lua/itemui/constants.lua",
       "hash": "2ff26d14b0db8b945e7ae45fae6f5e524fad6bebfc5e9e25d0068bd1d1fc1c4a"
     },
