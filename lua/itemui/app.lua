@@ -815,6 +815,7 @@ context_init.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
+    recordCompanionWindowOpened = recordCompanionWindowOpened,
     getMostRecentlyOpenedCompanion = function()
         return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
     end,
