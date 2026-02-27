@@ -67,6 +67,7 @@ M.TIMING = {
 
     -- Quantity picker / item ops
     QUANTITY_PICKUP_TIMEOUT_MS = 60000,
+    QUANTITY_PICKER_TIMEOUT_MS = 2000,  -- Risk R5: wait for QuantityWnd to open
     ITEM_OPS_DELAY_MS = 300,
     -- Click-through protection: after detecting item on cursor we didn't initiate (e.g. focus click-through), block new pickups this long
     ACTIVATION_GUARD_MS = 450,

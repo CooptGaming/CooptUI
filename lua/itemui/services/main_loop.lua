@@ -352,32 +352,39 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     if not uiState then return end
     processSellQueue(now)
     if sellBatch and sellBatch.advance then sellBatch.advance(now) end
+    -- Task 6.5: quantity picker state machine (no mq.delay); 2000ms timeout per Risk R5
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
-        -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
-        uiState.lastPickup.bag = action.pickup.bag
-        uiState.lastPickup.slot = action.pickup.slot
-        uiState.lastPickup.source = action.pickup.source
-        if action.pickup.source == "bank" then
-            mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-        else
-            mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+        local phase = action.phase or "pickup"
+        local timeoutMs = (constants.TIMING and constants.TIMING.QUANTITY_PICKER_TIMEOUT_MS) or 2000
+
+        if phase == "pickup" then
+            uiState.lastPickup.bag = action.pickup.bag
+            uiState.lastPickup.slot = action.pickup.slot
+            uiState.lastPickup.source = action.pickup.source
+            if action.pickup.source == "bank" then
+                mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+            else
+                mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+            end
+            action.phase = "wait_qty_wnd"
+            action.startedAt = now
+            return
         end
-        mq.delay(300, function()
+
+        if phase == "wait_qty_wnd" then
+            if (now - (action.startedAt or 0)) >= timeoutMs then
+                setStatusMessage("Quantity picker timed out.")
+                uiState.pendingQuantityAction = nil
+                return
+            end
             local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            return w and w.Open and w.Open()
-        end)
-        local qtyWndOpen = (function()
-            local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            return w and w.Open and w.Open()
-        end)()
-        if qtyWndOpen then
-            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty))
-            mq.delay(150)
-            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+            if w and w.Open and w.Open() then
+                mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
+                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+                uiState.pendingQuantityAction = nil
+            end
         end
-        -- Clear only after quantity flow completes so main_window does not clear lastPickup during the delay
-        uiState.pendingQuantityAction = nil
     end
     -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
     -- After each right-click: update in-memory lists (reduceStackOrRemoveBySlot / reduceStackOrRemoveBySlotBank) so UI shows real-time decrement.
