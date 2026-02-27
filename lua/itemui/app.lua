@@ -699,10 +699,17 @@ local function addItemDisplayTab(item, source)
     recordCompanionWindowOpened("itemDisplay")
 end
 
+local defaultLayoutAppliedThisRun = false
+
 context_init.init({
+    -- Main window state access (unifies former mainWindowRefs + context wiring)
+    getShouldDraw = function() return shouldDraw end,
+    setShouldDraw = function(v) shouldDraw = v end,
+    getOpen = function() return isOpen end,
+    setOpen = function(v) isOpen = v end,
     -- State tables
     uiState = uiState, sortState = sortState, filterState = filterState,
-    layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
+    layoutConfig = layoutConfig, layoutDefaults = layoutDefaults, perfCache = perfCache, sellMacState = sellMacState,
     -- Data tables
     inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
     sellItems = sellItems, bankCache = bankCache, equipmentCache = equipmentCache,
@@ -718,6 +725,7 @@ context_init.init({
     windowState = windowStateAPI,
     isBankWindowOpen = isBankWindowOpen,
     isMerchantWindowOpen = isMerchantWindowOpen,
+    isLootWindowOpen = isLootWindowOpen,
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
@@ -729,6 +737,7 @@ context_init.init({
         setStatusMessage("Refreshed")
     end,
     maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
+    maybeScanBank = maybeScanBank,
     maybeScanLootItems = maybeScanLootItems,
     ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
     refreshEquipmentCache = refreshEquipmentCache,
@@ -739,6 +748,8 @@ context_init.init({
     -- UI helpers (always present so views can call without guards)
     setStatusMessage = setStatusMessage or function() end,
     closeItemUI = closeItemUI,
+    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
     renderItemContextMenu = function(ctx, item, opts) return ui_common.renderItemContextMenu(ctx, item, opts) end,
@@ -814,6 +825,43 @@ context_init.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
+    getMostRecentlyOpenedCompanion = function()
+        return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
+    end,
+    closeCompanionWindow = function(name)
+        return registry.closeWindow(name, function(closedId)
+            if closedId ~= "loot" then return end
+            uiState.lootUIOpen = false
+            uiState.lootRunLootedList = {}
+            uiState.lootRunLootedItems = {}
+            uiState.lootRunCorpsesLooted = 0
+            uiState.lootRunTotalCorpses = 0
+            uiState.lootRunCurrentCorpse = ""
+            uiState.lootRunFinished = false
+            uiState.lootMythicalAlert = nil
+            uiState.lootMythicalDecisionStartAt = nil
+            uiState.lootMythicalFeedback = nil
+            uiState.lootRunTotalValue = 0
+            uiState.lootRunTributeValue = 0
+            uiState.lootRunBestItemName = ""
+            uiState.lootRunBestItemValue = 0
+        end)
+    end,
+    CharacterStats = CharacterStats,
+    itemOps = itemOps,
+    saveLayoutToFile = saveLayoutToFile,
+    saveLayoutForView = saveLayoutForView,
+    getOnboardingComplete = getOnboardingComplete,
+    setOnboardingComplete = setOnboardingComplete,
+    defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
+    loadLootHistoryFromFile = loadLootHistoryFromFile,
+    loadSkipHistoryFromFile = loadSkipHistoryFromFile,
+    lootLoopRefs = lootLoopRefs,
+    defaultLayoutHasExistingLayout = function() return defaultLayout.hasExistingLayout() end,
+    applyBundledDefaultLayout = function() return defaultLayout.applyBundledDefaultLayout() end,
+    classLabel = function(cls) return ConfigFilters.classLabel(cls) end,
+    C = C,
+    mq = mq,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
     getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
@@ -858,90 +906,6 @@ context_init.init({
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
-
-local defaultLayoutAppliedThisRun = false
-
-local mainWindowRefs = {
-    getShouldDraw = function() return shouldDraw end,
-    setShouldDraw = function(v) shouldDraw = v end,
-    getOpen = function() return isOpen end,
-    setOpen = function(v) isOpen = v end,
-    layoutConfig = layoutConfig,
-    layoutDefaults = layoutDefaults,
-    saveLayoutToFile = saveLayoutToFile,
-    saveLayoutForView = saveLayoutForView,
-    loadLayoutConfig = loadLayoutConfig,
-    getMostRecentlyOpenedCompanion = function()
-        return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
-    end,
-    closeCompanionWindow = function(name)
-        return registry.closeWindow(name, function(closedId)
-            if closedId ~= "loot" then return end
-            uiState.lootUIOpen = false
-            uiState.lootRunLootedList = {}
-            uiState.lootRunLootedItems = {}
-            uiState.lootRunCorpsesLooted = 0
-            uiState.lootRunTotalCorpses = 0
-            uiState.lootRunCurrentCorpse = ""
-            uiState.lootRunFinished = false
-            uiState.lootMythicalAlert = nil
-            uiState.lootMythicalDecisionStartAt = nil
-            uiState.lootMythicalFeedback = nil
-            uiState.lootRunTotalValue = 0
-            uiState.lootRunTributeValue = 0
-            uiState.lootRunBestItemName = ""
-            uiState.lootRunBestItemValue = 0
-        end)
-    end,
-    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
-    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
-    recordCompanionWindowOpened = recordCompanionWindowOpened,
-    setStatusMessage = setStatusMessage,
-    CharacterStats = CharacterStats,
-    hasItemOnCursor = hasItemOnCursor,
-    removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
-    putCursorInBags = function() return itemOps.putCursorInBags() end,
-    theme = theme,
-    uiState = uiState,
-    sellMacState = sellMacState,
-    C = C,
-    mq = mq,
-    refreshEquipmentCache = refreshEquipmentCache,
-    scanInventory = scanInventory,
-    isMerchantWindowOpen = isMerchantWindowOpen,
-    isBankWindowOpen = isBankWindowOpen,
-    isLootWindowOpen = isLootWindowOpen,
-    itemOps = itemOps,
-    loadLootHistoryFromFile = loadLootHistoryFromFile,
-    loadSkipHistoryFromFile = loadSkipHistoryFromFile,
-    lootLoopRefs = lootLoopRefs,
-    config = config,
-    sellItems = sellItems,
-    maybeScanInventory = maybeScanInventory,
-    maybeScanSellItems = maybeScanSellItems,
-    maybeScanBank = maybeScanBank,
-    -- Onboarding (first-run welcome panel)
-    getOnboardingComplete = getOnboardingComplete,
-    setOnboardingComplete = setOnboardingComplete,
-    resetOnboarding = resetOnboarding,
-    defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
-    -- Setup wizard (Task 5.4): config cache, epic classes, default layout
-    configSellFlags = configSellFlags,
-    configLootFlags = configLootFlags,
-    configLootValues = configLootValues,
-    configEpicClasses = configEpicClasses,
-    EPIC_CLASSES = rules.EPIC_CLASSES,
-    loadConfigCache = loadConfigCache,
-    invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
-    invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
-    defaultLayoutHasExistingLayout = function() return defaultLayout.hasExistingLayout() end,
-    applyBundledDefaultLayout = function() return defaultLayout.applyBundledDefaultLayout() end,
-    scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
-    classLabel = function(cls) return ConfigFilters.classLabel(cls) end,
-    addItemDisplayTab = addItemDisplayTab,
-    equipmentCache = equipmentCache,
-    inventoryItems = inventoryItems,
-}
 
 
 -- ============================================================================
@@ -1140,7 +1104,7 @@ local function main()
         end
         mq.cmd('/macro loot')
     end)
-    mq.imgui.init('ItemUI', function() MainWindow.render(mainWindowRefs) end)
+    mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then
