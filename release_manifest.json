@@ -82,7 +82,7 @@
       "hash": "9fcdddc8193b9f237c2ab03a35fe221646c56f67a9e731cb4f58869e45a4c264"
     },
     {
-      "path": "lua/itemui/context_builder.lua",
+      "path": "lua/itemui/context_init.lua",
       "hash": "bf12c6bf0928cb048df2fc97ea3bba04d702ffcb2c480cf3e5ec34d2e6e65da4"
     },
     {

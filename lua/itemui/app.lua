@@ -8,7 +8,7 @@ local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
-local context_builder = require('itemui.context_builder')
+local context_init = require('itemui.context_init')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
@@ -778,7 +778,7 @@ local function addItemDisplayTab(item, source)
     recordCompanionWindowOpened("itemDisplay")
 end
 
-context_builder.init({
+context_init.init({
     -- State tables
     uiState = uiState, sortState = sortState, filterState = filterState,
     layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
