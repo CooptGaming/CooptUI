@@ -1,4 +1,4 @@
-# Item UI – Unified Inventory / Bank / Sell
+# Item UI – Unified Inventory / Bank / Sell (v0.8.5-alpha)
 
 One window with a **dynamic inventory view** and an optional **Bank slide-out**:
 - **Inventory** switches between a **gameplay view** (bag, slot, weight, flags, To Bank when bank open) and a **sell view** (Status, Keep/Junk, Value, etc.) when a merchant is open.
@@ -37,7 +37,7 @@ LootUI is deprecated. Use ItemUI for all loot configuration and valuable lists.
 | Auto Sell button | Same button at top of sell view |
 | Config tabs | Config window (click "Config" button) |
 | Align to merchant | "Snap to Merchant" option in config |
-| Search & filter | Enhanced filter system (Phase 3) |
+| Search & filter | Enhanced filter system |
 
 ### Why Consolidate?
 
@@ -45,7 +45,7 @@ LootUI is deprecated. Use ItemUI for all loot configuration and valuable lists.
 - **Better performance**: Shared caching and state management
 - **More features**: Bank snapshots, loot evaluation, advanced filtering
 - **Easier maintenance**: Single codebase with modular architecture
-- **Future-ready**: Foundation for Phase 5-7 improvements
+- **Future-ready**: Foundation for ongoing improvements
 
 For detailed migration information, see [SELLUI_MIGRATION_GUIDE.md](docs/SELLUI_MIGRATION_GUIDE.md).
 
