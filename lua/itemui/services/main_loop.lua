@@ -149,7 +149,7 @@ local function phase4_sellMacroFinish(now)
         else
             setStatusMessage("Sell complete. Inventory refreshed.")
         end
-        print("\ag[ItemUI]\ax Sell macro finished - inventory refreshed")
+        print("\ag[CoOpt UI]\ax Sell macro finished - inventory refreshed")
     end
     sellMacState.lastRunning = sellMacRunning
 end
@@ -909,7 +909,7 @@ local function phase8c_pendingAugRollComplete(now)
     local cur = mq.TLO and mq.TLO.Cursor
     local name = (cur and cur.Name and cur.Name()) or ""
     if name and name ~= "" then
-        print("\ag[ItemUI]\ax Augment roll result: " .. name)
+        print("\ag[CoOpt UI]\ax Augment roll result: " .. name)
         local link = (cur and cur.Link and cur.Link()) or (cur and cur.ItemLink and cur.ItemLink()) or nil
         if link and link ~= "" then
             mq.cmdf("/guild %s", link)
@@ -925,7 +925,7 @@ local function phase8c_pendingAugRollComplete(now)
     uiState.pendingAugRollCompleteAt = nil
 end
 
--- Phase 9: Debounced layout save, cache cleanup
+-- Phase 9: Debounced layout save, cache cleanup, debug log flush
 local function phase9_layoutSaveCacheCleanup(now)
     local perfCache, saveLayoutToFileImmediate, Cache = d.perfCache, d.saveLayoutToFileImmediate, d.Cache
     if perfCache.layoutDirty and (now - perfCache.layoutSaveScheduledAt) >= perfCache.layoutSaveDebounceMs then
@@ -936,6 +936,8 @@ local function phase9_layoutSaveCacheCleanup(now)
         perfCache.lastCacheCleanup = now
         Cache.cleanup()
     end
+    local dbg = require('itemui.core.debug')
+    if dbg and dbg.flushLogFile then dbg.flushLogFile() end
 end
 
 -- Phase 10: Loop delay and doevents

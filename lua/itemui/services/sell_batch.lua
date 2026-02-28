@@ -10,12 +10,17 @@ local constants = require('itemui.constants')
 
 local M = {}
 local deps
+local dbg
+do
+    local ok, d = pcall(require, 'itemui.core.debug')
+    if ok and d and d.channel then dbg = d.channel('Sell') else dbg = { log = function() end } end
+end
 
 -- Batch state held in module (nil when idle)
 local batchState = nil
 
 -- wait_sold: time-based cap and settle (Task 7.4 fix — no 180-frame ~5s freeze)
-local WAIT_SOLD_SETTLE_MS = 150   -- minimum time in wait_sold before accepting completion
+local WAIT_SOLD_SETTLE_MS = 80    -- minimum time in wait_sold before accepting completion (sell freeze fix)
 local WAIT_SOLD_TIMEOUT_MS = 1500 -- max time in wait_sold before retry/fail (was 180 frames ~5.94s)
 local WAIT_SOLD_FRAME_CAP = 120   -- fallback frame cap (~4s at 33ms/frame) if time check were wrong
 
@@ -285,8 +290,9 @@ function M.advance(now)
             if io and io.removeItemFromSellItemsBySlot then io.removeItemFromSellItemsBySlot(bagNum, slotNum) end
             if getSellHistoryLogEnabled() then logSellHistory(itemName, cur.item.totalValue, cur.item.sellReason) end
             if getSellVerboseLog() then
-                print(string.format("\ag[ItemUI]\ax [LUA SELL] %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
+                print(string.format("\ag[CoOpt UI]\ax %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
             end
+            if dbg and dbg.log then dbg.log(string.format("%s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold")) end
             batchState.soldCount = batchState.soldCount + 1
             batchState.current = nil
             batchState.queueIndex = batchState.queueIndex + 1

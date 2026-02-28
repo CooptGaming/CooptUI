@@ -208,7 +208,7 @@ local function saveInventory(items, nextAcquiredSeq)
     local ok = file_safe.safeWrite(path, content)
     local e = mq.gettime() - t0
     if ok and profileConfig.enabled and e >= profileConfig.thresholdMs then
-        print(string.format("\ag[ItemUI Profile]\ax storage.saveInventory: %d ms (%d items)", e, #items))
+        print(string.format("\ag[CoOpt UI Profile]\ax storage.saveInventory: %d ms (%d items)", e, #items))
     end
     return ok
 end

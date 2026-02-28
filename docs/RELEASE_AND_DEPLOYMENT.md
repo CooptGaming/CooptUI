@@ -417,3 +417,21 @@ When creating or updating a release package:
 3. **Preserve:** Macros/sell_config, shared_config, loot_config INIs and Chars/; Macros/logs/item_management.
 4. **Templates:** config_templates/ holds default INIs; users copy into Macros/ on first install only; never overwrite existing Macros/*/ INIs on update.
 5. **Docs:** Include DEPLOY.md in the zip with the instructions in Section 8; optionally CHANGELOG.md.
+
+---
+
+## 12. Bootstrap readiness checklist (Task 8.4)
+
+After the CoOpt UI patcher (or a manual update) runs, the environment must be ready so the Welcome/tutorial can run without red validation. The patcher calls **ensure_env_after_patch(MQ_root)** on successful patch to:
+
+1. **Create config directories** if missing: `Macros/sell_config`, `Macros/shared_config`, `Macros/loot_config`.
+2. **Create minimal INI files** if missing so the UI can load:
+   - `Macros/sell_config/itemui_layout.ini` — at least `[Layout]` section.
+   - `Macros/sell_config/sell_flags.ini` — at least `[Settings]` section.
+   - `Macros/loot_config/loot_flags.ini` — at least `[Settings]` section.
+
+**Checklist for release / patcher integration:**
+
+- [ ] Patcher runs `ensure_env_after_patch(mq_root)` after a successful patch (already in `patcher/migrate_itemui_to_coopui.py` and invoked from `patcher/patcher.py`).
+- [ ] Welcome screen environment check (Task 8.2) validates MQ path, config dirs present or created, and itemui_layout.ini writable; shows [OK]/[Created]/[Failed] and allows "I Understand, Continue" when there are failures.
+- [ ] First-run users who extract the zip without running the patcher should have config_templates copied into Macros/ per DEPLOY.md so the same dirs and minimal INIs exist.

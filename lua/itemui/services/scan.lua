@@ -136,7 +136,7 @@ function M.scanInventory()
         scanState.lastPersistSaveTime = now
     end
     if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-        print(string.format("\ag[ItemUI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
@@ -217,7 +217,7 @@ function M.processIncrementalScan()
             saveMs = mq.gettime() - t1
         end
         if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-            print(string.format("\ag[ItemUI Profile]\ax incrementalScanInventory: scan=%d ms, save=%d ms (%d items, %d bags/frame)",
+            print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms, save=%d ms (%d items, %d bags/frame)",
                 scanMs, saveMs, #inventoryItems, incrementalScanState.bagsPerFrame))
         end
         env.scanState.lastInventoryFingerprint = buildInventoryFingerprint()
@@ -263,7 +263,7 @@ local function targetedRescanBags(changedBags)
     end
     local scanMs = mq.gettime() - t0
     if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
-        print(string.format("\ag[ItemUI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
+        print(string.format("\ag[CoOpt UI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
     end
     -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
     env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()

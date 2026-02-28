@@ -218,12 +218,12 @@ local function renderLootWindow(refs)
         end
     end
     ctx.setMythicalCopyName = function(name)
-        if name and name ~= "" then print(string.format("\ay[ItemUI]\ax Mythical item name: %s", name)) end
+        if name and name ~= "" then print(string.format("\ay[CoOpt UI]\ax Mythical item name: %s", name)) end
     end
     ctx.setMythicalCopyLink = function(link)
         if not link or link == "" then return end
         if ImGui and ImGui.SetClipboardText then ImGui.SetClipboardText(link) end
-        print(string.format("\ay[ItemUI]\ax Mythical item link copied to clipboard (or see console)."))
+        print(string.format("\ay[CoOpt UI]\ax Mythical item link copied to clipboard (or see console)."))
     end
     ctx.clearLootUIState = function()
         uiState.lootRunLootedList = {}

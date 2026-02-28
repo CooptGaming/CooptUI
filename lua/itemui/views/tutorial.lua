@@ -6,6 +6,7 @@
 
 require('ImGui')
 local registry = require('itemui.core.registry')
+local welcomeEnvManifest = require('itemui.core.welcome_env_manifest')
 
 local TOTAL_SCREENS = 14   -- 0 = Welcome (pre-wizard), 1-13 = wizard steps
 
@@ -57,12 +58,39 @@ function renderWelcomeScreen(refs)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
     end
     ImGui.Spacing()
+
+    -- Environment check (Task 8.2): validate once, show [OK]/[Created]/[Failed]
+    if uiState.welcomeEnvResults == nil then
+        uiState.welcomeEnvResults = welcomeEnvManifest.validate()
+    end
+    local envResults = uiState.welcomeEnvResults or {}
+    local hasFailed = false
+    for _, r in ipairs(envResults) do if r.status == "failed" then hasFailed = true; break end end
+    local envOkOrAcked = not hasFailed or (uiState.welcomeEnvAck == true)
+
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Environment check")
+    for _, r in ipairs(envResults) do
+        local tag = (r.status == "ok") and "[OK]" or (r.status == "created") and "[Created]" or "[Failed]"
+        local col = (r.status == "ok") and theme.Colors.Success or (r.status == "created") and theme.Colors.Warning or theme.Colors.Error
+        ImGui.TextColored(theme.ToVec4(col), tag)
+        ImGui.SameLine(72, 4)
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), r.id .. ": " .. (r.message or r.status))
+    end
+    if hasFailed and not uiState.welcomeEnvAck then
+        ImGui.Spacing()
+        if ImGui.Button("I Understand, Continue##WelcomeEnvAck", ImVec2(200, 0)) then
+            uiState.welcomeEnvAck = true
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Allow Run Setup or Skip despite failed checks."); ImGui.EndTooltip() end
+    end
+    ImGui.Spacing()
     ImGui.Spacing()
 
-    -- Two buttons side-by-side, centered
+    -- Two buttons side-by-side, centered (disabled until env OK or acked)
     local runSetupW, skipW = 220, 260
     local totalW = runSetupW + 24 + skipW
     ImGui.SetCursorPosX((ImGui.GetWindowWidth() - totalW) * 0.5)
+    if not envOkOrAcked then ImGui.BeginDisabled() end
     if ImGui.Button("Run Setup", ImVec2(runSetupW, 0)) then
         uiState.setupMode = true
         uiState.setupStep = 1
@@ -83,6 +111,7 @@ function renderWelcomeScreen(refs)
         ImGui.Text("Skip setup; you can re-open this from Settings anytime")
         ImGui.EndTooltip()
     end
+    if not envOkOrAcked then ImGui.EndDisabled() end
 
     ImGui.Spacing()
     ImGui.Spacing()

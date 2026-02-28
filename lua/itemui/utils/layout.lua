@@ -301,7 +301,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:close()
     end)
     if not ok then
-        if print then print(string.format("\ar[ItemUI]\ax saveLayoutToFileImmediate failed: %s", tostring(err))) end
+        if print then print(string.format("\ar[CoOpt UI]\ax saveLayoutToFileImmediate failed: %s", tostring(err))) end
         diagnostics.recordError("Layout", "Save layout to file failed", err)
     end
 end
@@ -470,7 +470,7 @@ function LayoutUtils.loadLayoutConfig()
             print(string.format("[LayoutUtils DEBUG] Loaded from CACHE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
         end
         if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
-            print(string.format("\ag[ItemUI Profile]\ax loadLayoutConfig (cached): %d ms", e))
+            print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
         end
         return
     end
@@ -585,7 +585,7 @@ function LayoutUtils.loadLayoutConfig()
         print(string.format("[LayoutUtils DEBUG] Loaded from FILE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
     end
     if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
-        print(string.format("\ag[ItemUI Profile]\ax loadLayoutConfig (file read): %d ms", e))
+        print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
     end
 end
 

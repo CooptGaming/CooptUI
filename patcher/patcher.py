@@ -10,6 +10,7 @@ import threading
 import customtkinter as ctk
 from PIL import Image
 
+from migrate_itemui_to_coopui import migrate_itemui_to_coopui, ensure_env_after_patch
 from updater import check_for_updates, check_for_default_config, patch, install_default_config
 from validator import validate_mq_root
 
@@ -158,6 +159,13 @@ class PatcherApp(ctk.CTk):
             self._set_status(msg or "Invalid directory.")
             self.patch_btn.configure(state="disabled")
             return
+        def _migrate_log(line: str):
+            self.after(0, lambda: self._set_status(line[:80]))
+        migrate_ok, migrate_msg = migrate_itemui_to_coopui(self.mq_root, log_callback=_migrate_log)
+        if not migrate_ok:
+            self._set_status(migrate_msg or "Migration failed.")
+            self.patch_btn.configure(state="disabled")
+            return
         self._set_status("Checking for updates…")
         threading.Thread(target=self._check_updates, daemon=True).start()
 
@@ -243,11 +251,11 @@ class PatcherApp(ctk.CTk):
 
     def _on_patch_done(self, success: bool, message: str):
         self._patch_in_progress = False
-        # Keep patch log visible so players can scroll through the list of altered files
         self._set_status(message)
         self.progress.pack_forget()
         self.status_label.pack(side="left", fill="x", expand=True)
         if success:
+            ensure_env_after_patch(self.mq_root)
             self.files_to_update = []
             self.files_to_install_defaults = []
             self.patch_btn.configure(state="disabled")
