@@ -25,6 +25,7 @@ M.TIMING = {
     -- Macro finish / scan
     LOOT_PENDING_SCAN_DELAY_MS = 2500,
     SELL_PENDING_SCAN_DELAY_MS = 500,
+    REROLL_PENDING_SCAN_DELAY_MS = 500,
     SELL_FAILED_DISPLAY_MS = 15000,
     -- Bank rescan cooldown: skip re-scanning if bank was scanned within this window.
     -- Prevents redundant full scans when the user closes and immediately reopens the bank.
@@ -224,6 +225,7 @@ function M.buildC(version)
         GET_CHANGED_BAGS_THROTTLE_MS = T.GET_CHANGED_BAGS_THROTTLE_MS,
         SELL_FAILED_DISPLAY_MS = T.SELL_FAILED_DISPLAY_MS,
         SELL_PENDING_SCAN_DELAY_MS = T.SELL_PENDING_SCAN_DELAY_MS,
+        REROLL_PENDING_SCAN_DELAY_MS = T.REROLL_PENDING_SCAN_DELAY_MS,
         STORED_INV_CACHE_TTL_MS = T.STORED_INV_CACHE_TTL_MS,
         LOOP_DELAY_VISIBLE_MS = T.LOOP_DELAY_VISIBLE_MS,
         LOOP_DELAY_HIDDEN_MS = T.LOOP_DELAY_HIDDEN_MS,

@@ -497,6 +497,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                     uiState.pendingAugRollCompleteAt = now
                 else
                     d.rerollService.mythicalRoll()
+                    uiState.rerollPendingScan = true
+                    uiState.rerollPendingScanAt = now
                 end
             end
             if d.setStatusMessage then d.setStatusMessage("Roll sent.") end
@@ -685,6 +687,17 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             if isMerchantWindowOpen() then scanSellItems() end
             invalidateSortCache("inv"); invalidateSortCache("sell")
             sellMacState.pendingScan = false
+        end
+    end
+    -- Reroll manager: quick refresh after roll finishes so count updates and next roll doesn't use stale items.
+    if uiState.rerollPendingScan and uiState.rerollPendingScanAt then
+        local elapsed = now - uiState.rerollPendingScanAt
+        if elapsed >= (C.REROLL_PENDING_SCAN_DELAY_MS or 500) then
+            scanInventory()
+            if bankOpen then maybeScanBank(bankOpen) end
+            invalidateSortCache("inv")
+            uiState.rerollPendingScan = false
+            uiState.rerollPendingScanAt = 0
         end
     end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
@@ -959,6 +972,9 @@ local function phase8c_pendingAugRollComplete(now)
     uiState.deferredInventoryScanAt = now + delayMs
     uiState.pendingAugRollComplete = nil
     uiState.pendingAugRollCompleteAt = nil
+    -- Schedule reroll quick refresh so count updates and next roll doesn't use stale items.
+    uiState.rerollPendingScan = true
+    uiState.rerollPendingScanAt = now
 end
 
 -- Phase 9: Debounced layout save, cache cleanup

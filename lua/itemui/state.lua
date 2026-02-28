@@ -57,6 +57,8 @@ local uiState = {
     confirmBeforeDelete = true,
     deferredInventoryScanAt = nil,
     pendingStatRescanBags = nil,
+    rerollPendingScan = false,
+    rerollPendingScanAt = 0,
 }
 
 -- Layout from setup (itemui_layout.ini)

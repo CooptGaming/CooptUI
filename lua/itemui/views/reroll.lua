@@ -208,6 +208,9 @@ local function renderTabContent(ctx, track, rerollService)
                     ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
                 else
                     rerollService.mythicalRoll()
+                    -- Schedule reroll quick refresh so count updates and next roll doesn't use stale items.
+                    ctx.uiState.rerollPendingScan = true
+                    ctx.uiState.rerollPendingScanAt = (mq and mq.gettime and mq.gettime()) or 0
                 end
                 ctx.uiState[pendingRollKey] = nil
             end
