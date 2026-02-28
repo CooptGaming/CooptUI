@@ -73,6 +73,10 @@ function EquipmentView.render(ctx)
     if ctx.uiState.uiLocked then
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
+    -- Don't take focus when opening so keyboard/hotkeys still work in-game until user clicks the UI.
+    if ImGuiWindowFlags.NoFocusOnAppearing then
+        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoFocusOnAppearing)
+    end
 
     local winOpen, winVis = ImGui.Begin("CoOpt UI Equipment Companion##ItemUIEquipment", registry.isOpen("equipment"), windowFlags)
     registry.setWindowState("equipment", winOpen, winOpen)

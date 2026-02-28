@@ -699,7 +699,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             uiState.equipmentWindowShouldDraw = true
             recordCompanionWindowOpened("equipment")
             if bankJustOpened then
-                maybeScanBank(bankOpen)
+                -- Defer bank scan to next frame so CoOpt UI opens instantly without blocking.
+                deferredScanNeeded.bank = true
                 deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = merchOpen
             elseif merchOpen and not lastMerchantState then
@@ -708,7 +709,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.sell = true
                 deferredScanNeeded.bank = bankOpen
             else
-                maybeScanInventory(invOpen)
+                -- Defer inventory scan to next frame so CoOpt UI opens instantly without blocking.
+                deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.bank = bankOpen
                 deferredScanNeeded.sell = merchOpen
             end
@@ -729,7 +731,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         uiState.equipmentWindowShouldDraw = true
         recordCompanionWindowOpened("bank")
         recordCompanionWindowOpened("equipment")
-        maybeScanBank(bankOpen)
+        -- Defer bank scan to next frame so CoOpt UI opens instantly without blocking.
+        deferredScanNeeded.bank = true
         deferredScanNeeded.inventory = invOpen
         deferredScanNeeded.sell = merchOpen
     end
@@ -760,7 +763,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     if bankJustOpened and shouldDrawBefore then
         uiState.bankWindowOpen = true
         uiState.bankWindowShouldDraw = true
-        maybeScanBank(bankOpen)
+        -- Defer bank scan to next frame so companion renders immediately without blocking.
+        deferredScanNeeded.bank = true
     elseif bankJustOpened then
         uiState.bankWindowOpen = true
         uiState.bankWindowShouldDraw = true

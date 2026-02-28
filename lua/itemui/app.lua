@@ -434,7 +434,10 @@ do
             local tt = require('itemui.utils.item_tooltip')
             if tt and tt.invalidateTooltipCache then tt.invalidateTooltipCache() end
         end,
-        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, bankItems or bankCache) end,
+        -- Use fresh bankItems when bank is open; do NOT fall back to bankCache when bank is closed.
+        -- bankCache becomes stale after augment operations (aug moved bank→socket→inventory),
+        -- which would cause the same augment to appear twice in the compatible-augments list.
+        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, isBankWindowOpen() and (bankItems or bankCache) or nil) end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,
@@ -872,7 +875,9 @@ context_init.init({
         local slot = entry and entry.slot or (entryOrItem and entryOrItem.slot)
         local src = entry and entry.source or (entryOrItem and entryOrItem.source) or "inv"
         if not item or not slotIndex then return {} end
-        local bankList = isBankWindowOpen() and bankItems or bankCache
+        -- Only include bank items when bank is open; stale bankCache causes duplicates when
+        -- an augment has been moved bank→socket→inventory (it would appear in both lists).
+        local bankList = isBankWindowOpen() and bankItems or nil
         local canUseFilter = (options and type(options.canUseFilter) == "function") and options.canUseFilter or nil
         return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList, canUseFilter)
     end,

@@ -325,6 +325,10 @@ function M.render(refs)
         if uiState.uiLocked then
             windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
         end
+        -- Don't take focus when opening so keyboard/hotkeys still work in-game until user clicks the UI.
+        if ImGuiWindowFlags.NoFocusOnAppearing then
+            windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoFocusOnAppearing)
+        end
 
         local winOpen, winVis = ImGui.Begin("CoOpt UI Inventory Companion##ItemUI", isOpen, windowFlags)
         refs.setOpen(winOpen)
@@ -337,12 +341,16 @@ function M.render(refs)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
-        -- Request keyboard capture so ESC closes companion only, not native EQ bags (LIFO fix)
+        -- LIFO ESC fix: only request keyboard capture when any CoOpt ImGui window has focus.
+        -- This prevents ESC from closing native EQ bags when the user is interacting with CoOpt UI,
+        -- while allowing all other keyboard input (chat, hotkeys) to pass through to EQ normally
+        -- when the user is focused on the game (not on a CoOpt window).
         if winVis then
-            -- Intentionally silent pcall: ImGui.SetNextFrameWantCaptureKeyboard may not exist in all MQ/ImGui builds; no diagnostics needed.
             pcall(function()
-                if ImGui.SetNextFrameWantCaptureKeyboard then ImGui.SetNextFrameWantCaptureKeyboard(true)
-                elseif ImGui.GetIO and ImGui.GetIO().SetNextFrameWantCaptureKeyboard then ImGui.GetIO().SetNextFrameWantCaptureKeyboard(true) end
+                local anyFocused = ImGui.IsWindowFocused and ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow)
+                if anyFocused and ImGui.SetNextFrameWantCaptureKeyboard then
+                    ImGui.SetNextFrameWantCaptureKeyboard(true)
+                end
             end)
         end
         if ImGui.IsKeyPressed(ImGuiKey.Escape) then

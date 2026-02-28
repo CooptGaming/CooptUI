@@ -230,9 +230,15 @@ function M.setWindowState(id, windowOpen, windowShouldDraw)
     local m = modules[id]
     if not m then return end
     cacheDirty = true
+    local wasOpen = m.windowOpen
     m.windowOpen = windowOpen
     m.windowShouldDraw = windowShouldDraw
-    if not windowOpen then
+    if windowOpen and not wasOpen then
+        -- Auto-record LIFO timestamp on closed→open transition so windows opened via
+        -- state writes (e.g. augment utility opened from item display tooltip click)
+        -- are correctly tracked by getMostRecentlyOpenedCompanion.
+        M.recordOpened(id)
+    elseif not windowOpen then
         m.openedAt = nil
         if companionWindowOpenedAt then
             companionWindowOpenedAt[id] = nil

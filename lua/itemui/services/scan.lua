@@ -452,10 +452,14 @@ function M.maybeScanBank(bankOpen)
         env.scanState.lastScanState.bankOpen = false
         return
     end
-    if #env.bankItems == 0 or env.scanState.lastScanState.bankOpen ~= bankOpen then
+    local now = mq.gettime()
+    local cooldown = (env.C and env.C.BANK_RESCAN_COOLDOWN_MS) or 10000
+    local timeSinceLastScan = now - (env.scanState.lastScanTimeBank or 0)
+    local hasFreshData = #env.bankItems > 0 and timeSinceLastScan < cooldown
+    if not hasFreshData then
         M.scanBank()
-        env.scanState.lastScanState.bankOpen = bankOpen
     end
+    env.scanState.lastScanState.bankOpen = bankOpen
 end
 
 function M.maybeScanSellItems(merchOpen)

@@ -26,6 +26,9 @@ M.TIMING = {
     LOOT_PENDING_SCAN_DELAY_MS = 2500,
     SELL_PENDING_SCAN_DELAY_MS = 500,
     SELL_FAILED_DISPLAY_MS = 15000,
+    -- Bank rescan cooldown: skip re-scanning if bank was scanned within this window.
+    -- Prevents redundant full scans when the user closes and immediately reopens the bank.
+    BANK_RESCAN_COOLDOWN_MS = 10000,
 
     -- Main loop
     LOOP_DELAY_VISIBLE_MS = 33,   -- ~30 FPS when UI visible
