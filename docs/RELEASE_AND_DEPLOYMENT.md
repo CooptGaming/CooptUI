@@ -408,7 +408,21 @@ This document does not define the script; it is optional and can be added later.
 
 ---
 
-## 11. Summary for agents
+## 11. Bootstrap readiness checklist (Task 8.4)
+
+Before each release, verify that a **fresh install** (Zip or patcher) can reach the Welcome process and tutorial without red validation failures:
+
+1. **Zip audit:** Extract the release Zip (or run the patcher) into a **clean** MacroQuest directory (no existing `Macros/sell_config`, `Macros/shared_config`, `Macros/loot_config`, or ensure they are empty/minimal).
+2. **Launch:** Start MQ2 and run `/lua run itemui`.
+3. **Welcome:** Confirm the Welcome panel appears with the **Environment check** section. All entries should show **[OK]** or **[Created]** (no **[Failed]**). If any fail, fix the package (include missing defaults) or document the requirement.
+4. **Proceed:** Click "Run Setup" or "I Know What I'm Doing (Skip)" and confirm the tutorial step or main UI loads.
+5. **Patcher:** If using the patcher as the delivery mechanism, confirm it runs **environment validation** (creation of `Macros/sell_config`, `shared_config`, `loot_config` and minimal INI when missing) as part of the **post-patch** sequence, not only on first install.
+
+Files that the Welcome process can auto-generate (folders, minimal INI) may be omitted from the Zip to reduce size; document any such exclusion. Include all **process files** (Lua source, macros) and the **defaults/** configuration package when using backup/restore defaults (Task 8.3).
+
+---
+
+## 12. Summary for agents
 
 When creating or updating a release package:
 
@@ -417,3 +431,4 @@ When creating or updating a release package:
 3. **Preserve:** Macros/sell_config, shared_config, loot_config INIs and Chars/; Macros/logs/item_management.
 4. **Templates:** config_templates/ holds default INIs; users copy into Macros/ on first install only; never overwrite existing Macros/*/ INIs on update.
 5. **Docs:** Include DEPLOY.md in the zip with the instructions in Section 8; optionally CHANGELOG.md.
+6. **Bootstrap:** Run the checklist in Section 11 (extract to clean MQ, launch, confirm Welcome env check passes).

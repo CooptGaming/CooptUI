@@ -10,6 +10,7 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
+local ItemDisplayView = require('itemui.views.item_display')
 
 local InventoryView = {}
 
@@ -208,7 +209,7 @@ function InventoryView.render(ctx, bankOpen)
                 local item = filtered[i]
                 if not item then goto continue end
                 ImGui.TableNextRow()
-                local loc = ctx.uiState.itemDisplayLocateRequest
+                local loc = ItemDisplayView.getState().itemDisplayLocateRequest
                 if loc and loc.source == "inv" and loc.bag == item.bag and loc.slot == item.slot then
                     ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImVec4(0.25, 0.45, 0.75, 0.45)))
                 end

@@ -6,6 +6,7 @@
 
 require('ImGui')
 local registry = require('itemui.core.registry')
+local welcomeEnv = require('itemui.core.welcome_env_manifest')
 
 local TOTAL_SCREENS = 14   -- 0 = Welcome (pre-wizard), 1-13 = wizard steps
 
@@ -45,13 +46,57 @@ local function isDescriptionScreen(step)
     return step == 1 or step == 3 or step == 5 or step == 7 or step == 9 or step == 12 or step == 13
 end
 
---- Screen 0: Welcome (two buttons, bullet points). Shown when showWelcomePanel or when setupMode and setupStep==0.
+--- Screen 0: Welcome (env checklist, two buttons, bullet points). Shown when showWelcomePanel or when setupMode and setupStep==0.
 function renderWelcomeScreen(refs)
     local theme = refs.theme
     local uiState = refs.uiState
+    -- Environment validation (Task 8.2): run once, show checklist
+    if not uiState.welcomeEnvResults then
+        uiState.welcomeEnvResults = welcomeEnv.validate()
+    end
+    local envResults = uiState.welcomeEnvResults
+    local hasFailure = false
+    for _, r in ipairs(envResults) do
+        if r.status == "failed" then hasFailure = true; break end
+    end
+    local envAllValid = not hasFailure and #envResults > 0
+
     ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Welcome to CoOpt UI")
     ImGui.Separator()
     ImGui.TextWrapped("Your unified inventory, sell, loot, and augment companion.")
+    ImGui.Spacing()
+    -- Environment checklist (collapsible if all valid)
+    if ImGui.CollapsingHeader("Environment check", envAllValid and ImGuiTreeNodeFlags.DefaultOpen or ImGuiTreeNodeFlags.None) then
+        for _, r in ipairs(envResults) do
+            if r.status == "valid" then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Success), "  [OK] ")
+                ImGui.SameLine(0, 8)
+                ImGui.Text(r.label or r.path)
+            elseif r.status == "generated" then
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), "  [Created] ")
+                ImGui.SameLine(0, 8)
+                ImGui.Text(r.label or r.path)
+            else
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Error or theme.Colors.Warning), "  [Failed] ")
+                ImGui.SameLine(0, 8)
+                ImGui.Text(r.label or r.path)
+                if r.message and r.message ~= "" then
+                    ImGui.Indent()
+                    ImGui.TextWrapped(r.message)
+                    ImGui.Unindent()
+                end
+            end
+        end
+        if hasFailure then
+            ImGui.Spacing()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Fix the failed items (create folders or run from your MacroQuest root) or acknowledge below to continue.")
+            if ImGui.Button("I Understand, Continue##WelcomeEnvAck", ImVec2(200, 0)) then
+                uiState.welcomeEnvAcknowledged = true
+            end
+        end
+    end
+    ImGui.Spacing()
+    local allowProceed = not hasFailure or uiState.welcomeEnvAcknowledged
     if refs.defaultLayoutAppliedThisRun and refs.defaultLayoutAppliedThisRun() then
         ImGui.Spacing()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
@@ -59,10 +104,11 @@ function renderWelcomeScreen(refs)
     ImGui.Spacing()
     ImGui.Spacing()
 
-    -- Two buttons side-by-side, centered
+    -- Two buttons side-by-side, centered (disabled until env acknowledged if there were failures)
     local runSetupW, skipW = 220, 260
     local totalW = runSetupW + 24 + skipW
     ImGui.SetCursorPosX((ImGui.GetWindowWidth() - totalW) * 0.5)
+    if not allowProceed then ImGui.BeginDisabled() end
     if ImGui.Button("Run Setup", ImVec2(runSetupW, 0)) then
         uiState.setupMode = true
         uiState.setupStep = 1
@@ -78,6 +124,7 @@ function renderWelcomeScreen(refs)
     if ImGui.Button("I Know What I'm Doing (Skip)", ImVec2(skipW, 0)) then
         if refs.setOnboardingComplete then refs.setOnboardingComplete() end
     end
+    if not allowProceed then ImGui.EndDisabled() end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
         ImGui.Text("Skip setup; you can re-open this from Settings anytime")

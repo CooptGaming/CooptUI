@@ -11,6 +11,7 @@ local augmentRanking = require('itemui.utils.augment_ranking')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local ItemDisplayView = require('itemui.views.item_display')
 
 local AugmentUtilityView = {}
 
@@ -78,8 +79,9 @@ function AugmentUtilityView.render(ctx)
     end
 
     -- Target: current Item Display tab
-    local tabs = ctx.uiState.itemDisplayTabs or {}
-    local activeIdx = ctx.uiState.itemDisplayActiveTabIndex or 1
+    local itemDisplayState = ItemDisplayView.getState()
+    local tabs = itemDisplayState.itemDisplayTabs or {}
+    local activeIdx = itemDisplayState.itemDisplayActiveTabIndex or 1
     if activeIdx < 1 or activeIdx > #tabs then activeIdx = #tabs > 0 and 1 or 0 end
     local tab = (activeIdx >= 1 and activeIdx <= #tabs) and tabs[activeIdx] or nil
 

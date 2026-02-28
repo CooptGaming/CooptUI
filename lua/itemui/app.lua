@@ -8,7 +8,7 @@ local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
-local context_builder = require('itemui.context_builder')
+local context_init = require('itemui.context_init')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
@@ -33,6 +33,7 @@ local itemOps = require('itemui.services.item_ops')
 local augmentOps = require('itemui.services.augment_ops')
 local sellBatch = require('itemui.services.sell_batch')
 local mainLoop = require('itemui.services.main_loop')
+local commands = require('itemui.commands')
 
 -- Phase 5: View modules
 local InventoryView = require('itemui.views.inventory')
@@ -40,7 +41,7 @@ local SellView = require('itemui.views.sell')
 local BankView = require('itemui.views.bank')
 local EquipmentView = require('itemui.views.equipment')
 local LootView = require('itemui.views.loot')
-local ConfigView = require('itemui.views.config')
+local ConfigView = require('itemui.views.settings')
 local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
 local AugmentUtilityView = require('itemui.views.augment_utility')
@@ -79,7 +80,12 @@ local computeAndAttachSellStatus  -- forward declaration: set after willItemBeSo
 local uiState = state.uiState
 -- Delegate reroll and equipment state (4.2); existing uiState.* unchanged for callers
 do
-    local rerollKeys = { pendingRerollAdd = true, pendingRerollBankMoves = true, pendingAugRollComplete = true, pendingAugRollCompleteAt = true }
+    local rerollKeys = {
+        pendingRerollAdd = true,
+        pendingRerollBankMoves = true,
+        pendingAugRollComplete = true,
+        pendingAugRollCompleteAt = true
+    }
     setmetatable(uiState, {
         __index = function(t, k)
             if rerollKeys[k] then return rerollService.getState()[k] end
@@ -99,12 +105,6 @@ do
             if k == "augmentUtilityOnlyShowUsable" then return AugmentUtilityView.getState().augmentUtilityOnlyShowUsable end
             if k == "itemDisplayWindowOpen" then return registry.isOpen("itemDisplay") end
             if k == "itemDisplayWindowShouldDraw" then return registry.shouldDraw("itemDisplay") end
-            if k == "itemDisplayTabs" then return ItemDisplayView.getState().itemDisplayTabs end
-            if k == "itemDisplayActiveTabIndex" then return ItemDisplayView.getState().itemDisplayActiveTabIndex end
-            if k == "itemDisplayRecent" then return ItemDisplayView.getState().itemDisplayRecent end
-            if k == "itemDisplayLocateRequest" then return ItemDisplayView.getState().itemDisplayLocateRequest end
-            if k == "itemDisplayLocateRequestAt" then return ItemDisplayView.getState().itemDisplayLocateRequestAt end
-            if k == "itemDisplayAugmentSlotActive" then return ItemDisplayView.getState().itemDisplayAugmentSlotActive end
             if k == "bankWindowOpen" then return registry.isOpen("bank") end
             if k == "bankWindowShouldDraw" then return registry.shouldDraw("bank") end
             if k == "configWindowOpen" then return registry.isOpen("config") end
@@ -123,7 +123,8 @@ do
             local itemOpsKeys = {
                 pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
                 pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
+                cursorActionQueue = true,
                 lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
                 hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
             }
@@ -153,12 +154,6 @@ do
             if k == "searchFilterAugmentUtility" then AugmentUtilityView.getState().searchFilterAugmentUtility = v; return end
             if k == "augmentUtilityOnlyShowUsable" then AugmentUtilityView.getState().augmentUtilityOnlyShowUsable = v; return end
             if k == "itemDisplayWindowOpen" or k == "itemDisplayWindowShouldDraw" then registry.setWindowState("itemDisplay", v, v); return end
-            if k == "itemDisplayTabs" then ItemDisplayView.getState().itemDisplayTabs = v; return end
-            if k == "itemDisplayActiveTabIndex" then ItemDisplayView.getState().itemDisplayActiveTabIndex = v; return end
-            if k == "itemDisplayRecent" then ItemDisplayView.getState().itemDisplayRecent = v; return end
-            if k == "itemDisplayLocateRequest" then ItemDisplayView.getState().itemDisplayLocateRequest = v; return end
-            if k == "itemDisplayLocateRequestAt" then ItemDisplayView.getState().itemDisplayLocateRequestAt = v; return end
-            if k == "itemDisplayAugmentSlotActive" then ItemDisplayView.getState().itemDisplayAugmentSlotActive = v; return end
             if k == "bankWindowOpen" or k == "bankWindowShouldDraw" then registry.setWindowState("bank", v, v); return end
             if k == "configWindowOpen" then registry.setWindowState("config", v, v); return end
             if k == "configNeedsLoad" then ConfigView.getState().configNeedsLoad = v; return end
@@ -176,7 +171,8 @@ do
             local itemOpsKeys = {
                 pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
                 pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
+                cursorActionQueue = true,
                 lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
                 hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
             }
@@ -325,89 +321,9 @@ local function setStatusMessage(msg) itemHelpers.setStatusMessage(msg) end
 local function getItemSpellId(item, prop) return itemHelpers.getItemSpellId(item, prop) end
 local function getSpellName(id) return itemHelpers.getSpellName(id) end
 
--- Companion windows: LIFO close order (record open time; Esc closes most recently opened)
+-- Companion windows: lifecycle state is owned by registry (openedAt + LIFO close).
 local function recordCompanionWindowOpened(name)
-    uiState.companionWindowOpenedAt = uiState.companionWindowOpenedAt or {}
-    uiState.companionWindowOpenedAt[name] = mq.gettime()
-end
-local function closeCompanionWindow(name)
-    if name == "config" then
-        registry.setWindowState("config", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "equipment" then
-        registry.setWindowState("equipment", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "bank" then
-        registry.setWindowState("bank", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "augments" then
-        registry.setWindowState("augments", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "augmentUtility" then
-        registry.setWindowState("augmentUtility", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "itemDisplay" then
-        registry.setWindowState("itemDisplay", false, false)
-        ItemDisplayView.getState().itemDisplayTabs = {}
-        ItemDisplayView.getState().itemDisplayActiveTabIndex = 1
-        uiState.removeAllQueue = nil   -- Phase 1: target changed
-        uiState.optimizeQueue = nil    -- Phase 2: target changed
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "aa" then
-        registry.setWindowState("aa", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "reroll" then
-        registry.setWindowState("reroll", false, false)
-        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-        return
-    elseif name == "loot" then
-        uiState.lootUIOpen = false
-        uiState.lootRunLootedList = {}
-        uiState.lootRunLootedItems = {}
-        uiState.lootRunCorpsesLooted = 0
-        uiState.lootRunTotalCorpses = 0
-        uiState.lootRunCurrentCorpse = ""
-        uiState.lootRunFinished = false
-        uiState.lootMythicalAlert = nil
-        uiState.lootMythicalDecisionStartAt = nil
-        uiState.lootMythicalFeedback = nil
-        uiState.lootRunTotalValue = 0
-        uiState.lootRunTributeValue = 0
-        uiState.lootRunBestItemName = ""
-        uiState.lootRunBestItemValue = 0
-    end
-    if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[name] = nil end
-end
-local function getMostRecentlyOpenedCompanion()
-    local at = uiState.companionWindowOpenedAt
-    if not at then return nil end
-    local candidates = {
-        { "config", registry.isOpen("config") },
-        { "equipment", registry.isOpen("equipment") },
-        { "bank", registry.isOpen("bank") },
-        { "augments", registry.isOpen("augments") },
-        { "augmentUtility", registry.isOpen("augmentUtility") },
-        { "itemDisplay", registry.isOpen("itemDisplay") },
-        { "aa", registry.isOpen("aa") },
-        { "reroll", registry.isOpen("reroll") },
-        { "loot", uiState.lootUIOpen },
-    }
-    local bestName, bestT = nil, -1
-    for _, c in ipairs(candidates) do
-        local nam, open = c[1], c[2]
-        if open and at[nam] and at[nam] > bestT then
-            bestT = at[nam]
-            bestName = nam
-        end
-    end
-    return bestName
+    registry.recordOpened(name)
 end
 
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
@@ -525,7 +441,10 @@ do
             local tt = require('itemui.utils.item_tooltip')
             if tt and tt.invalidateTooltipCache then tt.invalidateTooltipCache() end
         end,
-        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, bankItems or bankCache) end,
+        -- Use fresh bankItems when bank is open; do NOT fall back to bankCache when bank is closed.
+        -- bankCache becomes stale after augment operations (aug moved bank→socket→inventory),
+        -- which would cause the same augment to appear twice in the compatible-augments list.
+        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, isBankWindowOpen() and (bankItems or bankCache) or nil) end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,
@@ -596,6 +515,12 @@ augmentOps.init({
     scanBank = function() scanService.scanBank() end,
     isBankWindowOpen = isBankWindowOpen,
     hasItemOnCursor = function() return itemOps.hasItemOnCursor() end,
+    markExpectedPickup = function(bag, slot, source)
+        uiState.lastPickup.bag = bag
+        uiState.lastPickup.slot = slot
+        uiState.lastPickup.source = source
+        uiState.lastPickupSetThisFrame = true
+    end,
     setWaitingForRemoveConfirmation = function(v) uiState.waitingForRemoveConfirmation = v end,
     setWaitingForInsertConfirmation = function(v) uiState.waitingForInsertConfirmation = v end,
 })
@@ -615,21 +540,19 @@ local function applySellListChange(itemName, inKeep, inJunk)
     if storage and inventoryItems then storage.saveInventory(inventoryItems) end
 end
 
--- Reroll list add: if cursor occupied we abort with clear message (CoOpt UI pattern: don't move user's item without consent).
--- Otherwise pickup -> send !augadd/!mythicaladd -> main_loop waits for ack or timeout -> put back; status feedback during flow.
--- Guard: only one add-in-progress at a time (avoid double-click / concurrent pickup).
+-- Shared helper: is any cursor-based action currently running or queued?
+local function cursorActionBusy()
+    return uiState.pendingDestroyAction ~= nil
+        or uiState.pendingRerollAdd ~= nil
+        or #(uiState.cursorActionQueue or {}) > 0
+end
+
+-- Reroll list add: queues into the unified cursor-action queue when another action is in progress,
+-- or starts immediately if the cursor is free. Allows rapid right-click chaining across action types.
 local function requestAddToRerollList(list, item)
     if not item or (list ~= "aug" and list ~= "mythical") then return end
-    if uiState.pendingRerollAdd then
-        setStatusMessage("Add already in progress.")
-        return
-    end
-    if hasItemOnCursor() then
-        setStatusMessage("Clear cursor first.")
-        return
-    end
     local source = item.source or "inv"
-    uiState.pendingRerollAdd = {
+    local payload = {
         list = list,
         bag = item.bag,
         slot = item.slot,
@@ -638,7 +561,23 @@ local function requestAddToRerollList(list, item)
         itemName = item.name or "",
         step = "pickup",
     }
-    itemOps.pickupFromSlot(item.bag, item.slot, source)
+    if not payload.bag or not payload.slot then
+        setStatusMessage("Item location unavailable.")
+        return
+    end
+    if cursorActionBusy() then
+        local q = uiState.cursorActionQueue or {}
+        q[#q + 1] = { type = "reroll_add", payload = payload }
+        uiState.cursorActionQueue = q
+        setStatusMessage(string.format("Add queued (%d in queue).", #q))
+        return
+    end
+    if hasItemOnCursor() then
+        setStatusMessage("Clear cursor first.")
+        return
+    end
+    uiState.pendingRerollAdd = payload
+    itemOps.pickupFromSlot(payload.bag, payload.slot, payload.source)
     setStatusMessage("Adding to list...")
 end
 
@@ -711,9 +650,10 @@ local function getItemStatsForTooltipRef(item, source)
 end
 --- Phase 0: refresh active Item Display tab's item from TLO (call after scan when augment insert/remove completes).
 local function refreshActiveItemDisplayTab()
-    local tabs = uiState.itemDisplayTabs
+    local idState = ItemDisplayView.getState()
+    local tabs = idState.itemDisplayTabs
     if not tabs or #tabs == 0 then return end
-    local aidx = uiState.itemDisplayActiveTabIndex or 1
+    local aidx = idState.itemDisplayActiveTabIndex or 1
     if aidx < 1 or aidx > #tabs then return end
     local tab = tabs[aidx]
     if not tab or tab.bag == nil or tab.slot == nil then return end
@@ -726,16 +666,17 @@ local function addItemDisplayTab(item, source)
     local showItem = getItemStatsForTooltipRef(item, source) or item
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
     if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+    local idState = ItemDisplayView.getState()
     -- If this item already has a tab, switch to it instead of adding a duplicate
-    for idx, tab in ipairs(uiState.itemDisplayTabs) do
+    for idx, tab in ipairs(idState.itemDisplayTabs) do
         if tab.bag == item.bag and tab.slot == item.slot and tab.source == source then
             tab.item = showItem
             tab.label = label
-            uiState.itemDisplayActiveTabIndex = idx
+            idState.itemDisplayActiveTabIndex = idx
             uiState.removeAllQueue = nil   -- Phase 1: tab switched
             uiState.optimizeQueue = nil    -- Phase 2: tab switched
             local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
-            local recent = uiState.itemDisplayRecent
+            local recent = idState.itemDisplayRecent
             for i = #recent, 1, -1 do
                 if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
                     table.remove(recent, i)
@@ -750,15 +691,15 @@ local function addItemDisplayTab(item, source)
             return
         end
     end
-    uiState.itemDisplayTabs[#uiState.itemDisplayTabs + 1] = {
+    idState.itemDisplayTabs[#idState.itemDisplayTabs + 1] = {
         bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
     }
-    uiState.itemDisplayActiveTabIndex = #uiState.itemDisplayTabs
+    idState.itemDisplayActiveTabIndex = #idState.itemDisplayTabs
     uiState.removeAllQueue = nil   -- Phase 1: new tab added
     uiState.optimizeQueue = nil    -- Phase 2: new tab added
     -- Recent: prepend, dedupe by bag/slot/source, cap at N
     local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
-    local recent = uiState.itemDisplayRecent
+    local recent = idState.itemDisplayRecent
     for i = #recent, 1, -1 do
         if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
             table.remove(recent, i)
@@ -772,10 +713,17 @@ local function addItemDisplayTab(item, source)
     recordCompanionWindowOpened("itemDisplay")
 end
 
-context_builder.init({
+local defaultLayoutAppliedThisRun = false
+
+context_init.init({
+    -- Main window state access (unifies former mainWindowRefs + context wiring)
+    getShouldDraw = function() return shouldDraw end,
+    setShouldDraw = function(v) shouldDraw = v end,
+    getOpen = function() return isOpen end,
+    setOpen = function(v) isOpen = v end,
     -- State tables
     uiState = uiState, sortState = sortState, filterState = filterState,
-    layoutConfig = layoutConfig, perfCache = perfCache, sellMacState = sellMacState,
+    layoutConfig = layoutConfig, layoutDefaults = layoutDefaults, perfCache = perfCache, sellMacState = sellMacState,
     -- Data tables
     inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
     sellItems = sellItems, bankCache = bankCache, equipmentCache = equipmentCache,
@@ -791,6 +739,7 @@ context_builder.init({
     windowState = windowStateAPI,
     isBankWindowOpen = isBankWindowOpen,
     isMerchantWindowOpen = isMerchantWindowOpen,
+    isLootWindowOpen = isLootWindowOpen,
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
@@ -802,6 +751,7 @@ context_builder.init({
         setStatusMessage("Refreshed")
     end,
     maybeScanInventory = maybeScanInventory, maybeScanSellItems = maybeScanSellItems,
+    maybeScanBank = maybeScanBank,
     maybeScanLootItems = maybeScanLootItems,
     ensureBankCacheFromStorage = function() scanService.ensureBankCacheFromStorage() end,
     refreshEquipmentCache = refreshEquipmentCache,
@@ -812,6 +762,8 @@ context_builder.init({
     -- UI helpers (always present so views can call without guards)
     setStatusMessage = setStatusMessage or function() end,
     closeItemUI = closeItemUI,
+    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
     renderItemContextMenu = function(ctx, item, opts) return ui_common.renderItemContextMenu(ctx, item, opts) end,
@@ -851,6 +803,14 @@ context_builder.init({
     end,
     requestDestroyItem = function(bag, slot, name, stackSize)
         local qty = (stackSize and stackSize > 0) and stackSize or 1
+        -- Queue if any cursor action is already running or pending, so rapid deletes chain correctly.
+        if cursorActionBusy() then
+            local q = uiState.cursorActionQueue or {}
+            q[#q + 1] = { type = "destroy", bag = bag, slot = slot, name = name or "", qty = qty }
+            uiState.cursorActionQueue = q
+            setStatusMessage(string.format("Delete queued (%d in queue).", #q))
+            return
+        end
         uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "", qty = qty }
         uiState.pendingDestroy = nil
         uiState.destroyQuantityValue = ""
@@ -887,6 +847,44 @@ context_builder.init({
     getItemStatsSummary = function(i) return itemHelpers.getItemStatsSummary(i) end,
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
+    recordCompanionWindowOpened = recordCompanionWindowOpened,
+    getMostRecentlyOpenedCompanion = function()
+        return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
+    end,
+    closeCompanionWindow = function(name)
+        return registry.closeWindow(name, function(closedId)
+            if closedId ~= "loot" then return end
+            uiState.lootUIOpen = false
+            uiState.lootRunLootedList = {}
+            uiState.lootRunLootedItems = {}
+            uiState.lootRunCorpsesLooted = 0
+            uiState.lootRunTotalCorpses = 0
+            uiState.lootRunCurrentCorpse = ""
+            uiState.lootRunFinished = false
+            uiState.lootMythicalAlert = nil
+            uiState.lootMythicalDecisionStartAt = nil
+            uiState.lootMythicalFeedback = nil
+            uiState.lootRunTotalValue = 0
+            uiState.lootRunTributeValue = 0
+            uiState.lootRunBestItemName = ""
+            uiState.lootRunBestItemValue = 0
+        end)
+    end,
+    CharacterStats = CharacterStats,
+    itemOps = itemOps,
+    saveLayoutToFile = saveLayoutToFile,
+    saveLayoutForView = saveLayoutForView,
+    getOnboardingComplete = getOnboardingComplete,
+    setOnboardingComplete = setOnboardingComplete,
+    defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
+    loadLootHistoryFromFile = loadLootHistoryFromFile,
+    loadSkipHistoryFromFile = loadSkipHistoryFromFile,
+    lootLoopRefs = lootLoopRefs,
+    defaultLayoutHasExistingLayout = function() return defaultLayout.hasExistingLayout() end,
+    applyBundledDefaultLayout = function() return defaultLayout.applyBundledDefaultLayout() end,
+    classLabel = function(cls) return ConfigFilters.classLabel(cls) end,
+    C = C,
+    mq = mq,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
     getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
@@ -906,7 +904,9 @@ context_builder.init({
         local slot = entry and entry.slot or (entryOrItem and entryOrItem.slot)
         local src = entry and entry.source or (entryOrItem and entryOrItem.source) or "inv"
         if not item or not slotIndex then return {} end
-        local bankList = isBankWindowOpen() and bankItems or bankCache
+        -- Only include bank items when bank is open; stale bankCache causes duplicates when
+        -- an augment has been moved bank→socket→inventory (it would appear in both lists).
+        local bankList = isBankWindowOpen() and bankItems or nil
         local canUseFilter = (options and type(options.canUseFilter) == "function") and options.canUseFilter or nil
         return itemHelpers.getCompatibleAugments(item, bag, slot, src, slotIndex, inventoryItems, bankList, canUseFilter)
     end,
@@ -931,71 +931,6 @@ context_builder.init({
     -- Services
     theme = theme, macroBridge = macroBridge,
 })
-context.logUpvalueCounts(C)
-
-local defaultLayoutAppliedThisRun = false
-
-local mainWindowRefs = {
-    getShouldDraw = function() return shouldDraw end,
-    setShouldDraw = function(v) shouldDraw = v end,
-    getOpen = function() return isOpen end,
-    setOpen = function(v) isOpen = v end,
-    layoutConfig = layoutConfig,
-    layoutDefaults = layoutDefaults,
-    saveLayoutToFile = saveLayoutToFile,
-    saveLayoutForView = saveLayoutForView,
-    loadLayoutConfig = loadLayoutConfig,
-    getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanion,
-    closeCompanionWindow = closeCompanionWindow,
-    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
-    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
-    recordCompanionWindowOpened = recordCompanionWindowOpened,
-    setStatusMessage = setStatusMessage,
-    CharacterStats = CharacterStats,
-    hasItemOnCursor = hasItemOnCursor,
-    removeItemFromCursor = function() return itemOps.removeItemFromCursor() end,
-    putCursorInBags = function() return itemOps.putCursorInBags() end,
-    theme = theme,
-    uiState = uiState,
-    sellMacState = sellMacState,
-    C = C,
-    mq = mq,
-    refreshEquipmentCache = refreshEquipmentCache,
-    scanInventory = scanInventory,
-    isMerchantWindowOpen = isMerchantWindowOpen,
-    isBankWindowOpen = isBankWindowOpen,
-    isLootWindowOpen = isLootWindowOpen,
-    itemOps = itemOps,
-    loadLootHistoryFromFile = loadLootHistoryFromFile,
-    loadSkipHistoryFromFile = loadSkipHistoryFromFile,
-    lootLoopRefs = lootLoopRefs,
-    config = config,
-    sellItems = sellItems,
-    maybeScanInventory = maybeScanInventory,
-    maybeScanSellItems = maybeScanSellItems,
-    maybeScanBank = maybeScanBank,
-    -- Onboarding (first-run welcome panel)
-    getOnboardingComplete = getOnboardingComplete,
-    setOnboardingComplete = setOnboardingComplete,
-    resetOnboarding = resetOnboarding,
-    defaultLayoutAppliedThisRun = function() return defaultLayoutAppliedThisRun end,
-    -- Setup wizard (Task 5.4): config cache, epic classes, default layout
-    configSellFlags = configSellFlags,
-    configLootFlags = configLootFlags,
-    configLootValues = configLootValues,
-    configEpicClasses = configEpicClasses,
-    EPIC_CLASSES = rules.EPIC_CLASSES,
-    loadConfigCache = loadConfigCache,
-    invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
-    invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
-    defaultLayoutHasExistingLayout = function() return defaultLayout.hasExistingLayout() end,
-    applyBundledDefaultLayout = function() return defaultLayout.applyBundledDefaultLayout() end,
-    scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
-    classLabel = function(cls) return ConfigFilters.classLabel(cls) end,
-    addItemDisplayTab = addItemDisplayTab,
-    equipmentCache = equipmentCache,
-    inventoryItems = inventoryItems,
-}
 
 
 -- ============================================================================
@@ -1014,7 +949,10 @@ local function runSellMacroLegacy()
     scanInventory()
     if isMerchantWindowOpen() then scanSellItems() end
     if #inventoryItems > 0 then
-        computeAndAttachSellStatus(inventoryItems)
+        if not scanState.sellStatusAttachedAt then
+            computeAndAttachSellStatus(inventoryItems)
+            scanState.sellStatusAttachedAt = mq.gettime()
+        end
         storage.ensureCharFolderExists()
         storage.saveInventory(inventoryItems)
         storage.writeSellCache(inventoryItems)
@@ -1051,111 +989,45 @@ local function runSellMacro(forceMode)
     end
 end
 
-local function handleCommand(...)
-    local cmd = (({...})[1] or ""):lower()
-    if cmd == "" or cmd == "toggle" then
-        shouldDraw = not shouldDraw
-        if shouldDraw then
-            local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
-            -- If inv closed, open it so /inv and I key give same behavior (inv open + fresh scan)
-            if not invO then mq.cmd('/keypress inventory'); invO = true end
-            isOpen = true; loadLayoutConfig(); maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
-            uiState.equipmentWindowOpen = true
-            uiState.equipmentWindowShouldDraw = true
-            recordCompanionWindowOpened("equipment")
-        else
-            closeGameInventoryIfOpen()
-        end
-    elseif cmd == "show" then
-        shouldDraw, isOpen = true, true
-        local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-        local invO, bankO, merchO = (_w and _w.Open and _w.Open()) or false, isBankWindowOpen(), isMerchantWindowOpen()
-        loadLayoutConfig()
-        maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
-        uiState.equipmentWindowOpen = true
-        uiState.equipmentWindowShouldDraw = true
-        recordCompanionWindowOpened("equipment")
-    elseif cmd == "hide" then
-        shouldDraw, isOpen = false, false
-        closeGameInventoryIfOpen()
-    elseif cmd == "refresh" then
-        scanInventory()
-        if isBankWindowOpen() then scanBank() end
-        if isMerchantWindowOpen() then scanSellItems() end
-        print("\ag[ItemUI]\ax Refreshed")
-    elseif cmd == "setup" then
-        uiState.setupMode = not uiState.setupMode
-        if uiState.setupMode then
-            uiState.setupStep = 0
-            loadConfigCache()
-            loadLayoutConfig()
-        else
-            uiState.setupStep = 0
-        end
-        shouldDraw = true
-        isOpen = true
-        print(uiState.setupMode and "\ag[ItemUI]\ax Setup: Step 0 of 8 — Epic protection (optional), then layout and rules." or "\ar[ItemUI]\ax Setup off.")
-    elseif cmd == "config" then
-        uiState.configWindowOpen = true
-        uiState.configNeedsLoad = true
-        recordCompanionWindowOpened("config")
-        shouldDraw = true
-        isOpen = true
-        print("\ag[ItemUI]\ax Config window opened.")
-    elseif cmd == "onboarding" then
-        resetOnboarding()
-        shouldDraw = true
-        isOpen = true
-        mq.cmd("/keypress inventory")
-        print("\ag[ItemUI]\ax Welcome panel will show in the main window.")
-    elseif cmd == "reroll" then
-        if not registry.isOpen("reroll") then registry.toggleWindow("reroll") end
-        if registry.isOpen("reroll") then recordCompanionWindowOpened("reroll") end
-        shouldDraw = true
-        isOpen = true
-        print("\ag[ItemUI]\ax Reroll Companion opened.")
-    elseif cmd == "exit" or cmd == "quit" or cmd == "unload" then
-        storage.ensureCharFolderExists()
-        if #sellItems > 0 then
-            storage.saveInventory(sellItems)
-            storage.writeSellCache(sellItems)
-        elseif #inventoryItems > 0 then
-            computeAndAttachSellStatus(inventoryItems)
-            storage.saveInventory(inventoryItems)
-            storage.writeSellCache(inventoryItems)
-        end
-        if (bankItems and #bankItems > 0) or (bankCache and #bankCache > 0) then
-            storage.saveBank(bankItems and #bankItems > 0 and bankItems or bankCache)
-        end
-        terminate = true
-        shouldDraw = false
-        isOpen = false
-        uiState.configWindowOpen = false
-        print("\ag[ItemUI]\ax Unloading...")
-    elseif cmd == "sell" or (cmd:sub(1, 5) == "sell " and #cmd > 5) then
-        local args = {...}
-        local sub = (cmd == "sell" and args[2]) and (tostring(args[2])):lower() or (cmd:match("^sell%s+(%S+)") or ""):lower()
-        if sub == "legacy" then
-            runSellMacro("macro")
-        elseif sub == "lua" then
-            runSellMacro("lua")
-        else
-            print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
-        end
-    elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|onboarding|reroll|exit|help]")
-        print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
-        print("  config = open ItemUI & Loot settings (or click Settings in the header)")
-        print("  onboarding = show the first-run welcome panel again")
-        print("  reroll = open Reroll Companion (augment and mythical reroll lists)")
-        print("  exit  = unload ItemUI completely")
-        print("  sell legacy = run sell.mac  |  sell lua = run Lua sell (see sell_flags.ini sellMode)")
-        print("\ag[ItemUI]\ax /dosell = run sell (macro or Lua per sellMode)  |  /doloot = run loot.mac")
-    else
-        print("\ar[ItemUI]\ax Unknown: " .. cmd .. " — use /itemui help")
-    end
-end
+commands.init({
+    shouldDraw = {
+        get = function() return shouldDraw end,
+        set = function(v) shouldDraw = v end,
+    },
+    isOpen = {
+        get = function() return isOpen end,
+        set = function(v) isOpen = v end,
+    },
+    terminate = {
+        set = function(v) terminate = v end,
+    },
+    loadLayoutConfig = loadLayoutConfig,
+    scanInventory = scanInventory,
+    isBankWindowOpen = isBankWindowOpen,
+    isMerchantWindowOpen = isMerchantWindowOpen,
+    isLootWindowOpen = isLootWindowOpen,
+    maybeScanInventory = maybeScanInventory,
+    maybeScanBank = maybeScanBank,
+    maybeScanSellItems = maybeScanSellItems,
+    scanSellItems = scanSellItems,
+    scanBank = scanBank,
+    closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    recordCompanionWindowOpened = recordCompanionWindowOpened,
+    uiState = uiState,
+    registry = registry,
+    runSellMacro = runSellMacro,
+    loadConfigCache = loadConfigCache,
+    resetOnboarding = resetOnboarding,
+    setStatusMessage = setStatusMessage,
+    computeAndAttachSellStatus = computeAndAttachSellStatus,
+    inventoryItems = inventoryItems,
+    sellItems = sellItems,
+    bankItems = bankItems,
+    bankCache = bankCache,
+    storage = storage,
+    flushLayoutSave = flushLayoutSave,
+})
+local handleCommand = commands.handleCommand
 
 local function buildMainLoopDeps()
     return {
@@ -1228,6 +1100,7 @@ local function buildMainLoopDeps()
         refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
         saveLayoutToFileImmediate = saveLayoutToFileImmediate,
         removeItemFromCursor = removeItemFromCursor,
+        pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end,
         invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
         invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
         rerollService = rerollService,
@@ -1257,7 +1130,7 @@ local function main()
         end
         mq.cmd('/macro loot')
     end)
-    mq.imgui.init('ItemUI', function() MainWindow.render(mainWindowRefs) end)
+    mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then

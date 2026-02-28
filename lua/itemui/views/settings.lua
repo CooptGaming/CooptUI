@@ -1,7 +1,8 @@
 --[[
-    Config View - Orchestrator for CoOpt UI Settings window.
+    Settings View - Orchestrator for CoOpt UI Settings window.
     Renders tab bar and delegates to config_general, config_sell, config_loot, config_shared.
     Part of ItemUI Phase 7 / Task 07: Split config view.
+    Renamed from views/config.lua to avoid confusion with root config.lua (INI utilities).
 --]]
 
 local mq = require('mq')
@@ -25,6 +26,7 @@ local ConfigGeneral = require('itemui.views.config_general')
 local ConfigSell = require('itemui.views.config_sell')
 local ConfigLoot = require('itemui.views.config_loot')
 local ConfigShared = require('itemui.views.config_shared')
+local ConfigAdvanced = require('itemui.views.config_advanced')
 local ConfigFilters = require('itemui.views.config_filters')
 local defaultLayout = require('itemui.utils.default_layout')
 
@@ -122,7 +124,7 @@ local function renderConfigWindow(ctx)
     end
 
     filterState.configTab = filterState.configTab or 1
-    if filterState.configTab < 1 or filterState.configTab > 4 then filterState.configTab = 1 end
+    if filterState.configTab < 1 or filterState.configTab > 5 then filterState.configTab = 1 end
     local function tabBtn(label, tabId, width, tooltip)
         if ImGui.Button(label, ImVec2(width, 0)) then filterState.configTab = tabId; scheduleLayoutSave() end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
@@ -135,11 +137,14 @@ local function renderConfigWindow(ctx)
     tabBtn("Loot Rules", 3, 90, "Loot item lists (Always loot, Skip)")
     ImGui.SameLine()
     tabBtn("Shared", 4, 90, "Valuable list (never sell, always loot)")
+    ImGui.SameLine()
+    tabBtn("Advanced", 5, 90, "Debug channels and advanced options")
     ImGui.Separator()
 
     if filterState.configTab == 1 then ConfigGeneral.render(ctx)
     elseif filterState.configTab == 2 then ConfigSell.render(ctx)
     elseif filterState.configTab == 3 then ConfigLoot.render(ctx)
+    elseif filterState.configTab == 5 then ConfigAdvanced.render(ctx)
     else ConfigShared.render(ctx) end
 
     local cw, ch = ImGui.GetWindowSize()

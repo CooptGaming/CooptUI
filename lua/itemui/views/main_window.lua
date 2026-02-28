@@ -18,7 +18,7 @@ local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local LootUIView = require('itemui.views.loot_ui')
 local LootView = require('itemui.views.loot')
-local ConfigView = require('itemui.views.config')
+local ConfigView = require('itemui.views.settings')
 local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
@@ -218,12 +218,12 @@ local function renderLootWindow(refs)
         end
     end
     ctx.setMythicalCopyName = function(name)
-        if name and name ~= "" then print(string.format("\ay[ItemUI]\ax Mythical item name: %s", name)) end
+        if name and name ~= "" then print(string.format("\ay[CoOpt UI]\ax Mythical item name: %s", name)) end
     end
     ctx.setMythicalCopyLink = function(link)
         if not link or link == "" then return end
         if ImGui and ImGui.SetClipboardText then ImGui.SetClipboardText(link) end
-        print(string.format("\ay[ItemUI]\ax Mythical item link copied to clipboard (or see console)."))
+        print(string.format("\ay[CoOpt UI]\ax Mythical item link copied to clipboard (or see console)."))
     end
     ctx.clearLootUIState = function()
         uiState.lootRunLootedList = {}
@@ -325,6 +325,10 @@ function M.render(refs)
         if uiState.uiLocked then
             windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
         end
+        -- Don't take focus when opening so keyboard/hotkeys still work in-game until user clicks the UI.
+        if ImGuiWindowFlags.NoFocusOnAppearing then
+            windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoFocusOnAppearing)
+        end
 
         local winOpen, winVis = ImGui.Begin("CoOpt UI Inventory Companion##ItemUI", isOpen, windowFlags)
         refs.setOpen(winOpen)
@@ -337,11 +341,16 @@ function M.render(refs)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
-        -- Request keyboard capture so ESC closes companion only, not native EQ bags (LIFO fix)
+        -- LIFO ESC fix: only request keyboard capture when any CoOpt ImGui window has focus.
+        -- This prevents ESC from closing native EQ bags when the user is interacting with CoOpt UI,
+        -- while allowing all other keyboard input (chat, hotkeys) to pass through to EQ normally
+        -- when the user is focused on the game (not on a CoOpt window).
         if winVis then
             pcall(function()
-                if ImGui.SetNextFrameWantCaptureKeyboard then ImGui.SetNextFrameWantCaptureKeyboard(true)
-                elseif ImGui.GetIO and ImGui.GetIO().SetNextFrameWantCaptureKeyboard then ImGui.GetIO().SetNextFrameWantCaptureKeyboard(true) end
+                local anyFocused = ImGui.IsWindowFocused and ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow)
+                if anyFocused and ImGui.SetNextFrameWantCaptureKeyboard then
+                    ImGui.SetNextFrameWantCaptureKeyboard(true)
+                end
             end)
         end
         if ImGui.IsKeyPressed(ImGuiKey.Escape) then
@@ -352,12 +361,7 @@ function M.render(refs)
             else
                 local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
                 if mostRecent then
-                    if registry.isRegistered(mostRecent) then
-                        registry.setWindowState(mostRecent, false, false)
-                        if uiState.companionWindowOpenedAt then uiState.companionWindowOpenedAt[mostRecent] = nil end
-                    else
-                        refs.closeCompanionWindow(mostRecent)
-                    end
+                    if refs.closeCompanionWindow then refs.closeCompanionWindow(mostRecent) end
                 else
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
@@ -669,16 +673,26 @@ function M.render(refs)
         ImGui.EndChild()
 
         if uiState.pendingQuantityPickup then
+            local function enqueueScriptConsume(payload)
+                if not payload then return end
+                if not uiState.pendingScriptConsume then
+                    uiState.pendingScriptConsume = payload
+                    return
+                end
+                local q = uiState.pendingScriptConsumeQueue or {}
+                q[#q + 1] = payload
+                uiState.pendingScriptConsumeQueue = q
+            end
             if uiState.quantityPickerSubmitPending ~= nil then
                 local qty = uiState.quantityPickerSubmitPending
                 uiState.quantityPickerSubmitPending = nil
                 local pickup = uiState.pendingQuantityPickup
                 if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
                     if pickup and pickup.intent == "script_consume" then
-                        uiState.pendingScriptConsume = {
+                        enqueueScriptConsume({
                             bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                             totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                        }
+                        })
                     else
                         uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
                     end
@@ -710,10 +724,10 @@ function M.render(refs)
                     local pickup = uiState.pendingQuantityPickup
                     if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
                         if pickup and pickup.intent == "script_consume" then
-                            uiState.pendingScriptConsume = {
+                            enqueueScriptConsume({
                                 bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                                 totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                            }
+                            })
                         else
                             uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
                         end
@@ -730,10 +744,10 @@ function M.render(refs)
                     local pickup = uiState.pendingQuantityPickup
                     local qty = pickup and pickup.maxQty or 1
                     if pickup and pickup.intent == "script_consume" then
-                        uiState.pendingScriptConsume = {
+                        enqueueScriptConsume({
                             bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                             totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                        }
+                        })
                     else
                         uiState.pendingQuantityAction = { action = "max", qty = qty, pickup = pickup }
                     end
@@ -924,12 +938,13 @@ function M.render(refs)
         -- Augments rendered via registry.getDrawableModules()
         -- Augment Utility rendered via registry.getDrawableModules()
         -- Item Display rendered via registry.getDrawableModules()
-        if uiState.itemDisplayLocateRequest and uiState.itemDisplayLocateRequestAt then
+        local itemDisplayState = ItemDisplayView.getState()
+        if itemDisplayState.itemDisplayLocateRequest and itemDisplayState.itemDisplayLocateRequestAt then
             local now = mq.gettime()
             local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
-            if now - uiState.itemDisplayLocateRequestAt > clearMs then
-                uiState.itemDisplayLocateRequest = nil
-                uiState.itemDisplayLocateRequestAt = nil
+            if now - itemDisplayState.itemDisplayLocateRequestAt > clearMs then
+                itemDisplayState.itemDisplayLocateRequest = nil
+                itemDisplayState.itemDisplayLocateRequestAt = nil
             end
         end
         for _, mod in ipairs(registry.getDrawableModules()) do

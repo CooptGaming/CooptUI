@@ -7,8 +7,13 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
+local ItemDisplayView = require('itemui.views.item_display')
 
 local d  -- deps, set by init()
+
+local function getItemDisplayState()
+    return ItemDisplayView.getState()
+end
 
 local function resolveAugmentQueueStep(queueType)
     local uiState, scanInventory, isBankWindowOpen, scanBank, refreshActiveItemDisplayTab, setStatusMessage =
@@ -18,7 +23,8 @@ local function resolveAugmentQueueStep(queueType)
             local oq = uiState.optimizeQueue
             local step = table.remove(oq.steps, 1)
             if step and step.slotIndex and step.augmentItem then
-                local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+                local itemDisplayState = getItemDisplayState()
+                local tab = (itemDisplayState.itemDisplayTabs and itemDisplayState.itemDisplayActiveTabIndex and itemDisplayState.itemDisplayTabs[itemDisplayState.itemDisplayActiveTabIndex]) or nil
                 local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
                 uiState.pendingInsertAugment = {
                     targetItem = targetItem,
@@ -76,6 +82,7 @@ local function phase1b_activationGuard(now)
     local lp = uiState.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
     if uiState.pendingQuantityPickup then return end
+    if uiState.pendingAugRollComplete then return end  -- roll result arrives on cursor from server
     if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return end
     local clearedAt = uiState.lastPickupClearedAt or 0
     if (now - clearedAt) <= graceMs then return end
@@ -99,7 +106,10 @@ local function phase2_periodicPersist(now)
                 storage.saveInventory(sellItems)
                 storage.writeSellCache(sellItems)
             elseif #inventoryItems > 0 then
-                computeAndAttachSellStatus(inventoryItems)
+                if not scanState.sellStatusAttachedAt then
+                    computeAndAttachSellStatus(inventoryItems)
+                    scanState.sellStatusAttachedAt = now
+                end
                 storage.saveInventory(inventoryItems)
                 storage.writeSellCache(inventoryItems)
             end
@@ -149,7 +159,7 @@ local function phase4_sellMacroFinish(now)
         else
             setStatusMessage("Sell complete. Inventory refreshed.")
         end
-        print("\ag[ItemUI]\ax Sell macro finished - inventory refreshed")
+        print("\ag[CoOpt UI]\ax Sell macro finished - inventory refreshed")
     end
     sellMacState.lastRunning = sellMacRunning
 end
@@ -291,34 +301,39 @@ local function phase5_lootMacro(now)
             uiState.lootRunTotalCorpses = total
             uiState.lootRunCurrentCorpse = current or ""
         end
-        -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait
+        -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait.
+        -- Task 6.2: short-circuit when itemName empty and lootMythicalAlert already nil to avoid 5 INI reads per poll.
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
             local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-            if itemName and itemName ~= "" then
-                local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                uiState.lootMythicalAlert = {
-                    itemName = itemName,
-                    corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                    decision = decision,
-                    itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                    timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                    iconId = tonumber(iconStr) or 0
-                }
-                if decision == "pending" then
-                    if not prevName or prevName ~= itemName then
-                        uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+            if (not itemName or itemName == "") and not uiState.lootMythicalAlert then
+                -- Skip: no mythical item and already nil
+            else
+                if itemName and itemName ~= "" then
+                    local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+                    local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+                    local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
+                    uiState.lootMythicalAlert = {
+                        itemName = itemName,
+                        corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+                        decision = decision,
+                        itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+                        timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+                        iconId = tonumber(iconStr) or 0
+                    }
+                    if decision == "pending" then
+                        if not prevName or prevName ~= itemName then
+                            uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+                        end
+                        uiState.lootUIOpen = true
+                        d.recordCompanionWindowOpened("loot")
+                    else
+                        uiState.lootMythicalDecisionStartAt = nil
                     end
-                    uiState.lootUIOpen = true
-                    d.recordCompanionWindowOpened("loot")
                 else
+                    uiState.lootMythicalAlert = nil
                     uiState.lootMythicalDecisionStartAt = nil
                 end
-            else
-                uiState.lootMythicalAlert = nil
-                uiState.lootMythicalDecisionStartAt = nil
             end
         end
     end
@@ -344,36 +359,50 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     if not uiState then return end
     processSellQueue(now)
     if sellBatch and sellBatch.advance then sellBatch.advance(now) end
+    -- Task 6.5: quantity picker state machine (no mq.delay); 2000ms timeout per Risk R5
     if uiState.pendingQuantityAction then
         local action = uiState.pendingQuantityAction
-        -- Set lastPickup so activation guard (phase 1b) does not treat this as unexpected cursor
-        uiState.lastPickup.bag = action.pickup.bag
-        uiState.lastPickup.slot = action.pickup.slot
-        uiState.lastPickup.source = action.pickup.source
-        if action.pickup.source == "bank" then
-            mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-        else
-            mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+        local phase = action.phase or "pickup"
+        local timeoutMs = (constants.TIMING and constants.TIMING.QUANTITY_PICKER_TIMEOUT_MS) or 2000
+
+        if phase == "pickup" then
+            uiState.lastPickup.bag = action.pickup.bag
+            uiState.lastPickup.slot = action.pickup.slot
+            uiState.lastPickup.source = action.pickup.source
+            if action.pickup.source == "bank" then
+                mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+            else
+                mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+            end
+            action.phase = "wait_qty_wnd"
+            action.startedAt = now
+            return
         end
-        mq.delay(300, function()
+
+        if phase == "wait_qty_wnd" then
+            if (now - (action.startedAt or 0)) >= timeoutMs then
+                setStatusMessage("Quantity picker timed out.")
+                uiState.pendingQuantityAction = nil
+                return
+            end
             local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            return w and w.Open and w.Open()
-        end)
-        local qtyWndOpen = (function()
-            local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            return w and w.Open and w.Open()
-        end)()
-        if qtyWndOpen then
-            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty))
-            mq.delay(150)
-            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+            if w and w.Open and w.Open() then
+                mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
+                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+                uiState.pendingQuantityAction = nil
+            end
         end
-        -- Clear only after quantity flow completes so main_window does not clear lastPickup during the delay
-        uiState.pendingQuantityAction = nil
     end
     -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
     -- After each right-click: update in-memory lists (reduceStackOrRemoveBySlot / reduceStackOrRemoveBySlotBank) so UI shows real-time decrement.
     -- On completion or halt: persist with same pattern as performDestroyItem (saveInventory/writeSellCache for inv, saveBank for bank).
+    if not uiState.pendingScriptConsume then
+        local q = uiState.pendingScriptConsumeQueue or {}
+        if #q > 0 then
+            uiState.pendingScriptConsume = table.remove(q, 1)
+            uiState.pendingScriptConsumeQueue = q
+        end
+    end
     if uiState.pendingScriptConsume then
         local ps = uiState.pendingScriptConsume
         local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
@@ -394,6 +423,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 local n = ps.consumedSoFar
                 local src = ps.source
                 uiState.pendingScriptConsume = nil
+                local q = uiState.pendingScriptConsumeQueue or {}
+                if #q > 0 then
+                    uiState.pendingScriptConsume = table.remove(q, 1)
+                    uiState.pendingScriptConsumeQueue = q
+                end
                 if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
                 if d.storage then
                     if src == "inv" then
@@ -418,6 +452,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 if ps.consumedSoFar >= ps.totalToConsume then
                     local src = ps.source
                     uiState.pendingScriptConsume = nil
+                    local q = uiState.pendingScriptConsumeQueue or {}
+                    if #q > 0 then
+                        uiState.pendingScriptConsume = table.remove(q, 1)
+                        uiState.pendingScriptConsumeQueue = q
+                    end
                     if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency.", ps.consumedSoFar)) end
                     if d.storage then
                         if src == "inv" then
@@ -475,6 +514,8 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                     uiState.pendingAugRollCompleteAt = now
                 else
                     d.rerollService.mythicalRoll()
+                    uiState.rerollPendingScan = true
+                    uiState.rerollPendingScanAt = now
                 end
             end
             if d.setStatusMessage then d.setStatusMessage("Roll sent.") end
@@ -487,18 +528,18 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         uiState.pendingRemoveAugment = { bag = q.bag, slot = q.slot, source = q.source, slotIndex = slotIndex }
         if #q.slotIndices == 0 then uiState.removeAllQueue = nil end
     end
+    -- Task 6.4: augment insert/remove are state machines; advance each tick, do not clear and call once
     if uiState.pendingRemoveAugment then
-        local ra = uiState.pendingRemoveAugment
-        uiState.pendingRemoveAugment = nil
-        augmentOps.removeAugment(ra.bag, ra.slot, ra.source, ra.slotIndex)
-        uiState.removeConfirmationSetAt = mq.gettime()
+        augmentOps.advanceRemove(now)
     end
     if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
-        and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear then
+        and not uiState.pendingInsertAugment and not uiState.waitingForInsertConfirmation and not uiState.waitingForInsertCursorClear
+        and not hasItemOnCursor() then
         local oq = uiState.optimizeQueue
         local step = table.remove(oq.steps, 1)
         if step and step.slotIndex and step.augmentItem then
-            local tab = (uiState.itemDisplayTabs and uiState.itemDisplayActiveTabIndex and uiState.itemDisplayTabs[uiState.itemDisplayActiveTabIndex]) or nil
+            local itemDisplayState = getItemDisplayState()
+            local tab = (itemDisplayState.itemDisplayTabs and itemDisplayState.itemDisplayActiveTabIndex and itemDisplayState.itemDisplayTabs[itemDisplayState.itemDisplayActiveTabIndex]) or nil
             local targetItem = (tab and tab.item) and { id = tab.item.id or tab.item.ID, name = tab.item.name or tab.item.Name } or { id = 0, name = "" }
             uiState.pendingInsertAugment = {
                 targetItem = targetItem,
@@ -508,15 +549,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 augmentItem = step.augmentItem,
                 slotIndex = step.slotIndex,
             }
-            uiState.insertConfirmationSetAt = mq.gettime()
         end
     end
     if uiState.pendingInsertAugment then
-        local pa = uiState.pendingInsertAugment
-        uiState.pendingInsertAugment = nil
-        uiState.itemDisplayAugmentSlotActive = nil
-        augmentOps.insertAugment(pa.targetItem, pa.augmentItem, pa.slotIndex, pa.targetBag, pa.targetSlot, pa.targetSource)
-        uiState.insertConfirmationSetAt = mq.gettime()
+        getItemDisplayState().itemDisplayAugmentSlotActive = nil
+        augmentOps.advanceInsert(now)
     end
     local pq = uiState.pendingQuantityPickup
     if pq and type(pq) == "table" then
@@ -612,9 +649,12 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     end
     if perfCache.sellConfigPendingRefresh then
         if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
-        computeAndAttachSellStatus(inventoryItems)
-        if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
-        if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+        if not scanState.sellStatusAttachedAt then
+            computeAndAttachSellStatus(inventoryItems)
+            if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
+            if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+            scanState.sellStatusAttachedAt = now
+        end
         perfCache.sellConfigPendingRefresh = false
     end
 
@@ -666,6 +706,17 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             sellMacState.pendingScan = false
         end
     end
+    -- Reroll manager: quick refresh after roll finishes so count updates and next roll doesn't use stale items.
+    if uiState.rerollPendingScan and uiState.rerollPendingScanAt then
+        local elapsed = now - uiState.rerollPendingScanAt
+        if elapsed >= (C.REROLL_PENDING_SCAN_DELAY_MS or 500) then
+            scanInventory()
+            if bankOpen then maybeScanBank(bankOpen) end
+            invalidateSortCache("inv")
+            uiState.rerollPendingScan = false
+            uiState.rerollPendingScanAt = 0
+        end
+    end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
         if not shouldDraw then
             setShouldDraw(true)
@@ -678,7 +729,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             uiState.equipmentWindowShouldDraw = true
             recordCompanionWindowOpened("equipment")
             if bankJustOpened then
-                maybeScanBank(bankOpen)
+                -- Defer bank scan to next frame so CoOpt UI opens instantly without blocking.
+                deferredScanNeeded.bank = true
                 deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.sell = merchOpen
             elseif merchOpen and not lastMerchantState then
@@ -687,7 +739,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
                 deferredScanNeeded.sell = true
                 deferredScanNeeded.bank = bankOpen
             else
-                maybeScanInventory(invOpen)
+                -- Defer inventory scan to next frame so CoOpt UI opens instantly without blocking.
+                deferredScanNeeded.inventory = invOpen
                 deferredScanNeeded.bank = bankOpen
                 deferredScanNeeded.sell = merchOpen
             end
@@ -708,7 +761,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         uiState.equipmentWindowShouldDraw = true
         recordCompanionWindowOpened("bank")
         recordCompanionWindowOpened("equipment")
-        maybeScanBank(bankOpen)
+        -- Defer bank scan to next frame so CoOpt UI opens instantly without blocking.
+        deferredScanNeeded.bank = true
         deferredScanNeeded.inventory = invOpen
         deferredScanNeeded.sell = merchOpen
     end
@@ -739,7 +793,8 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     if bankJustOpened and shouldDrawBefore then
         uiState.bankWindowOpen = true
         uiState.bankWindowShouldDraw = true
-        maybeScanBank(bankOpen)
+        -- Defer bank scan to next frame so companion renders immediately without blocking.
+        deferredScanNeeded.bank = true
     elseif bankJustOpened then
         uiState.bankWindowOpen = true
         uiState.bankWindowShouldDraw = true
@@ -801,7 +856,15 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     end
     if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
         if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-        if hasItemOnCursor() then setStatusMessage("Insert may have failed; check cursor.") end
+        if hasItemOnCursor() then
+            setStatusMessage("Insert may have failed; check cursor.")
+        else
+            -- No confirm dialog appeared, but cursor cleared: treat as completed insert.
+            resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
+        end
         uiState.waitingForInsertConfirmation = false
         uiState.insertConfirmationSetAt = nil
     end
@@ -827,6 +890,9 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             uiState.insertCursorClearTimeoutAt = nil
             uiState.insertConfirmationSetAt = nil
             resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
         end
     end
     if uiState.waitingForRemoveCursorPopulated then
@@ -856,9 +922,47 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     setLastLootWindowState(lootOpenNow)
 end
 
+-- Phase 0: Unified cursor-action queue drain. Runs every tick before phase7/phase8b.
+-- Dequeues and starts the next destroy or reroll-add action when the cursor is free
+-- and no cursor-based action is currently in flight.
+local function phase0_cursorActionQueue(now)
+    local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    local q = uiState.cursorActionQueue
+    if not q or #q == 0 then return end
+    -- Any cursor-based action still running? Wait for it.
+    if uiState.pendingDestroyAction then return end
+    if uiState.pendingRerollAdd then return end
+    if uiState.pendingMoveAction then return end
+    -- Cursor must be clear before starting the next pickup.
+    if hasItemOnCursor and hasItemOnCursor() then return end
+    local next = table.remove(q, 1)
+    if not next then return end
+    local remaining = #q
+    if next.type == "destroy" then
+        uiState.pendingDestroyAction = { bag = next.bag, slot = next.slot, name = next.name, qty = next.qty }
+        uiState.pendingDestroy = nil
+        uiState.destroyQuantityValue = ""
+        uiState.destroyQuantityMax = 1
+        if setStatusMessage and remaining > 0 then
+            setStatusMessage(string.format("Deleting... (%d queued)", remaining))
+        end
+    elseif next.type == "reroll_add" then
+        local req = next.payload
+        uiState.pendingRerollAdd = req
+        if d.pickupFromSlot then d.pickupFromSlot(req.bag, req.slot, req.source) end
+        if setStatusMessage then
+            setStatusMessage(remaining > 0
+                and string.format("Adding to list... (%d queued)", remaining)
+                or "Adding to list...")
+        end
+    end
+end
+
 -- Phase 8b: Pending reroll add (pickup -> send !augadd/!mythicaladd -> wait for ack or timeout -> put back)
 -- Optimistic: add to cache as soon as we send; on timeout roll back cache and notify.
+-- Queue management is handled by phase0_cursorActionQueue — phase8b only drives the current action.
 local REROLL_ADD_ACK_TIMEOUT_MS = 3000
+local REROLL_ADD_PICKUP_TIMEOUT_MS = 1200
 local function phase8b_pendingRerollAdd(now)
     local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems, bankItems =
         d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems, d.bankItems
@@ -873,9 +977,12 @@ local function phase8b_pendingRerollAdd(now)
         if invalidateLootConfigCache then invalidateLootConfigCache() end
         if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
         if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-        if setStatusMessage then setStatusMessage(success and "Added to list." or "Add failed or timed out; list reverted.") end
+        local q = uiState.cursorActionQueue or {}
+        local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
+        if setStatusMessage then setStatusMessage((success and "Added to list." or "Add failed or timed out; list reverted.") .. queueMsg) end
     end
     if pending.step == "pickup" then
+        if not pending.pickupStartedAt then pending.pickupStartedAt = now end
         if hasItemOnCursor() and lp and lp.bag == pending.bag and lp.slot == pending.slot and lp.source == pending.source then
             -- Optimistic: update cache immediately so UI shows new state without waiting for server
             rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
@@ -884,6 +991,8 @@ local function phase8b_pendingRerollAdd(now)
             pending.step = "sent"
             pending.sentAt = now
             rerollService.setPendingAddAck(pending.itemId, function() finish(true) end)
+        elseif pending.pickupStartedAt and (now - pending.pickupStartedAt) > REROLL_ADD_PICKUP_TIMEOUT_MS then
+            finish(false)
         end
         return
     end
@@ -909,7 +1018,7 @@ local function phase8c_pendingAugRollComplete(now)
     local cur = mq.TLO and mq.TLO.Cursor
     local name = (cur and cur.Name and cur.Name()) or ""
     if name and name ~= "" then
-        print("\ag[ItemUI]\ax Augment roll result: " .. name)
+        print("\ag[CoOpt UI]\ax Augment roll result: " .. name)
         local link = (cur and cur.Link and cur.Link()) or (cur and cur.ItemLink and cur.ItemLink()) or nil
         if link and link ~= "" then
             mq.cmdf("/guild %s", link)
@@ -923,9 +1032,12 @@ local function phase8c_pendingAugRollComplete(now)
     uiState.deferredInventoryScanAt = now + delayMs
     uiState.pendingAugRollComplete = nil
     uiState.pendingAugRollCompleteAt = nil
+    -- Schedule reroll quick refresh so count updates and next roll doesn't use stale items.
+    uiState.rerollPendingScan = true
+    uiState.rerollPendingScanAt = now
 end
 
--- Phase 9: Debounced layout save, cache cleanup
+-- Phase 9: Debounced layout save, cache cleanup, debug log flush
 local function phase9_layoutSaveCacheCleanup(now)
     local perfCache, saveLayoutToFileImmediate, Cache = d.perfCache, d.saveLayoutToFileImmediate, d.Cache
     if perfCache.layoutDirty and (now - perfCache.layoutSaveScheduledAt) >= perfCache.layoutSaveDebounceMs then
@@ -936,6 +1048,8 @@ local function phase9_layoutSaveCacheCleanup(now)
         perfCache.lastCacheCleanup = now
         Cache.cleanup()
     end
+    local dbg = require('itemui.core.debug')
+    if dbg and dbg.flushLogFile then dbg.flushLogFile() end
 end
 
 -- Phase 10: Loop delay and doevents
@@ -956,6 +1070,7 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
+    phase0_cursorActionQueue(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)

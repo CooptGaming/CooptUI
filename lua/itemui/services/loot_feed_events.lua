@@ -10,6 +10,7 @@ local mq = require('mq')
 
 local M = {}
 local deps
+local diagnostics
 
 -- Pattern: [ItemUI Loot] name|value|tribute (value and tribute are numbers; name may not contain |)
 local EVENT_NAME = "ItemUILootItem"
@@ -52,7 +53,13 @@ end
 
 function M.init(d)
     deps = d
-    mq.event(EVENT_NAME, LINE_PATTERN, onLootItemLine)
+    diagnostics = require('itemui.core.diagnostics')
+    local ok, err = pcall(function()
+        mq.event(EVENT_NAME, LINE_PATTERN, onLootItemLine)
+    end)
+    if not ok and diagnostics then
+        diagnostics.recordError("loot_feed_events", "Event registration failed", tostring(err or "unknown"))
+    end
 end
 
 return M

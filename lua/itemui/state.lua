@@ -4,6 +4,7 @@
     are applied in init.lua where those module refs exist.
 --]]
 
+require('ImGui')  -- state.lua uses ImGuiSortDirection.*; explicit require avoids load-order dependency
 local CoopVersion = require('coopui.version')
 local constants = require('itemui.constants')
 
@@ -41,12 +42,9 @@ local perfCache = {
 local uiState = {
     windowPositioned = false,
     alignToContext = true,
-    alignToMerchant = false,
     uiLocked = true,
-    syncBankWindow = false,
     suppressWhenLootMac = false,
     itemUIPositionX = nil, itemUIPositionY = nil,
-    sellViewLocked = true, invViewLocked = true, bankViewLocked = true,
     setupMode = false, setupStep = 0,
     revertLayoutConfirmOpen = false,
     diagnosticsPanelOpen = false,
@@ -59,6 +57,8 @@ local uiState = {
     confirmBeforeDelete = true,
     deferredInventoryScanAt = nil,
     pendingStatRescanBags = nil,
+    rerollPendingScan = false,
+    rerollPendingScanAt = 0,
 }
 
 -- Layout from setup (itemui_layout.ini)
@@ -94,7 +94,6 @@ do
     layoutDefaults.AABackupPath = ""
     layoutDefaults.AlignToContext = 1
     layoutDefaults.UILocked = 1
-    layoutDefaults.SyncBankWindow = 1
     layoutDefaults.SuppressWhenLootMac = 0
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1
@@ -168,6 +167,8 @@ local scanState = {
     nextAcquiredSeq = 1,
     lastGetChangedBagsTime = 0,
     inventoryBagsDirty = false,
+    --- Task 6.3: set when computeAndAttachSellStatus runs; cleared when a scan updates item lists. Used to skip redundant status computation.
+    sellStatusAttachedAt = nil,
 }
 local deferredScanNeeded = { inventory = false, bank = false, sell = false }
 

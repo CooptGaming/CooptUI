@@ -90,7 +90,6 @@ Details: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 | Document | Description |
 |----------|-------------|
-| [docs/COOPUI_OVERVIEW.md](docs/COOPUI_OVERVIEW.md) | One-page scope and where to look |
 | [docs/INSTALL.md](docs/INSTALL.md) | Installation, updating, migration |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All INI files and decision logic |
 | [docs/DEVELOPER.md](docs/DEVELOPER.md) | Architecture, modules, build/release |

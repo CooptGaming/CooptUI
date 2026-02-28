@@ -11,6 +11,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local uiState = require('itemui.state').uiState
 
 local ItemDisplayView = {}
 
@@ -295,6 +296,12 @@ registry.register({
     tooltip     = "Inspect item stats and augments",
     layoutKeys  = { x = "ItemDisplayWindowX", y = "ItemDisplayWindowY" },
     enableKey   = "ShowItemDisplayWindow",
+    onClose     = function()
+        state.itemDisplayTabs = {}
+        state.itemDisplayActiveTabIndex = 1
+        uiState.removeAllQueue = nil
+        uiState.optimizeQueue = nil
+    end,
     render      = function(refs)
         local ctx = context.build()
         ctx = context.extend(ctx)

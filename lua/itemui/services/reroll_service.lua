@@ -196,6 +196,7 @@ function M.init(deps)
     pendingMythicalListAt = nil
     pendingAddAckId = nil
     pendingAddAckCallback = nil
+    state.pendingRerollAdd = nil
     loadFromFile()
     -- User can Refresh in Reroll Companion to request !auglist/!mythicallist; requesting both on init could mix responses.
     -- Match server list lines: "id=123 name=..." or "123: Name" or "123 - Name". Header "===== Aug List =====" also matched.

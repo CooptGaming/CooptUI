@@ -27,5 +27,5 @@
 --]]
 
 local mq = require('mq')
-local wiring = require('itemui.wiring')
-wiring.runMain(mq)
+local app = require('itemui.app')
+app.runMain(mq)
