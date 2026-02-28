@@ -191,6 +191,9 @@ M.REROLL = {
 M.LAYOUT_INI = "itemui_layout.ini"
 M.LAYOUT_SECTION = "Layout"
 
+-- Plugin shim: minimum API version from MQ2CoOptUI TLO required to use the plugin (Task 3.4)
+M.PLUGIN_REQUIRED_API_VERSION = 1
+
 -- ---------------------------------------------------------------------------
 -- Build a flat C-style table for init.lua compatibility (C table)
 -- Call: local C = constants.buildC(CoopVersion.ITEMUI) or use constants.* directly

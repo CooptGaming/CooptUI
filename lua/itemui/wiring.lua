@@ -64,6 +64,7 @@ local itemHelpers = require('itemui.utils.item_helpers')
 local icons = require('itemui.utils.icons')
 local constants = require('itemui.constants')
 local state = require('itemui.state')
+local pluginShim = require('itemui.services.plugin_shim')
 
 -- Constants and state from state.lua (Task 6.3)
 local C = state.C
@@ -1273,6 +1274,7 @@ local function main()
         pollInterval = 500,
     })
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
+    pluginShim.init()
     -- First-run: apply bundled default layout if user has no existing layout (layout only; no user data)
     if not defaultLayout.hasExistingLayout() then
         local ok, err = defaultLayout.applyBundledDefaultLayout()
