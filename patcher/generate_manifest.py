@@ -62,6 +62,13 @@ def _collect_release_paths():
         p = os.path.join(REPO_ROOT, "resources", "UIFiles", "Default", name)
         if os.path.isfile(p):
             paths.append(f"resources/UIFiles/Default/{name}")
+    # plugin source and scripts — optional C++ plugin for CoopUI; users must build and copy .dll to MQ Plugins/
+    plugin_root = os.path.join(REPO_ROOT, "plugin")
+    if os.path.isdir(plugin_root):
+        for root, dirs, files in os.walk(plugin_root):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), REPO_ROOT)
+                paths.append(rel.replace("\\", "/"))
     return sorted(paths)
 
 

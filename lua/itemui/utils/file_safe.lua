@@ -23,9 +23,9 @@ function M.safeWrite(path, content)
     end)
     if not ok then
         if print then
-            print(string.format("\ar[ItemUI]\ax safeWrite failed: %s", path))
+            print(string.format("\ar[CoOpt UI]\ax safeWrite failed: %s", path))
             if err and err ~= "io.open failed" then
-                print(string.format("\ar[ItemUI]\ax %s", tostring(err)))
+                print(string.format("\ar[CoOpt UI]\ax %s", tostring(err)))
             end
         end
         if diagnostics_ok and diagnostics and diagnostics.recordError then

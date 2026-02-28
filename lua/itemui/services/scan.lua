@@ -10,6 +10,16 @@ local mq = require('mq')
 local M = {}
 local env
 
+-- Optional CoopUIHelper plugin: when loaded, scanInventory/scanBank use it for batched C++ scan (see docs/CPP_PLUGIN_INVESTIGATION.md).
+local coopuiPluginCache = nil
+local function tryCoopUIPlugin()
+    if coopuiPluginCache == nil then
+        local ok, mod = pcall(require, "plugin.CoopUIHelper")
+        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
+    end
+    return (coopuiPluginCache and coopuiPluginCache) or nil
+end
+
 function M.init(e)
     env = e
 end
@@ -95,6 +105,47 @@ function M.scanInventory()
     end
     -- Clear and repopulate
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.scanInventory and type(coopui.scanInventory) == "function" then
+        local ok, result = pcall(coopui.scanInventory)
+        if ok and result and type(result) == "table" then
+            for _, row in ipairs(result) do
+                if type(row) == "table" then
+                    row.source = row.source or "inv"
+                    table.insert(inventoryItems, row)
+                end
+            end
+            local scanState = env.scanState
+            for _, it in ipairs(inventoryItems) do
+                it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
+                if not it.acquiredSeq then
+                    it.acquiredSeq = scanState.nextAcquiredSeq
+                    scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+                end
+            end
+            local scanMs = mq.gettime() - t0
+            env.perfCache.lastScanTimeInv = mq.gettime()
+            local saveMs = 0
+            local now = mq.gettime()
+            local shouldPersist = (scanState.lastPersistSaveTime == 0) or ((now - scanState.lastPersistSaveTime) >= env.C.PERSIST_SAVE_INTERVAL_MS)
+            if shouldPersist and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" and #inventoryItems > 0 then
+                local t1 = mq.gettime()
+                env.storage.ensureCharFolderExists()
+                env.computeAndAttachSellStatus(inventoryItems)
+                env.storage.saveInventory(inventoryItems)
+                env.storage.writeSellCache(inventoryItems)
+                saveMs = mq.gettime() - t1
+                scanState.lastPersistSaveTime = now
+            end
+            if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
+                print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (plugin), save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+            end
+            scanState.lastInventoryFingerprint = buildInventoryFingerprint()
+            if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+            if env.buildAugmentIndex then env.buildAugmentIndex() end
+            return
+        end
+    end
     local seen = {}
     local buildItemFromMQ = env.buildItemFromMQ
     local Me = mq.TLO and mq.TLO.Me
@@ -137,7 +188,7 @@ function M.scanInventory()
         scanState.lastPersistSaveTime = now
     end
     if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-        print(string.format("\ag[ItemUI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
@@ -219,7 +270,7 @@ function M.processIncrementalScan()
             saveMs = mq.gettime() - t1
         end
         if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-            print(string.format("\ag[ItemUI Profile]\ax incrementalScanInventory: scan=%d ms, save=%d ms (%d items, %d bags/frame)",
+            print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms, save=%d ms (%d items, %d bags/frame)",
                 scanMs, saveMs, #inventoryItems, incrementalScanState.bagsPerFrame))
         end
         env.scanState.lastInventoryFingerprint = buildInventoryFingerprint()
@@ -266,7 +317,7 @@ local function targetedRescanBags(changedBags)
     end
     local scanMs = mq.gettime() - t0
     if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
-        print(string.format("\ag[ItemUI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
+        print(string.format("\ag[CoOpt UI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
     end
     -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
     env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()
@@ -287,6 +338,36 @@ function M.scanBank()
     local bankCache = env.bankCache
     env.invalidateSortCache("bank")
     for i = #bankItems, 1, -1 do bankItems[i] = nil end
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.scanBank and type(coopui.scanBank) == "function" then
+        local ok, result = pcall(coopui.scanBank)
+        if ok and result and type(result) == "table" then
+            for _, row in ipairs(result) do
+                if type(row) == "table" then
+                    row.source = row.source or "bank"
+                    table.insert(bankItems, row)
+                end
+            end
+            env.scanState.lastScanTimeBank = mq.gettime()
+            if #bankItems > 0 and env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(bankItems) end
+            if env.isBankWindowOpen() then
+                for i = #bankCache, 1, -1 do bankCache[i] = nil end
+                for _, it in ipairs(bankItems) do table.insert(bankCache, it) end
+                env.perfCache.lastBankCacheTime = os.time()
+                local now = mq.gettime()
+                local scanState = env.scanState
+                local shouldPersist = (scanState.lastPersistSaveTime == 0) or ((now - scanState.lastPersistSaveTime) >= env.C.PERSIST_SAVE_INTERVAL_MS)
+                if shouldPersist and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" then
+                    env.storage.ensureCharFolderExists()
+                    env.storage.saveBank(bankItems)
+                    scanState.lastPersistSaveTime = now
+                end
+            end
+            if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+            if env.buildAugmentIndex then env.buildAugmentIndex() end
+            return
+        end
+    end
     local Me = mq.TLO and mq.TLO.Me
     if not Me or not Me.Bank then return end
     local buildItemFromMQ = env.buildItemFromMQ

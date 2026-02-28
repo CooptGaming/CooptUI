@@ -167,11 +167,11 @@ function layout_setup_captureCurrentLayoutAsDefault()
             f:close()
         end)
         if not ok and print then
-            print(string.format("\ar[ItemUI]\ax captureCurrentLayoutAsDefault write failed: %s", tostring(err)))
+            print(string.format("\ar[CoOpt UI]\ax captureCurrentLayoutAsDefault write failed: %s", tostring(err)))
         end
     end
 
-    print("\ag[ItemUI]\ax Current layout configuration captured as default! (Window sizes, positions, column widths, column visibility, and all settings)")
+    print("\ag[CoOpt UI]\ax Current layout configuration captured as default! (Window sizes, positions, column widths, column visibility, and all settings)")
 end
 
 --- Reset layout to defaults (from parsed [Defaults]) and save.
@@ -233,8 +233,8 @@ function layout_setup_resetLayoutToDefault()
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 
-    print("\ag[ItemUI]\ax Layout reset to default! (Window sizes, column visibility, and settings restored)")
-    print("\ay[ItemUI]\ax Note: Window sizes will apply on next reload. Close and reopen CoOpt UI Inventory Companion.")
+    print("\ag[CoOpt UI]\ax Layout reset to default! (Window sizes, column visibility, and settings restored)")
+    print("\ay[CoOpt UI]\ax Note: Window sizes will apply on next reload. Close and reopen CoOpt UI Inventory Companion.")
 end
 
 return {

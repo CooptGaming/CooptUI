@@ -1,6 +1,20 @@
 # CoOpt UI Architecture
 
-> This document describes the current CoOpt UI runtime architecture in `lua/itemui`.
+> This document describes the current CoOpt UI runtime architecture in `lua/itemui`. The target branded layout is `lua/coopui/` (see Target directory layout below).
+
+## Target directory layout (CoOpt UI branding)
+
+The canonical install layout uses **`lua/coopui/`** as the unified root for CoOpt UI:
+
+- `lua/coopui/init.lua`: bootstrap entrypoint (`/lua run coopui`).
+- `lua/coopui/app.lua` (or `wiring.lua`): application kernel.
+- `lua/coopui/context.lua`, `lua/coopui/context_init.lua`: shared dependency context.
+- `lua/coopui/core/`: registry, events, cache, diagnostics.
+- `lua/coopui/services/`, `lua/coopui/views/`, `lua/coopui/components/`, `lua/coopui/utils/`: runtime and UI.
+- `lua/coopui/default_layout/`: bundled layout assets.
+- `lua/coopui/docs/archive/`: historical notes (non-canonical).
+
+Require paths in the target layout use `require('coopui.*')`. The patcher migrates existing installs from `lua/itemui/` to `lua/coopui/` and rewrites path-bearing INI values so user data is preserved. Current repo may still use `lua/itemui/` and `require('itemui.*')` until a full tree rename; the patcher ensures the installed layout and INI paths match the target.
 
 ## Module Map
 
@@ -35,6 +49,8 @@ utils/*
 4. `sell_status.computeAndAttachSellStatus(...)` annotates rows (`willSell`, `sellReason`, protection flags).
 5. View pipelines filter/sort through `filter_service`, `sort`, and `table_cache`.
 6. Views render final lists/tables through context-backed dependencies.
+
+**Optional C++ plugin (MQ2CoopUIHelper):** When the plugin is loaded, `scan.lua` uses `require("plugin.CoopUIHelper")` and calls `scanInventory()` / `scanBank()` from the plugin instead of the Lua/TLO path. Same data shape and post-scan logic; plugin source lives in `plugin/mq2coopuihelper/`. See `docs/CPP_PLUGIN_INVESTIGATION.md` and `plugin/mq2coopuihelper/README.md`.
 
 ## State Ownership
 
@@ -81,9 +97,11 @@ Primary readers:
 
 ## Directory-to-Purpose Map
 
-- `lua/itemui/init.lua`: bootstrap entrypoint.
-- `lua/itemui/app.lua`: application kernel/orchestration.
-- `lua/itemui/context.lua`, `lua/itemui/context_init.lua`: shared dependency context.
+Current runtime (and repo) layout under `lua/itemui/`; target branded layout is `lua/coopui/` (same structure).
+
+- `lua/itemui/init.lua` (target: `lua/coopui/init.lua`): bootstrap entrypoint.
+- `lua/itemui/app.lua` or `wiring.lua` (target: `lua/coopui/`): application kernel/orchestration.
+- `lua/itemui/context.lua`, `context_init.lua`: shared dependency context.
 - `lua/itemui/core/`: registry/events/cache/diagnostics infrastructure.
 - `lua/itemui/services/`: non-UI runtime logic.
 - `lua/itemui/views/`: ImGui windows/tabs.
