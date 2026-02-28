@@ -74,16 +74,16 @@ M.TIMING = {
     -- Quantity picker / item ops
     QUANTITY_PICKUP_TIMEOUT_MS = 60000,
     QUANTITY_PICKER_TIMEOUT_MS = 2000,  -- Risk R5: wait for QuantityWnd to open
-    ITEM_OPS_DELAY_MS = 300,
+    ITEM_OPS_DELAY_MS = 200,
     -- Click-through protection: after detecting item on cursor we didn't initiate (e.g. focus click-through), block new pickups this long
     ACTIVATION_GUARD_MS = 450,
     -- Grace period after we clear lastPickup before treating "item on cursor" as unexpected (allows game to process drop)
     UNEXPECTED_CURSOR_GRACE_MS = 500,
-    ITEM_OPS_DELAY_SHORT_MS = 100,
-    ITEM_OPS_DELAY_MEDIUM_MS = 150,
-    ITEM_OPS_DELAY_INITIAL_MS = 200,
+    ITEM_OPS_DELAY_SHORT_MS = 50,
+    ITEM_OPS_DELAY_MEDIUM_MS = 100,
+    ITEM_OPS_DELAY_INITIAL_MS = 120,
     -- Script items (Alt Currency): delay between each right-click use in sequence
-    SCRIPT_CONSUME_DELAY_MS = 300,
+    SCRIPT_CONSUME_DELAY_MS = 150,
 }
 
 -- ---------------------------------------------------------------------------

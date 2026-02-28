@@ -27,6 +27,8 @@ local state = {
     pendingQuantityPickupTimeoutAt = nil,
     pendingQuantityAction = nil,
     pendingScriptConsume = nil,
+    pendingScriptConsumeQueue = {},
+    cursorActionQueue = {},         -- unified queue: { type="destroy"|"reroll_add", ... }
     lastPickup = { bag = nil, slot = nil, source = nil },
     lastPickupSetThisFrame = false,
     lastPickupClearedAt = 0,
@@ -809,6 +811,7 @@ end
 -- ============================================================================
 
 local DESTROY_QTY_WINDOW_TIMEOUT_MS = 2000
+local DESTROY_MIN_PICKUP_SETTLE_MS = 25
 
 --- Advance destroy state machine one step per frame (task 1.3). Call from main_loop when pendingDestroyAction is set. Clears state.pendingDestroyAction when done or on failure.
 function M.advanceDestroyStateMachine(now)
@@ -853,7 +856,10 @@ function M.advanceDestroyStateMachine(now)
     end
 
     if phase == "pickup_delay" then
-        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
+        local elapsed = now - (action.enteredAt or 0)
+        local hasCursor = deps.hasItemOnCursor and deps.hasItemOnCursor() or false
+        if elapsed < DESTROY_MIN_PICKUP_SETTLE_MS then return end
+        if not hasCursor and elapsed < SHORT_MS then return end
         action.phase = "confirm_destroy"
         return
     end

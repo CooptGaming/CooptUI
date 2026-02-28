@@ -100,6 +100,18 @@ function M.renderItemContextMenu(ctx, item, opts)
     local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$") or ""
     local isAugment = (itemTypeTrim == "Augmentation")
     local isScriptItem = (item.name or ""):lower():find("script of", 1, true)
+    local isRerollBook = (item.name or ""):lower():find("book of mythical reroll", 1, true)
+    local function enqueueScriptConsume(payload)
+        if not payload then return end
+        if not ctx.uiState.pendingScriptConsume then
+            ctx.uiState.pendingScriptConsume = payload
+            return
+        end
+        local q = ctx.uiState.pendingScriptConsumeQueue or {}
+        q[#q + 1] = payload
+        ctx.uiState.pendingScriptConsumeQueue = q
+        if ctx.setStatusMessage then ctx.setStatusMessage(string.format("Alt Currency queued (%d).", #q)) end
+    end
 
     if isScriptItem then
         -- Script items: only Alt Currency options
@@ -112,10 +124,10 @@ function M.renderItemContextMenu(ctx, item, opts)
                 if stack < 1 then
                     if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
                 else
-                    ctx.uiState.pendingScriptConsume = {
+                    enqueueScriptConsume({
                         bag = item.bag, slot = item.slot, source = source,
                         totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
-                    }
+                    })
                 end
             end
         elseif source == "bank" then
@@ -127,10 +139,10 @@ function M.renderItemContextMenu(ctx, item, opts)
                 if stack < 1 then
                     if ctx.setStatusMessage then ctx.setStatusMessage("Item not found or stack empty.") end
                 else
-                    ctx.uiState.pendingScriptConsume = {
+                    enqueueScriptConsume({
                         bag = item.bag, slot = item.slot, source = "bank",
                         totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name
-                    }
+                    })
                 end
             end
         end
@@ -143,6 +155,23 @@ function M.renderItemContextMenu(ctx, item, opts)
             ctx.uiState.pendingQuantityPickupTimeoutAt = mq.gettime() + (constants and constants.TIMING and constants.TIMING.QUANTITY_PICKUP_TIMEOUT_MS or 60000)
             ctx.uiState.quantityPickerValue = "1"
             ctx.uiState.quantityPickerMax = maxQty
+        end
+        ImGui.EndPopup()
+        return
+    end
+
+    -- Book of Mythical Reroll: single "Use" option that right-clicks the item in-game.
+    if isRerollBook then
+        if (source == "inv" or source == "sell" or source == "augments") and item.bag and item.slot then
+            if ImGui.MenuItem("Use (Book of Mythical Reroll)") then
+                mq.cmdf('/itemnotify in pack%d %d rightmouseup', item.bag, item.slot)
+                if ctx.setStatusMessage then ctx.setStatusMessage("Used Book of Mythical Reroll.") end
+            end
+        elseif source == "bank" and item.bag and item.slot then
+            if ImGui.MenuItem("Use (Book of Mythical Reroll)") then
+                mq.cmdf('/itemnotify in bank%d %d rightmouseup', item.bag, item.slot)
+                if ctx.setStatusMessage then ctx.setStatusMessage("Used Book of Mythical Reroll.") end
+            end
         end
         ImGui.EndPopup()
         return

@@ -396,6 +396,13 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
     -- After each right-click: update in-memory lists (reduceStackOrRemoveBySlot / reduceStackOrRemoveBySlotBank) so UI shows real-time decrement.
     -- On completion or halt: persist with same pattern as performDestroyItem (saveInventory/writeSellCache for inv, saveBank for bank).
+    if not uiState.pendingScriptConsume then
+        local q = uiState.pendingScriptConsumeQueue or {}
+        if #q > 0 then
+            uiState.pendingScriptConsume = table.remove(q, 1)
+            uiState.pendingScriptConsumeQueue = q
+        end
+    end
     if uiState.pendingScriptConsume then
         local ps = uiState.pendingScriptConsume
         local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
@@ -416,6 +423,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 local n = ps.consumedSoFar
                 local src = ps.source
                 uiState.pendingScriptConsume = nil
+                local q = uiState.pendingScriptConsumeQueue or {}
+                if #q > 0 then
+                    uiState.pendingScriptConsume = table.remove(q, 1)
+                    uiState.pendingScriptConsumeQueue = q
+                end
                 if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
                 if d.storage then
                     if src == "inv" then
@@ -440,6 +452,11 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 if ps.consumedSoFar >= ps.totalToConsume then
                     local src = ps.source
                     uiState.pendingScriptConsume = nil
+                    local q = uiState.pendingScriptConsumeQueue or {}
+                    if #q > 0 then
+                        uiState.pendingScriptConsume = table.remove(q, 1)
+                        uiState.pendingScriptConsumeQueue = q
+                    end
                     if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency.", ps.consumedSoFar)) end
                     if d.storage then
                         if src == "inv" then
@@ -905,9 +922,47 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     setLastLootWindowState(lootOpenNow)
 end
 
+-- Phase 0: Unified cursor-action queue drain. Runs every tick before phase7/phase8b.
+-- Dequeues and starts the next destroy or reroll-add action when the cursor is free
+-- and no cursor-based action is currently in flight.
+local function phase0_cursorActionQueue(now)
+    local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    local q = uiState.cursorActionQueue
+    if not q or #q == 0 then return end
+    -- Any cursor-based action still running? Wait for it.
+    if uiState.pendingDestroyAction then return end
+    if uiState.pendingRerollAdd then return end
+    if uiState.pendingMoveAction then return end
+    -- Cursor must be clear before starting the next pickup.
+    if hasItemOnCursor and hasItemOnCursor() then return end
+    local next = table.remove(q, 1)
+    if not next then return end
+    local remaining = #q
+    if next.type == "destroy" then
+        uiState.pendingDestroyAction = { bag = next.bag, slot = next.slot, name = next.name, qty = next.qty }
+        uiState.pendingDestroy = nil
+        uiState.destroyQuantityValue = ""
+        uiState.destroyQuantityMax = 1
+        if setStatusMessage and remaining > 0 then
+            setStatusMessage(string.format("Deleting... (%d queued)", remaining))
+        end
+    elseif next.type == "reroll_add" then
+        local req = next.payload
+        uiState.pendingRerollAdd = req
+        if d.pickupFromSlot then d.pickupFromSlot(req.bag, req.slot, req.source) end
+        if setStatusMessage then
+            setStatusMessage(remaining > 0
+                and string.format("Adding to list... (%d queued)", remaining)
+                or "Adding to list...")
+        end
+    end
+end
+
 -- Phase 8b: Pending reroll add (pickup -> send !augadd/!mythicaladd -> wait for ack or timeout -> put back)
 -- Optimistic: add to cache as soon as we send; on timeout roll back cache and notify.
+-- Queue management is handled by phase0_cursorActionQueue — phase8b only drives the current action.
 local REROLL_ADD_ACK_TIMEOUT_MS = 3000
+local REROLL_ADD_PICKUP_TIMEOUT_MS = 1200
 local function phase8b_pendingRerollAdd(now)
     local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems, bankItems =
         d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems, d.bankItems
@@ -922,9 +977,12 @@ local function phase8b_pendingRerollAdd(now)
         if invalidateLootConfigCache then invalidateLootConfigCache() end
         if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
         if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-        if setStatusMessage then setStatusMessage(success and "Added to list." or "Add failed or timed out; list reverted.") end
+        local q = uiState.cursorActionQueue or {}
+        local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
+        if setStatusMessage then setStatusMessage((success and "Added to list." or "Add failed or timed out; list reverted.") .. queueMsg) end
     end
     if pending.step == "pickup" then
+        if not pending.pickupStartedAt then pending.pickupStartedAt = now end
         if hasItemOnCursor() and lp and lp.bag == pending.bag and lp.slot == pending.slot and lp.source == pending.source then
             -- Optimistic: update cache immediately so UI shows new state without waiting for server
             rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
@@ -933,6 +991,8 @@ local function phase8b_pendingRerollAdd(now)
             pending.step = "sent"
             pending.sentAt = now
             rerollService.setPendingAddAck(pending.itemId, function() finish(true) end)
+        elseif pending.pickupStartedAt and (now - pending.pickupStartedAt) > REROLL_ADD_PICKUP_TIMEOUT_MS then
+            finish(false)
         end
         return
     end
@@ -1008,6 +1068,7 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
+    phase0_cursorActionQueue(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)

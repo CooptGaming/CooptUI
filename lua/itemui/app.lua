@@ -80,7 +80,12 @@ local computeAndAttachSellStatus  -- forward declaration: set after willItemBeSo
 local uiState = state.uiState
 -- Delegate reroll and equipment state (4.2); existing uiState.* unchanged for callers
 do
-    local rerollKeys = { pendingRerollAdd = true, pendingRerollBankMoves = true, pendingAugRollComplete = true, pendingAugRollCompleteAt = true }
+    local rerollKeys = {
+        pendingRerollAdd = true,
+        pendingRerollBankMoves = true,
+        pendingAugRollComplete = true,
+        pendingAugRollCompleteAt = true
+    }
     setmetatable(uiState, {
         __index = function(t, k)
             if rerollKeys[k] then return rerollService.getState()[k] end
@@ -118,7 +123,8 @@ do
             local itemOpsKeys = {
                 pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
                 pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
+                cursorActionQueue = true,
                 lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
                 hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
             }
@@ -165,7 +171,8 @@ do
             local itemOpsKeys = {
                 pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
                 pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true,
+                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
+                cursorActionQueue = true,
                 lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
                 hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
             }
@@ -533,21 +540,19 @@ local function applySellListChange(itemName, inKeep, inJunk)
     if storage and inventoryItems then storage.saveInventory(inventoryItems) end
 end
 
--- Reroll list add: if cursor occupied we abort with clear message (CoOpt UI pattern: don't move user's item without consent).
--- Otherwise pickup -> send !augadd/!mythicaladd -> main_loop waits for ack or timeout -> put back; status feedback during flow.
--- Guard: only one add-in-progress at a time (avoid double-click / concurrent pickup).
+-- Shared helper: is any cursor-based action currently running or queued?
+local function cursorActionBusy()
+    return uiState.pendingDestroyAction ~= nil
+        or uiState.pendingRerollAdd ~= nil
+        or #(uiState.cursorActionQueue or {}) > 0
+end
+
+-- Reroll list add: queues into the unified cursor-action queue when another action is in progress,
+-- or starts immediately if the cursor is free. Allows rapid right-click chaining across action types.
 local function requestAddToRerollList(list, item)
     if not item or (list ~= "aug" and list ~= "mythical") then return end
-    if uiState.pendingRerollAdd then
-        setStatusMessage("Add already in progress.")
-        return
-    end
-    if hasItemOnCursor() then
-        setStatusMessage("Clear cursor first.")
-        return
-    end
     local source = item.source or "inv"
-    uiState.pendingRerollAdd = {
+    local payload = {
         list = list,
         bag = item.bag,
         slot = item.slot,
@@ -556,7 +561,23 @@ local function requestAddToRerollList(list, item)
         itemName = item.name or "",
         step = "pickup",
     }
-    itemOps.pickupFromSlot(item.bag, item.slot, source)
+    if not payload.bag or not payload.slot then
+        setStatusMessage("Item location unavailable.")
+        return
+    end
+    if cursorActionBusy() then
+        local q = uiState.cursorActionQueue or {}
+        q[#q + 1] = { type = "reroll_add", payload = payload }
+        uiState.cursorActionQueue = q
+        setStatusMessage(string.format("Add queued (%d in queue).", #q))
+        return
+    end
+    if hasItemOnCursor() then
+        setStatusMessage("Clear cursor first.")
+        return
+    end
+    uiState.pendingRerollAdd = payload
+    itemOps.pickupFromSlot(payload.bag, payload.slot, payload.source)
     setStatusMessage("Adding to list...")
 end
 
@@ -782,6 +803,14 @@ context_init.init({
     end,
     requestDestroyItem = function(bag, slot, name, stackSize)
         local qty = (stackSize and stackSize > 0) and stackSize or 1
+        -- Queue if any cursor action is already running or pending, so rapid deletes chain correctly.
+        if cursorActionBusy() then
+            local q = uiState.cursorActionQueue or {}
+            q[#q + 1] = { type = "destroy", bag = bag, slot = slot, name = name or "", qty = qty }
+            uiState.cursorActionQueue = q
+            setStatusMessage(string.format("Delete queued (%d in queue).", #q))
+            return
+        end
         uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "", qty = qty }
         uiState.pendingDestroy = nil
         uiState.destroyQuantityValue = ""
@@ -1071,6 +1100,7 @@ local function buildMainLoopDeps()
         refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
         saveLayoutToFileImmediate = saveLayoutToFileImmediate,
         removeItemFromCursor = removeItemFromCursor,
+        pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end,
         invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
         invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
         rerollService = rerollService,

@@ -673,16 +673,26 @@ function M.render(refs)
         ImGui.EndChild()
 
         if uiState.pendingQuantityPickup then
+            local function enqueueScriptConsume(payload)
+                if not payload then return end
+                if not uiState.pendingScriptConsume then
+                    uiState.pendingScriptConsume = payload
+                    return
+                end
+                local q = uiState.pendingScriptConsumeQueue or {}
+                q[#q + 1] = payload
+                uiState.pendingScriptConsumeQueue = q
+            end
             if uiState.quantityPickerSubmitPending ~= nil then
                 local qty = uiState.quantityPickerSubmitPending
                 uiState.quantityPickerSubmitPending = nil
                 local pickup = uiState.pendingQuantityPickup
                 if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
                     if pickup and pickup.intent == "script_consume" then
-                        uiState.pendingScriptConsume = {
+                        enqueueScriptConsume({
                             bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                             totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                        }
+                        })
                     else
                         uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
                     end
@@ -714,10 +724,10 @@ function M.render(refs)
                     local pickup = uiState.pendingQuantityPickup
                     if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
                         if pickup and pickup.intent == "script_consume" then
-                            uiState.pendingScriptConsume = {
+                            enqueueScriptConsume({
                                 bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                                 totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                            }
+                            })
                         else
                             uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
                         end
@@ -734,10 +744,10 @@ function M.render(refs)
                     local pickup = uiState.pendingQuantityPickup
                     local qty = pickup and pickup.maxQty or 1
                     if pickup and pickup.intent == "script_consume" then
-                        uiState.pendingScriptConsume = {
+                        enqueueScriptConsume({
                             bag = pickup.bag, slot = pickup.slot, source = pickup.source,
                             totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                        }
+                        })
                     else
                         uiState.pendingQuantityAction = { action = "max", qty = qty, pickup = pickup }
                     end
