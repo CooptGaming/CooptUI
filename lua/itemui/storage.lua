@@ -317,42 +317,44 @@ local function mergeFilterStatus(liveItems, storedItems)
     return result
 end
 
--- Create parent directories segment by segment (Windows mkdir does not create intermediates).
-local function ensureParentDirs(path)
-    if not path or path == "" then return end
-    if package.config:sub(1, 1) ~= "\\" then return end  -- Unix: mkdir -p used later
-    local parts = {}
-    for part in path:gmatch("[^\\]+") do parts[#parts + 1] = part end
-    if #parts <= 1 then return end
-    local acc = parts[1]
-    for i = 2, #parts - 1 do
-        acc = acc .. "\\" .. parts[i]
-        if os and os.execute then
-            pcall(function() os.execute('mkdir "' .. acc:gsub('"', '\\"') .. '" 2>nul') end)
-        end
-    end
-end
+-- Session cache: once a character folder is confirmed to exist, skip all I/O on subsequent calls.
+-- Keyed by character name. Cleared implicitly on script restart (module reload).
+local _folderConfirmed = {}
 
--- Ensure character folder exists (create Chars/CharName if missing)
+-- Ensure character folder exists (create Chars/CharName if missing).
+-- Uses a session cache so only the first call per character does any work.
+-- On first call: probe with a marker-file write (pure Lua I/O, no subprocess).
+-- If probe fails (folder missing): spawn mkdir ONCE, then re-probe.
+-- All subsequent calls for the same character return immediately — zero I/O, zero subprocesses.
 local function ensureCharFolderExists()
+    local name = getCharName()
+    if name == "" then return false end
+    -- Fast path: folder already confirmed this session.
+    if _folderConfirmed[name] then return true end
     local folder = getCharFolder()
     if not folder then return false end
-    -- Create folder (and parents) before writing; Windows mkdir does not create intermediates.
-    ensureParentDirs(folder)
+    -- Probe: try writing a marker file. If it succeeds, the folder exists.
+    local markerPath = config.getCharStoragePath(name, ".exists")
+    if file_safe.safeWrite(markerPath, "") then
+        pcall(os.remove, markerPath)
+        _folderConfirmed[name] = true
+        return true
+    end
+    -- Folder does not exist yet. Create it with a single mkdir call.
+    -- Windows cmd mkdir creates all intermediate directories when given a full path.
     if os and os.execute then
         local escaped = folder:gsub('"', '\\"')
-        if package.config:sub(1, 1) == "\\" then  -- Windows
+        if package.config:sub(1, 1) == "\\" then
             pcall(function() os.execute('mkdir "' .. escaped .. '" 2>nul') end)
         else
             pcall(function() os.execute('mkdir -p "' .. folder .. '" 2>/dev/null') end)
         end
     end
-    -- Then verify with a marker file (safe write avoids throw)
-    local markerPath = config.getCharStoragePath(getCharName(), ".exists")
+    -- Re-probe after mkdir; cache regardless (if mkdir failed, saves will fail gracefully via safeWrite).
     if file_safe.safeWrite(markerPath, "") then
         pcall(os.remove, markerPath)
-        return true
     end
+    _folderConfirmed[name] = true
     return true
 end
 
