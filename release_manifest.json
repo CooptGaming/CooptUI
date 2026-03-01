@@ -279,7 +279,7 @@
     },
     {
       "path": "lua/itemui/views/augment_utility.lua",
-      "hash": "da1bfc81ff65abf818e00211c107c46041e90509e6cd8efadb0519df388d7aca"
+      "hash": "26dd88f5bdfebf894bb84e60e29e9fdee073b23dd2ec244cde0e563fb8f59866"
     },
     {
       "path": "lua/itemui/views/augments.lua",
@@ -335,7 +335,7 @@
     },
     {
       "path": "lua/itemui/views/item_display.lua",
-      "hash": "ff17f9923328bfa0bb796f1db4461720cab61665d5586f0bba2e4f811fca7e01"
+      "hash": "215a66db96b4e515419098af9b5d54b234ee3494ee6d67224cb6704c27c87a00"
     },
     {
       "path": "lua/itemui/views/loot.lua",
@@ -343,7 +343,7 @@
     },
     {
       "path": "lua/itemui/views/loot_ui.lua",
-      "hash": "05bd3943188a445616077830868bd97023d3774175cef0f8a144352eb35be40d"
+      "hash": "db5fe8312a347eb384242b1508e312949669b45951920ca544f56aa53b980acf"
     },
     {
       "path": "lua/itemui/views/main_window.lua",
