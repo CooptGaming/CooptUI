@@ -90,6 +90,7 @@ def patch(
 ) -> tuple[bool, str]:
     """
     Download each file from raw GitHub and write to root_path. Creates parent dirs as needed.
+    Skips files that return 404 (e.g. removed from repo) instead of failing the whole patch.
 
     progress_callback(current_1based_index, total, path_or_message)
     Returns (success, message). Message is user-friendly.
@@ -97,6 +98,8 @@ def patch(
     total = len(files_to_download)
     if total == 0:
         return True, "Nothing to update."
+
+    skipped: list[str] = []
 
     for i, entry in enumerate(files_to_download):
         path = entry.get("path")
@@ -115,7 +118,11 @@ def patch(
                 content = resp.read()
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                return False, f"File not found: {path_norm}"
+                # File removed from repo (e.g. plugin paused); skip and continue
+                skipped.append(path_norm)
+                if progress_callback:
+                    progress_callback(i + 1, total, f"(skipped: {path_norm})")
+                continue
             return False, "Could not reach GitHub. Check your connection."
         except (urllib.error.URLError, OSError):
             return False, "Could not reach GitHub. Check your connection."
@@ -129,6 +136,8 @@ def patch(
 
     if progress_callback:
         progress_callback(total, total, "Done")
+    if skipped:
+        return True, f"Update complete. (Skipped {len(skipped)} file(s) no longer in repo.)"
     return True, "Update complete."
 
 
