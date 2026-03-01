@@ -386,8 +386,8 @@ function LootUIView.render(ctx)
                     end
                     ImGui.EndTable()
                 end
-                ImGui.EndChild()
             end
+            ImGui.EndChild()
             ImGui.Separator()
         end
         end -- Current tab
@@ -433,8 +433,8 @@ function LootUIView.render(ctx)
                         end
                         ImGui.EndTable()
                     end
-                    ImGui.EndChild()
                 end
+                ImGui.EndChild()
             else
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "No history yet. Loot runs with items will appear here.")
             end
@@ -494,8 +494,8 @@ function LootUIView.render(ctx)
                         end
                         ImGui.EndTable()
                     end
-                    ImGui.EndChild()
                 end
+                ImGui.EndChild()
             else
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "No skip history yet. Items skipped by loot.mac will appear here.")
             end

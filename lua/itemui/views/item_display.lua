@@ -217,8 +217,8 @@ function ItemDisplayView.render(ctx)
     if #tabs == 0 then
         if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
             ImGui.TextColored(ImVec4(0.7, 0.7, 0.7, 1.0), "No item selected. Right-click an item and choose \"CoOp UI Item Display\" to open.")
-            ImGui.EndChild()
         end
+        ImGui.EndChild()
     else
         local tab = tabs[activeIdx]
         if tab then
@@ -280,8 +280,8 @@ function ItemDisplayView.render(ctx)
             ImGui.Spacing()
             if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
                 renderOneItemContent(ctx, tab)
-                ImGui.EndChild()
             end
+            ImGui.EndChild()
         end
     end
 

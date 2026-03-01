@@ -401,8 +401,8 @@ function AugmentUtilityView.render(ctx)
                     ImGui.EndTable()
                 end
             end
-            ImGui.EndChild()
         end
+        ImGui.EndChild()
     end
 
     ImGui.Spacing()
