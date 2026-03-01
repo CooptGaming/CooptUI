@@ -39,7 +39,7 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "a41362f8fc89b4cda9b26fcd1c8a610bcc04b9a74f641d1da86fca78675d7559"
+      "hash": "65d76d9759e619342c20ecade362d1b1bae0212dcb52112ee79e73e15a5c3ae5"
     },
     {
       "path": "lua/itemui/commands.lua",
@@ -187,7 +187,7 @@
     },
     {
       "path": "lua/itemui/storage.lua",
-      "hash": "40b971310566bfcde919d537e781df3e1554e4b9545247a1cf4e270bad09d816"
+      "hash": "300cc1a1ed623df7360dedd28e2a9a7cfc52020665f2d6bdb07062560983ddb2"
     },
     {
       "path": "lua/itemui/utils/augment_helpers.lua",
@@ -207,7 +207,7 @@
     },
     {
       "path": "lua/itemui/utils/default_layout.lua",
-      "hash": "5e233b2a06965828a93af4c43e5c1cdfd285ad0f8fe406be69f5238a7a4db716"
+      "hash": "1f48414e5fbf170b249a38e4b2588180573b624e9a20db22fad32e178a5a5c79"
     },
     {
       "path": "lua/itemui/utils/file_safe.lua",

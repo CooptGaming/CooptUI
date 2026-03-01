@@ -1146,11 +1146,18 @@ local function main()
         pollInterval = 500,
     })
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
-    -- First-run: apply bundled default layout if user has no existing layout (layout only; no user data)
-    if not defaultLayout.hasExistingLayout() then
+    storage.init({ profileEnabled = C.PROFILE_ENABLED, profileThresholdMs = C.PROFILE_THRESHOLD_MS })
+    local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
+    if charName ~= "" then storage.ensureCharFolderExists() end
+    -- First-run per character: apply bundled default layout if no existing layout OR first ItemUI launch for this char.
+    -- Ensures correct default size and unpinned state on clean install (patcher creates minimal layout that appears small/pinned).
+    if charName ~= "" and (not defaultLayout.hasExistingLayout() or not defaultLayout.hasFirstLayoutAppliedForChar(charName)) then
         local ok, err = defaultLayout.applyBundledDefaultLayout()
         if ok then
             defaultLayoutAppliedThisRun = true
+            if perfCache then perfCache.layoutCached = nil; perfCache.layoutNeedsReload = true end
+            uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
+            defaultLayout.markFirstLayoutAppliedForChar(charName)
         elseif err and err ~= "" then
             if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
             local diag = require('itemui.core.diagnostics')
@@ -1164,14 +1171,12 @@ local function main()
             print("\ar[ItemUI]\ax Warning: MacroQuest path not set; config and layout may not work.")
         end
     end
-    storage.init({ profileEnabled = C.PROFILE_ENABLED, profileThresholdMs = C.PROFILE_THRESHOLD_MS })
     local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
     local invO = (invWnd and invWnd.Open and invWnd.Open()) or false
     local bankO, merchO = isBankWindowOpen(), isMerchantWindowOpen()
     maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
     -- Initial persist save so data survives if game closes before first periodic save.
     -- Skip inventory save when scanInventory() already persisted (lastPersistSaveTime set) to avoid double save on startup.
-    local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
     if charName ~= "" then
         storage.ensureCharFolderExists()
         if scanState.lastPersistSaveTime == 0 then

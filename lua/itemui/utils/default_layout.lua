@@ -151,4 +151,26 @@ function M.revertToBundledDefaultLayout()
     return M.applyBundledDefaultLayout()
 end
 
+local FIRST_LAYOUT_MARKER = ".first_layout_applied"
+
+--- True if the first-time default layout has already been applied for this character.
+--- Used to avoid running revert on every launch; only the first ItemUI launch per character.
+function M.hasFirstLayoutAppliedForChar(charName)
+    if not charName or charName == "" then return true end
+    local path = config.getCharStoragePath(charName, FIRST_LAYOUT_MARKER)
+    if not path or path == "" then return false end
+    local content = file_safe.safeReadAll(path)
+    return content ~= nil and #content:gsub("%s", "") > 0
+end
+
+--- Mark that the first-time default layout has been applied for this character.
+--- Call after successfully applying the bundled default on first launch.
+function M.markFirstLayoutAppliedForChar(charName)
+    if not charName or charName == "" then return end
+    local path = config.getCharStoragePath(charName, FIRST_LAYOUT_MARKER)
+    if path and path ~= "" then
+        file_safe.safeWrite(path, "1")
+    end
+end
+
 return M
