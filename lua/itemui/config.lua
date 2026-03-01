@@ -2,9 +2,11 @@
     ItemUI Config Module
     INI read/write, list parsing, and path helpers for sell_config, shared_config, loot_config.
     Chunked list read/write to avoid MQ macro 2048 character buffer limit.
+    When MQ2CoOptUI plugin is loaded, uses plugin INI (Task 6.5).
 --]]
 
 local mq = require('mq')
+local pluginShim = require('itemui.services.plugin_shim')
 
 -- MQ macro variables have 2048 char limit; keep chunks safely under
 local MAX_INI_CHUNK_LEN = 2000
@@ -46,6 +48,12 @@ end
 --- path: full path to INI file; section/key: INI section and key names.
 function safeIniValueByPath(path, section, key, default)
     if not path or path == "" or not section or not key then return default or "" end
+    local ini = pluginShim.ini()
+    if ini and ini.read then
+        local ok, v = pcall(ini.read, path, section, key, default or "")
+        if ok and v and v ~= "" then return v end
+        if ok then return default or "" end
+    end
     local ok, v = pcall(function()
         local ini = mq.TLO and mq.TLO.Ini
         if not ini or not ini.File then return nil end
@@ -113,17 +121,35 @@ end
 
 local function writeINIValue(file, section, key, value)
     local path = getConfigFile(file)
-    if path then mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value) end
+    if not path then return end
+    local ini = pluginShim.ini()
+    if ini and ini.write then
+        ini.write(path, section, key, value)
+    else
+        mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value)
+    end
 end
 
 local function writeSharedINIValue(file, section, key, value)
     local path = getSharedConfigFile(file)
-    if path then mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value) end
+    if not path then return end
+    local ini = pluginShim.ini()
+    if ini and ini.write then
+        ini.write(path, section, key, value)
+    else
+        mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value)
+    end
 end
 
 local function writeLootINIValue(file, section, key, value)
     local path = getLootConfigFile(file)
-    if path then mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value) end
+    if not path then return end
+    local ini = pluginShim.ini()
+    if ini and ini.write then
+        ini.write(path, section, key, value)
+    else
+        mq.cmdf('/ini "%s" "%s" "%s" "%s"', path, section, key, value)
+    end
 end
 
 local MAX_CHUNKS = 20  -- Safety limit to prevent infinite loops from corrupt data

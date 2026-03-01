@@ -39,6 +39,7 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local pluginShim = require('itemui.services.plugin_shim')
 
 local IPC_PROTOCOL_VERSION = (constants.TIMING and constants.TIMING.IPC_PROTOCOL_VERSION) or 1
 
@@ -175,7 +176,19 @@ local function isMacroRunning(macroName)
 end
 
 -- Read sell progress from INI file (safe: TLO.Ini can be nil during zone/load). Versioned: if Protocol.Version > IPC_PROTOCOL_VERSION return nil.
+-- When plugin IPC is available, use in-memory channel instead of file.
 local function readSellProgress()
+    local ipc = pluginShim.ipc()
+    if ipc then
+        local msg = ipc.peek and ipc.peek("sell_progress")
+        if msg and type(msg) == "string" then
+            local t, c, r = msg:match("^(%d+),(%d+),(%d+)$")
+            if t then
+                return { total = tonumber(t), current = tonumber(c), remaining = tonumber(r) }
+            end
+        end
+        return nil
+    end
     local basePath = getSellLogPath()
     if not basePath then return nil end
     local config = require('itemui.config')
@@ -193,7 +206,22 @@ local function readSellProgress()
 end
 
 -- Read failed items from sell_failed.ini (safe INI read). Keys are item1, item2, ... (match sell.mac). Versioned: if Protocol.Version > IPC_PROTOCOL_VERSION return {}, 0.
+-- When plugin IPC is available, use in-memory channel (pipe-separated list).
 local function readFailedItems()
+    local ipc = pluginShim.ipc()
+    if ipc then
+        local msg = ipc.peek and ipc.peek("sell_failed")
+        if msg and type(msg) == "string" and msg ~= "" then
+            local failedItems = {}
+            for itemName in (msg .. "|"):gmatch("([^|]*)|") do
+                if itemName and itemName ~= "" then
+                    table.insert(failedItems, itemName)
+                end
+            end
+            return failedItems, #failedItems
+        end
+        return {}, 0
+    end
     local basePath = getSellLogPath()
     if not basePath then return {}, 0 end
     local config = require('itemui.config')
@@ -216,7 +244,15 @@ local function readFailedItems()
 end
 
 -- Write sell progress to INI file (includes [Protocol] Version=1 for versioned IPC)
+-- When plugin IPC is available, use in-memory channel instead of file.
 function MacroBridge.writeSellProgress(total, current)
+    local ipc = pluginShim.ipc()
+    if ipc and ipc.send then
+        local remaining = math.max(0, total - current)
+        ipc.send("sell_progress", string.format("%d,%d,%d", total, current, remaining))
+        log(string.format("Wrote progress (IPC): %d/%d (remaining: %d)", current, total, remaining))
+        return
+    end
     local basePath = getSellLogPath()
     if not basePath then return end
     local progPath = basePath .. "\\sell_progress.ini"
@@ -414,7 +450,17 @@ function MacroBridge.resetStats()
 end
 
 -- Read loot_progress.ini Progress/line; return true if first field is "1" (macro running). Used for file-based loot finish detection.
+-- When plugin IPC is available, use loot_progress channel (format: running##corpses##total##current).
 local function readLootProgressRunning()
+    local ipc = pluginShim.ipc()
+    if ipc then
+        local msg = ipc.peek and ipc.peek("loot_progress")
+        if msg and type(msg) == "string" and msg ~= "" then
+            local running = (msg .. "##"):match("^(.-)##")
+            return running == "1"
+        end
+        return false
+    end
     local getLootConfigFile = MacroBridge.config.getLootConfigFile
     if not getLootConfigFile then
         local c = require('itemui.config')

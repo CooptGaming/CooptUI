@@ -7,6 +7,7 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
+local pluginShim = require('itemui.services.plugin_shim')
 
 local d  -- deps, set by init()
 
@@ -280,6 +281,42 @@ local function phase5_lootMacro(now)
                 lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
             end
             uiState.lootRunFinished = true
+        end
+    end
+    -- Drain plugin loot events when available (Task 6.6)
+    local pluginLoot = pluginShim.loot()
+    if pluginLoot and pluginLoot.pollEvents and (lootMacRunning or uiState.lootUIOpen) then
+        local ok, events = pcall(pluginLoot.pollEvents, pluginLoot)
+        if ok and events and type(events) == "table" and #events > 0 then
+            uiState.lootRunLootedItems = uiState.lootRunLootedItems or {}
+            uiState.lootRunLootedList = uiState.lootRunLootedList or {}
+            local seen = {}
+            for _, row in ipairs(uiState.lootRunLootedItems or {}) do
+                if row.name and row.name ~= "" then seen[row.name] = true end
+            end
+            for _, ev in ipairs(events) do
+                local name = (ev and ev.name) and tostring(ev.name) or ""
+                if name ~= "" and not seen[name] then
+                    seen[name] = true
+                    local statusText, willSell = "—", false
+                    if getSellStatusForItem then
+                        statusText, willSell = getSellStatusForItem({ name = name })
+                        if statusText == "" then statusText = "—" end
+                    end
+                    table.insert(uiState.lootRunLootedList, name)
+                    table.insert(uiState.lootRunLootedItems, {
+                        name = name,
+                        value = (ev.value or ev.id or 0),
+                        tribute = ev.tribute or 0,
+                        statusText = statusText,
+                        willSell = willSell
+                    })
+                    if not uiState.lootHistory then loadLootHistoryFromFile() end
+                    if not uiState.lootHistory then uiState.lootHistory = {} end
+                    table.insert(uiState.lootHistory, { name = name, value = ev.value or 0, statusText = statusText, willSell = willSell })
+                    while uiState.lootHistory and #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                end
+            end
         end
     end
     local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)

@@ -3,9 +3,11 @@
     Inventory, bank, sell, and loot scanning. Uses env (init) for all dependencies
     to avoid 60-upvalue limit and keep init.lua under the 200-local limit.
     Call scan.init(env) once from init.lua, then use scan.scanInventory(), etc.
+    When MQ2CoOptUI plugin is loaded, uses plugin batch scan (Task 6.4).
 --]]
 
 local mq = require('mq')
+local pluginShim = require('itemui.services.plugin_shim')
 
 local M = {}
 local env
@@ -94,21 +96,38 @@ function M.scanInventory()
     end
     -- Clear and repopulate
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
-    local seen = {}
-    local buildItemFromMQ = env.buildItemFromMQ
-    local Me = mq.TLO and mq.TLO.Me
-    if not Me or not Me.Inventory then return end
-    for bagNum = 1, 10 do
-        local pack = Me.Inventory("pack" .. bagNum)
-        if pack and pack.Container and pack.Container() then
-            local bagSize = pack.Container()
-            for slotNum = 1, bagSize do
-                local key = bagNum .. ":" .. slotNum
-                if not seen[key] then
-                    seen[key] = true
-                    local item = pack.Item and pack.Item(slotNum)
-                    local it = buildItemFromMQ(item, bagNum, slotNum)
-                    if it then table.insert(inventoryItems, it) end
+    local usedPlugin = false
+    local itemsMod = pluginShim.items()
+    if itemsMod and itemsMod.scanInventory then
+        local ok, pluginItems = pcall(itemsMod.scanInventory, itemsMod)
+        if ok and pluginItems and type(pluginItems) == "table" then
+            for _, it in ipairs(pluginItems) do
+                if it and (it.bag or it.slot) then
+                    it.source = it.source or "inv"
+                    table.insert(inventoryItems, it)
+                end
+            end
+            usedPlugin = true
+        end
+    end
+    if not usedPlugin then
+        local seen = {}
+        local buildItemFromMQ = env.buildItemFromMQ
+        local Me = mq.TLO and mq.TLO.Me
+        if Me and Me.Inventory then
+            for bagNum = 1, 10 do
+                local pack = Me.Inventory("pack" .. bagNum)
+                if pack and pack.Container and pack.Container() then
+                    local bagSize = pack.Container()
+                    for slotNum = 1, bagSize do
+                        local key = bagNum .. ":" .. slotNum
+                        if not seen[key] then
+                            seen[key] = true
+                            local item = pack.Item and pack.Item(slotNum)
+                            local it = buildItemFromMQ(item, bagNum, slotNum)
+                            if it then table.insert(inventoryItems, it) end
+                        end
+                    end
                 end
             end
         end
@@ -136,7 +155,8 @@ function M.scanInventory()
         scanState.lastPersistSaveTime = now
     end
     if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+        local src = usedPlugin and " (plugin)" or ""
+        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)%s", scanMs, saveMs, #inventoryItems, src))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
@@ -283,11 +303,26 @@ function M.scanBank()
     local bankCache = env.bankCache
     env.invalidateSortCache("bank")
     for i = #bankItems, 1, -1 do bankItems[i] = nil end
-    local Me = mq.TLO and mq.TLO.Me
-    if not Me or not Me.Bank then return end
-    local buildItemFromMQ = env.buildItemFromMQ
-    local maxSlots = env.C.MAX_BANK_SLOTS or 24
-    for bagNum = 1, maxSlots do
+    local usedPlugin = false
+    local itemsMod = pluginShim.items()
+    if itemsMod and itemsMod.scanBank then
+        local ok, pluginItems = pcall(itemsMod.scanBank, itemsMod)
+        if ok and pluginItems and type(pluginItems) == "table" then
+            for _, it in ipairs(pluginItems) do
+                if it and (it.bag or it.slot) then
+                    it.source = it.source or "bank"
+                    table.insert(bankItems, it)
+                end
+            end
+            usedPlugin = true
+        end
+    end
+    if not usedPlugin then
+        local Me = mq.TLO and mq.TLO.Me
+        if not Me or not Me.Bank then return end
+        local buildItemFromMQ = env.buildItemFromMQ
+        local maxSlots = env.C.MAX_BANK_SLOTS or 24
+        for bagNum = 1, maxSlots do
         local slot = Me.Bank(bagNum)
         if slot then
             local bagSize = (slot.Container and slot.Container()) or 0
@@ -308,6 +343,7 @@ function M.scanBank()
                 if it then table.insert(bankItems, it) end
             end
         end
+    end
     end
     env.scanState.lastScanTimeBank = mq.gettime()
     if #bankItems > 0 and env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(bankItems) end

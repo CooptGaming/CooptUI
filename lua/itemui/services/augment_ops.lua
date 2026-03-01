@@ -7,6 +7,7 @@
 local mq = require('mq')
 local itemHelpers = require('itemui.utils.item_helpers')
 local constants = require('itemui.constants')
+local pluginShim = require('itemui.services.plugin_shim')
 
 local M = {}
 local deps  -- set by init()
@@ -66,6 +67,12 @@ end
 function M.isItemDisplayWindowOpen()
     local name = resolveItemDisplayWindowName()
     if not name or name == "" then return false end
+    local win = pluginShim.window()
+    if win and win.isWindowOpen then
+        local ok, openVal = pcall(function() return win.isWindowOpen(name) end)
+        if ok and openVal == true then return true end
+        if ok and openVal == false then return false end
+    end
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(name)
     if not w or not w.Open then return false end
     local ok, openVal = pcall(function() return w.Open() end)
@@ -101,7 +108,7 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         deps.setStatusMessage("Clear cursor first.")
         return false
     end
-    -- Pick up augment
+    -- Pick up augment (plugin has no pickupItem; use /itemnotify)
     if src == "bank" then
         mq.cmdf('/itemnotify in bank%d %d leftmouseup', bag, slot)
     else
@@ -120,7 +127,12 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         mq.delay(REMOVE_OPEN_DELAY_MS)
         local windowName = resolveItemDisplayWindowName()
         local controlName = string.format("IDW_Socket_Slot_%d_Item", slotIndex)
-        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+        local win = pluginShim.window()
+        if win and win.click then
+            win.click(windowName, controlName)
+        else
+            mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+        end
         mq.delay(200)
         if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
         -- Phase 0: no mid-op scan; main loop runs one scan when insert completes (cursor clear)
@@ -163,7 +175,7 @@ function M.removeAugment(bag, slot, source, slotIndex)
     it.Inspect()
     mq.delay(REMOVE_OPEN_DELAY_MS)
     -- Resolve the game Item Display window name: DisplayItem[n].Window.Name (1-based index 1..6)
-    local windowName = nil
+    local windowName
     for i = 1, 6 do
         local di = mq.TLO and mq.TLO.DisplayItem and mq.TLO.DisplayItem(i)
         if di and di.Window then
@@ -183,7 +195,12 @@ function M.removeAugment(bag, slot, source, slotIndex)
     end
     local controlName = string.format("IDW_Socket_Slot_%d_Item", slotIndex)
     -- Use leftmouseup on the socket (per game UI; rightmouseup can be invalid on this control)
-    mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+    local win = pluginShim.window()
+    if win and win.click then
+        win.click(windowName, controlName)
+    else
+        mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
+    end
     mq.delay(REMOVE_AFTER_RIGHTCLICK_MS)
     if REMOVE_MENU_CONTROL then
         mq.cmdf('/notify %s %s leftmouseup', windowName, REMOVE_MENU_CONTROL)

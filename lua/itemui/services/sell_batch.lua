@@ -7,6 +7,7 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local pluginShim = require('itemui.services.plugin_shim')
 
 local M = {}
 local deps
@@ -247,7 +248,12 @@ function M.advance(now)
         local sel = (wnd and wnd.Text and wnd.Text()) or ""
         local elapsed = now - cur.enteredAt
         if sel == itemName and elapsed >= WAIT_SELECTED_SETTLE_MS then
-            mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
+            local win = pluginShim.window()
+            if win and win.click then
+                win.click("MerchantWnd", "MW_Sell_Button")
+            else
+                mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
+            end
             cur.phase = "wait_sold"
             cur.enteredAt = now
             cur.pollCount = 0
