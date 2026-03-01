@@ -44,15 +44,15 @@ try {
     New-Item -ItemType Directory -Path $sharedDest -Force | Out-Null
     Get-ChildItem -Path (Join-Path $RepoRoot "Macros\shared_config") -Filter "*.mac" | Copy-Item -Destination $sharedDest -Force
 
-    # config_templates: INI only from sell_config, shared_config, loot_config (no Chars, no backup, no .flag)
+    # config_templates: INI files from config_templates/ (canonical source; Macros/*.ini are gitignored)
     $ct = Join-Path $Staging "config_templates"
     $ctSell = Join-Path $ct "sell_config"
     $ctShared = Join-Path $ct "shared_config"
     $ctLoot = Join-Path $ct "loot_config"
     New-Item -ItemType Directory -Path $ctSell, $ctShared, $ctLoot -Force | Out-Null
-    Get-ChildItem -Path (Join-Path $RepoRoot "Macros\sell_config") -Filter "sell_*.ini" | Copy-Item -Destination $ctSell -Force
-    Get-ChildItem -Path (Join-Path $RepoRoot "Macros\shared_config") -Filter "*.ini" | Where-Object { $_.Name -eq "epic_classes.ini" -or $_.Name -like "epic_items_*" -or $_.Name -like "valuable_*" } | Copy-Item -Destination $ctShared -Force
-    Get-ChildItem -Path (Join-Path $RepoRoot "Macros\loot_config") -Filter "loot_*.ini" | Copy-Item -Destination $ctLoot -Force
+    Get-ChildItem -Path (Join-Path $RepoRoot "config_templates\sell_config") -Filter "*.ini" -ErrorAction SilentlyContinue | Copy-Item -Destination $ctSell -Force
+    Get-ChildItem -Path (Join-Path $RepoRoot "config_templates\shared_config") -Filter "*.ini" -ErrorAction SilentlyContinue | Copy-Item -Destination $ctShared -Force
+    Get-ChildItem -Path (Join-Path $RepoRoot "config_templates\loot_config") -Filter "*.ini" -ErrorAction SilentlyContinue | Copy-Item -Destination $ctLoot -Force
 
     # resources: ItemUI UI files only
     $resDest = Join-Path $Staging "resources\UIFiles\Default"

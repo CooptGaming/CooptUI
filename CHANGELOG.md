@@ -6,6 +6,14 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.8.8-alpha] — 2026-03-01
+
+### Changed
+- **Release process** — Config templates in release zip now sourced from `config_templates/` (includes `itemui_layout.ini`); release rule and manifest steps documented
+- **Patcher** — Skip files that return 404 (e.g. removed from repo) instead of failing the whole patch
+
+---
+
 ## [0.8.7-alpha] — 2026-03-01
 
 ### Added
