@@ -35,24 +35,51 @@ local function fullPath(relPath)
     return root .. "\\" .. (relPath:gsub("/", "\\"))
 end
 
+--- Create parent directories segment by segment (Windows mkdir does not create intermediates).
+local function ensureParentDirs(path)
+    local parts = {}
+    for part in path:gmatch("[^\\]+") do parts[#parts + 1] = part end
+    if #parts <= 1 then return end
+    local acc = parts[1]
+    for i = 2, #parts - 1 do
+        acc = acc .. "\\" .. parts[i]
+        if os and os.execute then
+            pcall(function() os.execute('mkdir "' .. acc:gsub('"', '\\"') .. '" 2>nul') end)
+        end
+    end
+end
+
+--- Check if directory exists and is writable (io.open on dir fails on Windows).
+local function dirExistsAndWritable(path)
+    local probe = path .. "\\.welcome_probe"
+    local f = io.open(probe, "w")
+    if not f then return false end
+    f:close()
+    pcall(os.remove, probe)
+    return true
+end
+
 local function ensureDir(path)
     if not path or path == "" then return false, "empty path" end
+    ensureParentDirs(path)
     local ok, err = pcall(function()
         if os and os.execute then
             os.execute('mkdir "' .. path:gsub('"', '\\"') .. '" 2>nul')
         end
     end)
     if not ok then return false, tostring(err) end
-    local f = io.open(path .. "\\.", "r")
-    if f then f:close(); return true end
+    if dirExistsAndWritable(path) then return true end
     return false, "directory could not be created or is not writable"
 end
 
 local function ensureIni(path, defaultContent)
     defaultContent = defaultContent or "[Settings]\r\n"
     local dir = path:match("^(.+)\\[^\\]+$")
-    if dir and os and os.execute then
-        pcall(function() os.execute('mkdir "' .. dir:gsub('"', '\\"') .. '" 2>nul') end)
+    if dir then
+        ensureParentDirs(dir)
+        if os and os.execute then
+            pcall(function() os.execute('mkdir "' .. dir:gsub('"', '\\"') .. '" 2>nul') end)
+        end
     end
     local f = io.open(path, "r")
     if f then f:close(); return true end
@@ -76,9 +103,7 @@ function M.validate()
         local label = entry.label or entry.path
         local exists = false
         if entry.type == "folder" then
-            local f = io.open(full .. "\\.", "r")
-            exists = f and true or false
-            if f then f:close() end
+            exists = dirExistsAndWritable(full)
         else
             local f = io.open(full, "r")
             exists = f and true or false

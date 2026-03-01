@@ -317,24 +317,41 @@ local function mergeFilterStatus(liveItems, storedItems)
     return result
 end
 
+-- Create parent directories segment by segment (Windows mkdir does not create intermediates).
+local function ensureParentDirs(path)
+    if not path or path == "" then return end
+    if package.config:sub(1, 1) ~= "\\" then return end  -- Unix: mkdir -p used later
+    local parts = {}
+    for part in path:gmatch("[^\\]+") do parts[#parts + 1] = part end
+    if #parts <= 1 then return end
+    local acc = parts[1]
+    for i = 2, #parts - 1 do
+        acc = acc .. "\\" .. parts[i]
+        if os and os.execute then
+            pcall(function() os.execute('mkdir "' .. acc:gsub('"', '\\"') .. '" 2>nul') end)
+        end
+    end
+end
+
 -- Ensure character folder exists (create Chars/CharName if missing)
 local function ensureCharFolderExists()
     local folder = getCharFolder()
     if not folder then return false end
-    -- Try writing a marker file; if it succeeds, folder exists (safe write avoids throw)
+    -- Create folder (and parents) before writing; Windows mkdir does not create intermediates.
+    ensureParentDirs(folder)
+    if os and os.execute then
+        local escaped = folder:gsub('"', '\\"')
+        if package.config:sub(1, 1) == "\\" then  -- Windows
+            pcall(function() os.execute('mkdir "' .. escaped .. '" 2>nul') end)
+        else
+            pcall(function() os.execute('mkdir -p "' .. folder .. '" 2>/dev/null') end)
+        end
+    end
+    -- Then verify with a marker file (safe write avoids throw)
     local markerPath = config.getCharStoragePath(getCharName(), ".exists")
     if file_safe.safeWrite(markerPath, "") then
         pcall(os.remove, markerPath)
         return true
-    end
-    -- Folder might not exist; try creating via mkdir (Windows: mkdir creates intermediates)
-    if os.execute then
-        local escaped = folder:gsub('"', '\\"')
-        if package.config:sub(1,1) == "\\" then  -- Windows
-            os.execute('mkdir "' .. escaped .. '" 2>nul')
-        else
-            os.execute('mkdir -p "' .. folder .. '" 2>/dev/null')
-        end
     end
     return true
 end

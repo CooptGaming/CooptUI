@@ -9,6 +9,14 @@ local mq = require('mq')
 -- MQ macro variables have 2048 char limit; keep chunks safely under
 local MAX_INI_CHUNK_LEN = 2000
 
+--- Normalize path to OS-native separators (Windows: \, Unix: /). Avoids mixed slashes breaking io.open.
+local function normalizePath(p)
+    if not p or p == "" or type(p) ~= "string" then return p end
+    local sep = package.config:sub(1, 1)  -- "\\" on Windows, "/" on Unix
+    if sep == "\\" then return (p:gsub("/", "\\")) end
+    return (p:gsub("\\", "/"))
+end
+
 local basePath = (mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()) and mq.TLO.MacroQuest.Path() or ""
 local CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/sell_config') or ""
 local SHARED_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/shared_config') or ""
@@ -18,28 +26,29 @@ local CHARS_PATH = basePath ~= "" and (CONFIG_PATH .. '/Chars') or ""
 -- Resolve MacroQuest path when called (so paths work if config loaded before Path was set)
 local function getBasePath()
     local p = (mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()) and mq.TLO.MacroQuest.Path() or ""
-    return (p and p ~= "") and p or basePath
+    return normalizePath((p and p ~= "") and p or basePath)
 end
 
 local function getConfigFile(f)
     local base = getBasePath()
-    return base ~= "" and (base .. '/Macros/sell_config/' .. f) or nil
+    return base ~= "" and normalizePath(base .. '/Macros/sell_config/' .. f) or nil
 end
 
 local function getSharedConfigFile(f)
     local base = getBasePath()
-    return base ~= "" and (base .. '/Macros/shared_config/' .. f) or nil
+    return base ~= "" and normalizePath(base .. '/Macros/shared_config/' .. f) or nil
 end
 
 local function getLootConfigFile(f)
     local base = getBasePath()
-    return base ~= "" and (base .. '/Macros/loot_config/' .. f) or nil
+    return base ~= "" and normalizePath(base .. '/Macros/loot_config/' .. f) or nil
 end
 
 local function getCharStoragePath(charName, filename)
     if CHARS_PATH == "" or not charName or charName == "" then return nil end
     local charFolder = CHARS_PATH .. '/' .. (charName:gsub("[^%w_%-]", "_"))
-    return filename and (charFolder .. '/' .. filename) or charFolder
+    local full = filename and (charFolder .. '/' .. filename) or charFolder
+    return normalizePath(full)
 end
 
 --- Safe INI read: TLO.Ini can be nil during zone transitions/loading. Returns default on any nil or error.

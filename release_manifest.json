@@ -67,7 +67,7 @@
     },
     {
       "path": "lua/itemui/config.lua",
-      "hash": "51eab62316e03255d1769adcab8aa6dcd749a722f631eac99fc4c6df29fcd070"
+      "hash": "30f2d378155f94f96a27e3805b39453567b20173b79f520317b2f209530e428d"
     },
     {
       "path": "lua/itemui/config_cache.lua",
@@ -107,7 +107,7 @@
     },
     {
       "path": "lua/itemui/core/welcome_env_manifest.lua",
-      "hash": "cf4e18da3f77c4e58970c08ac564659c0e7336958a275e4c0dc1e7881c342939"
+      "hash": "7e8a00e5b6e688ad91df8dacbc029f340c859679ee3b2c1859ddcc2b28c7ff94"
     },
     {
       "path": "lua/itemui/default_layout/itemui_layout.ini",
@@ -187,7 +187,7 @@
     },
     {
       "path": "lua/itemui/storage.lua",
-      "hash": "0543d433c81d5ba4cc6976267276f4d622996ed48c4385f8d2cd8d838b7be043"
+      "hash": "40b971310566bfcde919d537e781df3e1554e4b9545247a1cf4e270bad09d816"
     },
     {
       "path": "lua/itemui/utils/augment_helpers.lua",
