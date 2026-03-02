@@ -46,6 +46,8 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 - **EverQuest** on an **emulator server**.
 - **Windows.**
 
+**Recommended:** If you’re setting up from scratch, use the prebuilt package and setup guide from the **E3Next** project: [Getting started (EMU 32-bit)](https://github.com/RekkasGit/E3Next/wiki/1%29-Getting-started-EMU-32bit). That package includes E3Next and MQNext already configured. Credit to **Rekkas** and the E3Next team for the binary distribution and EMU setup docs.
+
 In-game, `/lua run` should work. If it doesn’t, CoOpt UI won’t run.
 
 ---
