@@ -98,7 +98,7 @@ do
     layoutDefaults.SuppressWhenLootMac = 0
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1
-    layoutDefaults.ItemUIToggleKey = "I"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind
+    layoutDefaults.ItemUIToggleKey = "shift+q"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind
 end
 
 local layoutConfig = {}

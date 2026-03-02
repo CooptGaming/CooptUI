@@ -267,7 +267,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
         f:write("ActivationGuardEnabled=" .. ((layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled) and "1" or "0") .. "\n")
-        f:write("ItemUIToggleKey=" .. tostring(layoutConfig.ItemUIToggleKey ~= nil and layoutConfig.ItemUIToggleKey or (layoutDefaults.ItemUIToggleKey or "I")) .. "\n")
+        f:write("ItemUIToggleKey=" .. tostring(layoutConfig.ItemUIToggleKey ~= nil and layoutConfig.ItemUIToggleKey or (layoutDefaults.ItemUIToggleKey or "shift+q")) .. "\n")
         f:write("ConfigTab=" .. tostring(filterState.configTab) .. "\n")
         f:write("FilterSubTab=" .. tostring(filterState.filterSubTab) .. "\n")
         f:write("InvSortColumn=" .. tostring(sortState.invColumn or "Name") .. "\n")
@@ -420,7 +420,7 @@ function LayoutUtils.loadLayoutConfig()
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
         layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
-        layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "I")
+        layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "shift+q")
         local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
         -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
         filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
@@ -532,7 +532,7 @@ function LayoutUtils.loadLayoutConfig()
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
     uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
-    layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "I")
+    layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "shift+q")
     local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
     -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
     filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
@@ -636,7 +636,7 @@ end
 --- Return current ItemUI toggle key for display (e.g. startup message). Does not apply bind.
 function LayoutUtils.getItemUIToggleKeyDisplay()
     local layoutConfig = LayoutUtils.layoutConfig
-    if not layoutConfig then return "I" end
+    if not layoutConfig then return "shift+q" end
     local rawKey = (layoutConfig.ItemUIToggleKey and type(layoutConfig.ItemUIToggleKey) == "string") and layoutConfig.ItemUIToggleKey:match("^%s*(.-)%s*$") or ""
     if rawKey == "" then return nil end
     local key = normalizeBindKey(rawKey)
