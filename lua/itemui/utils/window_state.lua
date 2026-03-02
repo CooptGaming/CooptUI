@@ -31,6 +31,14 @@ function M.closeGameInventoryIfOpen()
     end
 end
 
+--- Close the default EQ bank window if open.
+function M.closeGameBankIfOpen()
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("BigBankWnd")
+    if w and w.Open and w.Open() then
+        mq.cmd("/invoke ${Window[BigBankWnd].DoClose}")
+    end
+end
+
 --- Close the default EQ merchant window if open (for clean close when leaving sell view).
 function M.closeGameMerchantIfOpen()
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd")

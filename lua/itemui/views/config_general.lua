@@ -3,9 +3,12 @@
     Part of ItemUI config view split (Task 07).
 --]]
 
+local mq = require('mq')
 require('ImGui')
 
 local ConfigFilters = require('itemui.views.config_filters')
+
+local KEYBIND_DEBOUNCE_MS = 800
 local registry = require('itemui.core.registry')
 
 local ConfigGeneral = {}
@@ -180,6 +183,67 @@ function ConfigGeneral.render(ctx)
                 ImGui.EndTooltip()
             end
             ImGui.Unindent()
+        end
+    end
+    ImGui.Spacing()
+    if ImGui.CollapsingHeader("Keybindings", ImGuiTreeNodeFlags.DefaultOpen) then
+        renderBreadcrumb("General", "Keybindings")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Assign a key to toggle the ItemUI (Inventory Companion) open/closed. Uses /custombind + /bind.")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Press the key to open ItemUI; press again to close.")
+            ImGui.Text("Format: shift+i, ctrl+f2, f12. I and Shift+C are often reserved by EQ.")
+            ImGui.Text("Requires MQ2CustomBinds plugin: /plugin MQ2CustomBinds")
+            ImGui.EndTooltip()
+        end
+        ImGui.Spacing()
+        ImGui.Text("ItemUI Toggle")
+        ImGui.SameLine(140)
+        ImGui.SetNextItemWidth(120)
+        local keyVal = tostring(layoutConfig.ItemUIToggleKey or "")
+        local keyBuf = keyVal
+        keyBuf, _ = ImGui.InputText("##ItemUIToggleKey", keyBuf or "", ImGuiInputTextFlags.None)
+        if keyBuf ~= keyVal then
+            local raw = (keyBuf and keyBuf:match("^%s*(.-)%s*$") or "")
+            layoutConfig.ItemUIToggleKey = raw
+            scheduleLayoutSave()
+            filterState.keybindDebounceAt = mq.gettime()
+            filterState.keybindDebounceValue = raw
+        end
+        -- Debounce: apply bind only after user stops typing (avoids errors on each keystroke)
+        if filterState.keybindDebounceAt and (mq.gettime() - filterState.keybindDebounceAt) >= KEYBIND_DEBOUNCE_MS then
+            filterState.keybindDebounceAt = nil
+            filterState.keybindDebounceValue = nil
+            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Key or key combo. Use + for modifiers: shift+c, ctrl+i, alt+f2.")
+            ImGui.Text("Bind applies 0.8s after you stop typing. I and Shift+C may be reserved by EQ.")
+            ImGui.EndTooltip()
+        end
+        ImGui.SameLine()
+        ImGui.SameLine()
+        if ImGui.Button("Apply##ItemUIToggleKey", ImVec2(50, 0)) then
+            filterState.keybindDebounceAt = nil
+            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Apply the keybind now (or wait 0.8s after typing).")
+            ImGui.EndTooltip()
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Clear##ItemUIToggleKey", ImVec2(60, 0)) then
+            layoutConfig.ItemUIToggleKey = ""
+            scheduleLayoutSave()
+            filterState.keybindDebounceAt = nil
+            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Remove the keybind.")
+            ImGui.EndTooltip()
         end
     end
     ImGui.Spacing()

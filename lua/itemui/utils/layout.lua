@@ -267,6 +267,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("SuppressWhenLootMac=" .. (uiState.suppressWhenLootMac and "1" or "0") .. "\n")
         f:write("ConfirmBeforeDelete=" .. (uiState.confirmBeforeDelete and "1" or "0") .. "\n")
         f:write("ActivationGuardEnabled=" .. ((layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled) and "1" or "0") .. "\n")
+        f:write("ItemUIToggleKey=" .. tostring(layoutConfig.ItemUIToggleKey ~= nil and layoutConfig.ItemUIToggleKey or (layoutDefaults.ItemUIToggleKey or "I")) .. "\n")
         f:write("ConfigTab=" .. tostring(filterState.configTab) .. "\n")
         f:write("FilterSubTab=" .. tostring(filterState.filterSubTab) .. "\n")
         f:write("InvSortColumn=" .. tostring(sortState.invColumn or "Name") .. "\n")
@@ -419,6 +420,7 @@ function LayoutUtils.loadLayoutConfig()
         uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
         uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
         layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
+        layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "I")
         local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
         -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
         filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
@@ -470,6 +472,7 @@ function LayoutUtils.loadLayoutConfig()
         if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
             print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
         end
+        LayoutUtils.applyItemUIToggleBind()
         return
     end
     -- Single file read: parse all sections at once (avoids 3x I/O on every UI open)
@@ -529,6 +532,8 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
     uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
     uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
+    layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
+    layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "I")
     local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
     -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
     filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
@@ -579,6 +584,52 @@ function LayoutUtils.loadLayoutConfig()
     end
     if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
         print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
+    end
+    LayoutUtils.applyItemUIToggleBind()
+end
+
+--- Normalize key combo for MQ2 /bind: "Shift C" -> "shift+c". MQ2 expects modifier+key with +; modifiers lowercase.
+local function normalizeBindKey(input)
+    if not input or type(input) ~= "string" then return "" end
+    local s = input:match("^%s*(.-)%s*$")
+    if s == "" then return "" end
+    -- Split on spaces, +, or - to get parts
+    local parts = {}
+    for part in s:gmatch("[^%s+%-]+") do
+        local lower = part:lower()
+        if lower == "shift" or lower == "ctrl" or lower == "control" or lower == "alt" then
+            parts[#parts + 1] = (lower == "control") and "ctrl" or lower
+        else
+            parts[#parts + 1] = part  -- preserve case for letter keys (I vs i)
+        end
+    end
+    if #parts == 0 then return "" end
+    -- Single key: return as-is (trimmed). Multi-part: join with + (modifier+key).
+    return table.concat(parts, "+")
+end
+
+local ITEMUI_BIND_NAME = "itemui_inv"
+
+--- Ensure ItemUI toggle bind command is set (bind created from MQ2CustomBinds.txt; we only update via /custombind set to avoid "name in use").
+local function ensureItemUIBindExists()
+    pcall(function()
+        mq.cmd("/custombind set " .. ITEMUI_BIND_NAME .. "-down /inv")
+    end)
+end
+
+--- Apply ItemUI toggle keybind from layoutConfig (uses /custombind + /bind). Call after loadLayoutConfig.
+function LayoutUtils.applyItemUIToggleBind()
+    local layoutConfig = LayoutUtils.layoutConfig
+    if not layoutConfig then return end
+    local rawKey = (layoutConfig.ItemUIToggleKey and type(layoutConfig.ItemUIToggleKey) == "string") and layoutConfig.ItemUIToggleKey:match("^%s*(.-)%s*$") or ""
+    ensureItemUIBindExists()
+    if rawKey == "" then
+        pcall(function() mq.cmd("/bind " .. ITEMUI_BIND_NAME .. " clear") end)
+    else
+        local key = normalizeBindKey(rawKey)
+        if key ~= "" then
+            pcall(function() mq.cmd("/bind " .. ITEMUI_BIND_NAME .. " " .. key) end)
+        end
     end
 end
 

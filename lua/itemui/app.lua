@@ -373,6 +373,7 @@ local function isBankWindowOpen() return windowState.isBankWindowOpen() end
 local function isMerchantWindowOpen() return windowState.isMerchantWindowOpen() end
 local function isLootWindowOpen() return windowState.isLootWindowOpen() end
 local function closeGameInventoryIfOpen() windowState.closeGameInventoryIfOpen() end
+local function closeGameBankIfOpen() windowState.closeGameBankIfOpen() end
 local function closeGameMerchantIfOpen() windowState.closeGameMerchantIfOpen() end
 
 -- buildItemFromMQ delegated to utils/item_helpers.lua (optional 4th arg source: "inv" | "bank")
@@ -763,6 +764,7 @@ context_init.init({
     setStatusMessage = setStatusMessage or function() end,
     closeItemUI = closeItemUI,
     closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    closeGameBankIfOpen = closeGameBankIfOpen,
     closeGameMerchantIfOpen = closeGameMerchantIfOpen,
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
@@ -772,6 +774,7 @@ context_init.init({
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
     saveColumnVisibility = function() layoutUtils.saveColumnVisibility() end,
     loadLayoutConfig = loadLayoutConfig,
+    applyItemUIToggleBind = function() layoutUtils.applyItemUIToggleBind() end,
     captureCurrentLayoutAsDefault = function() layoutUtils.captureCurrentLayoutAsDefault() end,
     resetLayoutToDefault = function() layoutUtils.resetLayoutToDefault() end,
     revertToBundledDefaultLayoutRequest = function() uiState.revertLayoutConfirmOpen = true end,
@@ -1012,6 +1015,8 @@ commands.init({
     scanSellItems = scanSellItems,
     scanBank = scanBank,
     closeGameInventoryIfOpen = closeGameInventoryIfOpen,
+    closeGameBankIfOpen = closeGameBankIfOpen,
+    closeGameMerchantIfOpen = closeGameMerchantIfOpen,
     recordCompanionWindowOpened = recordCompanionWindowOpened,
     uiState = uiState,
     registry = registry,

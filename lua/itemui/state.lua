@@ -59,6 +59,7 @@ local uiState = {
     pendingStatRescanBags = nil,
     rerollPendingScan = false,
     rerollPendingScanAt = 0,
+    userClosedViaKeybind = false,  -- when true, main loop won't auto-reopen until inv/bank/merchant close
 }
 
 -- Layout from setup (itemui_layout.ini)
@@ -97,6 +98,7 @@ do
     layoutDefaults.SuppressWhenLootMac = 0
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1
+    layoutDefaults.ItemUIToggleKey = "I"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind
 end
 
 local layoutConfig = {}
@@ -104,6 +106,8 @@ local layoutConfig = {}
 local filterState = {
     configTab = 1,
     filterSubTab = 1,
+    keybindDebounceAt = nil,   -- when user last edited ItemUIToggleKey (for debounce)
+    keybindDebounceValue = nil,
     configListInputs = {},
     configUnifiedMode = {},
     sellFilterTargetId = "keep",

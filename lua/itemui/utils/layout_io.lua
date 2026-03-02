@@ -75,6 +75,7 @@ function M.loadLayoutValue(layout, key, default)
         return (val == "1" or val == "true")
     end
     if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" then return val end  -- string (column key)
+    if key == "ItemUIToggleKey" then return (layout[key] ~= nil) and layout[key] or default end  -- keybinding; empty = no bind
     return tonumber(val) or default
 end
 

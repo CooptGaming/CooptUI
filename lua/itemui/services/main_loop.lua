@@ -743,7 +743,7 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         end
     end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
-        if not shouldDraw then
+        if not shouldDraw and not uiState.userClosedViaKeybind then
             setShouldDraw(true)
             setOpen(true)
             loadLayoutConfig()
@@ -776,7 +776,7 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         deferredScanNeeded.inventory = invOpen
         deferredScanNeeded.sell = true
     end
-    if bankOpen and not shouldDraw then
+    if bankOpen and not shouldDraw and not uiState.userClosedViaKeybind then
         setShouldDraw(true)
         setOpen(true)
         loadLayoutConfig()
@@ -798,6 +798,7 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         if invOpen then mq.cmd('/keypress inventory') end
     end
     if lastInventoryWindowState and not invOpen then
+        uiState.userClosedViaKeybind = false
         mq.cmd('/keypress CLOSE_INV_BAGS')
         storage.ensureCharFolderExists()
         if #sellItems > 0 then
@@ -825,8 +826,14 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         uiState.bankWindowShouldDraw = true
     end
     if lastInventoryWindowState and not invOpen then scanState.lastScanState.invOpen = false end
-    if lastBankWindowState and not bankOpen then scanState.lastScanState.bankOpen = false end
-    if lastMerchantState and not merchOpen then scanState.lastScanState.merchOpen = false end
+    if lastBankWindowState and not bankOpen then
+        scanState.lastScanState.bankOpen = false
+        uiState.userClosedViaKeybind = false
+    end
+    if lastMerchantState and not merchOpen then
+        scanState.lastScanState.merchOpen = false
+        uiState.userClosedViaKeybind = false
+    end
     local lootOpenNow = isLootWindowOpen()
     local lootJustOpened = lootOpenNow and not lastLootWindowState
     if lootJustOpened then

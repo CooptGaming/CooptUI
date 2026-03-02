@@ -341,14 +341,14 @@ function M.render(refs)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
-        -- LIFO ESC fix: only request keyboard capture when any CoOpt ImGui window has focus.
-        -- This prevents ESC from closing native EQ bags when the user is interacting with CoOpt UI,
-        -- while allowing all other keyboard input (chat, hotkeys) to pass through to EQ normally
-        -- when the user is focused on the game (not on a CoOpt window).
-        if winVis then
+        -- Keyboard capture: only when user is actively typing in search, quantity, or other text inputs.
+        -- io.WantTextInput is set by ImGui when an InputText/InputTextWithHint is focused.
+        -- When false, keys pass through to the game (chat, hotkeys, movement).
+        if winVis and ImGui.SetNextFrameWantCaptureKeyboard then
             pcall(function()
-                local anyFocused = ImGui.IsWindowFocused and ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow)
-                if anyFocused and ImGui.SetNextFrameWantCaptureKeyboard then
+                local io = ImGui.GetIO and ImGui.GetIO()
+                local wantTextInput = io and io.WantTextInput
+                if wantTextInput then
                     ImGui.SetNextFrameWantCaptureKeyboard(true)
                 end
             end)

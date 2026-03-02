@@ -34,6 +34,7 @@ function M.handleCommand(...)
         local nextShouldDraw = not getShouldDraw()
         setShouldDraw(nextShouldDraw)
         if nextShouldDraw then
+            deps.uiState.userClosedViaKeybind = false
             local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
             local invO = (_w and _w.Open and _w.Open()) or false
             local bankO = deps.isBankWindowOpen and deps.isBankWindowOpen() or false
@@ -48,9 +49,13 @@ function M.handleCommand(...)
             deps.uiState.equipmentWindowShouldDraw = true
             if deps.recordCompanionWindowOpened then deps.recordCompanionWindowOpened("equipment") end
         else
+            deps.uiState.userClosedViaKeybind = true
             if deps.closeGameInventoryIfOpen then deps.closeGameInventoryIfOpen() end
+            if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
+            if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
         end
     elseif cmd == "show" then
+        deps.uiState.userClosedViaKeybind = false
         setShouldDraw(true)
         setIsOpen(true)
         local _w = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
@@ -65,9 +70,12 @@ function M.handleCommand(...)
         deps.uiState.equipmentWindowShouldDraw = true
         if deps.recordCompanionWindowOpened then deps.recordCompanionWindowOpened("equipment") end
     elseif cmd == "hide" then
+        deps.uiState.userClosedViaKeybind = true
         setShouldDraw(false)
         setIsOpen(false)
         if deps.closeGameInventoryIfOpen then deps.closeGameInventoryIfOpen() end
+        if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
+        if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end
