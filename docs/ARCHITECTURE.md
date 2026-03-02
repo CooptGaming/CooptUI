@@ -50,7 +50,9 @@ utils/*
 5. View pipelines filter/sort through `filter_service`, `sort`, and `table_cache`.
 6. Views render final lists/tables through context-backed dependencies.
 
-**Optional C++ plugin (MQ2CoopUIHelper):** When the plugin is loaded, `scan.lua` uses `require("plugin.CoopUIHelper")` and calls `scanInventory()` / `scanBank()` from the plugin instead of the Lua/TLO path. Same data shape and post-scan logic; plugin source lives in `plugin/mq2coopuihelper/`. See `docs/CPP_PLUGIN_INVESTIGATION.md` and `plugin/mq2coopuihelper/README.md`.
+**Optional C++ plugin (MQ2CoopUIHelper):** When the plugin is loaded, `scan.lua` uses `require("plugin.CoopUIHelper")` and calls `scanInventory()` / `scanBank()` from the plugin instead of the Lua/TLO path. Same data shape and post-scan logic; plugin source lives in `plugin/mq2coopuihelper/`. See `docs/CPP_PLUGIN_INVESTIGATION.md` and `plugin/mq2coopuihelper/README.md`. (Plugin development paused; see `lua/itemui/docs/archive/plugin/PLUGIN_INACTIVE.md`.)
+
+**Optional C# Mono backend (CoopHelper):** When MQ2Mono is loaded and the CoopHelper app is running, `scan.lua` uses `tryCoopMonoHelper()` to delegate scan, rule evaluation, and config reads to a C# service via `${MQ2Mono.Query[coophelper, ...]}`. Same data shape and fallback behavior as the C++ plugin path. C# source lives in `csharp/coophelper/`. See `docs/MONO_INTEGRATION_PLAN.md`.
 
 ## State Ownership
 
