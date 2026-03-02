@@ -69,6 +69,13 @@ resources/UIFiles/Default/*
 !resources/UIFiles/Default/MQUI_ItemColorAnimation.xml
 !resources/UIFiles/Default/ItemColorBG.tga
 
+# --- Build artifacts (patcher, Python) ---
+patcher/build/
+patcher/dist/
+patcher/__pycache__/
+**/__pycache__/
+*.pyc
+
 # --- Always ignore (backups, logs, root clutter) ---
 Backup/
 Logs/
