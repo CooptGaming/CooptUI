@@ -34,6 +34,8 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 
 **First-time setup** — A short wizard walks you through the main windows and lets you set sell protection and loot rules. You can skip it and configure later in Settings.
 
+**Open Settings** — Click the Settings button on the main window, or type `/itemui config`. Manage sell, loot, and shared lists as well as well as pick settings ot meet your preference. 
+
 **Backup / Restore** — In Settings → Advanced you can export or restore all your CoOpt UI settings.
 
 **Updater (Patcher)** — Optional desktop app that updates CoOpt UI files without touching your config. Get it from the releases page if you want easy updates.
@@ -82,34 +84,6 @@ In-game, `/lua run` should work. If it doesn’t, CoOpt UI won’t run.
 | `/itemui setup` | Run the setup wizard again |
 
 Other windows (Bank, Equipment, Augments, AA, Reroll, Item Display, Settings) open from buttons on the main window. The Loot window opens automatically when you run `/doloot` (you can turn that off in Settings).
-
----
-
-## Settings and list management
-
-All sell, loot, and protection rules can be managed in the UI — no need to edit INI files unless you want to. Changes are saved immediately and used by the auto-sell and auto-loot macros on the next run.
-
-**Open Settings** — Click the Settings (gear) button on the main window, or type `/itemui config`.
-
-### Managing lists in the UI
-
-- **From the main window (Sell view):** Right-click any item and use **Keep** or **Junk** to add it to your “never sell” or “always sell” list. You can also use the Keep/Junk buttons on each row when a merchant is open.
-- **From Settings:** Use the **Sell Rules** and **Loot Rules** tabs to add or remove items by name. Choose the target list (e.g. Keep exact, Always sell, Always loot, Skip), type the item name or keyword, then click **Add**. Use **From Cursor** to add whatever is on your cursor.
-- **Shared lists:** The **Shared** tab holds valuable-item and epic lists. These apply to both selling and looting — one list, one place. You can turn epic protection on or off per class (all 16 EQ classes).
-
-### Settings tabs
-
-| Tab | What you can do |
-|-----|------------------|
-| **General** | Window behavior (snap to merchant, suppress loot window), sell/loot toggles, layout setup, and **Revert to default layout**. |
-| **Sell Rules** | Keep (never sell), always sell (junk), and never-sell-by-type lists. Add or remove entries; use From Cursor to add the item on your cursor. |
-| **Loot Rules** | Always loot and skip (never loot) lists. Same add/remove and From Cursor options. |
-| **Shared** | Valuable items (never sell, always loot) and epic class protection. |
-| **Advanced** | Backup and restore all CoOpt UI config; debug channel toggles. |
-
-Lists and options you set here are written to the INI files under `Macros/sell_config`, `Macros/shared_config`, and `Macros/loot_config`. You can still edit those files directly if you prefer; the UI and macros both read from them.
-
-More detail: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 
