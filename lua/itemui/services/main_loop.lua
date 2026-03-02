@@ -7,6 +7,7 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
+local scriptConsumeEvents = require('itemui.services.script_consume_events')
 local ItemDisplayView = require('itemui.views.item_display')
 
 local d  -- deps, set by init()
@@ -406,49 +407,16 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
     if uiState.pendingScriptConsume then
         local ps = uiState.pendingScriptConsume
         local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
-        local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
-        if shouldFire then
-            local Me = mq.TLO and mq.TLO.Me
-            local stack = 0
-            if ps.source == "bank" then
-                local bn = Me and Me.Bank and Me.Bank(ps.bag)
-                local it = bn and bn.Item and bn.Item(ps.slot)
-                stack = (it and it.Stack and it.Stack()) or 0
-            else
-                local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
-                local it = pack and pack.Item and pack.Item(ps.slot)
-                stack = (it and it.Stack and it.Stack()) or 0
-            end
-            if stack < 1 then
-                local n = ps.consumedSoFar
-                local src = ps.source
-                uiState.pendingScriptConsume = nil
-                local q = uiState.pendingScriptConsumeQueue or {}
-                if #q > 0 then
-                    uiState.pendingScriptConsume = table.remove(q, 1)
-                    uiState.pendingScriptConsumeQueue = q
-                end
-                if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
-                if d.storage then
-                    if src == "inv" then
-                        if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
-                        if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
-                    elseif src == "bank" and d.bankItems then
-                        d.storage.saveBank(d.bankItems)
-                    end
-                end
-            else
-                if ps.source == "bank" then
-                    mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
-                else
-                    mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
-                end
-                ps.consumedSoFar = ps.consumedSoFar + 1
-                if ps.source == "bank" then
-                    itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
-                else
-                    itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
-                end
+        local confirmTimeoutMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS) or 2000
+        local verified = ps.verifiedFromChat or 0
+
+        -- After each click we wait for "[timestamp] You gained 1 alternate currency." (or timeout) before sending the next
+        if ps.waitingForConfirm then
+            local gotConfirm = verified >= ps.consumedSoFar
+            local timedOut = (ps.confirmUntil and now >= ps.confirmUntil)
+            if gotConfirm or timedOut then
+                ps.waitingForConfirm = nil
+                ps.confirmUntil = nil
                 if ps.consumedSoFar >= ps.totalToConsume then
                     local src = ps.source
                     uiState.pendingScriptConsume = nil
@@ -469,6 +437,63 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
                 else
                     ps.nextClickAt = now + delayMs
                     if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", ps.consumedSoFar, ps.totalToConsume)) end
+                end
+            end
+        else
+            local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
+            if shouldFire then
+                local Me = mq.TLO and mq.TLO.Me
+                local stack = 0
+                if ps.source == "bank" then
+                    local bn = Me and Me.Bank and Me.Bank(ps.bag)
+                    local it = bn and bn.Item and bn.Item(ps.slot)
+                    stack = (it and it.Stack and it.Stack()) or 0
+                else
+                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
+                    local it = pack and pack.Item and pack.Item(ps.slot)
+                    stack = (it and it.Stack and it.Stack()) or 0
+                end
+                if stack < 1 then
+                    local n = ps.consumedSoFar
+                    local src = ps.source
+                    uiState.pendingScriptConsume = nil
+                    local q = uiState.pendingScriptConsumeQueue or {}
+                    if #q > 0 then
+                        uiState.pendingScriptConsume = table.remove(q, 1)
+                        uiState.pendingScriptConsumeQueue = q
+                    end
+                    if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
+                    if d.storage then
+                        if src == "inv" then
+                            if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
+                            if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
+                        elseif src == "bank" and d.bankItems then
+                            d.storage.saveBank(d.bankItems)
+                        end
+                    end
+                else
+                    if ps.source == "bank" then
+                        mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
+                    else
+                        mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
+                    end
+                    ps.consumedSoFar = ps.consumedSoFar + 1
+                    if ps.source == "bank" then
+                        itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
+                    else
+                        itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
+                    end
+                    if ps.consumedSoFar >= ps.totalToConsume then
+                        -- Wait for last chat confirm (or timeout) then we'll clear in the waitingForConfirm branch
+                        ps.waitingForConfirm = true
+                        ps.confirmUntil = now + confirmTimeoutMs
+                        if setStatusMessage then setStatusMessage(string.format("Verifying %d / %d...", ps.consumedSoFar, ps.totalToConsume)) end
+                    else
+                        -- Wait for this click's chat message before sending next
+                        ps.waitingForConfirm = true
+                        ps.confirmUntil = now + confirmTimeoutMs
+                        if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d (waiting for confirm)...", ps.consumedSoFar, ps.totalToConsume)) end
+                    end
                 end
             end
         end
@@ -1064,6 +1089,7 @@ local M = {}
 function M.init(deps)
     d = deps
     lootFeedEvents.init(d)
+    scriptConsumeEvents.init(d)
 end
 
 function M.tick(now)

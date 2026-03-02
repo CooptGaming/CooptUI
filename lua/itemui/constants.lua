@@ -84,6 +84,8 @@ M.TIMING = {
     ITEM_OPS_DELAY_INITIAL_MS = 120,
     -- Script items (Alt Currency): delay between each right-click use in sequence
     SCRIPT_CONSUME_DELAY_MS = 150,
+    -- Script consume: after each click, wait this long for "[timestamp] You gained 1 alternate currency." before sending next (or give up and continue)
+    SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS = 2000,
 }
 
 -- ---------------------------------------------------------------------------
