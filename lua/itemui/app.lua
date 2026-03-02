@@ -55,6 +55,7 @@ local ConfigFilters = require('itemui.views.config_filters')
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
 local defaultLayout = require('itemui.utils.default_layout')
+local file_safe = require('itemui.utils.file_safe')
 local theme = require('itemui.utils.theme')
 local columns = require('itemui.utils.columns')
 local columnConfig = require('itemui.utils.column_config')
@@ -1113,9 +1114,23 @@ local function buildMainLoopDeps()
     }
 end
 
+-- Path written by patcher after successful update; used for display version so patcher users show same version.
+local COOPUI_INSTALLED_VERSION_FILE = "Macros/coopui_installed_version.txt"
+
+local function getDisplayVersion()
+    local p = mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
+    if not p or p == "" then return C.VERSION end
+    local path = (p:gsub("/", "\\")) .. "\\" .. (COOPUI_INSTALLED_VERSION_FILE:gsub("/", "\\"))
+    local content = file_safe.safeReadAll(path)
+    local ver = content and content:match("^%s*(.-)%s*$")
+    if ver and ver ~= "" then return ver end
+    return C.VERSION
+end
+
 local function main()
     -- Startup order: 1) Unbind 2) Bind + imgui.init 3) Paths 4) Wait for Me 5) loadLayoutConfig 6) maybeScan* 7) Initial persist 8) Main loop
-    print(string.format("\ag[ItemUI]\ax Item UI v%s loaded. /itemui or /inv to toggle. /dosell, /doloot for macros.", C.VERSION))
+    local displayVer = getDisplayVersion()
+    print(string.format("\ag[ItemUI]\ax Item UI v%s loaded. /itemui or /inv to toggle. /dosell, /doloot for macros.", displayVer))
     -- Unbind first so reload or leftover bindings don't cause "already bound" errors
     pcall(function() mq.unbind('/inventoryui') end)
     pcall(function() mq.unbind('/inv') end)

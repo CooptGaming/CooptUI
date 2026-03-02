@@ -18,6 +18,10 @@
       "hash": "7d0acdd8dd20b89a46e203de05cd626236b935070f34c932087c23e2e8bd454d"
     },
     {
+      "path": "config/MQ2CustomBinds.txt",
+      "hash": "d3a6627731f781bd4a42f5a98e7e360cb42b79bad313a95bbe2ef4518f1fcd0f"
+    },
+    {
       "path": "lua/coopui/core/cache.lua",
       "hash": "62ca176e207f5dd9f4058b2c3628ea2c0ecb9466a2e74a313caadf8e012f0c01"
     },
@@ -39,11 +43,11 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "65d76d9759e619342c20ecade362d1b1bae0212dcb52112ee79e73e15a5c3ae5"
+      "hash": "b1a83c50bf6112e727a19b19e44902ef7a2099e00929633f591b0daddef2a69b"
     },
     {
       "path": "lua/itemui/commands.lua",
-      "hash": "49f815bae207eb202cd78c34a3c795e429778041a9a2c8d5ee5638f80e5c7298"
+      "hash": "1c91909360a3fd49b4a2bb5ed69c0c433ea0d99c75904553c8a66fdf4ccf08e6"
     },
     {
       "path": "lua/itemui/components/character_stats.lua",
@@ -111,7 +115,7 @@
     },
     {
       "path": "lua/itemui/default_layout/itemui_layout.ini",
-      "hash": "ee82fc43bed155302cc5ad3c380e9ca28a4d681f89f87f989f73a3f8756efaef"
+      "hash": "ec34040a6038acabdfca3aa719d40111abf25b310bbaf199743e2e447acffbf9"
     },
     {
       "path": "lua/itemui/default_layout/layout_manifest.json",
@@ -163,7 +167,7 @@
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "ccdd535f1ba5e084fdab2c7d421b89f58861cc43767f3f8283da51b2b67f6b1c"
+      "hash": "4b318e637b894b8947e9ae15936b9749aa033f8936e735fa6e5076bfbc21533a"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
@@ -187,7 +191,7 @@
     },
     {
       "path": "lua/itemui/state.lua",
-      "hash": "4a0fc8c89a27c9b2c57fd79fba04e531d89e20e661a2524c0a80897b784a22f9"
+      "hash": "1bf1520ecc50c1887c94ace39b2140a65370ddef95cee8576047760be2efdfd3"
     },
     {
       "path": "lua/itemui/storage.lua",
@@ -235,7 +239,7 @@
     },
     {
       "path": "lua/itemui/utils/layout.lua",
-      "hash": "c8835f4f97eeec3fa5a3de95a0e9284db30c0bff9a9fc26fdc74b82f71b3adf7"
+      "hash": "6904adbb4b4b172dc0e7788ffd702c2fa54bde486bf4a60454999baf6b2a254f"
     },
     {
       "path": "lua/itemui/utils/layout_columns.lua",
@@ -243,7 +247,7 @@
     },
     {
       "path": "lua/itemui/utils/layout_io.lua",
-      "hash": "b2f8a62e998d267f08ea6bec0e16e9f388b15972d552a70fa35303220a9b4ffc"
+      "hash": "6dfee633f24f8822c63a747c0737f66e23c8370a7c7784baf659f96265a3bd87"
     },
     {
       "path": "lua/itemui/utils/layout_setup.lua",
@@ -275,7 +279,7 @@
     },
     {
       "path": "lua/itemui/utils/window_state.lua",
-      "hash": "459b7572ff61c0a81e95f314ecff3b59569b1e5674d1dbde1aa67c00da1ffc99"
+      "hash": "074796e86c5f9d655861e33d4cfc8604841a91744bb4d3deba4e411efd7bc4d7"
     },
     {
       "path": "lua/itemui/views/aa.lua",
@@ -315,7 +319,7 @@
     },
     {
       "path": "lua/itemui/views/config_general.lua",
-      "hash": "4277ee1fc2fae89ad7e0bfba07125dc403b44ecc42a493af792f3e07902586f1"
+      "hash": "ad752dc2c064885a3a5e116f4cfabe84d994a5e8de825ff8c9c5dd5313ebc78e"
     },
     {
       "path": "lua/itemui/views/config_loot.lua",
@@ -351,7 +355,7 @@
     },
     {
       "path": "lua/itemui/views/main_window.lua",
-      "hash": "1e16512cd17cc4ee868cd6a90b288c405c4fa65b2395e09fa1e24dadaacaf6c3"
+      "hash": "626e6d63c37fed463f9b94df0399b70d81a760810d111b93f25a71934f118383"
     },
     {
       "path": "lua/itemui/views/reroll.lua",

@@ -62,6 +62,10 @@ def _collect_release_paths():
         p = os.path.join(REPO_ROOT, "resources", "UIFiles", "Default", name)
         if os.path.isfile(p):
             paths.append(f"resources/UIFiles/Default/{name}")
+    # config: CoOpt UI bind definitions only (MQ2CustomBinds plugin reads this)
+    cb = os.path.join(REPO_ROOT, "config", "MQ2CustomBinds.txt")
+    if os.path.isfile(cb):
+        paths.append("config/MQ2CustomBinds.txt")
     # plugin/ excluded — plugin work paused; see lua/itemui/docs/archive/plugin/PLUGIN_INACTIVE.md
     return sorted(paths)
 

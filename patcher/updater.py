@@ -1,6 +1,7 @@
 """
 GitHub-based updater: fetch release_manifest.json, compare local files by hash,
 download only changed files via raw GitHub URLs, write to MQ root.
+Also reads/writes installed version for patcher users (Macros/coopui_installed_version.txt).
 """
 
 import hashlib
@@ -9,6 +10,9 @@ import os
 import urllib.error
 import urllib.request
 from typing import Callable
+
+# Relative to MQ root; patcher writes after successful patch so in-game can show version.
+INSTALLED_VERSION_PATH = "Macros/coopui_installed_version.txt"
 
 
 def _raw_url(base_url: str, path: str) -> str:
@@ -30,7 +34,7 @@ def check_for_updates(
     repo_base_url: str,
     root_path: str,
     manifest_path: str = "release_manifest.json",
-) -> tuple[list[dict], str | None]:
+) -> tuple[list[dict], str | None, str | None]:
     """
     Fetch manifest from repo, compare each file to local; return list of entries that need update.
 
@@ -39,8 +43,8 @@ def check_for_updates(
     manifest_path: path to manifest in repo (e.g. "release_manifest.json" or "patcher/release_manifest.json")
 
     Returns:
-        (list of manifest file entries to update, error_message or None)
-        Each entry is a dict with "path" and "hash" (and optionally "version").
+        (list of manifest file entries to update, manifest version string or None, error_message or None)
+        Each entry is a dict with "path" and "hash".
     """
     manifest_url = _raw_url(repo_base_url, manifest_path)
     try:
@@ -49,22 +53,24 @@ def check_for_updates(
             data = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return [], (
+            return [], None, (
                 "Manifest not found (404). Check that release_manifest.json is in the repo "
                 "and that the repo URL and branch in patcher.py are correct."
             )
-        return [], "Could not reach GitHub. Check your connection."
+        return [], None, "Could not reach GitHub. Check your connection."
     except (urllib.error.URLError, OSError):
-        return [], "Could not reach GitHub. Check your connection."
+        return [], None, "Could not reach GitHub. Check your connection."
 
     try:
         manifest = json.loads(data)
     except json.JSONDecodeError:
-        return [], "Update list from repo is not valid JSON. Check release_manifest.json format."
+        return [], None, "Update list from repo is not valid JSON. Check release_manifest.json format."
 
     files = manifest.get("files")
     if not isinstance(files, list):
-        return [], "Update list has no 'files' array. Check release_manifest.json format."
+        return [], None, "Update list has no 'files' array. Check release_manifest.json format."
+
+    version = (manifest.get("version") or "").strip() or None
 
     to_update: list[dict] = []
     for entry in files:
@@ -79,7 +85,31 @@ def check_for_updates(
         if local_hash != expected_hash:
             to_update.append(entry)
 
-    return to_update, None
+    return to_update, version, None
+
+
+def get_installed_version(root_path: str) -> str | None:
+    """Read CoOpt UI version written by patcher (Macros/coopui_installed_version.txt). Returns None if missing."""
+    path = os.path.join(root_path, INSTALLED_VERSION_PATH.replace("/", os.sep))
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return (f.read() or "").strip() or None
+    except OSError:
+        return None
+
+
+def write_installed_version(root_path: str, version: str) -> bool:
+    """Write version to Macros/coopui_installed_version.txt after successful patch. Returns True on success."""
+    if not version:
+        return False
+    path = os.path.join(root_path, INSTALLED_VERSION_PATH.replace("/", os.sep))
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(version.strip())
+        return True
+    except OSError:
+        return False
 
 
 def patch(

@@ -11,7 +11,14 @@ import customtkinter as ctk
 from PIL import Image
 
 from migrate_itemui_to_coopui import migrate_itemui_to_coopui, ensure_env_after_patch
-from updater import check_for_updates, check_for_default_config, patch, install_default_config
+from updater import (
+    check_for_updates,
+    check_for_default_config,
+    patch,
+    install_default_config,
+    get_installed_version,
+    write_installed_version,
+)
 from validator import validate_mq_root
 
 
@@ -45,6 +52,8 @@ class PatcherApp(ctk.CTk):
         self.mq_root = os.getcwd()
         self.files_to_update: list[dict] = []
         self.files_to_install_defaults: list[dict] = []
+        self.manifest_version: str | None = None
+        self.installed_version: str | None = None
         self._patch_in_progress = False
 
         # Banner (CTkImage requires PIL Image objects, not file paths)
@@ -172,21 +181,48 @@ class PatcherApp(ctk.CTk):
         threading.Thread(target=self._check_updates, daemon=True).start()
 
     def _check_updates(self):
-        to_update, err = check_for_updates(REPO_BASE_URL, self.mq_root, MANIFEST_PATH)
+        to_update, manifest_version, err = check_for_updates(
+            REPO_BASE_URL, self.mq_root, MANIFEST_PATH
+        )
+        installed_version = get_installed_version(self.mq_root)
         if err:
-            self.after(0, lambda: self._on_check_done(to_update, [], err))
+            self.after(
+                0,
+                lambda: self._on_check_done(
+                    to_update, [], err, manifest_version, installed_version
+                ),
+            )
             return
         to_install_defaults, default_err = check_for_default_config(
             REPO_BASE_URL, self.mq_root, DEFAULT_CONFIG_MANIFEST_PATH
         )
         if default_err:
-            self.after(0, lambda: self._on_check_done(to_update, [], default_err))
+            self.after(
+                0,
+                lambda: self._on_check_done(
+                    to_update, [], default_err, manifest_version, installed_version
+                ),
+            )
             return
-        self.after(0, lambda: self._on_check_done(to_update, to_install_defaults, None))
+        self.after(
+            0,
+            lambda: self._on_check_done(
+                to_update, to_install_defaults, None, manifest_version, installed_version
+            ),
+        )
 
-    def _on_check_done(self, to_update: list[dict], to_install_defaults: list[dict], err: str | None):
+    def _on_check_done(
+        self,
+        to_update: list[dict],
+        to_install_defaults: list[dict],
+        err: str | None,
+        manifest_version: str | None = None,
+        installed_version: str | None = None,
+    ):
         self.files_to_update = to_update
         self.files_to_install_defaults = to_install_defaults or []
+        self.manifest_version = manifest_version
+        self.installed_version = installed_version
         if err:
             self._set_status(err)
             self.patch_btn.configure(state="disabled")
@@ -194,7 +230,9 @@ class PatcherApp(ctk.CTk):
         n_update = len(self.files_to_update)
         n_defaults = len(self.files_to_install_defaults)
         if n_update == 0 and n_defaults == 0:
-            self._set_status("Up to date.")
+            ver = (manifest_version or installed_version or "").strip() or None
+            status = f"Up to date (v{ver})." if ver else "Up to date."
+            self._set_status(status)
             self.patch_btn.configure(state="disabled")
             return
         parts = []
@@ -202,7 +240,12 @@ class PatcherApp(ctk.CTk):
             parts.append(f"{n_update} file(s) to update")
         if n_defaults:
             parts.append(f"{n_defaults} default config to install")
-        self._set_status(". ".join(parts) + ".")
+        status = ". ".join(parts) + "."
+        if (installed_version or manifest_version) and n_update:
+            inst = (installed_version or "—").strip()
+            avail = (manifest_version or "—").strip()
+            status += f" Installed: {inst} · Available: {avail}"
+        self._set_status(status)
         self.patch_btn.configure(state="normal")
 
     def _on_patch(self):
@@ -259,6 +302,8 @@ class PatcherApp(ctk.CTk):
         self.status_label.pack(side="left", fill="x", expand=True)
         if success:
             ensure_env_after_patch(self.mq_root)
+            if self.manifest_version:
+                write_installed_version(self.mq_root, self.manifest_version)
             self.files_to_update = []
             self.files_to_install_defaults = []
             self.patch_btn.configure(state="disabled")
