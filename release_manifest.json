@@ -175,7 +175,7 @@
     },
     {
       "path": "lua/itemui/services/script_consume_events.lua",
-      "hash": "55dc589305ba2d4cd70d72edc5b115203c3397752e7d76dc4f8b7ffa6a0ad0f0"
+      "hash": "8e811a55ee70d2db1a00f815b1941d8ae955843eaf7822a5a1d6e4701d3c7cbd"
     },
     {
       "path": "lua/itemui/services/sell_batch.lua",
