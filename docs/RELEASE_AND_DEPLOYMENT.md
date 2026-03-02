@@ -79,8 +79,10 @@ This is the canonical list of project files under version control and included i
 | `lua/itemui/core/cache.lua` | Cache logic |
 | `lua/itemui/core/events.lua` | Event handling |
 | `lua/itemui/services/filter_service.lua` | Filter service |
+| `lua/itemui/services/loot_feed_events.lua` | Loot feed chat events |
 | `lua/itemui/services/macro_bridge.lua` | Macro bridge |
 | `lua/itemui/services/scan.lua` | Scan service |
+| `lua/itemui/services/script_consume_events.lua` | Script consume verification (alt currency chat) |
 | `lua/itemui/utils/column_config.lua` | Column configuration |
 | `lua/itemui/utils/columns.lua` | Column definitions |
 | `lua/itemui/utils/file_safe.lua` | File-safe utilities |
@@ -329,7 +331,7 @@ Use this when building the package or an update script. For the full repository 
 | itemui/storage.lua | Per-char inventory/bank persistence |
 | itemui/components/*.lua | filters, progressbar, searchbar |
 | itemui/core/*.lua | cache, events, state |
-| itemui/services/*.lua | filter_service, macro_bridge, scan |
+| itemui/services/*.lua | filter_service, loot_feed_events, macro_bridge, scan, script_consume_events, ... |
 | itemui/utils/*.lua | column_config, columns, item_tooltip, layout, sort, theme |
 | itemui/views/*.lua | inventory, bank, sell, loot, config, augments |
 | scripttracker/init.lua | AA script tracker; /scripttracker |

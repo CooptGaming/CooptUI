@@ -65,6 +65,10 @@ function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.AAWindowY = layoutConfig.AAWindowY or layoutDefaults.AAWindowY
     layoutDefaults.ShowAAWindow = layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow
     layoutDefaults.ShowEquipmentWindow = layoutConfig.ShowEquipmentWindow or layoutDefaults.ShowEquipmentWindow
+    layoutDefaults.EquipmentWindowX = layoutConfig.EquipmentWindowX or layoutDefaults.EquipmentWindowX
+    layoutDefaults.EquipmentWindowY = layoutConfig.EquipmentWindowY or layoutDefaults.EquipmentWindowY
+    layoutDefaults.WidthEquipmentPanel = layoutConfig.WidthEquipmentPanel or layoutDefaults.WidthEquipmentPanel
+    layoutDefaults.HeightEquipment = layoutConfig.HeightEquipment or layoutDefaults.HeightEquipment
     layoutDefaults.ShowBankWindow = layoutConfig.ShowBankWindow or layoutDefaults.ShowBankWindow
     layoutDefaults.ShowAugmentsWindow = layoutConfig.ShowAugmentsWindow or layoutDefaults.ShowAugmentsWindow
     layoutDefaults.ShowAugmentUtilityWindow = layoutConfig.ShowAugmentUtilityWindow or layoutDefaults.ShowAugmentUtilityWindow
@@ -143,6 +147,10 @@ function layout_setup_captureCurrentLayoutAsDefault()
             f:write("AAWindowY=" .. layoutDefaults.AAWindowY .. "\n")
             f:write("ShowAAWindow=" .. layoutDefaults.ShowAAWindow .. "\n")
             f:write("ShowEquipmentWindow=" .. tostring(layoutDefaults.ShowEquipmentWindow or 1) .. "\n")
+            f:write("EquipmentWindowX=" .. tostring(layoutDefaults.EquipmentWindowX or 191) .. "\n")
+            f:write("EquipmentWindowY=" .. tostring(layoutDefaults.EquipmentWindowY or 31) .. "\n")
+            f:write("WidthEquipmentPanel=" .. tostring(layoutDefaults.WidthEquipmentPanel or 261) .. "\n")
+            f:write("HeightEquipment=" .. tostring(layoutDefaults.HeightEquipment or 497) .. "\n")
             f:write("ShowBankWindow=" .. tostring(layoutDefaults.ShowBankWindow or 1) .. "\n")
             f:write("ShowAugmentsWindow=" .. tostring(layoutDefaults.ShowAugmentsWindow or 1) .. "\n")
             f:write("ShowAugmentUtilityWindow=" .. tostring(layoutDefaults.ShowAugmentUtilityWindow or 1) .. "\n")
@@ -210,6 +218,10 @@ function layout_setup_resetLayoutToDefault()
     layoutConfig.AAWindowY = layoutDefaults.AAWindowY
     layoutConfig.ShowAAWindow = layoutDefaults.ShowAAWindow
     layoutConfig.ShowEquipmentWindow = layoutDefaults.ShowEquipmentWindow
+    layoutConfig.EquipmentWindowX = layoutDefaults.EquipmentWindowX or 191
+    layoutConfig.EquipmentWindowY = layoutDefaults.EquipmentWindowY or 31
+    layoutConfig.WidthEquipmentPanel = layoutDefaults.WidthEquipmentPanel or 261
+    layoutConfig.HeightEquipment = layoutDefaults.HeightEquipment or 497
     layoutConfig.ShowBankWindow = layoutDefaults.ShowBankWindow
     layoutConfig.ShowAugmentsWindow = layoutDefaults.ShowAugmentsWindow
     layoutConfig.ShowAugmentUtilityWindow = layoutDefaults.ShowAugmentUtilityWindow

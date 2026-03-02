@@ -104,6 +104,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
     if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
     if d.ShowEquipmentWindow then layoutDefaults.ShowEquipmentWindow = tonumber(d.ShowEquipmentWindow) or layoutDefaults.ShowEquipmentWindow end
+    if d.EquipmentWindowX then layoutDefaults.EquipmentWindowX = tonumber(d.EquipmentWindowX) or layoutDefaults.EquipmentWindowX end
+    if d.EquipmentWindowY then layoutDefaults.EquipmentWindowY = tonumber(d.EquipmentWindowY) or layoutDefaults.EquipmentWindowY end
+    if d.WidthEquipmentPanel then layoutDefaults.WidthEquipmentPanel = tonumber(d.WidthEquipmentPanel) or layoutDefaults.WidthEquipmentPanel end
+    if d.HeightEquipment then layoutDefaults.HeightEquipment = tonumber(d.HeightEquipment) or layoutDefaults.HeightEquipment end
     if d.ShowBankWindow then layoutDefaults.ShowBankWindow = tonumber(d.ShowBankWindow) or layoutDefaults.ShowBankWindow end
     if d.ShowAugmentsWindow then layoutDefaults.ShowAugmentsWindow = tonumber(d.ShowAugmentsWindow) or layoutDefaults.ShowAugmentsWindow end
     if d.ShowAugmentUtilityWindow then layoutDefaults.ShowAugmentUtilityWindow = tonumber(d.ShowAugmentUtilityWindow) or layoutDefaults.ShowAugmentUtilityWindow end
@@ -243,6 +247,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AAWindowY=" .. tostring(layoutConfig.AAWindowY or layoutDefaults.AAWindowY) .. "\n")
         f:write("ShowAAWindow=" .. tostring(layoutConfig.ShowAAWindow or layoutDefaults.ShowAAWindow) .. "\n")
         f:write("ShowEquipmentWindow=" .. tostring(layoutConfig.ShowEquipmentWindow or layoutDefaults.ShowEquipmentWindow) .. "\n")
+        f:write("EquipmentWindowX=" .. tostring(layoutConfig.EquipmentWindowX or layoutDefaults.EquipmentWindowX or 191) .. "\n")
+        f:write("EquipmentWindowY=" .. tostring(layoutConfig.EquipmentWindowY or layoutDefaults.EquipmentWindowY or 31) .. "\n")
+        f:write("WidthEquipmentPanel=" .. tostring(layoutConfig.WidthEquipmentPanel or layoutDefaults.WidthEquipmentPanel or 261) .. "\n")
+        f:write("HeightEquipment=" .. tostring(layoutConfig.HeightEquipment or layoutDefaults.HeightEquipment or 497) .. "\n")
         f:write("ShowBankWindow=" .. tostring(layoutConfig.ShowBankWindow or layoutDefaults.ShowBankWindow) .. "\n")
         f:write("ShowAugmentsWindow=" .. tostring(layoutConfig.ShowAugmentsWindow or layoutDefaults.ShowAugmentsWindow) .. "\n")
         f:write("ShowAugmentUtilityWindow=" .. tostring(layoutConfig.ShowAugmentUtilityWindow or layoutDefaults.ShowAugmentUtilityWindow) .. "\n")
@@ -391,6 +399,10 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
         layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
         layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+        layoutConfig.EquipmentWindowX = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowX", layoutDefaults.EquipmentWindowX or 191)
+        layoutConfig.EquipmentWindowY = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowY", layoutDefaults.EquipmentWindowY or 31)
+        layoutConfig.WidthEquipmentPanel = LayoutUtils.loadLayoutValue(layout, "WidthEquipmentPanel", layoutDefaults.WidthEquipmentPanel or 261)
+        layoutConfig.HeightEquipment = LayoutUtils.loadLayoutValue(layout, "HeightEquipment", layoutDefaults.HeightEquipment or 497)
         layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
         layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
         layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)

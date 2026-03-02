@@ -75,7 +75,7 @@
     },
     {
       "path": "lua/itemui/constants.lua",
-      "hash": "7a0d0ccbe9c092ac87b83659892e4e39ad3890e5a37fbbd6863064a80226797f"
+      "hash": "4e39ced0679d8de86cd9cd162df2c916618fc283a92676df10b0a53ff492e50d"
     },
     {
       "path": "lua/itemui/context.lua",
@@ -111,7 +111,7 @@
     },
     {
       "path": "lua/itemui/default_layout/itemui_layout.ini",
-      "hash": "e4144d1fc894ccc615e58e1303540eec18364e1602fc54ba1fbd87787ebe65d2"
+      "hash": "ee82fc43bed155302cc5ad3c380e9ca28a4d681f89f87f989f73a3f8756efaef"
     },
     {
       "path": "lua/itemui/default_layout/layout_manifest.json",
@@ -123,7 +123,7 @@
     },
     {
       "path": "lua/itemui/default_layout/overlay_snippet.ini",
-      "hash": "15ed0e201a26811add47e1dc2c5f58e00eec7216355c48876237ffd2a7cab8dc"
+      "hash": "13f388df5b17be5273f3c709ea2d5aa42bc4895abc6f035d17ee9ecb48711095"
     },
     {
       "path": "lua/itemui/init.lua",
@@ -163,7 +163,7 @@
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "4d1cd3e28c0ca3931d32cbe952bd82ce975af92809d4aedfcfbf4b8c8efc8063"
+      "hash": "ccdd535f1ba5e084fdab2c7d421b89f58861cc43767f3f8283da51b2b67f6b1c"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
@@ -172,6 +172,10 @@
     {
       "path": "lua/itemui/services/scan.lua",
       "hash": "5fb157e1af1e0aa418e2ad62b15c8c204378ff5a14ad228e2843750c89f7e1a8"
+    },
+    {
+      "path": "lua/itemui/services/script_consume_events.lua",
+      "hash": "55dc589305ba2d4cd70d72edc5b115203c3397752e7d76dc4f8b7ffa6a0ad0f0"
     },
     {
       "path": "lua/itemui/services/sell_batch.lua",
@@ -231,7 +235,7 @@
     },
     {
       "path": "lua/itemui/utils/layout.lua",
-      "hash": "bf4e7efd60d8e524f358b72545493c563e75726885a7d82a8e0bc34ae9a4098b"
+      "hash": "c8835f4f97eeec3fa5a3de95a0e9284db30c0bff9a9fc26fdc74b82f71b3adf7"
     },
     {
       "path": "lua/itemui/utils/layout_columns.lua",
@@ -243,7 +247,7 @@
     },
     {
       "path": "lua/itemui/utils/layout_setup.lua",
-      "hash": "874ba46d2c6cb4b00876851f96a2725745df733b0d0d57c0d728663906a0406f"
+      "hash": "1a1b6d8c8a26a58fa105d7ad6ad51b41c1f84c0169c2b1173829a336a6b6dac8"
     },
     {
       "path": "lua/itemui/utils/sort.lua",
