@@ -6,6 +6,18 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.8.9-alpha] — 2026-03-01
+
+### Added
+- **Script consume verification** — Right-click "Add to Alt Currency" on scripts now waits for the chat message `[timestamp] You gained 1 alternate currency.` (or 2s timeout) before sending the next click, so all consumes are confirmed and no scripts remain after refresh
+- **script_consume_events.lua** — New module that listens for the alternate-currency chat line; main loop uses per-click confirmation
+
+### Changed
+- **Default layout** — Equipment Companion window included in bundled default (`ShowEquipmentWindow=1` and position/size), so new installs and "Revert to default" show the Equipment window by default
+- **Release manifest** — Regenerated; script_consume_events and related files in RELEASE_AND_DEPLOYMENT.md
+
+---
+
 ## [0.8.8-alpha] — 2026-03-01
 
 ### Changed
