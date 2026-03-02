@@ -6,6 +6,13 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.9.0-beta] — 2026-03-01
+
+### Added
+- **Patcher version tracking** — After a successful patch, the patcher writes the manifest version to `Macros/coopui_installed_version.txt` so support can see what version players have. Patcher UI shows "Installed: X · Available: Y" when updates are available and "Up to date (vX)" when current. ItemUI startup message uses this file when present so patcher users see the same version in-game.
+
+---
+
 ## [0.8.9-alpha] — 2026-03-01
 
 ### Added

@@ -5,9 +5,9 @@
 
 return {
     -- Package version (e.g. for releases)
-    PACKAGE = "0.8.9-alpha",
+    PACKAGE = "0.9.0-beta",
     -- Component versions (exposed to Lua)
-    ITEMUI = "0.8.9-alpha",
+    ITEMUI = "0.9.0-beta",
     SCRIPTTRACKER = "0.1.0-alpha",
     SELL_MAC = "3.0",
     LOOT_MAC = "4.0",

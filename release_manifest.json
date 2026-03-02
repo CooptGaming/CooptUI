@@ -35,7 +35,7 @@
     },
     {
       "path": "lua/coopui/version.lua",
-      "hash": "3ae3a0165519906d2ea41fc2e8d370711db50edcb8bc84c678bf8303e1c6d5bd"
+      "hash": "71c29e8e3b5141d8626ab2d11f68d7d6beac1ce641cbd8269abee4816dd31a96"
     },
     {
       "path": "lua/itemui/README.md",
@@ -43,7 +43,7 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "b1a83c50bf6112e727a19b19e44902ef7a2099e00929633f591b0daddef2a69b"
+      "hash": "0a050f83d311cfd902ca140f3fb9faf3585d27914c8dd6f9acb206706239a401"
     },
     {
       "path": "lua/itemui/commands.lua",
