@@ -111,7 +111,7 @@
     },
     {
       "path": "lua/itemui/default_layout/itemui_layout.ini",
-      "hash": "34abaeb28612ae71383fd7381d25c00d169680f8411539ccb196dcd2c65aa889"
+      "hash": "e4144d1fc894ccc615e58e1303540eec18364e1602fc54ba1fbd87787ebe65d2"
     },
     {
       "path": "lua/itemui/default_layout/layout_manifest.json",
@@ -123,7 +123,7 @@
     },
     {
       "path": "lua/itemui/default_layout/overlay_snippet.ini",
-      "hash": "36966446dcef526542055f5b3d3130b23a623e5e0444e0fa22fc03dc6d9e5770"
+      "hash": "15ed0e201a26811add47e1dc2c5f58e00eec7216355c48876237ffd2a7cab8dc"
     },
     {
       "path": "lua/itemui/init.lua",
