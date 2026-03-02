@@ -472,7 +472,6 @@ function LayoutUtils.loadLayoutConfig()
         if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
             print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
         end
-        LayoutUtils.applyItemUIToggleBind()
         return
     end
     -- Single file read: parse all sections at once (avoids 3x I/O on every UI open)
@@ -582,11 +581,10 @@ function LayoutUtils.loadLayoutConfig()
     if LayoutUtils.DEBUG then
         print(string.format("[LayoutUtils DEBUG] Loaded from FILE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
     end
-    if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
-        print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
+        if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
+            print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
+        end
     end
-    LayoutUtils.applyItemUIToggleBind()
-end
 
 --- Normalize key combo for MQ2 /bind: "Shift C" -> "shift+c". MQ2 expects modifier+key with +; modifiers lowercase.
 local function normalizeBindKey(input)
@@ -611,26 +609,38 @@ end
 local ITEMUI_BIND_NAME = "itemui_inv"
 
 --- Ensure ItemUI toggle bind command is set (bind created from MQ2CustomBinds.txt; we only update via /custombind set to avoid "name in use").
+--- Uses /squelch to suppress bind echo (avoids "[itemui_inv] [Down:/inv] [Up:]" and "Normal itemui_inv now bound as I" on every apply).
 local function ensureItemUIBindExists()
     pcall(function()
-        mq.cmd("/custombind set " .. ITEMUI_BIND_NAME .. "-down /inv")
+        mq.cmd("/squelch /custombind set " .. ITEMUI_BIND_NAME .. "-down /inv")
     end)
 end
 
---- Apply ItemUI toggle keybind from layoutConfig (uses /custombind + /bind). Call after loadLayoutConfig.
+--- Apply ItemUI toggle keybind from layoutConfig (uses /custombind + /bind). Call on startup and when user changes key in Settings.
+--- Uses /squelch to suppress bind echo.
 function LayoutUtils.applyItemUIToggleBind()
     local layoutConfig = LayoutUtils.layoutConfig
     if not layoutConfig then return end
     local rawKey = (layoutConfig.ItemUIToggleKey and type(layoutConfig.ItemUIToggleKey) == "string") and layoutConfig.ItemUIToggleKey:match("^%s*(.-)%s*$") or ""
     ensureItemUIBindExists()
     if rawKey == "" then
-        pcall(function() mq.cmd("/bind " .. ITEMUI_BIND_NAME .. " clear") end)
+        pcall(function() mq.cmd("/squelch /bind " .. ITEMUI_BIND_NAME .. " clear") end)
     else
         local key = normalizeBindKey(rawKey)
         if key ~= "" then
-            pcall(function() mq.cmd("/bind " .. ITEMUI_BIND_NAME .. " " .. key) end)
+            pcall(function() mq.cmd("/squelch /bind " .. ITEMUI_BIND_NAME .. " " .. key) end)
         end
     end
+end
+
+--- Return current ItemUI toggle key for display (e.g. startup message). Does not apply bind.
+function LayoutUtils.getItemUIToggleKeyDisplay()
+    local layoutConfig = LayoutUtils.layoutConfig
+    if not layoutConfig then return "I" end
+    local rawKey = (layoutConfig.ItemUIToggleKey and type(layoutConfig.ItemUIToggleKey) == "string") and layoutConfig.ItemUIToggleKey:match("^%s*(.-)%s*$") or ""
+    if rawKey == "" then return nil end
+    local key = normalizeBindKey(rawKey)
+    return (key ~= "") and key or nil
 end
 
 -- Save layout for specific view

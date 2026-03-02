@@ -775,6 +775,7 @@ context_init.init({
     saveColumnVisibility = function() layoutUtils.saveColumnVisibility() end,
     loadLayoutConfig = loadLayoutConfig,
     applyItemUIToggleBind = function() layoutUtils.applyItemUIToggleBind() end,
+    getItemUIToggleKeyDisplay = function() return layoutUtils.getItemUIToggleKeyDisplay() end,
     captureCurrentLayoutAsDefault = function() layoutUtils.captureCurrentLayoutAsDefault() end,
     resetLayoutToDefault = function() layoutUtils.resetLayoutToDefault() end,
     revertToBundledDefaultLayoutRequest = function() uiState.revertLayoutConfirmOpen = true end,
@@ -1170,6 +1171,13 @@ local function main()
         end
     end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
+    layoutUtils.applyItemUIToggleBind()  -- Apply keybind on startup only (not on every /inv)
+    do
+        local bindKey = layoutUtils.getItemUIToggleKeyDisplay and layoutUtils.getItemUIToggleKeyDisplay()
+        if bindKey and bindKey ~= "" then
+            print(string.format("\ag[ItemUI]\ax Toggle key: %s", bindKey))
+        end
+    end
     do
         local path = layoutUtils.getLayoutFilePath()
         if not path or path == "" then

@@ -214,7 +214,15 @@ function ConfigGeneral.render(ctx)
         if filterState.keybindDebounceAt and (mq.gettime() - filterState.keybindDebounceAt) >= KEYBIND_DEBOUNCE_MS then
             filterState.keybindDebounceAt = nil
             filterState.keybindDebounceValue = nil
-            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+            if ctx.applyItemUIToggleBind then
+                ctx.applyItemUIToggleBind()
+                local key = ctx.getItemUIToggleKeyDisplay and ctx.getItemUIToggleKeyDisplay()
+                if key and key ~= "" then
+                    print(string.format("\ag[ItemUI]\ax Toggle key set to: %s", key))
+                else
+                    print("\ag[ItemUI]\ax Toggle key cleared.")
+                end
+            end
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
@@ -226,7 +234,15 @@ function ConfigGeneral.render(ctx)
         ImGui.SameLine()
         if ImGui.Button("Apply##ItemUIToggleKey", ImVec2(50, 0)) then
             filterState.keybindDebounceAt = nil
-            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+            if ctx.applyItemUIToggleBind then
+                ctx.applyItemUIToggleBind()
+                local key = ctx.getItemUIToggleKeyDisplay and ctx.getItemUIToggleKeyDisplay()
+                if key and key ~= "" then
+                    print(string.format("\ag[ItemUI]\ax Toggle key set to: %s", key))
+                else
+                    print("\ag[ItemUI]\ax Toggle key cleared.")
+                end
+            end
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
@@ -238,7 +254,10 @@ function ConfigGeneral.render(ctx)
             layoutConfig.ItemUIToggleKey = ""
             scheduleLayoutSave()
             filterState.keybindDebounceAt = nil
-            if ctx.applyItemUIToggleBind then ctx.applyItemUIToggleBind() end
+            if ctx.applyItemUIToggleBind then
+                ctx.applyItemUIToggleBind()
+                print("\ag[ItemUI]\ax Toggle key cleared.")
+            end
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
