@@ -406,6 +406,24 @@ For power users or internal testing, a small script (e.g. PowerShell or batch) c
 
 This document does not define the script; it is optional and can be added later.
 
+### 10.1 Deploy clean install (testing)
+
+For testing "clean installs" (what a new user would see), use `scripts/deploy-clean-install.ps1`:
+
+```powershell
+.\scripts\deploy-clean-install.ps1
+```
+
+This script:
+
+- Copies from `C:\MIS\MacroquestEnvironments\DeployTest\E3NextAndMQNextBinary-main` (or via `-SourceFolder`) into `C:\MIS\MacroquestEnvironments\DeployTest`
+- Creates `CoOptUI`, `CoOptUI2`, `CoOptUI3`, … (sequential if folders exist)
+- **CoOpt UI patcher simulation:** Copies all `release_manifest.json` files from the repo, then applies `default_config_manifest.json` (config templates → `Macros/`)
+- Copies `CoOptUIPatcher.exe` to the deploy root (if built via `pyinstaller patcher.spec`)
+- **E3 autologin:** Copies `config/MQ2AutoLogin.ini` and ensures `mq2autologin=1` in `MacroQuest.ini` so autologin works
+
+Use the resulting folder as a simulated MQ root to verify first-run behavior.
+
 ---
 
 ## 11. Bootstrap readiness checklist (Task 8.4)
