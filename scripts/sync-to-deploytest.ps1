@@ -1,11 +1,16 @@
 # Sync CoOpt UI development files to a test environment.
 # Copies Lua, Macros, resources, and CoopHelper DLL without overwriting user config INIs.
+# With -IncludePlugin, also copies MQ2CoOptUI.dll from the MQ build output.
 #
 # Usage:
 #   .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+#   .\scripts\sync-to-deploytest.ps1 -Target "..." -IncludePlugin
+#   .\scripts\sync-to-deploytest.ps1 -Target "..." -IncludePlugin -BuildOutputDir "C:\...\build\solution\bin\release"
 
 param(
-    [Parameter(Mandatory)][string]$Target
+    [Parameter(Mandatory)][string]$Target,
+    [switch]$IncludePlugin,
+    [string]$BuildOutputDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,6 +108,28 @@ if (Test-Path $coopDll) {
     Copy-Item $coopDll -Destination $coopDst -Force
     Write-Host "  [OK] CoopHelper.dll -> Mono\macros\coophelper\" -ForegroundColor Green
     $count++
+}
+
+# --- MQ2CoOptUI plugin DLL (from build output, if -IncludePlugin) ---
+
+if ($IncludePlugin) {
+    $pluginDll = $null
+    if ($BuildOutputDir -and (Test-Path $BuildOutputDir)) {
+        $pluginDll = Join-Path $BuildOutputDir "plugins\MQ2CoOptUI.dll"
+    } else {
+        $defaultBuild = "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll"
+        if (Test-Path $defaultBuild) { $pluginDll = $defaultBuild }
+    }
+
+    if ($pluginDll -and (Test-Path $pluginDll)) {
+        $pluginsDst = Join-Path $Target "plugins"
+        if (-not (Test-Path $pluginsDst)) { New-Item -ItemType Directory -Path $pluginsDst -Force | Out-Null }
+        Copy-Item $pluginDll -Destination $pluginsDst -Force
+        Write-Host "  [OK] plugins\MQ2CoOptUI.dll (from build output)" -ForegroundColor Green
+        $count++
+    } else {
+        Write-Warning "  MQ2CoOptUI.dll not found in build output. Build with: cmake --build ...\build\solution --config Release --target MQ2CoOptUI"
+    }
 }
 
 Write-Host ""

@@ -7,9 +7,12 @@
 #   .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ\Deploy"
 #   .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ\Deploy" -CreateZip
 #   .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ\Deploy" -SkipBuild
+#   .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ\Deploy" -PluginOnly
 #
 # -ReferencePath: Local CoOptUI3 (or similar) reference install. Used when -UsePrebuildDownload
 #   is false or when the prebuild download fails. When provided, copies its full layout.
+# -PluginOnly: Build ONLY the MQ2CoOptUI target and deploy just the DLL + Lua/macros/resources.
+#   Skips E3Next build, reference copy, config, mono, README, and zip. ~10s vs full build.
 # -UsePrebuildDownload: When true (default), download E3NextAndMQNextBinary prebuild from
 #   -PrebuildDownloadUrl and use it as the reference base. Ensures ALL files (plugins, lua,
 #   macros, mono, modules, resources, utilities) are included in Compile Test and the zip.
@@ -30,6 +33,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipE3Next,
     [switch]$SkipMQBuild,
+    [switch]$PluginOnly,
     [switch]$CreateZip,
     [string]$ZipVersion = "",
     [switch]$SkipClean
@@ -165,8 +169,13 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
     }
 
     # Build
-    Write-Host "  Building ($Configuration)..."
-    & $cmakeExe --build $MQBuildDir --config $Configuration
+    if ($PluginOnly) {
+        Write-Host "  Building MQ2CoOptUI only ($Configuration)..."
+        & $cmakeExe --build $MQBuildDir --config $Configuration --target MQ2CoOptUI
+    } else {
+        Write-Host "  Building ($Configuration)..."
+        & $cmakeExe --build $MQBuildDir --config $Configuration
+    }
     if ($LASTEXITCODE -ne 0) { Write-Error "CMake build failed" }
 
     $env:Path = $origPath
@@ -179,7 +188,7 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
 # Stage 2: Build E3Next (C#)
 # ======================================================================
 
-if (-not $SkipBuild -and -not $SkipE3Next) {
+if (-not $SkipBuild -and -not $SkipE3Next -and -not $PluginOnly) {
     Write-Host ""
     Write-Host "--- Stage 2: Build E3Next ---" -ForegroundColor Yellow
 
@@ -240,7 +249,9 @@ if (-not (Test-Path $DeployPath)) {
 # --- 3prebuild: Download E3NextAndMQNextBinary prebuild (all files for CoOptUI3 layout) ---
 # Cached in SourceRoot\downloads so it's part of the compile test environment.
 $effectiveRefPath = $null
-if ($UsePrebuildDownload -and $PrebuildDownloadUrl) {
+if ($PluginOnly) {
+    Write-Host "  3prebuild/3ref: Skipped (PluginOnly mode)" -ForegroundColor DarkGray
+} elseif ($UsePrebuildDownload -and $PrebuildDownloadUrl) {
     $downloadsDir = Join-Path $SourceRoot "downloads"
     $prebuildZip = Join-Path $downloadsDir "E3NextAndMQNextBinary-main.zip"
     $prebuildExtractRoot = $downloadsDir
@@ -276,59 +287,78 @@ if ($UsePrebuildDownload -and $PrebuildDownloadUrl) {
     }
 }
 
-if (-not $effectiveRefPath -and $ReferencePath -and (Test-Path $ReferencePath)) {
-    $effectiveRefPath = $ReferencePath
-}
-
-# --- 3ref: Reference base - copy first so our build overwrites ---
-if ($effectiveRefPath) {
-    Write-Host "  3ref: Reference base from $effectiveRefPath..."
-    $refItems = Get-ChildItem $effectiveRefPath -Force -ErrorAction SilentlyContinue
-    foreach ($item in $refItems) {
-        $dst = Join-Path $DeployPath $item.Name
-        if ($item.PSIsContainer) {
-            if (-not (Test-Path $dst)) { Copy-Item $item.FullName -Destination $dst -Recurse -Force }
-            else { Copy-Item "$($item.FullName)\*" -Destination $dst -Recurse -Force }
-        } else {
-            Copy-Item $item.FullName -Destination $dst -Force
-        }
+if (-not $PluginOnly) {
+    if (-not $effectiveRefPath -and $ReferencePath -and (Test-Path $ReferencePath)) {
+        $effectiveRefPath = $ReferencePath
     }
-    Write-Host "    Copied reference base (plugins, lua, macros, mono, modules, resources, etc.)" -ForegroundColor Green
-} else {
-    Write-Host "  3ref: No reference (skip). Use -UsePrebuildDownload or -ReferencePath for full layout." -ForegroundColor Yellow
+
+    # --- 3ref: Reference base - copy first so our build overwrites ---
+    if ($effectiveRefPath) {
+        Write-Host "  3ref: Reference base from $effectiveRefPath..."
+        $refItems = Get-ChildItem $effectiveRefPath -Force -ErrorAction SilentlyContinue
+        foreach ($item in $refItems) {
+            $dst = Join-Path $DeployPath $item.Name
+            if ($item.PSIsContainer) {
+                if (-not (Test-Path $dst)) { Copy-Item $item.FullName -Destination $dst -Recurse -Force }
+                else { Copy-Item "$($item.FullName)\*" -Destination $dst -Recurse -Force }
+            } else {
+                Copy-Item $item.FullName -Destination $dst -Force
+            }
+        }
+        Write-Host "    Copied reference base (plugins, lua, macros, mono, modules, resources, etc.)" -ForegroundColor Green
+    } else {
+        Write-Host "  3ref: No reference (skip). Use -UsePrebuildDownload or -ReferencePath for full layout." -ForegroundColor Yellow
+    }
 }
 
 # --- 3a: MQ build output (full ABI-safe copy) ---
 
-Write-Host "  3a: MQ binaries..."
-if (Test-Path $MQBinDir) {
-    Get-ChildItem $MQBinDir -File | ForEach-Object {
-        Copy-Item $_.FullName -Destination $DeployPath -Force
-    }
-
-    $srcPlugins = Join-Path $MQBinDir "plugins"
-    if (Test-Path $srcPlugins) {
+if ($PluginOnly) {
+    Write-Host "  3a: MQ2CoOptUI plugin DLL only (PluginOnly mode)..."
+    $srcPluginDll = Join-Path $MQBinDir "plugins\MQ2CoOptUI.dll"
+    if (Test-Path $srcPluginDll) {
         $dstPlugins = Join-Path $DeployPath "plugins"
         if (-not (Test-Path $dstPlugins)) { New-Item -ItemType Directory -Path $dstPlugins -Force | Out-Null }
-        Copy-Item "$srcPlugins\*" -Destination $dstPlugins -Recurse -Force
-    # Trim .pdb (debug symbols) from player deploy
-    Get-ChildItem $dstPlugins -Filter "*.pdb" -Recurse -File | Remove-Item -Force -ErrorAction SilentlyContinue
+        Copy-Item $srcPluginDll -Destination $dstPlugins -Force
+        Write-Host "    Copied MQ2CoOptUI.dll to plugins\" -ForegroundColor Green
+    } else {
+        Write-Warning "  MQ2CoOptUI.dll not found at $srcPluginDll. Build may have failed."
     }
-
-    # Copy any resources from build output
-    $srcRes = Join-Path $MQBinDir "resources"
-    if (Test-Path $srcRes) {
-        $dstRes = Join-Path $DeployPath "resources"
-        if (-not (Test-Path $dstRes)) { New-Item -ItemType Directory -Path $dstRes -Force | Out-Null }
-        Copy-Item "$srcRes\*" -Destination $dstRes -Recurse -Force
-    }
-
-    Write-Host "    Copied MQ build output from $MQBinDir" -ForegroundColor Green
 } else {
-    Write-Warning "  MQ build output not found at $MQBinDir. Run without -SkipBuild or -SkipMQBuild."
+    Write-Host "  3a: MQ binaries..."
+    if (Test-Path $MQBinDir) {
+        Get-ChildItem $MQBinDir -File | ForEach-Object {
+            Copy-Item $_.FullName -Destination $DeployPath -Force
+        }
+
+        $srcPlugins = Join-Path $MQBinDir "plugins"
+        if (Test-Path $srcPlugins) {
+            $dstPlugins = Join-Path $DeployPath "plugins"
+            if (-not (Test-Path $dstPlugins)) { New-Item -ItemType Directory -Path $dstPlugins -Force | Out-Null }
+            Copy-Item "$srcPlugins\*" -Destination $dstPlugins -Recurse -Force
+            # Trim .pdb (debug symbols) from player deploy
+            Get-ChildItem $dstPlugins -Filter "*.pdb" -Recurse -File | Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+
+        # Copy any resources from build output
+        $srcRes = Join-Path $MQBinDir "resources"
+        if (Test-Path $srcRes) {
+            $dstRes = Join-Path $DeployPath "resources"
+            if (-not (Test-Path $dstRes)) { New-Item -ItemType Directory -Path $dstRes -Force | Out-Null }
+            Copy-Item "$srcRes\*" -Destination $dstRes -Recurse -Force
+        }
+
+        Write-Host "    Copied MQ build output from $MQBinDir" -ForegroundColor Green
+    } else {
+        Write-Warning "  MQ build output not found at $MQBinDir. Run without -SkipBuild or -SkipMQBuild."
+    }
 }
 
 # --- 3b: Config (MacroQuest.ini + MQ2CustomBinds.txt) ---
+
+if ($PluginOnly) {
+    Write-Host "  3b-3d, 3f: Skipped (PluginOnly mode)" -ForegroundColor DarkGray
+} else {
 
 Write-Host "  3b: Config..."
 $configDst = Join-Path $DeployPath "config"
@@ -526,6 +556,8 @@ if (-not (Test-Path $e3MacroInisDir)) {
     Write-Host "    Created config\e3 Macro Inis placeholder"
 }
 
+} # end of -not $PluginOnly block (3b-3d)
+
 # --- 3e: CoOpt UI files (Lua, Macros, resources, configs) ---
 
 Write-Host "  3e: CoOpt UI files..."
@@ -621,6 +653,7 @@ if (Test-Path $coopHelperSrc) {
     Write-Host "    CoopHelper.dll not found (optional, skipping)"
 }
 
+if (-not $PluginOnly) {
 # --- 3f: README (ready-to-go instructions) ---
 $readmePath = Join-Path $DeployPath "README.txt"
 $readmeContent = @"
@@ -660,6 +693,7 @@ FOLDER STRUCTURE (do not move files)
 "@
 Set-Content $readmePath $readmeContent -NoNewline
 Write-Host "    Wrote README.txt (included in zip)"
+} # end of -not $PluginOnly block (3f)
 
 # ======================================================================
 # Stage 4: Optional zip
