@@ -15,8 +15,10 @@
 #include "capabilities/items.h"
 #include "capabilities/loot.h"
 #include "capabilities/window.h"
+#include "core/CacheManager.h"
 #include "core/Config.h"
 #include "core/Logger.h"
+#include "scanners/InventoryScanner.h"
 
 PreSetup("MQ2CoOptUI");
 PLUGIN_VERSION(1.0);
@@ -78,22 +80,16 @@ bool CoOptUIData(const char* Index, MQTypeVar& Dest) {
 }
 
 static std::string GetCoOptCoreConfigPath() {
-  // Use the EXE path (nullptr = current process). MacroQuest.exe lives at the install root,
-  // so stripping just the filename gives us the MQ root (e.g. ...\CoOptUI5\).
-  std::string buf(MAX_PATH, '\0');
-  DWORD n = GetModuleFileNameA(nullptr, &buf[0], static_cast<DWORD>(buf.size()));
-  if (n == 0 || n >= static_cast<DWORD>(buf.size())) {
-    // Fallback: use current working directory (MQ sets CWD to install root).
-    n = GetCurrentDirectoryA(static_cast<DWORD>(buf.size()), &buf[0]);
-    if (n == 0) return std::string();
-    buf.resize(n);
-    return buf + "\\config\\CoOptCore.ini";
+  // gPathConfig is MQ's own config directory (e.g. ...\CoOptUI7\config\).
+  // It is populated by MQ before InitializePlugin is called and is the correct
+  // place to store plugin configuration. GetModuleFileNameA(nullptr) would return
+  // the EverQuest game process path (eqgame.exe), not the MQ install root.
+  if (gPathConfig[0] != '\0') {
+    std::string path(gPathConfig);
+    if (path.back() != '\\' && path.back() != '/') path += '\\';
+    return path + "CoOptCore.ini";
   }
-  buf.resize(n);
-  size_t last = buf.find_last_of("\\/");
-  if (last == std::string::npos) return std::string();
-  buf.resize(last);
-  return buf + "\\config\\CoOptCore.ini";
+  return std::string();
 }
 
 static void CmdStatus() {
@@ -104,6 +100,16 @@ static void CmdStatus() {
   cooptui::core::Log(0, "  Cache: InventoryReserve=%d BankReserve=%d LootReserve=%d ScanThrottleMs=%d",
                      cfg.inventoryReserve, cfg.bankReserve, cfg.lootReserve, cfg.scanThrottleMs);
   cooptui::core::Log(0, "  Rules: AutoReloadOnChange=%s", cfg.autoReloadOnChange ? "true" : "false");
+
+  auto& cache = cooptui::core::CacheManager::Instance();
+  cooptui::core::Log(0, "  Cache state: inv=%zu/%zu (dirty=%s) bank=%zu/%zu (dirty=%s) loot=%zu/%zu (dirty=%s) sell=%zu",
+                     cache.GetInventoryCount(), cache.GetInventoryReserve(),
+                     cache.IsInventoryDirty() ? "yes" : "no",
+                     cache.GetBankCount(), cache.GetBankReserve(),
+                     cache.IsBankDirty() ? "yes" : "no",
+                     cache.GetLootCount(), cache.GetLootReserve(),
+                     cache.IsLootDirty() ? "yes" : "no",
+                     cache.GetSellItemsCount());
 }
 
 static void CmdReload() {
@@ -159,8 +165,15 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     CmdDebug(szLine + 6);
     return;
   }
+  if (strcmp(szLine, "scan inv") == 0) {
+    uint64_t t0 = GetTickCount64();
+    const auto& items = cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
+    uint64_t elapsed = GetTickCount64() - t0;
+    cooptui::core::Log(0, "Inventory scan: %zu items in %llu ms", items.size(), elapsed);
+    return;
+  }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | scan inv | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {
@@ -175,6 +188,7 @@ PLUGIN_API void InitializePlugin() {
   } else {
     WriteChatf("\ay[MQ2CoOptUI]\ax Config path not found — CoOptCore.ini will not be used.");
   }
+  cooptui::core::CacheManager::Instance().Initialize(cooptui::core::Config::Instance().Get());
 
   WriteChatf("\ag[MQ2CoOptUI]\ax v1.0.0 loaded — INI, IPC, cursor, items, loot, window capabilities ready.");
   WriteChatf("\ag[MQ2CoOptUI]\ax TLO: ${CoOptUI.Version}  Lua: require('plugin.MQ2CoOptUI')  /cooptui status");
@@ -183,6 +197,7 @@ PLUGIN_API void InitializePlugin() {
 PLUGIN_API void ShutdownPlugin() {
   RemoveCommand("/cooptui");
   RemoveMQ2Data("CoOptUI");
+  cooptui::core::CacheManager::Instance().Shutdown();
   delete pCoOptUIType;
   pCoOptUIType = nullptr;
   WriteChatf("\ay[MQ2CoOptUI]\ax Unloaded.");
@@ -190,6 +205,7 @@ PLUGIN_API void ShutdownPlugin() {
 
 PLUGIN_API void OnPulse() {
   cooptui::cursor::updateFromPulse();
+  cooptui::core::CacheManager::Instance().OnPulse();
 }
 
 extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outModule) {

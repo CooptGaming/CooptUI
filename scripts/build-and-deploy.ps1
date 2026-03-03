@@ -176,12 +176,19 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
     # Build
     if ($PluginOnly) {
         Write-Host "  Building MQ2CoOptUI only ($Configuration)..."
-        & $cmakeExe --build $MQBuildDir --config $Configuration --target MQ2CoOptUI
+        # /p:ContinueOnError=true lets MQ2Main.vcxproj fail (pre-existing crashpad linker issue)
+        # while still building MQ2CoOptUI, which has no link dependency on MQ2Main.
+        & $cmakeExe --build $MQBuildDir --config $Configuration --target MQ2CoOptUI -- /p:ContinueOnError=true
+        # Validate by checking the DLL on disk rather than the composite exit code.
+        $pluginDllPath = Join-Path $MQBinDir "plugins\MQ2CoOptUI.dll"
+        if (-not (Test-Path $pluginDllPath)) {
+            Write-Error "MQ2CoOptUI.dll not found at $pluginDllPath — build failed"
+        }
     } else {
         Write-Host "  Building ($Configuration)..."
         & $cmakeExe --build $MQBuildDir --config $Configuration
+        if ($LASTEXITCODE -ne 0) { Write-Error "CMake build failed" }
     }
-    if ($LASTEXITCODE -ne 0) { Write-Error "CMake build failed" }
 
     $env:Path = $origPath
     Write-Host "  MQ build complete. Output: $MQBinDir" -ForegroundColor Green

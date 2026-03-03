@@ -11,6 +11,7 @@ include("${CMAKE_SOURCE_DIR}/src/Plugin.cmake")
 set(MQ2CoOptUI_SOURCES
   MQ2CoOptUI.cpp
   core/Config.cpp
+  core/CacheManager.cpp
   core/Logger.cpp
   capabilities/ini.cpp
   capabilities/ipc.cpp
@@ -18,6 +19,7 @@ set(MQ2CoOptUI_SOURCES
   capabilities/window.cpp
   capabilities/items.cpp
   capabilities/loot.cpp
+  scanners/InventoryScanner.cpp
 )
 
 add_library(MQ2CoOptUI MODULE ${MQ2CoOptUI_SOURCES})
