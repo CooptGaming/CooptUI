@@ -10,11 +10,15 @@ local mq = require('mq')
 local M = {}
 local env
 
--- Optional CoopUIHelper plugin: when loaded, scanInventory/scanBank use it for batched C++ scan (see docs/CPP_PLUGIN_INVESTIGATION.md).
+-- Optional C++ plugin: when loaded, scanInventory/scanBank use native C++ scan.
+-- Try MQ2CoOptUI first (current plugin name), then legacy CoopUIHelper for backward compat.
 local coopuiPluginCache = nil
 local function tryCoopUIPlugin()
     if coopuiPluginCache == nil then
-        local ok, mod = pcall(require, "plugin.CoopUIHelper")
+        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+        if not ok or not mod or type(mod) ~= "table" then
+            ok, mod = pcall(require, "plugin.CoopUIHelper")
+        end
         coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
     end
     return (coopuiPluginCache and coopuiPluginCache) or nil
@@ -108,7 +112,7 @@ function M.scanInventory()
     local coopui = tryCoopUIPlugin()
     if coopui and coopui.scanInventory and type(coopui.scanInventory) == "function" then
         local ok, result = pcall(coopui.scanInventory)
-        if ok and result and type(result) == "table" then
+        if ok and result and type(result) == "table" and #result > 0 then
             for _, row in ipairs(result) do
                 if type(row) == "table" then
                     row.source = row.source or "inv"
@@ -341,7 +345,7 @@ function M.scanBank()
     local coopui = tryCoopUIPlugin()
     if coopui and coopui.scanBank and type(coopui.scanBank) == "function" then
         local ok, result = pcall(coopui.scanBank)
-        if ok and result and type(result) == "table" then
+        if ok and result and type(result) == "table" and #result > 0 then
             for _, row in ipairs(result) do
                 if type(row) == "table" then
                     row.source = row.source or "bank"

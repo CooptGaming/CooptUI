@@ -13,6 +13,9 @@
 #   is false or when the prebuild download fails. When provided, copies its full layout.
 # -PluginOnly: Build ONLY the MQ2CoOptUI target and deploy just the DLL + Lua/macros/resources.
 #   Skips E3Next build, reference copy, config, mono, README, and zip. ~10s vs full build.
+# -UsePrebuiltMQCore: When true (default), use MQ core (MQ2Main, MQ2Mono, etc.) from reference;
+#   only MQ2CoOptUI.dll comes from build. Ensures MQ2Mono/E3 work (ABI match). Use -UsePrebuiltMQCore:$false
+#   to overlay full MQ build (may break MQ2Mono if source differs from prebuilt).
 # -UsePrebuildDownload: When true (default), download E3NextAndMQNextBinary prebuild from
 #   -PrebuildDownloadUrl and use it as the reference base. Ensures ALL files (plugins, lua,
 #   macros, mono, modules, resources, utilities) are included in Compile Test and the zip.
@@ -36,7 +39,8 @@ param(
     [switch]$PluginOnly,
     [switch]$CreateZip,
     [string]$ZipVersion = "",
-    [switch]$SkipClean
+    [switch]$SkipClean,
+    [switch]$UsePrebuiltMQCore = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,6 +97,7 @@ Write-Host "  Configuration: $Configuration"
 Write-Host "  CoOpt UI repo: $CoOptUIRepo"
 Write-Host "  Reference:    $ReferencePath"
 Write-Host "  Prebuild:     $(if ($UsePrebuildDownload) { 'download from ' + $PrebuildDownloadUrl } else { 'skip (use -ReferencePath)' })"
+Write-Host "  MQ core:      $(if ($UsePrebuiltMQCore) { 'prebuilt from reference (only MQ2CoOptUI from build)' } else { 'full from build' })"
 Write-Host ""
 
 # ======================================================================
@@ -311,7 +316,9 @@ if (-not $PluginOnly) {
     }
 }
 
-# --- 3a: MQ build output (full ABI-safe copy) ---
+# --- 3a: MQ build output ---
+# UsePrebuiltMQCore + reference: only overlay MQ2CoOptUI.dll (keeps prebuilt MQ2Main/MQ2Mono ABI match).
+# Otherwise: full MQ build overlay.
 
 if ($PluginOnly) {
     Write-Host "  3a: MQ2CoOptUI plugin DLL only (PluginOnly mode)..."
@@ -324,8 +331,19 @@ if ($PluginOnly) {
     } else {
         Write-Warning "  MQ2CoOptUI.dll not found at $srcPluginDll. Build may have failed."
     }
+} elseif ($UsePrebuiltMQCore -and $effectiveRefPath) {
+    Write-Host "  3a: MQ2CoOptUI only (prebuilt MQ core from reference)..."
+    $srcPluginDll = Join-Path $MQBinDir "plugins\MQ2CoOptUI.dll"
+    if (Test-Path $srcPluginDll) {
+        $dstPlugins = Join-Path $DeployPath "plugins"
+        if (-not (Test-Path $dstPlugins)) { New-Item -ItemType Directory -Path $dstPlugins -Force | Out-Null }
+        Copy-Item $srcPluginDll -Destination $dstPlugins -Force
+        Write-Host "    Copied MQ2CoOptUI.dll (MQ2Main, MQ2Mono, etc. from reference)" -ForegroundColor Green
+    } else {
+        Write-Warning "  MQ2CoOptUI.dll not found at $srcPluginDll. Build may have failed."
+    }
 } else {
-    Write-Host "  3a: MQ binaries..."
+    Write-Host "  3a: MQ binaries (full from build)..."
     if (Test-Path $MQBinDir) {
         Get-ChildItem $MQBinDir -File | ForEach-Object {
             Copy-Item $_.FullName -Destination $DeployPath -Force
@@ -424,17 +442,12 @@ if ((Test-Path $bindsSrc) -and -not (Test-Path $bindsDst)) {
     Write-Host "    Copied MQ2CustomBinds.txt"
 }
 
-# E3 auto-load: config\Autoexec\AutoExec.cfg runs on first pulse when EQ loads
-$autoexecDir = Join-Path $configDst "Autoexec"
-if (-not (Test-Path $autoexecDir)) { New-Item -ItemType Directory -Path $autoexecDir -Force | Out-Null }
-$autoexecCfg = Join-Path $autoexecDir "AutoExec.cfg"
-$autoexecContent = @"
-; Auto-executed on first pulse when EQ loads (MQ loads config\Autoexec\AutoExec.cfg)
-; Ensures E3 loads automatically so users get a ready-to-go experience.
-/mono load e3
-"@
-Set-Content $autoexecCfg $autoexecContent -NoNewline
-Write-Host "    Created config\Autoexec\AutoExec.cfg (E3 auto-load on EQ entry)"
+# Remove AutoExec.cfg if present (from reference); E3 loads via /mono load e3 when user chooses
+$autoexecCfg = Join-Path $configDst "Autoexec\AutoExec.cfg"
+if (Test-Path $autoexecCfg) {
+    Remove-Item $autoexecCfg -Force
+    Write-Host "    Removed config\Autoexec\AutoExec.cfg (E3 loads with /mono load e3)"
+}
 
 # --- 3c: Mono runtime ---
 
@@ -662,7 +675,7 @@ MacroQuest EMU + E3Next + Mono + CoOpt UI (ready-to-go)
 CONTENTS
   - MacroQuest launcher and EMU base (32-bit)
   - MQ2Mono plugin + mono-2.0-sgen.dll (C#/E3Next runtime)
-  - E3Next (mono\macros\e3\) - AUTO-LOADS on EQ entry (config\Autoexec\AutoExec.cfg)
+  - E3Next (mono\macros\e3\) - load with /mono load e3
   - MQ2CoOptUI plugin + CoOpt UI Lua, macros, UI resources
   - config\MacroQuest.ini (mq2mono=1, MQ2CoOptUI=1, mq2lua=1, etc.)
   - Full CoOptUI3 reference: plugins, lua, macros, modules, resources, utilities
@@ -671,7 +684,7 @@ HOW TO USE
   1. Unzip this folder anywhere (e.g. C:\MQ-EMU).
   2. Run MacroQuest.exe.
   3. Launch EverQuest (EMU). Plugins load from config\MacroQuest.ini.
-  4. E3 loads automatically when you enter the game (no manual /mono load e3 needed).
+  4. Load E3 with /mono load e3 when in game.
 
 FIRST RUN - What you should see
   - MQ2CoOptUI loads automatically (MQ2CoOptUI=1 in config). In chat you will see:
@@ -772,7 +785,6 @@ $checks = @(
     @{ Path = "plugins\MQ2CoOptUI.dll";      Label = "MQ2CoOptUI plugin" }
     @{ Path = "plugins\MQ2Mono.dll";         Label = "MQ2Mono plugin" }
     @{ Path = "config\MacroQuest.ini";       Label = "MacroQuest config" }
-    @{ Path = "config\Autoexec\AutoExec.cfg"; Label = "E3 auto-load" }
     @{ Path = "lua\itemui\init.lua";         Label = "CoOpt UI Lua" }
     @{ Path = "mono\macros\e3\E3.dll";       Label = "E3Next" }
     @{ Path = "mono-2.0-sgen.dll";           Label = "Mono runtime" }
