@@ -1,4 +1,4 @@
-# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
+﻿# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
 # to a target folder with the full CoOpt UI layout.
 #
 # Prerequisite: run setup-source-env.ps1 first to assemble the source tree.

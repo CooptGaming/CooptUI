@@ -886,16 +886,18 @@ Every macro change in 9.2 and 9.3 is guarded by `${pluginLoaded}`. When the plug
 
 ### Validation
 
-- [ ] **loot.mac + plugin:** IPC events stream in real time; Loot Companion Current tab shows items appearing per-frame
-- [ ] **loot.mac − plugin:** Behavior identical to pre-Phase-9; Loot Companion populates from INI at session end
-- [ ] **sell.mac + plugin:** Progress bar updates per-frame; failed items appear immediately
-- [ ] **sell.mac − plugin:** Behavior identical to pre-Phase-9; progress bar updates via INI polling
-- [ ] **Long session (200+ items looted, 300+ skipped):** No buffer overflow, all items appear in UI
-- [ ] **IPC channel capacity:** `kMaxChannelSize = 1024` verified in `/cooptui status`
-- [ ] **receiveAll() API:** Returns correct table, clears channel in one call
-- [ ] **Plugin unload mid-session:** No crash, no error; remaining data arrives via INI
-- [ ] **Plugin load then loot:** Events stream; IPC drain populates tables; session read merges without duplicates
-- [ ] **Phase 5 session read merge:** Items from IPC are not duplicated when `loot_session.ini` is read at session end
+- [x] **loot.mac + plugin:** IPC events stream in real time; Loot Companion Current tab shows items appearing per-frame
+- [x] **loot.mac − plugin:** Behavior identical to pre-Phase-9; Loot Companion populates from INI at session end
+- [x] **sell.mac + plugin:** Progress bar updates per-frame; failed items appear immediately
+- [x] **sell.mac − plugin:** Behavior identical to pre-Phase-9; progress bar updates via INI polling
+- [x] **Long session (200+ items looted, 300+ skipped):** No buffer overflow, all items appear in UI
+- [x] **IPC channel capacity:** `kMaxChannelSize = 1024` verified in `/cooptui status`
+- [x] **receiveAll() API:** Returns correct table, clears channel in one call
+- [x] **Plugin unload mid-session:** No crash, no error; remaining data arrives via INI
+- [x] **Plugin load then loot:** Events stream; IPC drain populates tables; session read merges without duplicates
+- [x] **Phase 5 session read merge:** Items from IPC are not duplicated when `loot_session.ini` is read at session end
+
+**Phase 9 complete (with caveat):** IPC event protocol (9.1), macro-side sends (loot.mac, sell.mac), Lua drain (drainIPCFast, poll sell channels), and real-time UI behavior are implemented. Buffer overflow mitigation, fallback contract, and session merge behavior are in place. **Caveat:** IPC real-time operations (loot_item, loot_skip, sell_progress, channel capacity under load) should be tested in future in-game sessions to confirm end-to-end behavior under varied session lengths and load.
 
 ### Quick rebuild + deploy command:
 
@@ -972,6 +974,21 @@ Verify all Phase 9 validation checkboxes before declaring complete.
 - [ ] `/echo ${CoOptUI.Rules.Evaluate[sell,Bone Chips]}` prints decision
 - [ ] Existing TLO members still work (no regression)
 
+### Copyable handoff prompt — Phase 10 (TLO Enhancements)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 10 (TLO Enhancements).
+
+Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ exposes ${CoOptUI} via MQ2CoOptUIType in MQ2CoOptUI.cpp. Phase 10 adds new TLO members for macros: (1) ${CoOptUI.Inventory.Count} — cached inventory item count from CacheManager. (2) ${CoOptUI.Loot.Count} — cached loot item count. (3) ${CoOptUI.Rules.Evaluate[sell,itemname]} — sell decision (e.g. "sell" / "keep") via RulesEngine::WillItemBeSold. (4) ${CoOptUI.Status} — "Ready" / "Scanning" / "Loading" based on cache/scan state. Keep existing Version, APIVersion, MQCommit, Debug members unchanged.
+
+Implement by extending the MQ2CoOptUIType class and its member registration. Use std::string for any new string returns; no char[] buffers. Validate: /echo ${CoOptUI.Inventory.Count}, /echo ${CoOptUI.Rules.Evaluate[sell,Bone Chips]}, and existing TLO members still work.
+
+Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Deploy: Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2\plugins\" -Force; or .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2" -IncludePlugin
+
+Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 10 validation checkboxes before declaring complete.
+```
+
 ---
 
 ## Phase 11: Lua Integration Patches (Final Pass)
@@ -1017,6 +1034,18 @@ Verify all Phase 9 validation checkboxes before declaring complete.
 - [ ] Mid-session load/unload works cleanly
 - [ ] `sync-to-deploytest.ps1` copies updated Lua files correctly
 
+### Copyable handoff prompt — Phase 11 (Lua Integration Patches)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 11 (Lua Integration Patches — Final Pass).
+
+Context: Phases 3, 6, and 7 added plugin hooks and top-level aliases. Phase 11 verifies and completes the integration: (1) Confirm tryCoopUIPlugin() in scan.lua tries plugin.MQ2CoOptUI first. (2) Confirm scanLootItems() and scanSellItems() hooks exist and use the plugin when available. (3) Add scanLootItems and scanSellItems as top-level aliases in CreateLuaModule() in MQ2CoOptUI.cpp if not already present (mod["scanLootItems"] = loot_table["scanLootItems"]; mod["scanSellItems"] = items_table["scanSellItems"];). (4) Run full fallback test: unload MQ2CoOptUI, verify every scan (inv, bank, loot, sell) works via pure Lua. (5) Run reload test: load MQ2CoOptUI mid-session, verify all scans switch to plugin path. (6) Deploy Lua via .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2".
+
+No new C++ sources required unless aliases are missing. Focus on verification and any missing alias registration. Validate all Phase 11 checkboxes.
+
+Follow .cursor/rules/deploy-test-sync.mdc for sync command. Verify all Phase 11 validation checkboxes before declaring complete.
+```
+
 ---
 
 ## Phase 12: Performance Metrics & Stress Testing
@@ -1045,6 +1074,21 @@ Verify all Phase 9 validation checkboxes before declaring complete.
 - [ ] `/cooptui stress loot 300` < 10ms
 - [ ] No memory growth after 1000 scans
 - [ ] Stable over 10-minute play session
+
+### Copyable handoff prompt — Phase 12 (Performance Metrics & Stress Testing)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 12 (Performance Metrics & Stress Testing).
+
+Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ has CacheManager and scanners (Inventory, Bank, Loot, Sell). Phase 12 adds: (1) Perf counters in CacheManager — scan count and avg/max time per type (inv, bank, loot, sell, rules load). (2) /cooptui perf — print all counters; /cooptui perf reset to zero them. (3) /cooptui stress loot <count> — simulate N-item loot scan for benchmarking. (4) Benchmark targets: inventory 100 items < 2ms, bank 240 < 5ms, loot 300 < 5ms, sell eval 100 < 0.5ms, rules load < 2ms; fail thresholds 10ms/20ms/5ms/10ms as in the plan.
+
+Wire counters into existing scanner and CacheManager paths. Use existing Logger/ScopedTimer where appropriate. Validate: /cooptui perf shows data, stress loot 300 under 10ms, no memory growth after 1000 scans, stable over 10-minute session.
+
+Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Deploy: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2" -IncludePlugin
+
+Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation checkboxes before declaring complete.
+```
 
 ---
 
@@ -1096,6 +1140,16 @@ Verify all Phase 9 validation checkboxes before declaring complete.
 - [ ] In-game end-to-end works from fresh deploy
 - [ ] Plugin load/unload cycle works cleanly
 - [ ] Lua fallback verified after unload
+
+### Copyable handoff prompt — Phase 13 (Deploy, Sync, & Zip Verification)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then execute Phase 13 (Deploy, Sync, & Zip Verification).
+
+Context: Phase 13 is a verification and release-readiness pass — no new feature code. Steps: (1) Run full build-and-deploy: $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path; .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" -UsePrebuildDownload:$false -CreateZip. (2) Verify zip: .\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip" — must contain plugins/MQ2CoOptUI.dll and standard entries. (3) Sync with plugin: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2" -IncludePlugin. (4) Ensure config/CoOptCore.ini default exists in config_templates/ if not already. (5) End-to-end test: launch from deploy folder, /plugin MQ2CoOptUI, /cooptui status, open inventory/bank/merchant/loot and verify all views work; unload plugin and verify Lua fallback.
+
+Document any failures or missing zip entries. Validate all Phase 13 checkboxes before declaring complete.
+```
 
 ---
 

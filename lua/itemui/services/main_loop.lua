@@ -1108,6 +1108,10 @@ function M.tick(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
     phase5_lootMacro(now)
+    -- Drain IPC after phase 5 so run-start clear in phase 5 doesn't wipe items we just drained
+    if d.macroBridge and d.macroBridge.drainIPCFast then
+        d.macroBridge.drainIPCFast(d.uiState, d.getSellStatusForItem, d.LOOT_HISTORY_MAX)
+    end
     phase6_deferredHistorySaves(now)
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)

@@ -104,6 +104,7 @@ static void CmdStatus() {
                      cooptui::core::Config::Instance().GetConfigPath().c_str());
   cooptui::core::Log(0, "  Cache: InventoryReserve=%d BankReserve=%d LootReserve=%d ScanThrottleMs=%d",
                      cfg.inventoryReserve, cfg.bankReserve, cfg.lootReserve, cfg.scanThrottleMs);
+  cooptui::core::Log(0, "  IPC: ChannelCapacity=%zu", cooptui::ipc::GetMaxChannelSize());
   cooptui::core::Log(0, "  Rules: AutoReloadOnChange=%s", cfg.autoReloadOnChange ? "true" : "false");
 
   auto& cache = cooptui::core::CacheManager::Instance();

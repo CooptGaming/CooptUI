@@ -194,6 +194,10 @@ Sub Main
 /declare runBestItemName string outer
 /declare runBestItemValue int outer 0
 
+|| Plugin IPC: detect MQ2CoOptUI for real-time event streaming (fallback: var accumulation + INI unchanged)
+/declare pluginLoaded bool outer FALSE
+/if (${Plugin[MQ2CoOptUI].Name.Length}) /varset pluginLoaded TRUE
+
 | ------------------------------------------------- |
 | LOAD CONFIGURATION                                |
 | ------------------------------------------------- |
@@ -326,7 +330,10 @@ Sub Main
 /declare progressRunning int outer 1
 /ini "${configPath}/loot_progress.ini" Protocol Version 1
 /ini "${configPath}/loot_progress.ini" Progress line "1##0##${totalCorpses}##"
-
+/if (${pluginLoaded}) {
+    /squelch /cooptui ipc send loot_start "${totalCorpses}"
+    /echo [Loot] IPC streaming ON (CoOptUI plugin)
+}
 /if (!${quietMode}) {
     /echo ==========================================
     /echo Loot Macro v4.0 Started
@@ -469,6 +476,7 @@ Sub Main
     | --- One progress update per corpse for CoOpt UI Loot UI (single line: running##corpsesLooted##totalCorpses##currentCorpse) ---
     /varcalc corpsesLooted ${corpsesLooted}+1
     /ini "${configPath}/loot_progress.ini" Progress line "1##${corpsesLooted}##${totalCorpses}##${currentCorpseName}"
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_progress "${corpsesLooted}|${totalCorpses}|${currentCorpseName}"
     
     | --- Target next corpse so next iteration does not wait on /tar ---
     /if (!${doCurrentOnly}) {
@@ -1284,6 +1292,8 @@ sub FinishLooting
     }
     /echo ==========================================
     
+    | IPC: stream session summary for real-time UI
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"
     /if (${Me.Grouped}) /g Done Looting
     /if (${Alert}) /squelch /alert clear ${Alert}
 /return
@@ -1957,6 +1967,7 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
     
     | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event() when enableLiveLootFeed=TRUE
     /if (${enableLiveLootFeed}) /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_item "${itemName}|${itemValue}|${tribute}"
 
     | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)
     /if (${quietMode}) /return
@@ -2057,4 +2068,5 @@ sub LogSkippedItem(string itemName, string reason)
             /varset runSkippedReasons ${reason}
         }
     }
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_skip "${itemName}|${reason}"
 /return
