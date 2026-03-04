@@ -18,6 +18,8 @@ class CacheManager {
   void Initialize(const CoOptCoreConfig& config);
   void Shutdown();
 
+  bool IsInitialized() const { return initialized_; }
+
   // Called every MQ pulse. Throttled: only does work when ScanThrottleMs has elapsed.
   void OnPulse();
 

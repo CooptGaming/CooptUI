@@ -35,7 +35,103 @@ enum class CoOptUIMembers {
   APIVersion,
   MQCommit,
   Debug,
+  Inventory,
+  Loot,
+  Rules,
+  Status,
 };
+
+// Sub-type for ${CoOptUI.Inventory.Count}
+enum class CoOptUIInventoryMembers { Count = 1 };
+class MQ2CoOptUIInventoryType : public MQ2Type {
+ public:
+  MQ2CoOptUIInventoryType() : MQ2Type("cooptui_inventory") {
+    ScopedTypeMember(CoOptUIInventoryMembers, Count);
+  }
+  bool GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTypeVar& Dest) override {
+    (void)VarPtr;
+    (void)Index;
+    MQTypeMember* pMember = FindMember(Member);
+    if (!pMember) return false;
+    if (static_cast<CoOptUIInventoryMembers>(pMember->ID) == CoOptUIInventoryMembers::Count) {
+      Dest.Type = datatypes::pIntType;
+      Dest.Int = static_cast<int>(cooptui::core::CacheManager::Instance().GetInventoryCount());
+      return true;
+    }
+    return false;
+  }
+};
+
+// Sub-type for ${CoOptUI.Loot.Count}
+enum class CoOptUILootMembers { Count = 1 };
+class MQ2CoOptUILootType : public MQ2Type {
+ public:
+  MQ2CoOptUILootType() : MQ2Type("cooptui_loot") {
+    ScopedTypeMember(CoOptUILootMembers, Count);
+  }
+  bool GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTypeVar& Dest) override {
+    (void)VarPtr;
+    (void)Index;
+    MQTypeMember* pMember = FindMember(Member);
+    if (!pMember) return false;
+    if (static_cast<CoOptUILootMembers>(pMember->ID) == CoOptUILootMembers::Count) {
+      Dest.Type = datatypes::pIntType;
+      Dest.Int = static_cast<int>(cooptui::core::CacheManager::Instance().GetLootCount());
+      return true;
+    }
+    return false;
+  }
+};
+
+// Sub-type for ${CoOptUI.Rules.Evaluate[sell,itemname]}
+enum class CoOptUIRulesMembers { Evaluate = 1 };
+class MQ2CoOptUIRulesType : public MQ2Type {
+ public:
+  MQ2CoOptUIRulesType() : MQ2Type("cooptui_rules") {
+    ScopedTypeMember(CoOptUIRulesMembers, Evaluate);
+  }
+  bool GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTypeVar& Dest) override {
+    (void)VarPtr;
+    MQTypeMember* pMember = FindMember(Member);
+    if (!pMember) return false;
+    if (static_cast<CoOptUIRulesMembers>(pMember->ID) != CoOptUIRulesMembers::Evaluate)
+      return false;
+    // Index format: "sell,itemname" for sell decision
+    std::string indexStr(Index ? Index : "");
+    std::string result = "keep";
+    size_t comma = indexStr.find(',');
+    if (comma != std::string::npos) {
+      std::string ruleType = indexStr.substr(0, comma);
+      std::string itemName = indexStr.substr(comma + 1);
+      while (!itemName.empty() && itemName.front() == ' ') itemName.erase(0, 1);
+      if (ruleType == "sell" && !itemName.empty()) {
+        cooptui::core::CoOptItemData probe;
+        probe.name = itemName;
+        auto [willSell, reason] = cooptui::rules::RulesEngine::Instance().WillItemBeSold(probe);
+        (void)reason;
+        result = willSell ? "sell" : "keep";
+      }
+    }
+    strcpy_s(DataTypeTemp, result.c_str());
+    Dest.Type = datatypes::pStringType;
+    Dest.Ptr = &DataTypeTemp[0];
+    return true;
+  }
+};
+
+static MQ2CoOptUIInventoryType* pCoOptUIInventoryType = nullptr;
+static MQ2CoOptUILootType* pCoOptUILootType = nullptr;
+static MQ2CoOptUIRulesType* pCoOptUIRulesType = nullptr;
+// Non-null dummy so macro parser passes VarPtr to GetMember (some paths skip when Ptr is null).
+static char s_coOptUIDummy = 0;
+
+static std::string GetCoOptUIStatusString() {
+  auto& cache = cooptui::core::CacheManager::Instance();
+  if (!cache.IsInitialized()) return "Loading";
+  if (cache.IsInventoryDirty() || cache.IsBankDirty() || cache.IsLootDirty())
+    return "Scanning";
+  return "Ready";
+}
 
 class MQ2CoOptUIType : public MQ2Type {
  public:
@@ -44,9 +140,15 @@ class MQ2CoOptUIType : public MQ2Type {
     ScopedTypeMember(CoOptUIMembers, APIVersion);
     ScopedTypeMember(CoOptUIMembers, MQCommit);
     ScopedTypeMember(CoOptUIMembers, Debug);
+    ScopedTypeMember(CoOptUIMembers, Inventory);
+    ScopedTypeMember(CoOptUIMembers, Loot);
+    ScopedTypeMember(CoOptUIMembers, Rules);
+    ScopedTypeMember(CoOptUIMembers, Status);
   }
 
   bool GetMember(MQVarPtr VarPtr, const char* Member, char* Index, MQTypeVar& Dest) override {
+    (void)VarPtr;
+    (void)Index;
     MQTypeMember* pMember = FindMember(Member);
     if (!pMember) return false;
 
@@ -69,14 +171,31 @@ class MQ2CoOptUIType : public MQ2Type {
       Dest.Type = datatypes::pBoolType;
       Dest.Set(false);
       return true;
+    case CoOptUIMembers::Inventory:
+      Dest.Type = pCoOptUIInventoryType;
+      Dest.Ptr = &s_coOptUIDummy;
+      return true;
+    case CoOptUIMembers::Loot:
+      Dest.Type = pCoOptUILootType;
+      Dest.Ptr = &s_coOptUIDummy;
+      return true;
+    case CoOptUIMembers::Rules:
+      Dest.Type = pCoOptUIRulesType;
+      Dest.Ptr = &s_coOptUIDummy;
+      return true;
+    case CoOptUIMembers::Status: {
+      std::string status = GetCoOptUIStatusString();
+      strcpy_s(DataTypeTemp, status.c_str());
+      Dest.Type = datatypes::pStringType;
+      Dest.Ptr = &DataTypeTemp[0];
+      return true;
+    }
     }
     return false;
   }
 };
 
 static MQ2CoOptUIType* pCoOptUIType = nullptr;
-// Non-null dummy so macro parser passes VarPtr to GetMember (some paths skip when Ptr is null).
-static char s_coOptUIDummy = 0;
 
 bool CoOptUIData(const char* Index, MQTypeVar& Dest) {
   Dest.Type = pCoOptUIType;
@@ -289,6 +408,9 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
 
 PLUGIN_API void InitializePlugin() {
   // Register TLO and command FIRST so they always work, even if config init fails.
+  pCoOptUIInventoryType = new MQ2CoOptUIInventoryType();
+  pCoOptUILootType = new MQ2CoOptUILootType();
+  pCoOptUIRulesType = new MQ2CoOptUIRulesType();
   pCoOptUIType = new MQ2CoOptUIType();
   AddMQ2Data("CoOptUI", CoOptUIData);
   AddCommand("/cooptui", CoOptUICommand);
@@ -316,6 +438,12 @@ PLUGIN_API void ShutdownPlugin() {
   cooptui::core::CacheManager::Instance().Shutdown();
   delete pCoOptUIType;
   pCoOptUIType = nullptr;
+  delete pCoOptUIRulesType;
+  pCoOptUIRulesType = nullptr;
+  delete pCoOptUILootType;
+  pCoOptUILootType = nullptr;
+  delete pCoOptUIInventoryType;
+  pCoOptUIInventoryType = nullptr;
   WriteChatf("\ay[MQ2CoOptUI]\ax Unloaded.");
 }
 
