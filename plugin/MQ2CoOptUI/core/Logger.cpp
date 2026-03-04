@@ -8,6 +8,11 @@
 namespace cooptui {
 namespace core {
 
+uint64_t MonotonicUs() {
+  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
 namespace {
 
 constexpr const char* kPrefix = "[MQ2CoOptUI] ";

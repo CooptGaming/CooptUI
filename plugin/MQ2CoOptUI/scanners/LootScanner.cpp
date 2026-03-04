@@ -1,6 +1,7 @@
 #include "LootScanner.h"
 
 #include <mq/Plugin.h>
+#include <Windows.h>
 #include "eqlib/game/Constants.h"
 #include "eqlib/game/Globals.h"
 #include "eqlib/game/Items.h"
@@ -159,6 +160,28 @@ const std::vector<core::CoOptItemData>& LootScanner::Scan(bool force) {
   }
 
   return items_;
+}
+
+uint64_t LootScanner::RunStressScan(size_t numItems) {
+  uint64_t t0 = static_cast<uint64_t>(GetTickCount64());
+  const auto& rulesEngine = rules::RulesEngine::Instance();
+  for (size_t i = 0; i < numItems; ++i) {
+    core::CoOptItemData d;
+    d.name = "StressItem";
+    d.type = "Misc";
+    d.value = 0;
+    d.stackSize = 1;
+    d.lore = (i % 10 == 0);
+    d.quest = false;
+    d.collectible = false;
+    d.heirloom = false;
+    d.attuneable = false;
+    auto [shouldLoot, reason] = rulesEngine.ShouldItemBeLooted(d);
+    (void)shouldLoot;
+    (void)reason;
+    if (d.lore) (void)HasLoreDuplicate(d.name);
+  }
+  return static_cast<uint64_t>(GetTickCount64()) - t0;
 }
 
 }  // namespace scanners

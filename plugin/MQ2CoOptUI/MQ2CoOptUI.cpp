@@ -252,7 +252,10 @@ static void CmdStatus() {
 
 static void CmdReload() {
   cooptui::core::Config::Instance().Reload();
+  uint64_t t0 = cooptui::core::MonotonicUs();
   cooptui::rules::RulesEngine::Instance().Reload();
+  cooptui::core::CacheManager::Instance().RecordRulesLoadMs(
+      cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
   cooptui::core::Log(0, "CoOptCore.ini reloaded.");
 }
 
@@ -305,13 +308,47 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
   if (strcmp(szLine, "reloadrules") == 0) {
-    uint64_t t0 = GetTickCount64();
+    uint64_t t0 = cooptui::core::MonotonicUs();
     cooptui::rules::RulesEngine::Instance().Reload();
-    uint64_t elapsed = GetTickCount64() - t0;
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::CacheManager::Instance().RecordRulesLoadMs(elapsed);
     auto& re = cooptui::rules::RulesEngine::Instance();
     cooptui::core::Log(0, "Rules reloaded in %llu ms: keep=%zu junk=%zu alwaysLoot=%zu skipLoot=%zu epicSell=%zu",
                        elapsed, re.GetKeepSetSize(), re.GetJunkSetSize(),
                        re.GetAlwaysLootSize(), re.GetSkipLootSize(), re.GetEpicSellSize());
+    return;
+  }
+  if (strcmp(szLine, "perf") == 0) {
+    auto& cache = cooptui::core::CacheManager::Instance();
+    auto pr = [](const char* name, const cooptui::core::CacheManager::PerfStats& s) {
+      uint64_t avg = s.count ? (s.totalMs / s.count) : 0;
+      cooptui::core::Log(0, "  %s: count=%u avg=%llu ms max=%llu ms", name, s.count, avg, s.maxMs);
+    };
+    cooptui::core::Log(0, "MQ2CoOptUI perf counters:");
+    pr("inv   ", cache.GetInventoryPerf());
+    pr("bank  ", cache.GetBankPerf());
+    pr("loot  ", cache.GetLootPerf());
+    pr("sell  ", cache.GetSellPerf());
+    pr("rules ", cache.GetRulesLoadPerf());
+    return;
+  }
+  if (strncmp(szLine, "perf reset", 10) == 0 && (szLine[10] == '\0' || szLine[10] == ' ')) {
+    cooptui::core::CacheManager::Instance().ResetPerf();
+    cooptui::core::Log(0, "Perf counters reset.");
+    return;
+  }
+  if (strncmp(szLine, "stress loot ", 12) == 0) {
+    const char* arg = szLine + 12;
+    while (*arg == ' ') ++arg;
+    int n = std::atoi(arg);
+    if (n <= 0 || n > 10000) {
+      cooptui::core::Log(0, "Usage: /cooptui stress loot <count> (1-10000)");
+      return;
+    }
+    uint64_t t0 = cooptui::core::MonotonicUs();
+    cooptui::scanners::LootScanner::Instance().RunStressScan(static_cast<size_t>(n));
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::Log(0, "Stress loot %d items: %llu ms", n, elapsed);
     return;
   }
   if (strncmp(szLine, "eval sell ", 10) == 0) {
@@ -348,12 +385,13 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
   if (strncmp(szLine, "scan inv", 8) == 0 && (szLine[8] == '\0' || szLine[8] == ' ')) {
-    uint64_t t0 = GetTickCount64();
+    uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
     // Attach sell status to the live cache copy
     cooptui::rules::RulesEngine::Instance().AttachSellStatus(
         cooptui::core::CacheManager::Instance().GetInventoryMut());
-    uint64_t elapsed = GetTickCount64() - t0;
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::CacheManager::Instance().RecordInventoryScanMs(elapsed);
     // Count items flagged for sell
     int sellCount = 0;
     for (const auto& it : items) { if (it.willSell) ++sellCount; }
@@ -362,18 +400,20 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
   if (strncmp(szLine, "scan bank", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
-    uint64_t t0 = GetTickCount64();
+    uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::BankScanner::Instance().Scan(/*force=*/true);
-    uint64_t elapsed = GetTickCount64() - t0;
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::CacheManager::Instance().RecordBankScanMs(elapsed);
     bool bankOpen = cooptui::scanners::BankScanner::IsBankWindowOpen();
     cooptui::core::Log(0, "Bank scan: %zu items in %llu ms (bank window %s)",
                        items.size(), elapsed, bankOpen ? "open" : "closed, showing snapshot");
     return;
   }
   if (strncmp(szLine, "scan loot", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
-    uint64_t t0 = GetTickCount64();
+    uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::LootScanner::Instance().Scan(/*force=*/true);
-    uint64_t elapsed = GetTickCount64() - t0;
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::CacheManager::Instance().RecordLootScanMs(elapsed);
     bool lootOpen = cooptui::scanners::LootScanner::IsLootWindowOpen();
     int lootCount = 0;
     for (const auto& it : items) { if (it.willLoot) ++lootCount; }
@@ -382,9 +422,10 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
   if (strncmp(szLine, "scan sell", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
-    uint64_t t0 = GetTickCount64();
+    uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::SellScanner::Instance().Scan(/*force=*/true);
-    uint64_t elapsed = GetTickCount64() - t0;
+    uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
+    cooptui::core::CacheManager::Instance().RecordSellScanMs(elapsed);
     size_t sellCount = cooptui::scanners::SellScanner::Instance().GetSellCount();
     cooptui::core::Log(0, "Sell scan: %zu items in %llu ms (%zu will sell)",
                        items.size(), elapsed, sellCount);
@@ -403,7 +444,7 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | perf | perf reset | stress loot <N> | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {
@@ -425,7 +466,10 @@ PLUGIN_API void InitializePlugin() {
 
   // Initialize rules engine from the MQ macros directory.
   if (gPathMacros[0] != '\0') {
+    uint64_t t0 = cooptui::core::MonotonicUs();
     cooptui::rules::RulesEngine::Instance().Initialize(gPathMacros);
+    cooptui::core::CacheManager::Instance().RecordRulesLoadMs(
+        cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
   }
 
   WriteChatf("\ag[MQ2CoOptUI]\ax v1.0.0 loaded — INI, IPC, cursor, items, loot, window capabilities ready.");
@@ -465,7 +509,10 @@ PLUGIN_API void OnPulse() {
   // Bank window: auto-scan on open (once per open event)
   bool bankOpen = cooptui::scanners::BankScanner::IsBankWindowOpen();
   if (bankOpen && !s_wasBankOpen) {
+    uint64_t t0 = cooptui::core::MonotonicUs();
     cooptui::scanners::BankScanner::Instance().Scan(/*force=*/true);
+    cooptui::core::CacheManager::Instance().RecordBankScanMs(
+        cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
     cooptui::core::CacheManager::Instance().IncrementBankVersion();
     cooptui::core::Log(1, "OnPulse: bank opened, auto-scanned %zu items",
                        cooptui::core::CacheManager::Instance().GetBankCount());
@@ -475,7 +522,10 @@ PLUGIN_API void OnPulse() {
   // Loot window: auto-scan on open (once per open event)
   bool lootOpen = cooptui::scanners::LootScanner::IsLootWindowOpen();
   if (lootOpen && !s_wasLootOpen) {
+    uint64_t t0 = cooptui::core::MonotonicUs();
     cooptui::scanners::LootScanner::Instance().Scan(/*force=*/true);
+    cooptui::core::CacheManager::Instance().RecordLootScanMs(
+        cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
     cooptui::core::CacheManager::Instance().IncrementLootVersion();
     cooptui::core::Log(1, "OnPulse: loot opened, auto-scanned %zu items",
                        cooptui::core::CacheManager::Instance().GetLootCount());
@@ -485,7 +535,10 @@ PLUGIN_API void OnPulse() {
   // Inventory: lightweight fingerprint check — run InventoryScanner (cheap when
   // unchanged due to fingerprint cache) and bump version only when content changes.
   if (pLocalPC) {
+    uint64_t t0 = cooptui::core::MonotonicUs();
     cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/false);
+    cooptui::core::CacheManager::Instance().RecordInventoryScanMs(
+        cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
     if (cooptui::scanners::InventoryScanner::Instance().HasChanged()) {
       cooptui::core::CacheManager::Instance().IncrementInventoryVersion();
       // Also re-attach sell status since inventory changed

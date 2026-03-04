@@ -76,6 +76,24 @@ class CacheManager {
   uint32_t GetBankScanCount() const { return bankScanCount_; }
   uint32_t GetLootScanCount() const { return lootScanCount_; }
 
+  // Phase 12: perf counters (count, totalMs, maxMs) per operation type
+  struct PerfStats {
+    uint32_t count = 0;
+    uint64_t totalMs = 0;
+    uint64_t maxMs = 0;
+  };
+  void RecordInventoryScanMs(uint64_t ms);
+  void RecordBankScanMs(uint64_t ms);
+  void RecordLootScanMs(uint64_t ms);
+  void RecordSellScanMs(uint64_t ms);
+  void RecordRulesLoadMs(uint64_t ms);
+  void ResetPerf();
+  PerfStats GetInventoryPerf() const { return perfInv_; }
+  PerfStats GetBankPerf() const { return perfBank_; }
+  PerfStats GetLootPerf() const { return perfLoot_; }
+  PerfStats GetSellPerf() const { return perfSell_; }
+  PerfStats GetRulesLoadPerf() const { return perfRulesLoad_; }
+
   CacheManager(const CacheManager&) = delete;
   CacheManager& operator=(const CacheManager&) = delete;
 
@@ -108,6 +126,12 @@ class CacheManager {
   uint32_t bankVersion_ = 0;
   uint32_t lootVersion_ = 0;
   uint32_t sellVersion_ = 0;
+
+  PerfStats perfInv_;
+  PerfStats perfBank_;
+  PerfStats perfLoot_;
+  PerfStats perfSell_;
+  PerfStats perfRulesLoad_;
 };
 
 }  // namespace core

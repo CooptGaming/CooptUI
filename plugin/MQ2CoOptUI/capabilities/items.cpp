@@ -7,6 +7,7 @@
 #include "eqlib/game/Globals.h"
 
 #include "../core/CacheManager.h"
+#include "../core/Logger.h"
 #include "../core/ItemData.h"
 #include "../core/Logger.h"
 #include "../scanners/BankScanner.h"
@@ -55,7 +56,10 @@ void registerLua(sol::state_view L, sol::table& table) {
 
   table.set_function("scanInventory", [rawL]() -> sol::table {
     sol::state_view sv(rawL);
+    uint64_t t0 = core::MonotonicUs();
     const auto& items = scanners::InventoryScanner::Instance().Scan();
+    core::CacheManager::Instance().RecordInventoryScanMs(
+        core::ElapsedMsFromUs(t0, core::MonotonicUs()));
     sol::table result = sv.create_table_with();
     for (const auto& d : items) {
       result.add(ItemDataToTable(sv, d));
@@ -65,7 +69,10 @@ void registerLua(sol::state_view L, sol::table& table) {
 
   table.set_function("scanBank", [rawL]() -> sol::table {
     sol::state_view sv(rawL);
+    uint64_t t0 = core::MonotonicUs();
     const auto& items = scanners::BankScanner::Instance().Scan();
+    core::CacheManager::Instance().RecordBankScanMs(
+        core::ElapsedMsFromUs(t0, core::MonotonicUs()));
     sol::table result = sv.create_table_with();
     for (const auto& d : items) {
       result.add(ItemDataToTable(sv, d));
@@ -75,7 +82,10 @@ void registerLua(sol::state_view L, sol::table& table) {
 
   table.set_function("scanSellItems", [rawL]() -> sol::table {
     sol::state_view sv(rawL);
+    uint64_t t0 = core::MonotonicUs();
     const auto& items = scanners::SellScanner::Instance().Scan();
+    core::CacheManager::Instance().RecordSellScanMs(
+        core::ElapsedMsFromUs(t0, core::MonotonicUs()));
     sol::table result = sv.create_table_with();
     for (const auto& d : items) {
       result.add(ItemDataToTable(sv, d));

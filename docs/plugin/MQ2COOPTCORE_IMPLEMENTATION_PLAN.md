@@ -1073,10 +1073,10 @@ Follow .cursor/rules/deploy-test-sync.mdc for sync command. Verify all Phase 11 
 
 ### Validation
 
-- [ ] `/cooptui perf` shows counters
-- [ ] `/cooptui stress loot 300` < 10ms
-- [ ] No memory growth after 1000 scans
-- [ ] Stable over 10-minute play session
+- [x] `/cooptui perf` shows counters
+- [ ] `/cooptui stress loot 300` < 10ms *(in-game)*
+- [ ] No memory growth after 1000 scans *(in-game)*
+- [ ] Stable over 10-minute play session *(in-game)*
 
 ### Copyable handoff prompt — Phase 12 (Performance Metrics & Stress Testing)
 
@@ -1138,18 +1138,20 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation
 
 ### Validation
 
-- [ ] Full build-and-deploy succeeds
-- [ ] `list-zip.ps1` passes all checks
-- [ ] In-game end-to-end works from fresh deploy
-- [ ] Plugin load/unload cycle works cleanly
-- [ ] Lua fallback verified after unload
+- [x] Full build-and-deploy succeeds
+- [x] `list-zip.ps1` — 9/10 required (see note below)
+- [ ] In-game end-to-end works from fresh deploy *(in-game)*
+- [ ] Plugin load/unload cycle works cleanly *(in-game)*
+- [ ] Lua fallback verified after unload *(in-game)*
+
+**Zip verification note:** `config/Autoexec/AutoExec.cfg` is intentionally removed by the deploy script (Stage 3b: "E3 loads with /mono load e3"), so `list-zip.ps1` reports one [MISS]. All other required entries including `plugins/MQ2CoOptUI.dll` are present. Zip created: `C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip` (e.g. 20260304).
 
 ### Copyable handoff prompt — Phase 13 (Deploy, Sync, & Zip Verification)
 
 ```
 Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then execute Phase 13 (Deploy, Sync, & Zip Verification).
 
-Context: Phase 13 is a verification and release-readiness pass — no new feature code. Steps: (1) Run full build-and-deploy: $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path; .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" -UsePrebuildDownload:$false -CreateZip. (2) Verify zip: .\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip" — must contain plugins/MQ2CoOptUI.dll and standard entries. (3) Sync with plugin: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" -IncludePlugin. (4) Ensure config/CoOptCore.ini default exists in config_templates/ if not already. (5) End-to-end test: launch from deploy folder, /plugin MQ2CoOptUI, /cooptui status, open inventory/bank/merchant/loot and verify all views work; unload plugin and verify Lua fallback.
+Context: Phase 13 is a verification and release-readiness pass — no new feature code. Steps: (1) Run full build-and-deploy: $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path; .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" -UsePrebuildDownload:$false -CreateZip. (2) Verify zip: .\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip" — must contain plugins/MQ2CoOptUI.dll and standard entries. (3) Sync with plugin: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI8" -IncludePlugin. (4) Ensure config/CoOptCore.ini default exists in config_templates/ if not already. (5) End-to-end test: launch from deploy folder, /plugin MQ2CoOptUI, /cooptui status, open inventory/bank/merchant/loot and verify all views work; unload plugin and verify Lua fallback.
 
 Document any failures or missing zip entries. Validate all Phase 13 checkboxes before declaring complete.
 ```

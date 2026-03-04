@@ -33,6 +33,10 @@ class LootScanner {
   // True when the loot window is currently open.
   static bool IsLootWindowOpen();
 
+  // Phase 12: simulate N-item loot evaluation (rules + lore) for benchmarking.
+  // Returns elapsed time in milliseconds.
+  uint64_t RunStressScan(size_t numItems);
+
   LootScanner(const LootScanner&) = delete;
   LootScanner& operator=(const LootScanner&) = delete;
 
