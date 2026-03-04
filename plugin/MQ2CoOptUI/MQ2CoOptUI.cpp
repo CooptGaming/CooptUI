@@ -18,6 +18,7 @@
 #include "core/CacheManager.h"
 #include "core/Config.h"
 #include "core/Logger.h"
+#include "scanners/BankScanner.h"
 #include "scanners/InventoryScanner.h"
 
 PreSetup("MQ2CoOptUI");
@@ -172,8 +173,17 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     cooptui::core::Log(0, "Inventory scan: %zu items in %llu ms", items.size(), elapsed);
     return;
   }
+  if (strcmp(szLine, "scan bank") == 0) {
+    uint64_t t0 = GetTickCount64();
+    const auto& items = cooptui::scanners::BankScanner::Instance().Scan(/*force=*/true);
+    uint64_t elapsed = GetTickCount64() - t0;
+    bool bankOpen = cooptui::scanners::BankScanner::IsBankWindowOpen();
+    cooptui::core::Log(0, "Bank scan: %zu items in %llu ms (bank window %s)",
+                       items.size(), elapsed, bankOpen ? "open" : "closed, showing snapshot");
+    return;
+  }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | scan inv | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | scan inv | scan bank | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {

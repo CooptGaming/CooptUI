@@ -6,6 +6,7 @@
 #include "../core/CacheManager.h"
 #include "../core/ItemData.h"
 #include "../core/Logger.h"
+#include "../scanners/BankScanner.h"
 #include "../scanners/InventoryScanner.h"
 
 namespace cooptui {
@@ -57,10 +58,14 @@ void registerLua(sol::state_view L, sol::table& table) {
     return result;
   });
 
-  // scanBank stays stub — implemented in Phase 4.
   table.set_function("scanBank", [rawL]() -> sol::table {
     sol::state_view sv(rawL);
-    return sv.create_table();
+    const auto& items = scanners::BankScanner::Instance().Scan();
+    sol::table result = sv.create_table_with();
+    for (const auto& d : items) {
+      result.add(ItemDataToTable(sv, d));
+    }
+    return result;
   });
 
   table.set_function("getItem", [](int, int, const std::string&) -> sol::optional<sol::table> {

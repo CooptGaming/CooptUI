@@ -19,6 +19,7 @@ set(MQ2CoOptUI_SOURCES
   capabilities/window.cpp
   capabilities/items.cpp
   capabilities/loot.cpp
+  scanners/BankScanner.cpp
   scanners/InventoryScanner.cpp
 )
 
