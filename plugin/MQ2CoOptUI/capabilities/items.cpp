@@ -1,13 +1,18 @@
 #include "items.h"
 
+#include <mq/Plugin.h>
 #include <sol/sol.hpp>
 #include <string>
+
+#include "eqlib/game/Globals.h"
 
 #include "../core/CacheManager.h"
 #include "../core/ItemData.h"
 #include "../core/Logger.h"
 #include "../scanners/BankScanner.h"
 #include "../scanners/InventoryScanner.h"
+#include "../scanners/SellScanner.h"
+#include "../storage/SellCacheWriter.h"
 
 namespace cooptui {
 namespace items {
@@ -64,6 +69,22 @@ void registerLua(sol::state_view L, sol::table& table) {
     sol::table result = sv.create_table_with();
     for (const auto& d : items) {
       result.add(ItemDataToTable(sv, d));
+    }
+    return result;
+  });
+
+  table.set_function("scanSellItems", [rawL]() -> sol::table {
+    sol::state_view sv(rawL);
+    const auto& items = scanners::SellScanner::Instance().Scan();
+    sol::table result = sv.create_table_with();
+    for (const auto& d : items) {
+      result.add(ItemDataToTable(sv, d));
+    }
+    // Write sell cache after scan (mirrors Lua writeSellCache behavior)
+    if (!items.empty() && gPathMacros[0] != '\0' &&
+        pLocalPlayer && pLocalPlayer->Name[0] != '\0') {
+      storage::SellCacheWriter::Write(std::string(gPathMacros),
+                                      std::string(pLocalPlayer->Name), items);
     }
     return result;
   });

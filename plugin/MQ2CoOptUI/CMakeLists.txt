@@ -23,6 +23,8 @@ set(MQ2CoOptUI_SOURCES
   scanners/BankScanner.cpp
   scanners/InventoryScanner.cpp
   scanners/LootScanner.cpp
+  scanners/SellScanner.cpp
+  storage/SellCacheWriter.cpp
 )
 
 add_library(MQ2CoOptUI MODULE ${MQ2CoOptUI_SOURCES})

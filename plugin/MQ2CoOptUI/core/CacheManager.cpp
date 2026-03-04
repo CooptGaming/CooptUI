@@ -65,9 +65,25 @@ bool CacheManager::ThrottleElapsed() {
 
 void CacheManager::OnPulse() {
   if (!initialized_) return;
-  // Throttled: only do work when ScanThrottleMs has elapsed.
-  // Phase 3+ will run scanners here when dirty flags are set.
+  // Throttled check — Phase 8 auto-scans are driven from MQ2CoOptUI.cpp's
+  // OnPulse() which calls the scanners directly; dirty flags here are for
+  // informational purposes and future use.
   (void)ThrottleElapsed();
+}
+
+void CacheManager::InvalidateAll() {
+  dirtyInventory_ = true;
+  dirtyBank_ = true;
+  dirtyLoot_ = true;
+  ++inventoryVersion_;
+  ++bankVersion_;
+  ++lootVersion_;
+  ++sellVersion_;
+}
+
+void CacheManager::InvalidateInventory() {
+  dirtyInventory_ = true;
+  ++inventoryVersion_;
 }
 
 }  // namespace core

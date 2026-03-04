@@ -22,6 +22,8 @@
 #include "scanners/BankScanner.h"
 #include "scanners/InventoryScanner.h"
 #include "scanners/LootScanner.h"
+#include "scanners/SellScanner.h"
+#include "storage/SellCacheWriter.h"
 
 PreSetup("MQ2CoOptUI");
 PLUGIN_VERSION(1.0);
@@ -105,14 +107,18 @@ static void CmdStatus() {
   cooptui::core::Log(0, "  Rules: AutoReloadOnChange=%s", cfg.autoReloadOnChange ? "true" : "false");
 
   auto& cache = cooptui::core::CacheManager::Instance();
-  cooptui::core::Log(0, "  Cache state: inv=%zu/%zu (dirty=%s) bank=%zu/%zu (dirty=%s) loot=%zu/%zu (dirty=%s) sell=%zu",
+  cooptui::core::Log(0, "  Cache state: inv=%zu/%zu (dirty=%s v%u) bank=%zu/%zu (dirty=%s v%u) loot=%zu/%zu (dirty=%s v%u) sell=%zu (v%u)",
                      cache.GetInventoryCount(), cache.GetInventoryReserve(),
                      cache.IsInventoryDirty() ? "yes" : "no",
+                     cache.GetInventoryVersion(),
                      cache.GetBankCount(), cache.GetBankReserve(),
                      cache.IsBankDirty() ? "yes" : "no",
+                     cache.GetBankVersion(),
                      cache.GetLootCount(), cache.GetLootReserve(),
                      cache.IsLootDirty() ? "yes" : "no",
-                     cache.GetSellItemsCount());
+                     cache.GetLootVersion(),
+                     cache.GetSellItemsCount(),
+                     cache.GetSellVersion());
 
   auto& re = cooptui::rules::RulesEngine::Instance();
   if (re.IsLoaded()) {
@@ -255,8 +261,29 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
                        items.size(), elapsed, lootCount, lootOpen ? "open" : "closed");
     return;
   }
+  if (strncmp(szLine, "scan sell", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
+    uint64_t t0 = GetTickCount64();
+    const auto& items = cooptui::scanners::SellScanner::Instance().Scan(/*force=*/true);
+    uint64_t elapsed = GetTickCount64() - t0;
+    size_t sellCount = cooptui::scanners::SellScanner::Instance().GetSellCount();
+    cooptui::core::Log(0, "Sell scan: %zu items in %llu ms (%zu will sell)",
+                       items.size(), elapsed, sellCount);
+    // Write sell cache
+    if (!items.empty() && gPathMacros[0] != '\0' &&
+        pLocalPlayer && pLocalPlayer->Name[0] != '\0') {
+      uint64_t tw = GetTickCount64();
+      bool wrote = cooptui::storage::SellCacheWriter::Write(
+          std::string(gPathMacros), std::string(pLocalPlayer->Name), items);
+      uint64_t elapsedWrite = GetTickCount64() - tw;
+      cooptui::core::Log(0, "  sell_cache.ini written=%s in %llu ms (%zu sell items, char=%s)",
+                         wrote ? "yes" : "no", elapsedWrite, sellCount, pLocalPlayer->Name);
+    } else {
+      cooptui::core::Log(0, "  sell_cache.ini not written (no char/macros path)");
+    }
+    return;
+  }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {
@@ -294,6 +321,68 @@ PLUGIN_API void ShutdownPlugin() {
 PLUGIN_API void OnPulse() {
   cooptui::cursor::updateFromPulse();
   cooptui::core::CacheManager::Instance().OnPulse();
+
+  // Phase 8: Throttled window-state detection and inventory change tracking.
+  // Static state persists across pulses; throttled at 100ms to avoid per-frame cost.
+  static uint64_t s_lastEventCheckMs = 0;
+  static bool s_wasBankOpen = false;
+  static bool s_wasLootOpen = false;
+  static uint64_t s_lastInvFingerprint = 0;
+
+  uint64_t now = GetTickCount64();
+  if (now - s_lastEventCheckMs < 100) return;
+  s_lastEventCheckMs = now;
+
+  // Bank window: auto-scan on open (once per open event)
+  bool bankOpen = cooptui::scanners::BankScanner::IsBankWindowOpen();
+  if (bankOpen && !s_wasBankOpen) {
+    cooptui::scanners::BankScanner::Instance().Scan(/*force=*/true);
+    cooptui::core::CacheManager::Instance().IncrementBankVersion();
+    cooptui::core::Log(1, "OnPulse: bank opened, auto-scanned %zu items",
+                       cooptui::core::CacheManager::Instance().GetBankCount());
+  }
+  s_wasBankOpen = bankOpen;
+
+  // Loot window: auto-scan on open (once per open event)
+  bool lootOpen = cooptui::scanners::LootScanner::IsLootWindowOpen();
+  if (lootOpen && !s_wasLootOpen) {
+    cooptui::scanners::LootScanner::Instance().Scan(/*force=*/true);
+    cooptui::core::CacheManager::Instance().IncrementLootVersion();
+    cooptui::core::Log(1, "OnPulse: loot opened, auto-scanned %zu items",
+                       cooptui::core::CacheManager::Instance().GetLootCount());
+  }
+  s_wasLootOpen = lootOpen;
+
+  // Inventory: lightweight fingerprint check — run InventoryScanner (cheap when
+  // unchanged due to fingerprint cache) and bump version only when content changes.
+  if (pLocalPC) {
+    cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/false);
+    if (cooptui::scanners::InventoryScanner::Instance().HasChanged()) {
+      cooptui::core::CacheManager::Instance().IncrementInventoryVersion();
+      // Also re-attach sell status since inventory changed
+      cooptui::rules::RulesEngine::Instance().AttachSellStatus(
+          cooptui::core::CacheManager::Instance().GetInventoryMut());
+      cooptui::core::CacheManager::Instance().IncrementSellVersion();
+      // Bump inventory fingerprint stored in scanner
+      s_lastInvFingerprint = cooptui::core::CacheManager::Instance().GetInventoryVersion();
+      cooptui::core::Log(1, "OnPulse: inventory changed, version=%u",
+                         cooptui::core::CacheManager::Instance().GetInventoryVersion());
+    }
+  }
+}
+
+// Zone transition hooks (Phase 8): invalidate stale caches on zone change.
+PLUGIN_API void OnBeginZone() {
+  cooptui::core::CacheManager::Instance().InvalidateAll();
+  cooptui::scanners::InventoryScanner::Instance().Invalidate();
+  cooptui::core::Log(1, "OnBeginZone: all caches invalidated (version bumped)");
+}
+
+PLUGIN_API void OnEndZone() {
+  // Zone fully loaded — re-invalidate inventory so next scan gets fresh data.
+  cooptui::core::CacheManager::Instance().InvalidateInventory();
+  cooptui::scanners::InventoryScanner::Instance().Invalidate();
+  cooptui::core::Log(1, "OnEndZone: inventory cache invalidated (version bumped)");
 }
 
 extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outModule) {
@@ -324,11 +413,12 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   cooptui::cursor::registerLua(lua, cursor_table);
   mod["cursor"] = cursor_table;
 
-  // Top-level aliases: scan.lua calls mod.scanInventory() / mod.scanBank() / mod.scanLootItems() directly
+  // Top-level aliases: scan.lua calls these directly (no sub-table lookup needed)
   mod["scanInventory"] = items_table["scanInventory"];
   mod["scanBank"] = items_table["scanBank"];
   mod["hasInventoryChanged"] = items_table["hasInventoryChanged"];
   mod["scanLootItems"] = loot_table["scanLootItems"];
+  mod["scanSellItems"] = items_table["scanSellItems"];
 
   outModule = sol::object(mod);
   return true;

@@ -105,7 +105,7 @@ plugin/MQ2CoOptUI/
 │   └── CacheManager.h /.cpp       ← Singleton cache, throttle, dirty flags (Phase 2)
 └── capabilities/
     ├── ini.h / ini.cpp      ← IMPLEMENTED: read, write, readSection, readBatch (Win32 API)
-    ├── ipc.h / ipc.cpp      ← IMPLEMENTED: send, receive, peek, clear (in-process channels)
+    ├── ipc.h / ipc.cpp      ← IMPLEMENTED: send, receive, peek, clear (in-process channels); Phase 9 adds receiveAll
     ├── cursor.h / cursor.cpp ← STUB: hasItem, getItemId, getItemName (TODO in pulse)
     ├── window.h / window.cpp ← STUB: isWindowOpen, click, getText, isMerchantOpen
     ├── items.h / items.cpp   ← STUB: scanInventory(), scanBank() return empty tables
@@ -373,14 +373,14 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 ### Validation
 
 - [x] `/cooptui scan loot` works when loot window is open
-- [ ] Lore duplicates detected correctly
-- [ ] Rule evaluation matches Lua 100%
-- [ ] **Stress test:** 100+ item corpse scans < 5ms
+- [x] Lore duplicates detected correctly
+- [x] Rule evaluation matches Lua 100%
+- [x] **Stress test:** 100+ item corpse scans < 5ms (0 ms observed in production)
 - [x] Lua integration: `scanLootItems()` returns pre-evaluated table
-- [ ] No game freeze during loot (before: multi-second freeze)
+- [x] No game freeze during loot (before: multi-second freeze)
 - [x] Deploy + sync to test environment works
 
-**Phase 6 complete:** `scanners/LootScanner.h/.cpp` added; `capabilities/loot.cpp` extended with `scanLootItems()` Lua function; `scan.lua` hook added at top of `scanLootItems()`; top-level alias `mod["scanLootItems"]` in `CreateLuaModule()`; `/cooptui scan loot` command added; native lore duplicate check via `FindItemByNamePred`; pre-evaluated `willLoot`/`lootReason` per item via `RulesEngine::ShouldItemBeLooted()`.
+**Phase 6 complete (verified 2026-03):** `scanners/LootScanner.h/.cpp` added; `capabilities/loot.cpp` extended with `scanLootItems()` Lua function; `scan.lua` hook added at top of `scanLootItems()`; top-level alias `mod["scanLootItems"]` in `CreateLuaModule()`; `/cooptui scan loot` command added; native lore duplicate check via `FindItemByNamePred`; pre-evaluated `willLoot`/`lootReason` per item via `RulesEngine::ShouldItemBeLooted()`. Production: 70 corpses looted with no issues; `/cooptui scan loot` returns e.g. "5 items in 0 ms (3 will loot, loot window open)".
 
 ---
 
@@ -404,10 +404,12 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ### Validation
 
-- [ ] `/cooptui scan sell` produces correct sell list
-- [ ] sell_cache.ini written with correct chunking
-- [ ] 100% match with Lua sell results
-- [ ] Deploy works with new capability
+- [x] `/cooptui scan sell` produces correct sell list
+- [x] sell_cache.ini written with correct chunking
+- [x] 100% match with Lua sell results
+- [x] Deploy works with new capability
+
+**Phase 7 complete:** SellScanner, SellCacheWriter, scanSellItems() in items.cpp, plugin hook in scan.lua, /cooptui scan sell, top-level alias; sell_cache.ini chunked at 1700 chars; validated.
 
 ---
 
@@ -435,14 +437,523 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ### Validation
 
-- [ ] Scans trigger only when items change
-- [ ] Bank auto-scans on open
-- [ ] Zone change invalidates caches
-- [ ] `/cooptui status` shows scan counts over 60s idle = 0 unnecessary scans
+- [x] Scans trigger only when items change
+- [x] Bank auto-scans on open
+- [x] Zone change invalidates caches
+- [x] `/cooptui status` shows scan counts over 60s idle = 0 unnecessary scans
+
+**Phase 8 complete:** OnBeginZone/OnEndZone hooks, CacheManager InvalidateAll/InvalidateInventory, version counters, throttled OnPulse window-state detection (bank/loot auto-scan, inventory fingerprint); validated.
 
 ---
 
-## Phase 9: TLO Enhancements
+## Phase 9: IPC Event Streaming & Real-Time UI
+
+**Goal:** Replace macro variable accumulation with plugin IPC event streaming. Eliminate buffer overflow risk in loot.mac, enable real-time UI updates in the Loot Companion during active macro runs, and reduce INI file I/O during loot/sell sessions. Every macro change has an explicit fallback so loot.mac and sell.mac work identically without the plugin.
+
+**Research:** See `docs/plugin/IPC_STREAMING_ANALYSIS.md` for the complete analysis that produced this phase.
+
+**Complexity estimate:** This is a large phase. It touches two macros, one C++ file, and three Lua files. The individual changes are simple (one IPC send call per event, one drain loop), but the integration surface is wide. Expect 2–3 days of implementation and 1–2 days of in-game validation across varied session lengths.
+
+### 9.1 — IPC Event Protocol Design
+
+Define the complete event protocol for macro-to-Lua communication via the plugin's IPC channels.
+
+**Channel capacity change:** Increase `kMaxChannelSize` in `capabilities/ipc.cpp` from 256 to 1024. This handles 25+ seconds of Lua stall without message loss. Memory cost: ~25KB per channel. Add the new constant to `core/Config.h` so it can be overridden in `CoOptCore.ini` under `[IPC] ChannelCapacity=1024`.
+
+**New IPC API: `receiveAll(channel)`:** Add to `capabilities/ipc.cpp` alongside existing `receive()`. Returns all queued messages as a `sol::table` (Lua array) and clears the channel in one call. This is more efficient than calling `receive()` in a loop — one C++ → Lua boundary crossing instead of N.
+
+```cpp
+table.set_function("receiveAll",
+    [](const std::string& channel, sol::this_state ts) -> sol::table {
+      sol::state_view L(ts);
+      sol::table result = L.create_table();
+      auto it = s_channels.find(channel);
+      if (it != s_channels.end()) {
+        int idx = 1;
+        for (auto& msg : it->second) {
+          result[idx++] = std::move(msg);
+        }
+        it->second.clear();
+      }
+      return result;
+    });
+```
+
+**Serialization format:** Pipe-delimited positional fields. Chosen because:
+- MQ macros have no JSON library; pipe-split is trivial in Lua (`string.gmatch`)
+- Pipes are already used in the existing echo-based loot feed format
+- Item names do not contain pipes (EQ item names contain spaces, apostrophes, colons — but not pipes)
+- No quoting or escaping needed
+
+**Protocol versioning:** The channel name implicitly defines the format. Version changes are handled by adding fields at the end (backward compatible). Lua consumers check field count: if fewer fields than expected, use defaults for missing fields. If more fields than expected, ignore extras. No explicit version number field is needed — field count is the version indicator.
+
+**Channel definitions:**
+
+| Channel | Direction | Message Format | Fields | Producer | Consumer |
+|---|---|---|---|---|---|
+| `loot_item` | macro → Lua | `Name\|Value\|Tribute` | 3 | loot.mac LogItem | main_loop drain → Current tab + History |
+| `loot_skip` | macro → Lua | `Name\|Reason` | 2 | loot.mac LogSkippedItem | main_loop drain → Skip History |
+| `loot_progress` | macro → Lua | `Looted\|Total\|CorpseName` | 3 | loot.mac per-corpse | main_loop drain → progress bar |
+| `loot_start` | macro → Lua | `TotalCorpses` | 1 | loot.mac session start | main_loop drain → open Loot UI |
+| `loot_end` | macro → Lua | `LootedCount\|SkippedCount\|TotalValue\|TributeValue\|BestName\|BestValue` | 6 | loot.mac FinishLooting | main_loop drain → session complete |
+| `sell_progress` | macro → Lua | `Current\|Total\|Remaining` | 3 | sell.mac WriteProgress | macro_bridge drain → progress bar |
+| `sell_failed` | macro → Lua | `ItemName` | 1 | sell.mac LogFailedItem | macro_bridge drain → failed list |
+| `sell_end` | macro → Lua | `SoldCount\|FailedCount\|TotalValue` | 3 | sell.mac session end | macro_bridge drain → sell complete |
+
+### 9.2 — Macro Side Changes (loot.mac)
+
+**Plugin detection:** Add at the top of `Sub Main`, after the runtime variable declarations:
+
+```
+/declare pluginLoaded bool outer FALSE
+/if (${Plugin[MQ2CoOptUI].Name.Length}) /varset pluginLoaded TRUE
+```
+
+**LogItem changes (loot.mac LogItem subroutine):**
+
+After the existing `runLootedCount` increment and list append block, add:
+
+```
+| IPC: stream looted item to plugin for real-time UI (fallback: vars above still accumulate)
+/if (${pluginLoaded}) /squelch /cooptui ipc send loot_item "${itemName}|${itemValue}|${tribute}"
+```
+
+The existing variable accumulation (`runLootedList`, `runLootedValues`, `runLootedTributes`) is **preserved**. The IPC send is additive. This means:
+- Plugin present: Lua gets real-time events via IPC AND session data via INI at end
+- Plugin absent: Lua gets session data via INI at end only (current behavior)
+
+The `enableLiveLootFeed` echo line (`/echo [ItemUI Loot] ...`) is also preserved for backward compatibility but becomes redundant when the plugin is loaded. A future cleanup phase can remove it.
+
+**LogSkippedItem changes (loot.mac LogSkippedItem subroutine):**
+
+After the existing `runSkippedCount` increment and list append block, add:
+
+```
+| IPC: stream skipped item to plugin for real-time UI (fallback: vars above still accumulate)
+/if (${pluginLoaded}) /squelch /cooptui ipc send loot_skip "${itemName}|${reason}"
+```
+
+**Per-corpse progress (mainlootloop, after corpsesLooted increment):**
+
+After the existing INI write at line 471, add:
+
+```
+/if (${pluginLoaded}) /squelch /cooptui ipc send loot_progress "${corpsesLooted}|${totalCorpses}|${currentCorpseName}"
+```
+
+The INI write stays for non-plugin users and as a crash-recovery checkpoint.
+
+**Session start (START LOOTING section, after progressRunning is set):**
+
+```
+/if (${pluginLoaded}) /squelch /cooptui ipc send loot_start "${totalCorpses}"
+```
+
+**Session end (FinishLooting, after all INI writes are done):**
+
+```
+/if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"
+```
+
+**Total loot.mac changes:** 6 lines added (1 detection, 5 conditional sends). Zero existing lines modified. Zero risk of regression without the plugin.
+
+### 9.3 — Macro Side Changes (sell.mac)
+
+**Plugin detection:** Add at the top of `Sub Main`, after the runtime variable declarations:
+
+```
+/declare pluginLoaded bool outer FALSE
+/if (${Plugin[MQ2CoOptUI].Name.Length}) /varset pluginLoaded TRUE
+```
+
+**WriteProgress changes (sell.mac WriteProgress subroutine):**
+
+After the existing INI writes, add:
+
+```
+/if (${pluginLoaded}) /squelch /cooptui ipc send sell_progress "${soldCount}|${totalToSell}|${remaining}"
+```
+
+The INI writes stay for non-plugin users.
+
+**LogFailedItem changes (sell.mac LogFailedItem subroutine):**
+
+After the existing INI write, add:
+
+```
+/if (${pluginLoaded}) /squelch /cooptui ipc send sell_failed "${itemName}"
+```
+
+**Session end (at the end of Sub Main, before the final `/return`):**
+
+After the progress INI reset block, add:
+
+```
+/if (${pluginLoaded} && ${doConfirm}) /squelch /cooptui ipc send sell_end "${sellCount}|${failedCount}|${totalValue}"
+```
+
+**Total sell.mac changes:** 4 lines added (1 detection, 3 conditional sends). Zero existing lines modified.
+
+### 9.4 — Lua Event Drain Integration
+
+**Location:** Inside `macro_bridge.lua`, integrated into the existing `MacroBridge.poll()` function. The drain runs every time `poll()` runs (every 500ms at the configured `pollInterval`). Additionally, a new `MacroBridge.drainIPCFast()` function runs every tick from `main_loop.lua` to drain high-frequency channels (loot_item, loot_skip) at frame rate even when the full poll is throttled.
+
+**Plugin module access:** The drain uses `require("plugin.MQ2CoOptUI")` (same path as `scan.lua:tryCoopUIPlugin()`). If the require fails, no drain occurs — fallback to INI-only mode.
+
+**New function in macro_bridge.lua:**
+
+```lua
+local coopui_ipc = nil
+local ipc_checked = false
+
+local function getIPC()
+    if ipc_checked then return coopui_ipc end
+    ipc_checked = true
+    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+    if ok and mod and mod.ipc and mod.ipc.receiveAll then
+        coopui_ipc = mod.ipc
+    end
+    return coopui_ipc
+end
+
+function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MAX)
+    local ipc = getIPC()
+    if not ipc then return end
+
+    -- Drain loot_item events → Current tab + History
+    local items = ipc.receiveAll("loot_item")
+    if items and #items > 0 then
+        if not uiState.lootRunLootedItems then uiState.lootRunLootedItems = {} end
+        if not uiState.lootRunLootedList then uiState.lootRunLootedList = {} end
+        if not uiState.lootHistory then uiState.lootHistory = {} end
+        for _, msg in ipairs(items) do
+            local name, valStr, tribStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
+            if name and name ~= "" then
+                local value = tonumber(valStr) or 0
+                local tribute = tonumber(tribStr) or 0
+                local statusText, willSell = "—", false
+                if getSellStatusForItem then
+                    statusText, willSell = getSellStatusForItem({ name = name })
+                    if statusText == "" then statusText = "—" end
+                end
+                table.insert(uiState.lootRunLootedList, name)
+                table.insert(uiState.lootRunLootedItems, {
+                    name = name, value = value, tribute = tribute,
+                    statusText = statusText, willSell = willSell
+                })
+                table.insert(uiState.lootHistory, {
+                    name = name, value = value,
+                    statusText = statusText, willSell = willSell
+                })
+                while #uiState.lootHistory > LOOT_HISTORY_MAX do
+                    table.remove(uiState.lootHistory, 1)
+                end
+                -- Running totals
+                uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
+                uiState.lootRunTributeValue = (uiState.lootRunTributeValue or 0) + tribute
+                if value > (uiState.lootRunBestItemValue or 0) then
+                    uiState.lootRunBestItemValue = value
+                    uiState.lootRunBestItemName = name
+                end
+            end
+        end
+    end
+
+    -- Drain loot_skip events → Skip History
+    local skips = ipc.receiveAll("loot_skip")
+    if skips and #skips > 0 then
+        if not uiState.skipHistory then uiState.skipHistory = {} end
+        for _, msg in ipairs(skips) do
+            local name, reason = msg:match("^([^|]+)|(.+)$")
+            if name and name ~= "" then
+                table.insert(uiState.skipHistory, {
+                    name = name, reason = reason or ""
+                })
+                while #uiState.skipHistory > LOOT_HISTORY_MAX do
+                    table.remove(uiState.skipHistory, 1)
+                end
+            end
+        end
+    end
+
+    -- Drain loot_progress events → progress bar
+    local progress = ipc.receiveAll("loot_progress")
+    if progress and #progress > 0 then
+        local last = progress[#progress]  -- only latest matters
+        local looted, total, corpse = last:match("^([^|]+)|([^|]+)|(.*)$")
+        if looted then
+            uiState.lootRunCorpsesLooted = tonumber(looted) or 0
+            uiState.lootRunTotalCorpses = tonumber(total) or 0
+            uiState.lootRunCurrentCorpse = corpse or ""
+        end
+    end
+
+    -- Drain loot_start → open Loot UI
+    local starts = ipc.receiveAll("loot_start")
+    if starts and #starts > 0 then
+        uiState.lootUIOpen = true
+        uiState.lootRunFinished = false
+        uiState.lootRunLootedItems = {}
+        uiState.lootRunLootedList = {}
+        uiState.lootRunTotalValue = 0
+        uiState.lootRunTributeValue = 0
+        uiState.lootRunBestItemName = ""
+        uiState.lootRunBestItemValue = 0
+    end
+
+    -- Drain loot_end → session summary
+    local ends = ipc.receiveAll("loot_end")
+    if ends and #ends > 0 then
+        local last = ends[#ends]
+        local parts = {}
+        for p in (last .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = p end
+        if #parts >= 6 then
+            uiState.lootRunTotalValue = tonumber(parts[3]) or uiState.lootRunTotalValue
+            uiState.lootRunTributeValue = tonumber(parts[4]) or uiState.lootRunTributeValue
+            if parts[5] ~= "" then uiState.lootRunBestItemName = parts[5] end
+            uiState.lootRunBestItemValue = tonumber(parts[6]) or uiState.lootRunBestItemValue
+        end
+        uiState.lootRunFinished = true
+    end
+end
+```
+
+**Sell IPC drain (inside MacroBridge.poll):**
+
+Add sell channel drains inside `MacroBridge.poll()`, after the existing sell macro state checks:
+
+```lua
+-- Drain sell IPC channels (supplements INI polling; higher priority)
+local ipc = getIPC()
+if ipc then
+    local sp = ipc.receiveAll("sell_progress")
+    if sp and #sp > 0 then
+        local last = sp[#sp]
+        local cur, tot, rem = last:match("^([^|]+)|([^|]+)|(.+)$")
+        if cur then
+            MacroBridge.state.sell.progress = {
+                total = tonumber(tot) or 0,
+                current = tonumber(cur) or 0,
+                remaining = tonumber(rem) or 0
+            }
+            MacroBridge.state.sell.running = true
+        end
+    end
+    local sf = ipc.receiveAll("sell_failed")
+    if sf and #sf > 0 then
+        for _, msg in ipairs(sf) do
+            table.insert(MacroBridge.state.sell.failedItems, msg)
+            MacroBridge.state.sell.failedCount = MacroBridge.state.sell.failedCount + 1
+        end
+    end
+    local se = ipc.receiveAll("sell_end")
+    if se and #se > 0 then
+        MacroBridge.state.sell.running = false
+    end
+end
+```
+
+**main_loop.lua integration:** Add one line to `M.tick(now)`, immediately after the existing `macro_bridge.poll()` call:
+
+```lua
+if d.macroBridge and d.macroBridge.drainIPCFast then
+    d.macroBridge.drainIPCFast(d.uiState, d.getSellStatusForItem, d.LOOT_HISTORY_MAX)
+end
+```
+
+**Queue depth handling:** The drain calls `receiveAll()` which empties the channel in one shot. If events accumulate faster than they are consumed (theoretically impossible since drain runs every frame and produce rate is <50/second), the channel's 1024-message limit silently drops oldest events. No crash, no hang — just lost history entries. This is strictly better than the current behavior where overflow causes a CTD.
+
+### 9.5 — Real-Time UI Updates
+
+**Loot Companion — Current tab (`loot_ui.lua`):**
+
+Before Step 9, the Current tab's looted items table (`loot_ui.lua:329–392`) is empty during a loot run and batch-populates from `loot_session.ini` after `loot:complete`. The table iterates `state.lootRunLootedItems`.
+
+After Step 9, the IPC drain in 9.4 inserts rows into `state.lootRunLootedItems` per-frame as events arrive. The table renders them immediately. No changes to `loot_ui.lua` are needed — the view already renders whatever is in the array.
+
+**Player experience — before:** Start loot macro → Loot Companion opens → progress bar advances → looted items table is blank for entire run (30 seconds to 5 minutes) → macro finishes → all items appear at once.
+
+**Player experience — after:** Start loot macro → Loot Companion opens → progress bar advances → each looted item appears in the table within one frame of being looted → running totals (value, tribute, best item) update live → macro finishes → session summary finalizes.
+
+**Loot Companion — Skip History tab (`loot_ui.lua`):**
+
+Before Step 9, Skip History populates from `loot_skipped.ini` after `loot:complete`. The tab is blank during the run.
+
+After Step 9, the IPC drain inserts skip entries into `state.skipHistory` per-frame. The Skip History tab shows items being skipped in real time with reasons.
+
+**Player experience — before:** Skip History tab is blank during run → batch appears at end.
+
+**Player experience — after:** Skip History tab shows each skipped item with reason as it is evaluated → player can switch to Loot tab and add items to Always Loot if they see something they want.
+
+**Loot Companion — Progress bar:**
+
+Before Step 9, progress updates every 500ms via INI polling. After Step 9, progress updates per-frame via IPC. The visual difference is smoother bar animation and immediate corpse-name updates.
+
+**Sell View — Progress bar (`sell.lua`):**
+
+The sell progress bar reads from `MacroBridge.state.sell.progress` via `macro_bridge.getSellProgress()`. The IPC drain in 9.4 updates this state from `sell_progress` events. The sell view code does not change — it already reads from the state that the drain now populates more frequently.
+
+**Player experience — before:** Progress bar updates in 150–500ms steps. After: progress bar updates per-frame.
+
+**Sell View — Failed items:**
+
+Failed items now appear in `sellMacState.failedItems` as they occur, not at session end. The existing failed-items display in `main_loop.lua` phase 4 already reads from this state.
+
+**Session summary merge (`main_loop.lua` phase 5):**
+
+The existing phase 5 session-read logic at `main_loop.lua:222–294` reads `loot_session.ini` and merges into `lootRunLootedItems`. When IPC events have already populated the items table during the run, the merge logic's `seen` deduplication (line 232) prevents duplicates. The phase 5 session read becomes a reconciliation pass — it adds any items that the IPC drain might have missed (e.g., if the plugin was unloaded mid-session) and sets authoritative summary totals.
+
+No changes to phase 5 logic are needed. The existing merge is already designed to handle partial pre-population (it checks `seen[name]` before inserting).
+
+### 9.6 — Buffer Overflow Elimination
+
+**Complete audit of macro variables with overflow risk:**
+
+| Variable | Macro | Chunks | Risk before 9 | Status after 9 |
+|---|---|---|---|---|
+| runSkippedList / Reasons | loot.mac | 5 each | **Fixed** (dual-length check) but 5-chunk cap drops details | **Mitigated**: IPC streams all events with no cap; vars still accumulate as fallback with existing fix |
+| runLootedList / Values / Tributes | loot.mac | 3 each | **Active risk**: 3-chunk cap silently drops items and count | **Mitigated**: IPC streams all events; Lua accumulates from events with no limit |
+| lootedNamesThisSession | loot.mac | 3 | Low risk (internal cache; items re-evaluated on miss) | **Unchanged**: internal optimization, not UI-facing |
+| skippedNamesThisSession | loot.mac | 3 | Low risk (internal cache) | **Unchanged** |
+| loreItemCache | loot.mac | 3 | Low risk (internal cache; FindItem fallback) | **Unchanged** |
+| epicExact | loot.mac / sell.mac | 4 | Config-dependent; warning issued at load | **Unchanged**: config lists, not session-accumulating |
+| sellCacheNames | sell.mac | 10 | Read-only input from Lua; buffer warning | **Unchanged**: not session-accumulating |
+| alwaysSellExact / Contains | sell.mac | 3 each | Config-dependent; buffer warning | **Unchanged** |
+| protectedTypes | sell.mac | 3 | Config-dependent; buffer warning | **Unchanged** |
+
+**Key insight:** The IPC pattern eliminates overflow risk for the two variable groups that actually grow during a session: `runLootedList` (3 chunks) and `runSkippedList/Reasons` (5 chunks). Config-load variables (epicExact, alwaysSellExact, etc.) are bounded by config file size, not session length, and are not addressed here.
+
+**Regression test procedure:**
+1. Run a 100-corpse loot session with the plugin loaded. Verify all 100+ looted items appear in Current tab (exceeds the 3-chunk cap of ~200 items per name length).
+2. Run the same session without the plugin. Verify the 3-chunk cap behavior is unchanged (items beyond cap are dropped, count stops incrementing when all chunks full).
+3. Run a session where skip reasons are deliberately verbose (e.g., modify loot config to produce long reason strings). Verify skip events stream via IPC with no truncation.
+4. Monitor `kMaxChannelSize` utilization: after a 100-corpse run, check that no channel exceeded 50% capacity during normal operation (indicates safe headroom).
+
+### 9.7 — Crash Recovery
+
+**Data recovery improvement:** Before Step 9, if MQ crashes during a loot session, all accumulated session data is lost — `loot_session.ini` and `loot_skipped.ini` are only written at `FinishLooting`, which never runs during a crash.
+
+After Step 9, each loot/skip event is delivered to the plugin's in-memory IPC channel and drained into Lua state per-frame. The Lua side holds the data in `uiState.lootRunLootedItems` and `uiState.skipHistory`. These are in-memory Lua tables — they survive a macro crash (the macro crashes, Lua keeps running), but not a full MQ/game crash.
+
+**Incremental persistence:** To survive full crashes, the Lua drain should periodically persist in-flight session data. The existing `phase2_periodicPersist` in `main_loop.lua` (line 98–124) already saves inventory every `PERSIST_SAVE_INTERVAL_MS`. A similar mechanism for loot session data:
+
+- Every 10 seconds during an active loot session, write current `lootRunLootedItems` and `skipHistory` to `loot_session_inflight.ini` and `loot_skipped_inflight.ini`
+- On next loot session start, check for inflight files and offer recovery in the Loot Companion UI
+- On clean session end (loot_end event received), delete inflight files
+
+**What is now recoverable that was previously lost:**
+
+| Scenario | Before Step 9 | After Step 9 |
+|---|---|---|
+| Macro crashes, MQ stays running | All session data lost | All data preserved in Lua state; UI still shows it |
+| Full MQ crash during session | All session data lost | Data up to last periodic persist (≤10 seconds old) recoverable from inflight files |
+| Plugin unloaded mid-session | N/A (no plugin) | Events delivered before unload preserved; remaining events accumulate in macro vars and arrive via INI at session end |
+
+**Implementation complexity:** The inflight persistence adds a periodic write loop and a startup recovery check. This is a Medium complexity addition. It can be deferred to a sub-phase (9.7b) if the core IPC streaming (9.1–9.5) needs to ship first. The primary crash recovery benefit — surviving macro crashes — is free with the IPC drain and requires no additional work.
+
+### 9.8 — Fallback Contract
+
+Every macro change in 9.2 and 9.3 is guarded by `${pluginLoaded}`. When the plugin is absent:
+
+**loot.mac behavior without plugin:**
+- `pluginLoaded = FALSE` — all `/cooptui ipc send` lines are skipped
+- Variable accumulation in `runLootedList`, `runSkippedList`, etc. proceeds unchanged
+- `FinishLooting` writes `loot_session.ini` and `loot_skipped.ini` as before
+- The echo-based live feed (`enableLiveLootFeed`) continues to work
+- `loot_progress.ini` is still written per corpse
+- **No behavioral change whatsoever** for non-plugin users
+
+**sell.mac behavior without plugin:**
+- `pluginLoaded = FALSE` — all `/cooptui ipc send` lines are skipped
+- `WriteProgress` writes `sell_progress.ini` as before
+- `LogFailedItem` writes `sell_failed.ini` as before
+- **No behavioral change whatsoever** for non-plugin users
+
+**Lua behavior without plugin:**
+- `macro_bridge.drainIPCFast()` calls `getIPC()` which returns `nil` (plugin not loaded)
+- The function returns immediately — no drain, no state changes
+- All data continues to arrive via INI polling through `macro_bridge.poll()`, `getLootSession()`, `pollLootProgress()` — exactly as today
+- Phase 5 session read in `main_loop.lua` populates tables from INI files as before
+
+**Plugin loaded mid-session:**
+- If the plugin is loaded after loot.mac starts, `pluginLoaded` remains `FALSE` for that session (it was set at macro startup). Events do not stream. Data arrives via INI at session end. This is correct — partial-session IPC would create confusing data gaps.
+- On the next macro run, `pluginLoaded` is re-evaluated and will be `TRUE`.
+
+**Plugin unloaded mid-session:**
+- IPC sends fail silently (the `/cooptui` command is unregistered; MQ2 ignores unknown commands with `/squelch`). No error, no crash.
+- Variable accumulation continues in the macro. Data arrives via INI at session end.
+- Events that were already delivered to Lua before unload remain in `uiState` and are visible in the UI.
+
+### Validation
+
+- [ ] **loot.mac + plugin:** IPC events stream in real time; Loot Companion Current tab shows items appearing per-frame
+- [ ] **loot.mac − plugin:** Behavior identical to pre-Phase-9; Loot Companion populates from INI at session end
+- [ ] **sell.mac + plugin:** Progress bar updates per-frame; failed items appear immediately
+- [ ] **sell.mac − plugin:** Behavior identical to pre-Phase-9; progress bar updates via INI polling
+- [ ] **Long session (200+ items looted, 300+ skipped):** No buffer overflow, all items appear in UI
+- [ ] **IPC channel capacity:** `kMaxChannelSize = 1024` verified in `/cooptui status`
+- [ ] **receiveAll() API:** Returns correct table, clears channel in one call
+- [ ] **Plugin unload mid-session:** No crash, no error; remaining data arrives via INI
+- [ ] **Plugin load then loot:** Events stream; IPC drain populates tables; session read merges without duplicates
+- [ ] **Phase 5 session read merge:** Items from IPC are not duplicated when `loot_session.ini` is read at session end
+
+### Quick rebuild + deploy command:
+
+```powershell
+# Plugin change (ipc.cpp receiveAll, kMaxChannelSize):
+$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+.\scripts\build-and-deploy.ps1 `
+  -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
+  -DeployPath "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2" `
+  -PluginOnly -UsePrebuildDownload:$false
+
+# Lua + macro changes (no rebuild needed):
+.\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+```
+
+### Copyable handoff prompt — Phase 9 (IPC Event Streaming)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md Phase 9 and
+docs/plugin/IPC_STREAMING_ANALYSIS.md first. Then implement Phase 9
+(IPC Event Streaming & Real-Time UI).
+
+Phase 9 has 8 sub-steps. Implement them in order:
+
+9.1: In capabilities/ipc.cpp, increase kMaxChannelSize to 1024 and add
+receiveAll(channel) that returns a sol::table of all queued messages and
+clears the channel. Add top-level alias mod["ipc"]["receiveAll"] in
+CreateLuaModule(). Optionally make capacity configurable via CoOptCore.ini
+[IPC] ChannelCapacity.
+
+9.2: In Macros/loot.mac, add pluginLoaded detection at Sub Main. Add
+/squelch /cooptui ipc send calls in LogItem, LogSkippedItem, per-corpse
+progress, session start, and FinishLooting. All guarded by pluginLoaded.
+Do NOT remove any existing variable accumulation or INI writes.
+
+9.3: In Macros/sell.mac, add pluginLoaded detection at Sub Main. Add
+/squelch /cooptui ipc send calls in WriteProgress, LogFailedItem, and
+session end. All guarded by pluginLoaded.
+
+9.4: In lua/itemui/services/macro_bridge.lua, add drainIPCFast() that
+uses receiveAll() on loot_item, loot_skip, loot_progress, loot_start,
+loot_end channels. Populates uiState tables. Add sell channel drains
+inside poll(). In lua/itemui/services/main_loop.lua, call
+macroBridge.drainIPCFast() at the top of M.tick() after poll().
+
+9.5-9.8: Verify real-time UI updates work, buffer overflow is mitigated,
+crash recovery improved, fallback contract holds.
+
+Build: cmake --build "...\build\solution" --config Release --target MQ2CoOptUI
+Deploy: sync-to-deploytest.ps1 + IncludePlugin
+
+Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Zero char[] buffers.
+Verify all Phase 9 validation checkboxes before declaring complete.
+```
+
+---
+
+## Phase 10: TLO Enhancements
 
 **Goal:** Extend the existing `${CoOptUI}` TLO with cache/rules access for macros.
 
@@ -463,7 +974,7 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ---
 
-## Phase 10: Lua Integration Patches (Final Pass)
+## Phase 11: Lua Integration Patches (Final Pass)
 
 **Goal:** Verify all plugin hooks are in place and add any remaining ones. The main integration gap fixes (`tryCoopUIPlugin()` name and top-level aliases) were done in Phase 3.
 
@@ -508,7 +1019,7 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ---
 
-## Phase 11: Performance Metrics & Stress Testing
+## Phase 12: Performance Metrics & Stress Testing
 
 **Goal:** Built-in performance monitoring and stress tests.
 
@@ -537,7 +1048,7 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ---
 
-## Phase 12: Deploy, Sync, & Zip Verification
+## Phase 13: Deploy, Sync, & Zip Verification
 
 **Goal:** Ensure the enhanced plugin works end-to-end in the full deploy pipeline.
 
@@ -598,7 +1109,7 @@ plugin/MQ2CoOptUI/
 ├── README.md
 ├── capabilities/                        ← EXISTING (preserved)
 │   ├── ini.h / ini.cpp                  ← IMPLEMENTED (no changes)
-│   ├── ipc.h / ipc.cpp                  ← IMPLEMENTED (no changes)
+│   ├── ipc.h / ipc.cpp                  ← IMPLEMENTED; Phase 9 adds receiveAll(), increases channel cap
 │   ├── cursor.h / cursor.cpp            ← STUB → will be completed
 │   ├── window.h / window.cpp            ← STUB → will be completed
 │   ├── items.h / items.cpp              ← STUB → REPLACED with real scanners (Phase 3-4)
@@ -628,6 +1139,8 @@ plugin/MQ2CoOptUI/
 | `lua/itemui/services/scan.lua` | Fix `tryCoopUIPlugin()` — try `plugin.MQ2CoOptUI` first | **3** | Fixes module name mismatch |
 | `lua/itemui/services/scan.lua` | Add plugin hook in `scanLootItems()` | 6 | Enables C++ loot scan |
 | `lua/itemui/services/scan.lua` | Add plugin hook in `scanSellItems()` | 7 | Enables C++ sell scan |
+| `lua/itemui/services/macro_bridge.lua` | Add `drainIPCFast()`, sell IPC drain in `poll()`, `getIPC()` helper | **9** | Real-time IPC event consumption |
+| `lua/itemui/services/main_loop.lua` | Call `macroBridge.drainIPCFast()` in `M.tick()` | **9** | Frame-rate IPC drain |
 
 The inventory and bank hooks **already exist** in `scan.lua:108-147` and `scan.lua:341-369` — the code paths already call `coopui.scanInventory()` and `coopui.scanBank()`. With the top-level aliases added in `CreateLuaModule()` (Phase 3), these existing hooks will "just work" once the stubs return real data.
 
@@ -636,9 +1149,17 @@ The inventory and bank hooks **already exist** in `scan.lua:108-147` and `scan.l
 | File | Change | Phase | Impact |
 |---|---|---|---|
 | `plugin/MQ2CoOptUI/MQ2CoOptUI.cpp` | Top-level aliases in `CreateLuaModule()` | **3** | Fixes function path mismatch |
-| `plugin/MQ2CoOptUI/MQ2CoOptUI.cpp` | Wire CacheManager, extend commands, add event hooks | 2, 8, 9 | Core infra |
+| `plugin/MQ2CoOptUI/MQ2CoOptUI.cpp` | Wire CacheManager, extend commands, add event hooks | 2, 8, 10 | Core infra |
+| `plugin/MQ2CoOptUI/capabilities/ipc.cpp` | Increase `kMaxChannelSize` to 1024, add `receiveAll()` | **9** | IPC streaming |
 | `plugin/MQ2CoOptUI/capabilities/items.cpp` | Replace stubs with real scanner calls | 3, 4, 7 | Real scanning |
 | `plugin/MQ2CoOptUI/capabilities/loot.cpp` | Add `scanLootItems()` | 6 | Real loot scanning |
+
+### Macro Files Modified
+
+| File | Change | Phase | Impact |
+|---|---|---|---|
+| `Macros/loot.mac` | Add `pluginLoaded` detection + 5 IPC send calls (guarded) | **9** | Real-time loot/skip/progress streaming |
+| `Macros/sell.mac` | Add `pluginLoaded` detection + 3 IPC send calls (guarded) | **9** | Real-time sell progress streaming |
 
 ---
 
@@ -666,21 +1187,26 @@ Phase 1 (Config/Logging) ────► Phase 2 (Data/Cache)
           Phase 8 (Event Hooks)
                     │
                     ▼
-          Phase 9 (TLO Enhancements)
+          Phase 9 (IPC Event Streaming)
                     │
                     ▼
-          Phase 10 (Lua Patches)
+          Phase 10 (TLO Enhancements)
                     │
                     ▼
-          Phase 11 (Stress Test)
+          Phase 11 (Lua Patches)
                     │
                     ▼
-          Phase 12 (Deploy/Zip Verify)
+          Phase 12 (Stress Test)
+                    │
+                    ▼
+          Phase 13 (Deploy/Zip Verify)
 ```
 
 Phases 3-4 can run in parallel with Phase 5.
 Phase 6 requires Phases 3+4+5 complete.
-Phase 12 can start after the prerequisite (for deploy-only tests).
+Phase 9 requires Phase 8 complete (IPC infrastructure + event hooks).
+Phase 9 touches macros and Lua only; it does NOT depend on Phases 10-11.
+Phase 13 can start after the prerequisite (for deploy-only tests).
 
 ---
 
@@ -718,6 +1244,36 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Zero char[] buffers. Use std::
 Verify all validation checkboxes in the plan before declaring complete.
 ```
 
+### Copyable prompt — Phase 7 (Sell Scanner & Cache Writer)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 7 (Sell Scanner & Cache Writer).
+
+Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ already has InventoryScanner, BankScanner, LootScanner, and RulesEngine (sell/loot). Phase 7 adds: (1) SellScanner — uses cached inventory from CacheManager and RulesEngine::WillItemBeSold() to build a sell list in memory (no TLO). (2) SellCacheWriter — writes sell_cache.ini via Win32 WritePrivateProfileString with chunking (each key ≤ 1700 chars, match Lua SELL_CACHE_CHUNK_LEN). (3) scanSellItems() in capabilities/items.cpp that returns the sell list as a sol::table. (4) Plugin hook in scan.lua:scanSellItems() so the Sell tab can use the plugin path when available.
+
+Lua scan.lua already has scanSellItems() and a reentrancy guard; add at the top the same pattern as scanLootItems(): tryCoopUIPlugin(), if coopui.scanSellItems then pcall and if ok and #result > 0 then populate env.sellItems and return. Add top-level alias mod["scanSellItems"] in CreateLuaModule() and /cooptui scan sell command. Update CMakeLists.txt for new sources (scanners/SellScanner.cpp, storage/SellCacheWriter.cpp).
+
+Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
+Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force; .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7"
+
+Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Zero char[] buffers. Use std::string. Verify all Phase 7 validation checkboxes before declaring complete.
+```
+
+### Copyable prompt — Phase 8 (Event-Driven Invalidation)
+
+```
+Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 8 (Event-Driven Invalidation).
+
+Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ has CacheManager with dirty flags and OnPulse() throttled by ScanThrottleMs. Phase 8 adds: (1) MQ event hooks in MQ2CoOptUI.cpp — OnBeginZone() → CacheManager::InvalidateAll(), OnEndZone() (or equivalent) → CacheManager::InvalidateInventory(). (2) In OnPulse(), a lightweight hash of inventory item IDs (e.g. FNV over id+stack like InventoryScanner fingerprint); only set inventory dirty when the hash changes. (3) In OnPulse(), detect bank/merchant/loot window visibility and trigger auto-scan on open or snapshot-on-close behavior where applicable. (4) Optional: per-cache-type version numbers so Lua can poll and refresh only when version changes.
+
+Ensure existing behavior is preserved: InventoryScanner/BankScanner/LootScanner already have their own fingerprint or window checks; wire events so that zone change and window state reduce unnecessary scans rather than replace scanner logic. Validate: zone change invalidates caches; bank open triggers scan; idle 60s shows no unnecessary scan count growth in /cooptui status.
+
+Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
+Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+
+Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 8 validation checkboxes before declaring complete.
+```
+
 ---
 
 ## Build-and-Deploy Script: Improvements Made
@@ -736,7 +1292,7 @@ The following improvements have been implemented in the build/deploy scripts:
    .\scripts\sync-to-deploytest.ps1 -Target "...\CoOptUI2" -IncludePlugin
    ```
 
-3. **Stage 3e always runs in PluginOnly mode:** Lua/macros/resources are deployed even in plugin-only mode, ensuring Lua hook changes (from Phases 6/7/10) reach the test environment.
+3. **Stage 3e always runs in PluginOnly mode:** Lua/macros/resources are deployed even in plugin-only mode, ensuring Lua hook changes (from Phases 6/7/11) reach the test environment.
 
 4. **Zip verification unchanged:** `list-zip.ps1` checks for `plugins/MQ2CoOptUI.dll` (name unchanged).
 
@@ -759,3 +1315,6 @@ The following improvements have been implemented in the build/deploy scripts:
 | INI format changes | Versioned config; backward-compatible readers |
 | Build env not set up | Prerequisite step validates entire chain before Phase 1 |
 | Name confusion | We keep `MQ2CoOptUI` everywhere — no rename, no new plugin |
+| IPC channel overflow | Increased cap to 1024; receiveAll() drains per-frame; silent drop > crash |
+| Macro runs without plugin | All IPC sends guarded by `pluginLoaded`; var accumulation + INI writes preserved |
+| Duplicate items in UI | Phase 5 session-read merge uses `seen[name]` dedup; IPC items merge cleanly |

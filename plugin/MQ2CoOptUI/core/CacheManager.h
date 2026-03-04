@@ -41,6 +41,22 @@ class CacheManager {
   void SetBankDirty(bool v = true) { dirtyBank_ = v; }
   void SetLootDirty(bool v = true) { dirtyLoot_ = v; }
 
+  // Invalidation helpers — called from event hooks (zone change, etc.)
+  // These set dirty flags and bump version counters so Lua can detect staleness.
+  void InvalidateAll();
+  void InvalidateInventory();
+
+  // Version counters: incremented by event hooks and auto-scans so Lua can
+  // poll GetInventoryVersion() / GetBankVersion() and refresh only on change.
+  uint32_t GetInventoryVersion() const { return inventoryVersion_; }
+  uint32_t GetBankVersion() const { return bankVersion_; }
+  uint32_t GetLootVersion() const { return lootVersion_; }
+  uint32_t GetSellVersion() const { return sellVersion_; }
+  void IncrementInventoryVersion() { ++inventoryVersion_; }
+  void IncrementBankVersion() { ++bankVersion_; }
+  void IncrementLootVersion() { ++lootVersion_; }
+  void IncrementSellVersion() { ++sellVersion_; }
+
   // Capacity (reserved) and size (used) for status display
   size_t GetInventoryReserve() const { return inventory_.capacity(); }
   size_t GetBankReserve() const { return bank_.capacity(); }
@@ -85,6 +101,11 @@ class CacheManager {
   uint32_t inventoryScanCount_ = 0;
   uint32_t bankScanCount_ = 0;
   uint32_t lootScanCount_ = 0;
+
+  uint32_t inventoryVersion_ = 0;
+  uint32_t bankVersion_ = 0;
+  uint32_t lootVersion_ = 0;
+  uint32_t sellVersion_ = 0;
 };
 
 }  // namespace core

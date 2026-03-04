@@ -449,6 +449,24 @@ function M.scanSellItems()
     scanSellItemsRunning = true
 
     env.invalidateSortCache("sell")
+
+    -- Plugin fast path: use native C++ sell scanner when available
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.scanSellItems then
+        local ok, result = pcall(coopui.scanSellItems)
+        if ok and result and type(result) == "table" and #result > 0 then
+            local sellItems = env.sellItems
+            for i = #sellItems, 1, -1 do sellItems[i] = nil end
+            for _, row in ipairs(result) do
+                if type(row) == "table" then sellItems[#sellItems + 1] = row end
+            end
+            env.scanState.sellStatusAttachedAt = nil
+            if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+            scanSellItemsRunning = false
+            return
+        end
+    end
+
     if not env.perfCache.sellConfigCache then env.loadSellConfigCache() end
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
