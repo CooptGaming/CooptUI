@@ -558,6 +558,18 @@ end
 function M.scanLootItems()
     local lootItems = env.lootItems
     for i = #lootItems, 1, -1 do lootItems[i] = nil end
+    -- Plugin fast path: use native C++ loot scanner when available
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.scanLootItems then
+        local ok, result = pcall(coopui.scanLootItems)
+        if ok and result and type(result) == "table" and #result > 0 then
+            for _, row in ipairs(result) do
+                if type(row) == "table" then table.insert(lootItems, row) end
+            end
+            env.invalidateSortCache("loot")
+            return
+        end
+    end
     local corpse = mq.TLO and mq.TLO.Corpse
     local itemsCount = corpse and corpse.Items and corpse.Items()
     if not corpse or not itemsCount or (type(itemsCount) ~= "number") or itemsCount <= 0 then return end

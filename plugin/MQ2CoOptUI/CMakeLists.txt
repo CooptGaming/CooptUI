@@ -19,8 +19,10 @@ set(MQ2CoOptUI_SOURCES
   capabilities/window.cpp
   capabilities/items.cpp
   capabilities/loot.cpp
+  rules/RulesEngine.cpp
   scanners/BankScanner.cpp
   scanners/InventoryScanner.cpp
+  scanners/LootScanner.cpp
 )
 
 add_library(MQ2CoOptUI MODULE ${MQ2CoOptUI_SOURCES})

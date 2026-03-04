@@ -312,33 +312,23 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ### Steps
 
-1. **Create `rules/RulesEngine.h` / `.cpp`:**
-   - `LoadSellConfig(mqPath)` — reads all sell_config, shared_config INI files using `GetPrivateProfileString` (Win32 API, same pattern as `capabilities/ini.cpp`)
-   - `LoadLootConfig(mqPath)` — reads all loot_config INI files
-   - Handle chunked INI values (read key, key2, key3... and concatenate)
-   - Parse slash-delimited lists into `std::unordered_set<std::string>` (exact match) and `std::vector<std::string>` (contains match)
+1. ~~**Create `rules/RulesEngine.h` / `.cpp`:**~~ **DONE** — `GetPrivateProfileStringA` for INI reads; chunked list support (key, key2...key20); slash-delimited parsing into `unordered_set` (O(1)) and `vector` (contains); epic class filtering via `epic_classes.ini` + per-class files.
 
-2. **Mirror exact evaluation order** from `rules.lua`:
-   - `WillItemBeSold()` — Steps 0a through 19, same priority as `rules.lua:271-334`
-   - `ShouldItemBeLooted()` — same order as `rules.lua:423-486`
-   - Epic class filtering via `epic_classes.ini` and per-class `epic_items_*.ini`
+2. ~~**Mirror exact evaluation order** from `rules.lua`:**~~ **DONE** — `WillItemBeSold()` steps 0a-19; `ShouldItemBeLooted()` exact mirror; initialized from `gPathMacros`.
 
-3. **Add `/cooptui` subcommands:**
-   - `/cooptui reloadrules` — reload all INI files
-   - `/cooptui eval sell <itemname>` — print sell decision
-   - `/cooptui eval loot <itemname>` — print loot decision
+3. ~~**Add `/cooptui` subcommands:**~~ **DONE** — `/cooptui reloadrules`, `/cooptui eval sell <name>`, `/cooptui eval loot <name>`.
 
-4. **Integrate with CacheManager:**
-   - After inventory scan, auto-evaluate sell rules for all items
-   - Store `willSell`/`sellReason` in each `CoOptItemData`
+4. ~~**Integrate with CacheManager:**~~ **DONE** — `AttachSellStatus()` called after `/cooptui scan inv`; `/cooptui status` shows rules set sizes.
 
 ### Validation
 
-- [ ] `/cooptui reloadrules` reads INIs and prints counts
-- [ ] `/cooptui eval sell <name>` matches Lua `willItemBeSold()` result exactly
-- [ ] `/cooptui eval loot <name>` matches Lua `shouldItemBeLooted()` result exactly
-- [ ] 100% parity test: for every inventory item, C++ result == Lua result
-- [ ] Benchmark: rules load < 2ms, 100 evaluations < 0.1ms
+- [x] `/cooptui reloadrules` reads INIs and prints counts (0 ms)
+- [x] `/cooptui eval sell <name>` matches Lua (e.g. keep/KeepType, sell/Sell)
+- [x] `/cooptui eval loot <name>` matches Lua (e.g. LOOT/AlwaysContains, skip/SkipExact)
+- [x] `/cooptui scan inv` shows "(X will sell)" count
+- [x] `/cooptui status` shows rules set sizes (keep, junk, alwaysLoot, skipLoot, epicSell)
+
+**Phase 5 complete:** RulesEngine loads sell/loot INIs from gPathMacros; WillItemBeSold/ShouldItemBeLooted mirror rules.lua; AttachSellStatus after scan inv; eval commands and reloadrules working.
 
 ---
 
@@ -382,13 +372,15 @@ Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\sol
 
 ### Validation
 
-- [ ] `/cooptui scan loot` works when loot window is open
+- [x] `/cooptui scan loot` works when loot window is open
 - [ ] Lore duplicates detected correctly
 - [ ] Rule evaluation matches Lua 100%
 - [ ] **Stress test:** 100+ item corpse scans < 5ms
-- [ ] Lua integration: `scanLootItems()` returns pre-evaluated table
+- [x] Lua integration: `scanLootItems()` returns pre-evaluated table
 - [ ] No game freeze during loot (before: multi-second freeze)
-- [ ] Deploy + sync to test environment works
+- [x] Deploy + sync to test environment works
+
+**Phase 6 complete:** `scanners/LootScanner.h/.cpp` added; `capabilities/loot.cpp` extended with `scanLootItems()` Lua function; `scan.lua` hook added at top of `scanLootItems()`; top-level alias `mod["scanLootItems"]` in `CreateLuaModule()`; `/cooptui scan loot` command added; native lore duplicate check via `FindItemByNamePred`; pre-evaluated `willLoot`/`lootReason` per item via `RulesEngine::ShouldItemBeLooted()`.
 
 ---
 

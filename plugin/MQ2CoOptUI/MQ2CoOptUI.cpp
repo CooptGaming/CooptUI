@@ -18,8 +18,10 @@
 #include "core/CacheManager.h"
 #include "core/Config.h"
 #include "core/Logger.h"
+#include "rules/RulesEngine.h"
 #include "scanners/BankScanner.h"
 #include "scanners/InventoryScanner.h"
+#include "scanners/LootScanner.h"
 
 PreSetup("MQ2CoOptUI");
 PLUGIN_VERSION(1.0);
@@ -111,10 +113,20 @@ static void CmdStatus() {
                      cache.GetLootCount(), cache.GetLootReserve(),
                      cache.IsLootDirty() ? "yes" : "no",
                      cache.GetSellItemsCount());
+
+  auto& re = cooptui::rules::RulesEngine::Instance();
+  if (re.IsLoaded()) {
+    cooptui::core::Log(0, "  Rules: keep=%zu junk=%zu alwaysLoot=%zu skipLoot=%zu epicSell=%zu",
+                       re.GetKeepSetSize(), re.GetJunkSetSize(),
+                       re.GetAlwaysLootSize(), re.GetSkipLootSize(), re.GetEpicSellSize());
+  } else {
+    cooptui::core::Log(0, "  Rules: not loaded");
+  }
 }
 
 static void CmdReload() {
   cooptui::core::Config::Instance().Reload();
+  cooptui::rules::RulesEngine::Instance().Reload();
   cooptui::core::Log(0, "CoOptCore.ini reloaded.");
 }
 
@@ -166,14 +178,64 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     CmdDebug(szLine + 6);
     return;
   }
-  if (strcmp(szLine, "scan inv") == 0) {
+  if (strcmp(szLine, "reloadrules") == 0) {
     uint64_t t0 = GetTickCount64();
-    const auto& items = cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
+    cooptui::rules::RulesEngine::Instance().Reload();
     uint64_t elapsed = GetTickCount64() - t0;
-    cooptui::core::Log(0, "Inventory scan: %zu items in %llu ms", items.size(), elapsed);
+    auto& re = cooptui::rules::RulesEngine::Instance();
+    cooptui::core::Log(0, "Rules reloaded in %llu ms: keep=%zu junk=%zu alwaysLoot=%zu skipLoot=%zu epicSell=%zu",
+                       elapsed, re.GetKeepSetSize(), re.GetJunkSetSize(),
+                       re.GetAlwaysLootSize(), re.GetSkipLootSize(), re.GetEpicSellSize());
     return;
   }
-  if (strcmp(szLine, "scan bank") == 0) {
+  if (strncmp(szLine, "eval sell ", 10) == 0) {
+    const char* itemName = szLine + 10;
+    while (*itemName == ' ') ++itemName;
+    if (*itemName == '\0') {
+      cooptui::core::Log(0, "Usage: /cooptui eval sell <itemname>");
+      return;
+    }
+    cooptui::core::CoOptItemData probe;
+    probe.name = itemName;
+    // Find a matching item in the inv cache for full field data
+    const auto& inv = cooptui::core::CacheManager::Instance().GetInventory();
+    for (const auto& it : inv) {
+      if (it.name == itemName) { probe = it; break; }
+    }
+    auto [willSell, reason] = cooptui::rules::RulesEngine::Instance().WillItemBeSold(probe);
+    cooptui::core::Log(0, "eval sell '%s': %s (%s)", itemName,
+                       willSell ? "WILL SELL" : "keep", reason.c_str());
+    return;
+  }
+  if (strncmp(szLine, "eval loot ", 10) == 0) {
+    const char* itemName = szLine + 10;
+    while (*itemName == ' ') ++itemName;
+    if (*itemName == '\0') {
+      cooptui::core::Log(0, "Usage: /cooptui eval loot <itemname>");
+      return;
+    }
+    cooptui::core::CoOptItemData probe;
+    probe.name = itemName;
+    auto [shouldLoot, reason] = cooptui::rules::RulesEngine::Instance().ShouldItemBeLooted(probe);
+    cooptui::core::Log(0, "eval loot '%s': %s (%s)", itemName,
+                       shouldLoot ? "LOOT" : "skip", reason.c_str());
+    return;
+  }
+  if (strncmp(szLine, "scan inv", 8) == 0 && (szLine[8] == '\0' || szLine[8] == ' ')) {
+    uint64_t t0 = GetTickCount64();
+    const auto& items = cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
+    // Attach sell status to the live cache copy
+    cooptui::rules::RulesEngine::Instance().AttachSellStatus(
+        cooptui::core::CacheManager::Instance().GetInventoryMut());
+    uint64_t elapsed = GetTickCount64() - t0;
+    // Count items flagged for sell
+    int sellCount = 0;
+    for (const auto& it : items) { if (it.willSell) ++sellCount; }
+    cooptui::core::Log(0, "Inventory scan: %zu items in %llu ms (%d will sell)",
+                       items.size(), elapsed, sellCount);
+    return;
+  }
+  if (strncmp(szLine, "scan bank", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
     uint64_t t0 = GetTickCount64();
     const auto& items = cooptui::scanners::BankScanner::Instance().Scan(/*force=*/true);
     uint64_t elapsed = GetTickCount64() - t0;
@@ -182,8 +244,19 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
                        items.size(), elapsed, bankOpen ? "open" : "closed, showing snapshot");
     return;
   }
+  if (strncmp(szLine, "scan loot", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
+    uint64_t t0 = GetTickCount64();
+    const auto& items = cooptui::scanners::LootScanner::Instance().Scan(/*force=*/true);
+    uint64_t elapsed = GetTickCount64() - t0;
+    bool lootOpen = cooptui::scanners::LootScanner::IsLootWindowOpen();
+    int lootCount = 0;
+    for (const auto& it : items) { if (it.willLoot) ++lootCount; }
+    cooptui::core::Log(0, "Loot scan: %zu items in %llu ms (%d will loot, loot window %s)",
+                       items.size(), elapsed, lootCount, lootOpen ? "open" : "closed");
+    return;
+  }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | scan inv | scan bank | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {
@@ -199,6 +272,11 @@ PLUGIN_API void InitializePlugin() {
     WriteChatf("\ay[MQ2CoOptUI]\ax Config path not found — CoOptCore.ini will not be used.");
   }
   cooptui::core::CacheManager::Instance().Initialize(cooptui::core::Config::Instance().Get());
+
+  // Initialize rules engine from the MQ macros directory.
+  if (gPathMacros[0] != '\0') {
+    cooptui::rules::RulesEngine::Instance().Initialize(gPathMacros);
+  }
 
   WriteChatf("\ag[MQ2CoOptUI]\ax v1.0.0 loaded — INI, IPC, cursor, items, loot, window capabilities ready.");
   WriteChatf("\ag[MQ2CoOptUI]\ax TLO: ${CoOptUI.Version}  Lua: require('plugin.MQ2CoOptUI')  /cooptui status");
@@ -246,10 +324,11 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   cooptui::cursor::registerLua(lua, cursor_table);
   mod["cursor"] = cursor_table;
 
-  // Top-level aliases: scan.lua calls mod.scanInventory() / mod.scanBank() directly
+  // Top-level aliases: scan.lua calls mod.scanInventory() / mod.scanBank() / mod.scanLootItems() directly
   mod["scanInventory"] = items_table["scanInventory"];
   mod["scanBank"] = items_table["scanBank"];
   mod["hasInventoryChanged"] = items_table["hasInventoryChanged"];
+  mod["scanLootItems"] = loot_table["scanLootItems"];
 
   outModule = sol::object(mod);
   return true;

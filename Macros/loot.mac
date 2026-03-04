@@ -182,9 +182,13 @@ Sub Main
 /declare runSkippedList string outer
 /declare runSkippedList2 string outer
 /declare runSkippedList3 string outer
+/declare runSkippedList4 string outer
+/declare runSkippedList5 string outer
 /declare runSkippedReasons string outer
 /declare runSkippedReasons2 string outer
 /declare runSkippedReasons3 string outer
+/declare runSkippedReasons4 string outer
+/declare runSkippedReasons5 string outer
 /declare runTotalValue int outer 0
 /declare runTributeValue int outer 0
 /declare runBestItemName string outer
@@ -286,9 +290,13 @@ Sub Main
 /varset runSkippedList
 /varset runSkippedList2
 /varset runSkippedList3
+/varset runSkippedList4
+/varset runSkippedList5
 /varset runSkippedReasons
 /varset runSkippedReasons2
 /varset runSkippedReasons3
+/varset runSkippedReasons4
+/varset runSkippedReasons5
 /varset runTotalValue 0
 /varset runTributeValue 0
 /varset runBestItemName
@@ -1234,22 +1242,34 @@ sub FinishLooting
     /if (${runSkippedCount} > 0) {
         /declare skipCount1 int local 0
         /declare skipCount2 int local 0
+        /declare skipCount3 int local 0
+        /declare skipCount4 int local 0
         /if (${runSkippedList.Length} > 0) /varcalc skipCount1 ${runSkippedList.Count[|]}+1
         /if (${runSkippedList2.Length} > 0) /varcalc skipCount2 ${runSkippedList2.Count[|]}+1
+        /if (${runSkippedList3.Length} > 0) /varcalc skipCount3 ${runSkippedList3.Count[|]}+1
+        /if (${runSkippedList4.Length} > 0) /varcalc skipCount4 ${runSkippedList4.Count[|]}+1
         /ini "${configPath}/loot_skipped.ini" Protocol Version 1
         /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
         /declare j int local 1
         /declare jdx2 int local 0
         /declare jdx3 int local 0
+        /declare jdx4 int local 0
+        /declare jdx5 int local 0
         /for j 1 to ${runSkippedCount}
             /if (${j} <= ${skipCount1}) {
                 /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
             } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}]}) {
                 /varcalc jdx2 ${j}-${skipCount1}
                 /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList2.Token[${jdx2},|]}^${runSkippedReasons2.Token[${jdx2},|]}"
-            } else {
+            } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}]}) {
                 /varcalc jdx3 ${j}-${skipCount1}-${skipCount2}
                 /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList3.Token[${jdx3},|]}^${runSkippedReasons3.Token[${jdx3},|]}"
+            } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}+${skipCount4}]}) {
+                /varcalc jdx4 ${j}-${skipCount1}-${skipCount2}-${skipCount3}
+                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList4.Token[${jdx4},|]}^${runSkippedReasons4.Token[${jdx4},|]}"
+            } else {
+                /varcalc jdx5 ${j}-${skipCount1}-${skipCount2}-${skipCount3}-${skipCount4}
+                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList5.Token[${jdx5},|]}^${runSkippedReasons5.Token[${jdx5},|]}"
             }
         /next j
     }
@@ -1984,8 +2004,10 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
 | ================================================= |
 sub LogSkippedItem(string itemName, string reason)
     /declare addLen int local ${Math.Calc[1+${itemName.Length}]}
-    /if (${Math.Calc[${runSkippedList.Length}+${addLen}]} > ${runListMaxLen}) {
-        /if (${Math.Calc[${runSkippedList2.Length}+${addLen}]} <= ${runListMaxLen}) {
+    /declare addLenR int local ${Math.Calc[1+${reason.Length}]}
+    | Check BOTH name and reason lengths to prevent reason string overflow (CTD fix)
+    /if (${Math.Calc[${runSkippedList.Length}+${addLen}]} > ${runListMaxLen} || ${Math.Calc[${runSkippedReasons.Length}+${addLenR}]} > ${runListMaxLen}) {
+        /if (${Math.Calc[${runSkippedList2.Length}+${addLen}]} <= ${runListMaxLen} && ${Math.Calc[${runSkippedReasons2.Length}+${addLenR}]} <= ${runListMaxLen}) {
             /varcalc runSkippedCount ${runSkippedCount}+1
             /if (${runSkippedList2.Length} > 0) {
                 /varset runSkippedList2 ${runSkippedList2}|${itemName}
@@ -1994,7 +2016,7 @@ sub LogSkippedItem(string itemName, string reason)
                 /varset runSkippedList2 ${itemName}
                 /varset runSkippedReasons2 ${reason}
             }
-        } else /if (${Math.Calc[${runSkippedList3.Length}+${addLen}]} <= ${runListMaxLen}) {
+        } else /if (${Math.Calc[${runSkippedList3.Length}+${addLen}]} <= ${runListMaxLen} && ${Math.Calc[${runSkippedReasons3.Length}+${addLenR}]} <= ${runListMaxLen}) {
             /varcalc runSkippedCount ${runSkippedCount}+1
             /if (${runSkippedList3.Length} > 0) {
                 /varset runSkippedList3 ${runSkippedList3}|${itemName}
@@ -2003,6 +2025,27 @@ sub LogSkippedItem(string itemName, string reason)
                 /varset runSkippedList3 ${itemName}
                 /varset runSkippedReasons3 ${reason}
             }
+        } else /if (${Math.Calc[${runSkippedList4.Length}+${addLen}]} <= ${runListMaxLen} && ${Math.Calc[${runSkippedReasons4.Length}+${addLenR}]} <= ${runListMaxLen}) {
+            /varcalc runSkippedCount ${runSkippedCount}+1
+            /if (${runSkippedList4.Length} > 0) {
+                /varset runSkippedList4 ${runSkippedList4}|${itemName}
+                /varset runSkippedReasons4 ${runSkippedReasons4}|${reason}
+            } else {
+                /varset runSkippedList4 ${itemName}
+                /varset runSkippedReasons4 ${reason}
+            }
+        } else /if (${Math.Calc[${runSkippedList5.Length}+${addLen}]} <= ${runListMaxLen} && ${Math.Calc[${runSkippedReasons5.Length}+${addLenR}]} <= ${runListMaxLen}) {
+            /varcalc runSkippedCount ${runSkippedCount}+1
+            /if (${runSkippedList5.Length} > 0) {
+                /varset runSkippedList5 ${runSkippedList5}|${itemName}
+                /varset runSkippedReasons5 ${runSkippedReasons5}|${reason}
+            } else {
+                /varset runSkippedList5 ${itemName}
+                /varset runSkippedReasons5 ${reason}
+            }
+        } else {
+            | All 5 chunks full; still count for accurate totals (details truncated)
+            /varcalc runSkippedCount ${runSkippedCount}+1
         }
     } else {
         /varcalc runSkippedCount ${runSkippedCount}+1
