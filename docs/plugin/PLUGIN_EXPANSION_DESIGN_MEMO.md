@@ -11,6 +11,8 @@ The plugin currently provides fast native scanning (inv, bank, loot, sell) with 
 
 The highest-impact change is closing this data gap. Cursor and window stubs are lower priority but straightforward wins.
 
+**Implementation status:** Phases A, B, C, and D are **complete** (verified post-implementation).
+
 ---
 
 ## Current Data Gap: Plugin Path vs TLO Path
@@ -173,18 +175,18 @@ Character info (name, level, class) is read once at startup and rarely changes. 
 
 ## Priority Order
 
-| Priority | Area | Effort | Impact |
-|---|---|---|---|
-| **P0** | **1A+B: Extend CoOptItemData and scan results** with all stat, descriptive, spell, wornSlots, augType, augRestrictions fields | Medium (2-3 days) | Closes all data gaps; eliminates ~6,700+ TLO calls per session; instant tooltips/columns |
-| **P1** | **1C: Implement items.getItem(bag, slot, source)** returning full item data | Small (0.5 day) | On-demand fresh reads for augment ops, item refresh, cursor item |
-| **P2** | **2: Implement cursor capabilities** (fill updateFromPulse, add getItemType/getItemLink) | Small (0.5 day) | Reliable cursor state; benefits reroll, config filters, main_loop |
-| **P3** | **3: Simple window.isWindowOpen** for 4 main windows | Small (0.5 day) | Minor reliability win; only if time permits |
+| Priority | Area | Effort | Impact | Status |
+|---|---|---|---|---|
+| **P0** | **1A+B: Extend CoOptItemData and scan results** with all stat, descriptive, spell, wornSlots, augType, augRestrictions fields | Medium (2-3 days) | Closes all data gaps; eliminates ~6,700+ TLO calls per session; instant tooltips/columns | **Complete** |
+| **P1** | **1C: Implement items.getItem(bag, slot, source)** returning full item data | Small (0.5 day) | On-demand fresh reads for augment ops, item refresh, cursor item | **Complete** |
+| **P2** | **2: Implement cursor capabilities** (fill updateFromPulse, add getItemType/getItemLink) | Small (0.5 day) | Reliable cursor state; benefits reroll, config filters, main_loop | **Complete** |
+| **P3** | **3: Simple window.isWindowOpen** for 4 main windows | Small (0.5 day) | Minor reliability win; only if time permits | **Complete** |
 
 ---
 
 ## Concrete Implementation Outline
 
-### Phase A: Extend CoOptItemData and Scan Results (P0)
+### Phase A: Extend CoOptItemData and Scan Results (P0) — **COMPLETE**
 
 **Full field list (definition-time only).** Use the [MQ item datatype](https://docs.macroquest.org/reference/data-types/datatype-item/) and eqlib `ItemDefinition` (and `ItemPtr` where applicable) as the canonical list. Below: what the memo already includes, plus **additional** definition-time fields to add so we capture everything.
 
@@ -430,7 +432,7 @@ Recommend Option A for clean architecture.
 
 ---
 
-### Phase B: Implement items.getItem (P1)
+### Phase B: Implement items.getItem (P1) — **COMPLETE**
 
 **Step 1:** In `capabilities/items.cpp`, replace the `getItem` stub:
 
@@ -481,7 +483,7 @@ void PopulateItemData(core::CoOptItemData& d, const ItemPtr& item,
 
 ---
 
-### Phase C: Implement Cursor Capabilities (P2)
+### Phase C: Implement Cursor Capabilities (P2) — **COMPLETE**
 
 **Step 1:** Fill in `cursor::updateFromPulse()`:
 
@@ -521,26 +523,29 @@ table.set_function("getItemType", []() -> sol::optional<std::string> {
 ### Implementation Order
 
 ```
-Phase A (P0): Extend CoOptItemData + scan results
+Phase A (P0): Extend CoOptItemData + scan results — COMPLETE
   Step 1: ItemData.h fields
   Step 2: Scanner field population (shared helper)
   Step 3: ItemDataToTable extension
   Step 4: Verify Lua compatibility (no Lua changes needed)
   → Build + deploy + test tooltips, columns, augment compat
 
-Phase B (P1): items.getItem
+Phase B (P1): items.getItem — COMPLETE
   Step 1: Replace stub with real implementation
   Step 2: Extract shared populate helper
   → Build + deploy + test item refresh, augment ops
 
-Phase C (P2): Cursor capabilities
+Phase C (P2): Cursor capabilities — COMPLETE
   Step 1: updateFromPulse implementation
   Step 2: Add getItemType/getItemLink
   Step 3: Optional Lua migration
   → Build + deploy + test reroll, cursor bar, config filters
+
+Phase D (P3): Simple window.isWindowOpen — COMPLETE
+  → isWindowOpen for 4 main windows; Lua can use coopui.window.isWindowOpen with TLO fallback
 ```
 
-Phases A, B, and C are independent and can be done in parallel. Phase A has the highest impact and should be started first.
+Phases A, B, and C are independent and can be done in parallel. Phase A has the highest impact and should be started first. All phases A–D are complete.
 
 ---
 
@@ -559,24 +564,28 @@ Phases A, B, and C are independent and can be done in parallel. Phase A has the 
 ## Validation Checklist (for implementation agent)
 
 After Phase A:
-- [ ] `/cooptui scan inv` returns items with all stat fields populated
-- [ ] Tooltip hover shows AC, HP, stats, class/race/deity without any TLO calls
-- [ ] Spell columns (Proc, Focus, Spell, Worn) show spell names, not "No"
-- [ ] Augment compatibility works (augType, augRestrictions, wornSlots populated)
-- [ ] Sorting by any stat column works correctly
-- [ ] Bank and loot scans also have full fields
-- [ ] Capture-all: item tables include all definition-time fields (focus2, familiar, illusion, mount, procRate, ldoNTheme, stackable, power, maxPower, etc.); optional: compare keys to MQ item datatype doc
-- [ ] No regression: unload plugin → TLO path still works identically
-- [ ] Scan time < 5ms for 140 items (should still be ~0ms)
+- [x] `/cooptui scan inv` returns items with all stat fields populated
+- [x] Tooltip hover shows AC, HP, stats, class/race/deity without any TLO calls
+- [x] Spell columns (Proc, Focus, Spell, Worn) show spell names, not "No"
+- [x] Augment compatibility works (augType, augRestrictions, wornSlots populated)
+- [x] Sorting by any stat column works correctly
+- [x] Bank and loot scans also have full fields
+- [x] Capture-all: item tables include all definition-time fields (focus2, familiar, illusion, mount, procRate, ldoNTheme, stackable, power, maxPower, etc.); optional: compare keys to MQ item datatype doc
+- [x] No regression: unload plugin → TLO path still works identically
+- [x] Scan time < 5ms for 140 items (should still be ~0ms)
 
 After Phase B:
-- [ ] `coopui.items.getItem(1, 1, "inv")` returns full item table
-- [ ] `coopui.items.getItem(1, 1, "bank")` works when bank window closed (from snapshot)
-- [ ] Returns nil for empty slots
-- [ ] Field values match scan results for same item
+- [x] `coopui.items.getItem(1, 1, "inv")` returns full item table
+- [x] `coopui.items.getItem(1, 1, "bank")` works when bank window closed (from snapshot)
+- [x] Returns nil for empty slots
+- [x] Field values match scan results for same item
 
 After Phase C:
-- [ ] `coopui.cursor.hasItem()` returns true when item on cursor
-- [ ] `coopui.cursor.getItemId()` returns correct ID
-- [ ] `coopui.cursor.getItemName()` returns correct name
-- [ ] Cursor bar in main_window shows correct item (with or without plugin)
+- [x] `coopui.cursor.hasItem()` returns true when item on cursor
+- [x] `coopui.cursor.getItemId()` returns correct ID
+- [x] `coopui.cursor.getItemName()` returns correct name
+- [x] Cursor bar in main_window shows correct item (with or without plugin)
+
+After Phase D:
+- [x] `coopui.window.isWindowOpen("BigBankWnd")` (and MerchantWnd, LootWnd, InventoryWindow) returns correct visibility
+- [x] No regression when plugin unloaded
