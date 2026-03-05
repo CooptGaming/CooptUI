@@ -3,7 +3,7 @@
 # With -IncludePlugin, also copies MQ2CoOptUI.dll from the MQ build output.
 #
 # Usage:
-#   .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+#   .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-EMU-Dev\DeployTest\CoOptUI2"
 #   .\scripts\sync-to-deploytest.ps1 -Target "..." -IncludePlugin
 #   .\scripts\sync-to-deploytest.ps1 -Target "..." -IncludePlugin -BuildOutputDir "C:\...\build\solution\bin\release"
 
@@ -117,8 +117,7 @@ if ($IncludePlugin) {
     if ($BuildOutputDir -and (Test-Path $BuildOutputDir)) {
         $pluginDll = Join-Path $BuildOutputDir "plugins\MQ2CoOptUI.dll"
     } else {
-        $defaultBuild = "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll"
-        if (Test-Path $defaultBuild) { $pluginDll = $defaultBuild }
+        Write-Warning "  -BuildOutputDir not specified. Provide the path to your MQ build output (e.g. C:\MQ-EMU-Dev\macroquest\build\solution\bin\release)."
     }
 
     if ($pluginDll -and (Test-Path $pluginDll)) {

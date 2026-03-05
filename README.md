@@ -4,7 +4,7 @@
 
 For **EverQuest emulator** players using **MacroQuest2**. One set of windows, one set of rules. Set what to keep or sell in the UI, and the auto-sell and auto-loot macros use those same rules.
 
-`v0.9.0-beta` · Windows · MacroQuest2
+`v1.0.0` · Windows · MacroQuest2
 
 ---
 
@@ -34,7 +34,7 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 
 **First-time setup** — A short wizard walks you through the main windows and lets you set sell protection and loot rules. You can skip it and configure later in Settings.
 
-**Open Settings** — Click the Settings button on the main window, or type `/itemui config`. Manage sell, loot, and shared lists as well as well as pick settings ot meet your preference. 
+**Open Settings** — Click the Settings button on the main window, or type `/itemui config`. Manage sell, loot, and shared lists as well as pick settings to meet your preference.
 
 **Backup / Restore** — In Settings → Advanced you can export or restore all your CoOpt UI settings.
 
@@ -87,11 +87,36 @@ Other windows (Bank, Equipment, Augments, AA, Reroll, Item Display, Settings) op
 
 ---
 
+## MQ2CoOptUI Plugin (Optional)
+
+The **MQ2CoOptUI** C++ plugin provides native-speed scanning for inventory, bank, loot, and sell operations. It also adds IPC event streaming for real-time UI feedback during auto-sell and auto-loot. All features work without the plugin — it is a performance acceleration layer, not a requirement.
+
+If you build MacroQuest from source, see [docs/plugin/dev_setup.md](docs/plugin/dev_setup.md) for build instructions. The plugin DLL must match your MQ build (architecture and version).
+
+---
+
+## What's Planned
+
+These features are planned for future releases and are **not** in v1.0.0:
+
+- Non-blocking augment insert/remove operations
+- C++ `saveInventory` serialization for faster bank snapshots
+- Item stat comparison tooltips (hover to compare equipped vs bag item)
+- Global error handler with diagnostic panel
+- Health check dashboard for plugin and environment status
+- Inventory total value display
+- High-value loot alerts
+
+See [docs/plugin/FUTURE_OPPORTUNITIES.md](docs/plugin/FUTURE_OPPORTUNITIES.md) for the full roadmap.
+
+---
+
 ## More Help
 
 | Link | What’s in it |
 |------|----------------|
 | [Install guide](docs/INSTALL.md) | Step-by-step install, updating, migrating from SellUI |
+| [Configuration](docs/CONFIGURATION.md) | Config INI reference |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems and fixes |
 | [Changelog](CHANGELOG.md) | What changed in each version |
 

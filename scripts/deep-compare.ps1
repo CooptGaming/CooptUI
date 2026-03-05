@@ -1,9 +1,16 @@
-$ref = "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI3"
-$emu = "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-20260302"
+# Deep compare two CoOptUI folder trees (e.g. reference vs EMU zip extract).
+# Usage: .\scripts\deep-compare.ps1 -RefDir "C:\MQ-EMU-Dev\DeployTest\CoOptUI3" -EmuDir "C:\MQ-EMU-Dev\CoOptUI-EMU-20260302"
+param(
+    [Parameter(Mandatory)][string]$RefDir,
+    [Parameter(Mandatory)][string]$EmuDir
+)
+
+$ref = $RefDir
+$emu = $EmuDir
 
 $refFiles = Get-ChildItem $ref -Recurse -File | ForEach-Object {
     $rel = $_.FullName.Substring($ref.Length + 1)
-    [PSCustomObject]@{ Rel=$rel; Size=$_.Length; Dir="CoOptUI3" }
+    [PSCustomObject]@{ Rel=$rel; Size=$_.Length; Dir="Ref" }
 }
 
 $emuFiles = Get-ChildItem $emu -Recurse -File | ForEach-Object {
@@ -17,7 +24,7 @@ $emuMap = @{}
 foreach ($f in $emuFiles) { $emuMap[$f.Rel] = $f.Size }
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "FILES IN CoOptUI3 BUT NOT IN EMU" -ForegroundColor Red
+Write-Host "FILES IN REF BUT NOT IN EMU" -ForegroundColor Red
 Write-Host "========================================" -ForegroundColor Cyan
 $missing = @()
 foreach ($key in ($refMap.Keys | Sort-Object)) {
@@ -31,7 +38,7 @@ Write-Host "Total missing: $($missing.Count) files" -ForegroundColor Yellow
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "FILES IN EMU BUT NOT IN CoOptUI3" -ForegroundColor Green
+Write-Host "FILES IN EMU BUT NOT IN REF" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 $extra = @()
 foreach ($key in ($emuMap.Keys | Sort-Object)) {
@@ -84,7 +91,7 @@ foreach ($d in $allDirNames) {
     $rC  = if ($r) { $r.RefCount } else { "-" }
     $eMB = if ($e) { $e.EmuMB } else { "-" }
     $eC  = if ($e) { $e.EmuCount } else { "-" }
-    Write-Host ("  {0,-20} CoOptUI3: {1,8} MB ({2,5} files)   EMU: {3,8} MB ({4,5} files)" -f $d, $rMB, $rC, $eMB, $eC)
+    Write-Host ("  {0,-20} Ref: {1,8} MB ({2,5} files)   EMU: {3,8} MB ({4,5} files)" -f $d, $rMB, $rC, $eMB, $eC)
 }
 
 # Root files
@@ -92,4 +99,4 @@ $refRoot = Get-ChildItem $ref -File
 $emuRoot = Get-ChildItem $emu -File
 $rRootMB = [math]::Round(($refRoot | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
 $eRootMB = [math]::Round(($emuRoot | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
-Write-Host ("  {0,-20} CoOptUI3: {1,8} MB ({2,5} files)   EMU: {3,8} MB ({4,5} files)" -f "(root files)", $rRootMB, $refRoot.Count, $eRootMB, $emuRoot.Count)
+Write-Host ("  {0,-20} Ref: {1,8} MB ({2,5} files)   EMU: {3,8} MB ({4,5} files)" -f "(root files)", $rRootMB, $refRoot.Count, $eRootMB, $emuRoot.Count)

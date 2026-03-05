@@ -197,7 +197,7 @@ This is already the case in the working tree. Rebuild if needed: `dotnet build -
 
 **Step 2 — Deploy and load.**  
 ```powershell
-.\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+.\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI2"
 ```
 In-game: `/mono load coophelper`
 

@@ -1,6 +1,6 @@
 # List and verify contents of the CoOptUI-EMU zip.
-# Usage: .\scripts\list-zip.ps1 [-ZipPath "C:\path\to\CoOptUI-EMU-YYYYMMDD.zip"]
-param([string]$ZipPath = "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-20260302.zip")
+# Usage: .\scripts\list-zip.ps1 -ZipPath "C:\MQ-EMU-Dev\CoOptUI-EMU-YYYYMMDD.zip"
+param([Parameter(Mandatory)][string]$ZipPath)
 
 if (-not (Test-Path $ZipPath)) {
     Write-Error "Zip not found: $ZipPath"

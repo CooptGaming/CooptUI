@@ -355,7 +355,7 @@ mono_add_internal_call("MonoCore.Core::mq_ParseTLO", &mono_ParseTLO);
 
 1. **Deploy** the updated CoopHelper to your DeployTest install:
    ```powershell
-   .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+   .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI2"
    ```
 2. **In-game:** `/mono load coophelper` (or restart MQ if already loaded).
 3. **Test ParseTLO:** From Lua console or `/lua`:

@@ -1,6 +1,6 @@
 # MacroQuestCoOpt Deployment
 
-**Location:** `C:\MIS\MacroquestEnvironments\MacroQuestCoOpt`
+**Location:** `C:\MQ-Deploy\MacroQuestCoOpt`
 
 A 32-bit (Win32) MacroQuest deployment that combines the EMU clone build with E3Next and CoOpt UI. Built 2025-02-28.
 
@@ -15,7 +15,7 @@ The MQ2CoOptUI plugin provides `require("plugin.MQ2CoOptUI")` with CreateLuaModu
 ## Build & Deploy
 
 1. Build the EMU clone (see `mq-plugin-build-gotchas.mdc` and `dev_setup.md`)
-2. Run `C:\MIS\MacroquestEnvironments\MacroQuestCoOpt\assemble_deploy.ps1`
+2. Run `C:\MQ-Deploy\MacroQuestCoOpt\assemble_deploy.ps1`
 3. Run `E3NextMQ\MacroQuest.exe`
 
 ## Documentation

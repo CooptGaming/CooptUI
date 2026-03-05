@@ -14,7 +14,7 @@
 
 param(
     [string]$SourceRoot = "",
-    [string]$CMakePath = "C:\MIS\CMake-3.30",
+    [string]$CMakePath = "",
     [string]$MQRepo = "https://github.com/macroquest/macroquest.git",
     [string]$MQBranch = "master",
     [string]$EqLibBranch = "emu",
@@ -62,10 +62,28 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error "Git is required but not found on PATH."
 }
 
-$cmakeExe = Join-Path $CMakePath "bin\cmake.exe"
-if (-not (Test-Path $cmakeExe)) {
-    Write-Warning "CMake 3.30 not found at $cmakeExe. Build step will fail without it."
-    Write-Warning "Download from https://cmake.org/download/ and install to $CMakePath"
+if (-not $CMakePath) {
+    $autoDetected = @(
+        "C:\Program Files\CMake",
+        "C:\Program Files (x86)\CMake",
+        "${env:LOCALAPPDATA}\CMake"
+    ) | Where-Object { Test-Path (Join-Path $_ "bin\cmake.exe") } | Select-Object -First 1
+    if ($autoDetected) {
+        $CMakePath = $autoDetected
+        Write-Host "  Auto-detected CMake at: $CMakePath" -ForegroundColor DarkGray
+    } else {
+        $fromPath = Get-Command cmake.exe -ErrorAction SilentlyContinue
+        if ($fromPath) {
+            $CMakePath = Split-Path (Split-Path $fromPath.Source -Parent) -Parent
+            Write-Host "  Auto-detected CMake from PATH: $CMakePath" -ForegroundColor DarkGray
+        }
+    }
+}
+
+$cmakeExe = if ($CMakePath) { Join-Path $CMakePath "bin\cmake.exe" } else { "" }
+if (-not $cmakeExe -or -not (Test-Path $cmakeExe)) {
+    Write-Warning "CMake not found. Provide -CMakePath (e.g. C:\Program Files\CMake) or install CMake and add it to PATH."
+    Write-Warning "Download from https://cmake.org/download/"
 }
 
 if (-not (Test-Path $PluginSource)) {

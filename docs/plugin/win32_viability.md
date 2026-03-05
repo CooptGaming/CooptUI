@@ -11,7 +11,7 @@
 | Item | Result |
 |------|--------|
 | **CMake Win32 support** | **Pass** — MQ CMake explicitly supports `-A Win32` (see root `CMakeLists.txt` and `ci_shared.yaml`: `client_target: emu` → `Platform: Win32`). |
-| **Local configure (EMU source zip)** | **Blocked** — Configure failed: vcpkg toolchain file not found. Pre-downloaded EMU source at `C:\MIS\MacroquestEnvironments\MacroquestEMU\...` does not include a bootstrapped `contrib/vcpkg` (no `scripts/buildsystems/vcpkg.cmake`). |
+| **Local configure (EMU source zip)** | **Blocked** — Configure failed: vcpkg toolchain file not found. Pre-downloaded EMU source at `C:\MQ-EMU-Dev\...` does not include a bootstrapped `contrib/vcpkg` (no `scripts/buildsystems/vcpkg.cmake`). |
 | **Local build** | **Not run** — Build not attempted until configure succeeds. |
 
 ---
@@ -29,7 +29,7 @@
 **Command (from EMU repo root):**
 
 ```powershell
-$env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-rel-emu\macroquest-rel-emu\contrib\vcpkg"
+$env:VCPKG_ROOT = "C:\MQ-EMU-Dev\macroquest-rel-emu\macroquest-rel-emu\contrib\vcpkg"
 cmake -B build_win32 -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=OFF
 ```
 
@@ -46,11 +46,11 @@ Could not find toolchain file: "/scripts/buildsystems/vcpkg.cmake"
 ## Recommendation
 
 1. **Proceed with 64-bit as primary.** The plan’s Option B (own distribution, 64-bit MQ + plugin) is unchanged. Use `create_mq64_coopui_copy.ps1` and a full MQ clone with `-A x64` for development and release.
-2. **Treat 32-bit as optional.** Use a full MacroQuest clone with submodules and vcpkg bootstrapped: either the **EMU full clone** at `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\`, or a single clone with `git -C src/eqlib checkout emu`. Set `VCPKG_ROOT` to that clone’s `contrib/vcpkg`, then run `cmake -B build_win32 -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON`. If configure and build succeed, the plugin can be built for Win32 the same way (symlink plugin into `src/plugins/MQ2CoOptUI` and build).
+2. **Treat 32-bit as optional.** Use a full MacroQuest clone with submodules and vcpkg bootstrapped: either the **EMU full clone** at `C:\MQ-EMU-Dev\macroquest\`, or a single clone with `git -C src/eqlib checkout emu`. Set `VCPKG_ROOT` to that clone’s `contrib/vcpkg`, then run `cmake -B build_win32 -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON`. If configure and build succeed, the plugin can be built for Win32 the same way (symlink plugin into `src/plugins/MQ2CoOptUI` and build).
 3. **Do not block Phase 2+ on Win32.** Task 1.2 (dev setup) and bootstrap script should document the **x64** path as the primary flow and add an optional “Building for EMU (Win32)” section that references a full clone + eqlib `emu` branch + vcpkg bootstrap.
 
 ---
 
 ## Next steps (optional, time-boxed)
 
-- Use the full EMU clone at `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\` (vcpkg already bootstrapped), set `VCPKG_ROOT` to that path’s `contrib\vcpkg`, then run the Win32 configure and build to confirm end-to-end 32-bit build and update this document with pass/fail and any error excerpts.
+- Use the full EMU clone at `C:\MQ-EMU-Dev\macroquest\` (vcpkg already bootstrapped), set `VCPKG_ROOT` to that path’s `contrib\vcpkg`, then run the Win32 configure and build to confirm end-to-end 32-bit build and update this document with pass/fail and any error excerpts.

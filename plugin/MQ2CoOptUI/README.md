@@ -9,8 +9,8 @@ From an elevated PowerShell or Developer Command Prompt, create the symlink so M
 **EMU clone (32-bit):**
 ```powershell
 New-Item -ItemType SymbolicLink `
-  -Path "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\plugins\MQ2CoOptUI" `
-  -Target "C:\MIS\E3NextAndMQNextBinary-main\plugin\MQ2CoOptUI"
+  -Path "C:\MQ-EMU-Dev\macroquest\plugins\MQ2CoOptUI" `
+  -Target "C:\Projects\CoOptUI\plugin\MQ2CoOptUI"
 ```
 
 **Live clone (64-bit):** Use the same pattern with the Live clone path and `plugins\MQ2CoOptUI`.
@@ -34,7 +34,7 @@ Lua reads via `coopt.ipc.receive("sell_progress")` etc. If the plugin is not loa
 - `CMakeLists.txt` — plugin target, LuaPlugin.props
 - `capabilities/` — ini, ipc, window, items, loot (each with .h/.cpp)
 
-See **Plugin Master Plan** (`docs/Plugin_Master_Plan.md`) and **PLUGIN_DEEP_DIVE** (`docs/plugin/PLUGIN_DEEP_DIVE.md`) for capability order and implementation details.
+See **Implementation Plan** (`docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md`) and **PLUGIN_DEEP_DIVE** (`docs/plugin/PLUGIN_DEEP_DIVE.md`) for capability order and implementation details.
 
 ## Deploy
 

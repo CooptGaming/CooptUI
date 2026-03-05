@@ -13,7 +13,7 @@ Download the latest release zip from GitHub:
 
 **https://github.com/CooptGaming/CoopUI/releases**
 
-The zip is named `CoOpt UI_v<version>.zip` (e.g., `CoOpt UI_v0.2.0-alpha.zip`).
+The zip is named `CoOptUI-v<version>.zip` (e.g., `CoOptUI-v1.0.0.zip`).
 
 ## First-Time Installation
 
@@ -58,7 +58,7 @@ If you already have these folders with INI files inside (from SellUI or a previo
 
 - Type `/itemui` — the ItemUI window should appear
 - Type `/scripttracker` — ScriptTracker should appear
-- Check the MQ2 console for the version message: `[ItemUI] Item UI v0.2.0-alpha loaded.`
+- Check the MQ2 console for the version message: `[ItemUI] CoOpt UI v1.0.0 loaded.`
 
 ## Updating
 

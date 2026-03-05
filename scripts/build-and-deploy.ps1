@@ -1,4 +1,4 @@
-﻿# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
+# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
 # to a target folder with the full CoOpt UI layout.
 #
 # Prerequisite: run setup-source-env.ps1 first to assemble the source tree.
@@ -24,11 +24,11 @@
 param(
     [Parameter(Mandatory)][string]$SourceRoot,
     [Parameter(Mandatory)][string]$DeployPath,
-    [string]$CMakePath = "C:\MIS\CMake-3.30",
+    [string]$CMakePath = "",
     [string]$Generator = "Visual Studio 17 2022",
     [string]$Configuration = "Release",
     [string]$CoOptUIRepo = "",
-    [string]$ReferencePath = "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI3",
+    [string]$ReferencePath = "",
     [string]$PrebuildDownloadUrl = "https://github.com/RekkasGit/E3NextAndMQNextBinary/archive/refs/heads/main.zip",
     [switch]$UsePrebuildDownload = $true,
     [string]$E3NextBinaryPath = "",
@@ -60,9 +60,27 @@ if (-not (Test-Path $MQClone)) {
     Write-Error "MQ clone not found at: $MQClone`nRun setup-source-env.ps1 first."
 }
 
+if (-not $CMakePath) {
+    $autoDetected = @(
+        "C:\Program Files\CMake",
+        "C:\Program Files (x86)\CMake",
+        "${env:LOCALAPPDATA}\CMake"
+    ) | Where-Object { Test-Path (Join-Path $_ "bin\cmake.exe") } | Select-Object -First 1
+    if ($autoDetected) {
+        $CMakePath = $autoDetected
+        Write-Host "  Auto-detected CMake at: $CMakePath" -ForegroundColor DarkGray
+    } else {
+        $fromPath = Get-Command cmake.exe -ErrorAction SilentlyContinue
+        if ($fromPath) {
+            $CMakePath = Split-Path (Split-Path $fromPath.Source -Parent) -Parent
+            Write-Host "  Auto-detected CMake from PATH: $CMakePath" -ForegroundColor DarkGray
+        }
+    }
+}
+
 $cmakeExe = Join-Path $CMakePath "bin\cmake.exe"
 if (-not $SkipBuild -and -not $SkipMQBuild -and -not (Test-Path $cmakeExe)) {
-    Write-Error "CMake 3.30 not found at $cmakeExe. Install it or use -SkipBuild."
+    Write-Error "CMake not found at $cmakeExe. Provide -CMakePath (e.g. C:\Program Files\CMake) or use -SkipBuild."
 }
 
 # --- Pre-flight: common build gotchas (see .cursor/rules/mq-plugin-build-gotchas.mdc) ---
@@ -220,12 +238,12 @@ if (-not $SkipBuild -and -not $SkipE3Next -and -not $PluginOnly) {
 
             if ($msbuild) {
                 # Restore NuGet packages (E3Next uses packages.config, not PackageReference)
-                $nugetExe = "C:\MIS\tools\nuget.exe"
-                if (Test-Path $nugetExe) {
+                $nugetExe = Get-Command nuget.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+                if ($nugetExe) {
                     Write-Host "  Restoring NuGet packages..."
                     & $nugetExe restore $slnFiles.FullName -NonInteractive -Verbosity quiet
                 } else {
-                    Write-Warning "nuget.exe not found at $nugetExe - NuGet restore skipped. Download from https://www.nuget.org/downloads"
+                    Write-Warning "nuget.exe not found on PATH - NuGet restore skipped. Download from https://www.nuget.org/downloads"
                 }
                 & $msbuild $slnFiles.FullName /p:Configuration=$Configuration /p:Platform="Any CPU" /restore /v:minimal
                 if ($LASTEXITCODE -ne 0) {

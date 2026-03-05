@@ -6,7 +6,7 @@
 
 ## Overview
 
-This document describes the tools and steps required to build the CoOpt UI C++ plugin from a clean Windows machine. The **primary** path is a **32-bit** MQ build for **EMU** (e.g. Thets), used for day-to-day development and testing when an EQ Live instance is not available. An optional **64-bit** (Live) path is documented later for when you have Live access.
+This document describes the tools and steps required to build the CoOpt UI C++ plugin from a clean Windows machine. The **primary** path is a **32-bit** MQ build for **EMU**, used for day-to-day development and testing when an EQ Live instance is not available. An optional **64-bit** (Live) path is documented later for when you have Live access.
 
 ---
 
@@ -33,7 +33,7 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 - **Do not** install vcpkg separately. Use the copy **inside the MQ repo**: `contrib/vcpkg`.
 - After cloning MQ, run from the MQ repo root:
   - `contrib\vcpkg\bootstrap-vcpkg.bat`
-- Set **`VCPKG_ROOT`** to the MQ repo’s vcpkg path (e.g. `C:\MIS\MacroquestClone\contrib\vcpkg`) so that MQ’s CMake can find the toolchain file.
+- Set **`VCPKG_ROOT`** to the MQ repo’s vcpkg path (e.g. `C:\MQ-EMU-Dev\macroquest\contrib\vcpkg`) so that MQ’s CMake can find the toolchain file.
 
 ### Git
 
@@ -44,7 +44,7 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 ## Build configuration (primary: 32-bit EMU)
 
 - **Configuration:** Release.
-- **Platform:** **Win32** (32-bit). Use `-A Win32` when running CMake. This matches EMU (e.g. Thets) and is the primary target when you don’t have an EQ Live instance.
+- **Platform:** **Win32** (32-bit). Use `-A Win32` when running CMake. This matches EMU and is the primary target when you don’t have an EQ Live instance.
 - **MSVC runtime:** Typically `/MD` for Release (MQ’s default). No need to override unless you are doing a custom build.
 
 ### EMU-specific environment considerations (PLUGIN_DEEP_DIVE §4.2)
@@ -62,10 +62,10 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 
 ### MQ source location (primary: EMU clone)
 
-- **Primary:** Use the **EMU** full clone at `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone` (submodules and vcpkg already set up for Win32). This is the recommended path for building and testing against Thets or other EMU servers.
+- **Primary:** Use the **EMU** full clone at `C:\MQ-EMU-Dev\macroquest` (submodules and vcpkg already set up for Win32). This is the recommended path for building and testing against your EMU server.
 - **Alternative:** Clone MQ yourself and build for Win32:
-  - `git clone https://github.com/macroquest/macroquest.git C:\MIS\MacroquestEMUClone`
-  - `cd C:\MIS\MacroquestEMUClone`
+  - `git clone https://github.com/macroquest/macroquest.git C:\MQ-EMU-Dev\macroquest`
+  - `cd C:\MQ-EMU-Dev\macroquest`
   - `git submodule update --init --recursive`
   - For EMU, ensure `eqlib` is on the EMU branch: `git -C src/eqlib checkout emu`
   - Run `.\contrib\vcpkg\bootstrap-vcpkg.bat`
@@ -75,9 +75,9 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 - Plugin lives in the **CoOpt UI repo**: `plugin/MQ2CoOptUI/`.
 - To build with MQ, use a **symlink** from the MQ clone’s `plugins` folder to the CoOpt UI plugin folder so CMake can discover it when `MQ_BUILD_CUSTOM_PLUGINS=ON`:
   - **EMU clone (primary):** From an elevated or developer command prompt:
-    - `New-Item -ItemType SymbolicLink -Path "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\plugins\MQ2CoOptUI" -Target "C:\MIS\E3NextAndMQNextBinary-main\plugin\MQ2CoOptUI"`
+    - `New-Item -ItemType SymbolicLink -Path "C:\MQ-EMU-Dev\macroquest\plugins\MQ2CoOptUI" -Target "C:\Projects\CoOptUI\plugin\MQ2CoOptUI"`
   - Or with `mklink /D` from cmd:  
-    `mklink /D "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\plugins\MQ2CoOptUI" "C:\MIS\E3NextAndMQNextBinary-main\plugin\MQ2CoOptUI"`
+    `mklink /D "C:\MQ-EMU-Dev\macroquest\plugins\MQ2CoOptUI" "C:\Projects\CoOptUI\plugin\MQ2CoOptUI"`
 - Do **not** copy the plugin into the MQ tree; the symlink keeps a single source of truth in the CoOpt UI repo.
 
 ---
@@ -85,9 +85,9 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 ## Step-by-step: 32-bit (EMU) build and test (primary)
 
 1. **Install** Visual Studio 2022 (with C++ desktop workload and MFC), CMake 3.30+, and Git.
-2. **Use the EMU MQ clone** (e.g. `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone`). Ensure vcpkg is bootstrapped there (`contrib\vcpkg\vcpkg.exe` exists).
+2. **Use the EMU MQ clone** (e.g. `C:\MQ-EMU-Dev\macroquest`). Ensure vcpkg is bootstrapped there (`contrib\vcpkg\vcpkg.exe` exists).
 3. **Set VCPKG_ROOT** (PowerShell, or add to your environment):
-   - `$env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\contrib\vcpkg"`
+   - `$env:VCPKG_ROOT = "C:\MQ-EMU-Dev\macroquest\contrib\vcpkg"`
 4. **Create the plugin symlink** (see “Plugin source location” above) so `plugins\MQ2CoOptUI` points at the CoOpt UI repo’s plugin folder.
 5. **Configure** (from the EMU MQ clone root):
    - `cmake -B build/solution -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
@@ -95,7 +95,7 @@ This document describes the tools and steps required to build the CoOpt UI C++ p
 6. **Build**:
    - `cmake --build build/solution --config Release`
    - Or open `build/solution/MacroQuest.sln` in Visual Studio and build there.
-7. **Run and test:** Run **MacroQuest.exe** from the build output (e.g. `build\solution\bin\release\MacroQuest.exe`). Use your Thets (or other EMU) instance to test the plugin; confirm MQ2CoOptUI loads, the `${CoOptUI}` TLO works, and `require("plugin.MQ2CoOptUI")` in Lua if you use it.
+7. **Run and test:** Run **MacroQuest.exe** from the build output (e.g. `build\solution\bin\release\MacroQuest.exe`). Use your EMU server instance to test the plugin; confirm MQ2CoOptUI loads, the `${CoOptUI}` TLO works, and `require("plugin.MQ2CoOptUI")` in Lua if you use it.
 
 Build output layout for EMU (when using `-B build/solution` as above):
 
@@ -112,7 +112,7 @@ You can copy the whole `bin/release` tree (and any `config`, `resources`, etc. y
 
 Use when you have an EQ Live instance to test against.
 
-- Use the **Live** full clone at `C:\MIS\MacroquestEnvironments\MacroquestLive\macroquest-clone`, or your own clone with `-A x64`.
+- Use the **Live** full clone at `C:\MQ-Live-Dev\macroquest`, or your own clone with `-A x64`.
 - Set `VCPKG_ROOT` to that clone’s `contrib\vcpkg`.
 - Symlink the plugin to that clone’s `plugins\MQ2CoOptUI`.
 - Configure: `cmake -B build/solution -G "Visual Studio 17 2022" -A x64 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
@@ -121,15 +121,15 @@ Use when you have an EQ Live instance to test against.
 
 ## Using the MacroquestEnvironments full clones
 
-If you have both clones at `C:\MIS\MacroquestEnvironments` (each with submodules and vcpkg bootstrapped):
+If you have both clones at `C:\MQ-Environments` (each with submodules and vcpkg bootstrapped):
 
-- **32-bit EMU (primary, e.g. Thets):**  
-  `$env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\contrib\vcpkg"`  
-  From `MacroquestEMU\macroquest-clone`: `cmake -B build/solution -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
+- **32-bit EMU (primary):**  
+  `$env:VCPKG_ROOT = "C:\MQ-EMU-Dev\macroquest\contrib\vcpkg"`  
+  From the EMU MQ clone root: `cmake -B build/solution -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
 
 - **64-bit Live (optional):**  
-  `$env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestLive\macroquest-clone\contrib\vcpkg"`  
-  From `MacroquestLive\macroquest-clone`: `cmake -B build/solution -G "Visual Studio 17 2022" -A x64 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
+  `$env:VCPKG_ROOT = "C:\MQ-Live-Dev\macroquest\contrib\vcpkg"`  
+  From the Live MQ clone root: `cmake -B build/solution -G "Visual Studio 17 2022" -A x64 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON`
 
 ---
 
@@ -144,7 +144,7 @@ If you have both clones at `C:\MIS\MacroquestEnvironments` (each with submodules
 The MQ source **does** include vcpkg (under `contrib/vcpkg`): the scripts and port definitions are there. vcpkg then **downloads and compiles** dependencies (e.g. bzip2) the first time you configure or build; those built packages are not in the repo. If configure fails with errors like `Building package bzip2:x86-windows-static failed` (EMU) or `Building package bzip2:x64-windows-static failed` (Live), use the steps below.
 
 1. **Bootstrap vcpkg first (required once per clone)**  
-   From the MQ repo root (e.g. `C:\MIS\MacroquestClone` or your `macroquest-clone`):
+   From the MQ repo root (e.g. `C:\MQ-EMU-Dev\macroquest` or your `macroquest-clone`):
    ```powershell
    .\contrib\vcpkg\bootstrap-vcpkg.bat
    ```
@@ -152,7 +152,7 @@ The MQ source **does** include vcpkg (under `contrib/vcpkg`): the scripts and po
 
 2. **Set VCPKG_ROOT** (same shell you use for CMake):
    ```powershell
-   $env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\contrib\vcpkg"   # or your MQ clone path
+   $env:VCPKG_ROOT = "C:\MQ-EMU-Dev\macroquest\contrib\vcpkg"   # or your MQ clone path
    ```
 
 3. **Pre-install the failing package**  

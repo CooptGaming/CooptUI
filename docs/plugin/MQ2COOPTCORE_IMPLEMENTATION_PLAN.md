@@ -24,10 +24,10 @@ The plugin source lives at `plugin/MQ2CoOptUI/` in this repo and is symlinked in
 **Plugin-only build + deploy** (fastest — ~10 seconds, use during development):
 
 ```powershell
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
 .\scripts\build-and-deploy.ps1 `
-  -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
-  -DeployPath "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI4" `
+  -SourceRoot "C:\MQ-EMU-Dev" `
+  -DeployPath "C:\MQ-Deploy\CoOptUI4" `
   -PluginOnly -UsePrebuildDownload:$false
 ```
 
@@ -36,33 +36,33 @@ This builds **only** the `MQ2CoOptUI` target (not all of MQ), copies the DLL + L
 **Quick sync** (copy Lua/macros/resources + DLL without rebuilding):
 
 ```powershell
-.\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" -IncludePlugin
+.\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7" -IncludePlugin
 ```
 
 **Manual cmake + copy** (lowest level, when you want direct control):
 
 ```powershell
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
-cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" `
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
+cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" `
   --config Release --target MQ2CoOptUI
-Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll" `
-  -Destination "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+Copy-Item "C:\MQ-EMU-Dev\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll" `
+  -Destination "C:\MQ-Deploy\CoOptUI7\plugins\" -Force
 ```
 
 **Full build + deploy** (complete system — use for release or first setup):
 
 ```powershell
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
 .\scripts\build-and-deploy.ps1 `
-  -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
-  -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" `
+  -SourceRoot "C:\MQ-EMU-Dev" `
+  -DeployPath "C:\MQ-Deploy" `
   -UsePrebuildDownload:$false -CreateZip
 ```
 
 **Verify a full zip** (after deploy + zip):
 
 ```powershell
-.\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-20260302.zip"
+.\scripts\list-zip.ps1 -ZipPath "C:\MQ-Deploy\CoOptUI-EMU-YYYYMMDD.zip"
 ```
 
 ### Phase 0 Prerequisite: Verify Build Chain
@@ -71,19 +71,19 @@ Before starting any phase, confirm the existing plugin builds and deploys:
 
 ```powershell
 # 1. Verify symlink exists
-(Get-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\plugins\MQ2CoOptUI").Target
-# Should print: C:\MIS\E3NextAndMQNextBinary-main\plugin\MQ2CoOptUI
+(Get-Item "C:\MQ-EMU-Dev\macroquest\plugins\MQ2CoOptUI").Target
+# Should print: C:\Projects\CoOptUI\plugin\MQ2CoOptUI
 
 # 2. Build just the plugin
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
-cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" `
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
+cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" `
   --config Release --target MQ2CoOptUI
 
 # 3. Verify DLL exists
-Test-Path "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll"
+Test-Path "C:\MQ-EMU-Dev\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll"
 
 # 4. Copy to deploy test
-Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force
 ```
 
 If step 2 fails, the MQ solution needs to be configured first. Run the full build-and-deploy or configure manually per `docs/plugin/dev_setup.md` and `.cursor/rules/mq-plugin-build-gotchas.mdc`.
@@ -165,19 +165,19 @@ Two integration gaps existed between the plugin and `scan.lua`. Both have been f
 ### Quick rebuild + deploy command (use for all phases):
 
 ```powershell
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
 .\scripts\build-and-deploy.ps1 `
-  -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
-  -DeployPath "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" `
+  -SourceRoot "C:\MQ-EMU-Dev" `
+  -DeployPath "C:\MQ-Deploy\CoOptUI7" `
   -PluginOnly -UsePrebuildDownload:$false
 ```
 
 Or manually (without the script):
 
 ```powershell
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
-cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
-Copy-Item "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
+cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Copy-Item "C:\MQ-EMU-Dev\macroquest\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force
 ```
 
 ---
@@ -903,14 +903,14 @@ Every macro change in 9.2 and 9.3 is guarded by `${pluginLoaded}`. When the plug
 
 ```powershell
 # Plugin change (ipc.cpp receiveAll, kMaxChannelSize):
-$env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+$env:Path = "C:\Program Files\CMake\bin;" + $env:Path
 .\scripts\build-and-deploy.ps1 `
-  -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
-  -DeployPath "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" `
+  -SourceRoot "C:\MQ-EMU-Dev" `
+  -DeployPath "C:\MQ-Deploy\CoOptUI7" `
   -PluginOnly -UsePrebuildDownload:$false
 
 # Lua + macro changes (no rebuild needed):
-.\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7"
+.\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7"
 ```
 
 ### Copyable handoff prompt — Phase 9 (IPC Event Streaming)
@@ -983,8 +983,8 @@ Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ exposes ${CoOptUI} via MQ2C
 
 Implement by extending the MQ2CoOptUIType class and its member registration. Use std::string for any new string returns; no char[] buffers. Validate: /echo ${CoOptUI.Inventory.Count}, /echo ${CoOptUI.Rules.Evaluate[sell,Bone Chips]}, and existing TLO members still work.
 
-Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
-Deploy: Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force; or .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" -IncludePlugin
+Build: cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Deploy: Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force; or .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7" -IncludePlugin
 
 Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 10 validation checkboxes before declaring complete.
 ```
@@ -1022,7 +1022,7 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 10 validation
 8. **Deploy all Lua changes:**
 
    ```powershell
-   .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7"
+   .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7"
    ```
 
 ### Validation
@@ -1042,7 +1042,7 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 10 validation
 ```
 Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then implement Phase 11 (Lua Integration Patches — Final Pass).
 
-Context: Phases 3, 6, and 7 added plugin hooks and top-level aliases. Phase 11 verifies and completes the integration: (1) Confirm tryCoopUIPlugin() in scan.lua tries plugin.MQ2CoOptUI first. (2) Confirm scanLootItems() and scanSellItems() hooks exist and use the plugin when available. (3) Add scanLootItems and scanSellItems as top-level aliases in CreateLuaModule() in MQ2CoOptUI.cpp if not already present (mod["scanLootItems"] = loot_table["scanLootItems"]; mod["scanSellItems"] = items_table["scanSellItems"];). (4) Run full fallback test: unload MQ2CoOptUI, verify every scan (inv, bank, loot, sell) works via pure Lua. (5) Run reload test: load MQ2CoOptUI mid-session, verify all scans switch to plugin path. (6) Deploy Lua via .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7".
+Context: Phases 3, 6, and 7 added plugin hooks and top-level aliases. Phase 11 verifies and completes the integration: (1) Confirm tryCoopUIPlugin() in scan.lua tries plugin.MQ2CoOptUI first. (2) Confirm scanLootItems() and scanSellItems() hooks exist and use the plugin when available. (3) Add scanLootItems and scanSellItems as top-level aliases in CreateLuaModule() in MQ2CoOptUI.cpp if not already present (mod["scanLootItems"] = loot_table["scanLootItems"]; mod["scanSellItems"] = items_table["scanSellItems"];). (4) Run full fallback test: unload MQ2CoOptUI, verify every scan (inv, bank, loot, sell) works via pure Lua. (5) Run reload test: load MQ2CoOptUI mid-session, verify all scans switch to plugin path. (6) Deploy Lua via .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7".
 
 No new C++ sources required unless aliases are missing. Focus on verification and any missing alias registration. Validate all Phase 11 checkboxes.
 
@@ -1087,8 +1087,8 @@ Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ has CacheManager and scanne
 
 Wire counters into existing scanner and CacheManager paths. Use existing Logger/ScopedTimer where appropriate. Validate: /cooptui perf shows data, stress loot 300 under 10ms, no memory growth after 1000 scans, stable over 10-minute session.
 
-Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
-Deploy: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" -IncludePlugin
+Build: cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Deploy: .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7" -IncludePlugin
 
 Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation checkboxes before declaring complete.
 ```
@@ -1104,17 +1104,17 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation
 1. **Full build-and-deploy test:**
 
    ```powershell
-   $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
+   $env:Path = "C:\Program Files\CMake\bin;" + $env:Path
    .\scripts\build-and-deploy.ps1 `
-     -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" `
-     -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" `
+     -SourceRoot "C:\MQ-EMU-Dev" `
+     -DeployPath "C:\MQ-Deploy" `
      -UsePrebuildDownload:$false -CreateZip
    ```
 
 2. **Verify zip contents:**
 
    ```powershell
-   .\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-20260302.zip"
+   .\scripts\list-zip.ps1 -ZipPath "C:\MQ-Deploy\CoOptUI-EMU-YYYYMMDD.zip"
    ```
 
    Must contain: `plugins/MQ2CoOptUI.dll`, and all standard entries.
@@ -1122,7 +1122,7 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation
 3. **Sync with plugin DLL:**
 
    ```powershell
-   .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7" -IncludePlugin
+   .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7" -IncludePlugin
    ```
 
    The `-IncludePlugin` flag copies `MQ2CoOptUI.dll` from the build output alongside Lua/macros/resources.
@@ -1144,14 +1144,14 @@ Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 12 validation
 - [ ] Plugin load/unload cycle works cleanly *(in-game)*
 - [ ] Lua fallback verified after unload *(in-game)*
 
-**Zip verification note:** `config/Autoexec/AutoExec.cfg` is intentionally removed by the deploy script (Stage 3b: "E3 loads with /mono load e3"), so `list-zip.ps1` reports one [MISS]. All other required entries including `plugins/MQ2CoOptUI.dll` are present. Zip created: `C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip` (e.g. 20260304).
+**Zip verification note:** `config/Autoexec/AutoExec.cfg` is intentionally removed by the deploy script (Stage 3b: "E3 loads with /mono load e3"), so `list-zip.ps1` reports one [MISS]. All other required entries including `plugins/MQ2CoOptUI.dll` are present. Zip created: `C:\MQ-Deploy\CoOptUI-EMU-YYYYMMDD.zip` (e.g. 20260304).
 
 ### Copyable handoff prompt — Phase 13 (Deploy, Sync, & Zip Verification)
 
 ```
 Read docs/plugin/MQ2COOPTCORE_IMPLEMENTATION_PLAN.md first, then execute Phase 13 (Deploy, Sync, & Zip Verification).
 
-Context: Phase 13 is a verification and release-readiness pass — no new feature code. Steps: (1) Run full build-and-deploy: $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path; .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MIS\MacroquestEnvironments\CompileTest\Source" -DeployPath "C:\MIS\MacroquestEnvironments\CompileTest" -UsePrebuildDownload:$false -CreateZip. (2) Verify zip: .\scripts\list-zip.ps1 -ZipPath "C:\MIS\MacroquestEnvironments\CoOptUI-EMU-YYYYMMDD.zip" — must contain plugins/MQ2CoOptUI.dll and standard entries. (3) Sync with plugin: .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI8" -IncludePlugin. (4) Ensure config/CoOptCore.ini default exists in config_templates/ if not already. (5) End-to-end test: launch from deploy folder, /plugin MQ2CoOptUI, /cooptui status, open inventory/bank/merchant/loot and verify all views work; unload plugin and verify Lua fallback.
+Context: Phase 13 is a verification and release-readiness pass — no new feature code. Steps: (1) Run full build-and-deploy: $env:Path = "C:\Program Files\CMake\bin;" + $env:Path; .\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ-Deploy" -UsePrebuildDownload:$false -CreateZip. (2) Verify zip: .\scripts\list-zip.ps1 -ZipPath "C:\MQ-Deploy\CoOptUI-EMU-YYYYMMDD.zip" — must contain plugins/MQ2CoOptUI.dll and standard entries. (3) Sync with plugin: .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI8" -IncludePlugin. (4) Ensure config/CoOptCore.ini default exists in config_templates/ if not already. (5) End-to-end test: launch from deploy folder, /plugin MQ2CoOptUI, /cooptui status, open inventory/bank/merchant/loot and verify all views work; unload plugin and verify Lua fallback.
 
 Document any failures or missing zip entries. Validate all Phase 13 checkboxes before declaring complete.
 ```
@@ -1296,8 +1296,8 @@ with a real native scanner that walks pLocalPC inventory and returns a populated
 sol::table. The Lua side (scan.lua) already calls this function via tryCoopUIPlugin()
 — when we return real data, Lua will automatically use it.
 
-Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI
-Deploy: Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+Build: cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI
+Deploy: Copy-Item "...\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force
 
 Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Zero char[] buffers. Use std::string.
 Verify all validation checkboxes in the plan before declaring complete.
@@ -1312,8 +1312,8 @@ Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ already has InventoryScanne
 
 Lua scan.lua already has scanSellItems() and a reentrancy guard; add at the top the same pattern as scanLootItems(): tryCoopUIPlugin(), if coopui.scanSellItems then pcall and if ok and #result > 0 then populate env.sellItems and return. Add top-level alias mod["scanSellItems"] in CreateLuaModule() and /cooptui scan sell command. Update CMakeLists.txt for new sources (scanners/SellScanner.cpp, storage/SellCacheWriter.cpp).
 
-Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
-Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force; .\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7"
+Build: cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
+Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force; .\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI7"
 
 Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Zero char[] buffers. Use std::string. Verify all Phase 7 validation checkboxes before declaring complete.
 ```
@@ -1327,8 +1327,8 @@ Context: The MQ2CoOptUI plugin at plugin/MQ2CoOptUI/ has CacheManager with dirty
 
 Ensure existing behavior is preserved: InventoryScanner/BankScanner/LootScanner already have their own fingerprint or window checks; wire events so that zone change and window state reduce unnecessary scans rather than replace scanner logic. Validate: zone change invalidates caches; bank open triggers scan; idle 60s shows no unnecessary scan count growth in /cooptui status.
 
-Build: cmake --build "C:\MIS\MacroquestEnvironments\CompileTest\Source\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
-Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI7\plugins\" -Force
+Build: cmake --build "C:\MQ-EMU-Dev\macroquest\build\solution" --config Release --target MQ2CoOptUI -- /p:BuildProjectReferences=false
+Deploy: Copy-Item "...\build\solution\bin\release\plugins\MQ2CoOptUI.dll" "C:\MQ-Deploy\CoOptUI7\plugins\" -Force
 
 Follow .cursor/rules/mq-plugin-build-gotchas.mdc. Verify all Phase 8 validation checkboxes before declaring complete.
 ```

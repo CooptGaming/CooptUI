@@ -9,7 +9,7 @@
 
 ### 1.1 Deployed Plugin DLLs
 
-The active deployment at `C:\MIS\E3NextAndMQNextBinary-main\plugins\` contains **99 plugin DLLs**.
+The active deployment at `C:\Projects\CoOptUI\plugins\` contains **99 plugin DLLs**.
 All are **x86 (32-bit)**, matching the EMU target. The vast majority (98 of 99) are dated
 2026-01-20 (the base E3Next distribution). MQ2CoOptUI.dll is the only DLL with a recent
 timestamp (2026-02-28 6:21 PM), indicating it was manually deployed from a separate build.

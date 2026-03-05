@@ -72,7 +72,7 @@ MacroQuest loads plugins from the `plugins` directory of the **MQ install that i
 2. **Copy the new DLL into that folder** — Copy the DLL you built into the folder from step 1 and overwrite `MQ2CoOptUI.dll` there.
 3. **Restart MQ / game** so the new DLL is loaded, then run `/lua run itemui` again.
 
-If the `require` error listed paths under another folder (e.g. `C:\MIS\PerkyCrew-EQ - Copy`), copy the DLL into that install's `plugins` folder as well.
+If the `require` error listed paths under another folder (e.g. `C:\AnotherMQInstall`), copy the DLL into that install's `plugins` folder as well.
 
 ## MQ build must include the plugin require() loader
 
@@ -80,7 +80,7 @@ The Lua `require("plugin.MQ2CoOptUI")` is handled by a **custom package loader**
 
 **Fix:** Run **MacroQuest** (not EverQuest) from a build that includes the plugin loader. MQ and EQ are separate installs: EQ stays where it is; only which MQ executable you run matters.
 
-1. Build full MQ (including MQ2Lua) from the same tree you use for MQ2CoOptUI (e.g. `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone`).
+1. Build full MQ (including MQ2Lua) from the same tree you use for MQ2CoOptUI (e.g. `C:\MQ-EMU-Dev\macroquest`).
 2. Run **MacroQuest.exe** (or the MQ launcher) from that build’s **output** folder. With CMake this is `macroquest-clone\build\bin\release\` (not `build\solution\` — solution holds the .sln; binaries go in `build\bin\release\`). That folder is your “MQ install” for this: put `MQ2CoOptUI.dll` in its `plugins` subfolder. If you don’t see `MacroQuest.exe`, ensure the launcher was built (don’t use `-SkipLauncher` or `MQ_BUILD_LOADER=OFF`).
 3. EverQuest stays in its current install folder (e.g. elsewhere on the same machine). Configure or launch EQ as you normally do (MQ’s config or launcher usually points to your EQ path). When you play, you are running **this** MQ build against your existing EQ install.
 

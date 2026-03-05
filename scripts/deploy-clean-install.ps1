@@ -1,9 +1,9 @@
 # Deploy a "clean install" of CoOptUI for testing.
 # Simulates: zip contents + CoOpt UI patcher deploy (release + default config) + E3 autologin files.
 #
-# Usage: .\scripts\deploy-clean-install.ps1 [-SourceFolder "..."] [-DeployRoot "..."]
-#   SourceFolder: Source folder to copy from (default: C:\MIS\MacroquestEnvironments\DeployTest\E3NextAndMQNextBinary-main)
-#   DeployRoot: Destination parent folder (default: C:\MIS\MacroquestEnvironments\DeployTest)
+# Usage: .\scripts\deploy-clean-install.ps1 -SourceFolder "C:\MQ-EMU-Dev\E3NextAndMQNextBinary-main" -DeployRoot "C:\MQ-EMU-Dev\DeployTest"
+#   SourceFolder: Source folder to copy from (extracted zip or prebuild contents).
+#   DeployRoot: Destination parent folder where CoOptUI, CoOptUI2, ... are created.
 #
 # Creates DeployRoot\CoOptUI (or CoOptUI2, CoOptUI3, ...) with:
 #   1. Contents of the zip file
@@ -12,12 +12,19 @@
 #   4. E3 autologin files: MQ2AutoLogin.ini + minimal MacroQuest.ini for mq2autologin plugin
 
 param(
-    [string]$SourceFolder = "C:\MIS\MacroquestEnvironments\DeployTest\E3NextAndMQNextBinary-main",
-    [string]$DeployRoot = "C:\MIS\MacroquestEnvironments\DeployTest"
+    [string]$SourceFolder = "",
+    [string]$DeployRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = if ($PSScriptRoot) { Split-Path $PSScriptRoot -Parent } else { Get-Location }
+
+if (-not $SourceFolder) {
+    Write-Error "  -SourceFolder is required. Provide the path to the extracted zip or prebuild contents (e.g. C:\MQ-EMU-Dev\E3NextAndMQNextBinary-main)."
+}
+if (-not $DeployRoot) {
+    Write-Error "  -DeployRoot is required. Provide the destination parent folder (e.g. C:\MQ-EMU-Dev\DeployTest)."
+}
 
 # Resolve deploy folder name: CoOptUI, CoOptUI2, CoOptUI3, ...
 function Get-NextCoOptUIFolder {

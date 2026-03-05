@@ -43,7 +43,7 @@ The problem we had: a pre-built “E3” binary distribution didn’t allow buil
    - E3Next is built separately (C# with VS 2022 or `dotnet build`); its output is not part of the CMake solution.
 
 4. **Deploy layout (configs and INIs in correct locations)**  
-   The deploy target structure must match our reference layout (e.g. `C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI`). After build + deploy, the deploy folder must contain:
+   The deploy target structure must match our reference layout (e.g. `C:\MQ-Deploy\CoOptUI`). After build + deploy, the deploy folder must contain:
    - **Binaries:** MacroQuest.exe, plugins/*.dll (MQ2Main, MQ2Lua, MQ2Mono, MQ2CoOptUI, etc.).
    - **Mono runtime:** `mono-2.0-sgen.dll` (32-bit for EMU) and any required BCL — from MQ2Mono-Framework32 or the MQ2Mono repo; placed where MQ2Mono expects (e.g. next to MacroQuest.exe or in a `Mono` resource folder per MQ2Mono README).
    - **config/** — MacroQuest.ini with `mq2mono=1` and the plugin list including MQ2CoOptUI; other MQ config as needed.
@@ -64,7 +64,7 @@ The problem we had: a pre-built “E3” binary distribution didn’t allow buil
    - Builds MQ (with MQ2Mono and MQ2CoOptUI).
    - Builds E3Next (C#).
    - Fetches or copies the **latest release of CoOpt UI files** (Lua, resources, Macros, config, CoopHelper DLL if applicable) from the CoOpt UI repo’s latest tag or GitHub Release.
-   - Deploys everything—including those CoOpt UI release files—to a configurable target (e.g. `C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI`) with configs and INIs in the correct locations.
+   - Deploys everything—including those CoOpt UI release files—to a configurable target (e.g. `C:\MQ-Deploy\CoOptUI`) with configs and INIs in the correct locations.
 
 6. **Optional: prebuilt zip for end users**  
    Either:
@@ -81,7 +81,7 @@ The problem we had: a pre-built “E3” binary distribution didn’t allow buil
 - **Visual Studio 2022:** Required for MQ C++ and for E3Next C#. Document the workload (Desktop development with C++, MFC).
 - **ABI safety:** Never deploy only MQ2CoOptUI.dll into a folder that has different MQ2Main/MQ2Lua versions. Deploy the full build output from one build, or document that the prebuilt zip must be used as a whole.
 - **EMU 32-bit:** Primary target is Win32 (eqlib EMU). Document any 64-bit (Live) path separately if needed.
-- **This repo:** CoOpt UI Lua, C# CoopHelper, and plugin source live here. The “source” environment can live in a sibling or a configurable path; the script should not assume a fixed path like `C:\MIS\...` unless configurable (e.g. `-SourceRoot`, `-DeployPath`).
+- **This repo:** CoOpt UI Lua, C# CoopHelper, and plugin source live here. The “source” environment can live in a sibling or a configurable path; the script should not assume a fixed path unless configurable (e.g. `-SourceRoot`, `-DeployPath`).
 
 ---
 

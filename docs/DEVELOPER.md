@@ -1,6 +1,6 @@
 # CoOpt UI Developer Documentation
 
-Start with [docs/COOPUI_OVERVIEW.md](COOPUI_OVERVIEW.md) for product scope and where to look. Historical phase and design docs are in `lua/itemui/docs/archive/`.
+Start with the [README](../README.md) for product scope. For architecture details see [ARCHITECTURE.md](ARCHITECTURE.md). Historical phase and design docs are in `lua/itemui/docs/archive/`.
 
 ## Architecture Overview
 
@@ -267,7 +267,7 @@ See `lua/itemui/docs/archive/PHASE7_TESTING_GUIDE.md` for a comprehensive functi
 
 ## Internal Dev Docs Index
 
-Historical phase and design docs have been moved to `lua/itemui/docs/archive/`. For current scope and roadmap, see [docs/COOPUI_OVERVIEW.md](COOPUI_OVERVIEW.md) and [lua/itemui/docs/PROJECT_ROADMAP.md](lua/itemui/docs/PROJECT_ROADMAP.md).
+Historical phase and design docs have been moved to `lua/itemui/docs/archive/`. For current scope, see the [README](../README.md). For the plugin roadmap, see [docs/plugin/FUTURE_OPPORTUNITIES.md](plugin/FUTURE_OPPORTUNITIES.md).
 
 ---
 

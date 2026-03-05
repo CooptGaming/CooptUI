@@ -6,10 +6,10 @@ This document describes how to build the MacroQuestCoOpt deployment and how to a
 
 ## 1. What MacroQuestCoOpt Is
 
-- **Location:** `C:\MIS\MacroquestEnvironments\MacroQuestCoOpt`
+- **Location:** `C:\MQ-Deploy\MacroQuestCoOpt`
 - **Deploy folder:** `MacroQuestCoOpt\E3NextMQ` (run MacroQuest.exe from here)
 - **Sources:**
-  - **MQ build:** EMU clone at `C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone` (build output → deploy)
+  - **MQ build:** EMU clone at `C:\MQ-EMU-Dev\macroquest` (build output → deploy)
   - **CoOpt content:** This repo (`E3NextAndMQNextBinary-main`) — lua, Macros, config_templates, default_layout, mono, etc. are **merged** into the deploy by `assemble_deploy.ps1`
 
 So the deploy is: **MQ build output** + **merge from this repo** + MQUI files + mono-2.0-sgen + optional plugins from MacroQuestEMU.
@@ -22,13 +22,13 @@ Do this when setting up a new machine, after pulling MQ clone changes that affec
 
 1. **Environment** (PowerShell):
    ```powershell
-   $env:Path = "C:\MIS\CMake-3.30\bin;" + $env:Path
-   $env:VCPKG_ROOT = "C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone\contrib\vcpkg"
+   $env:Path = "C:\Program Files\CMake\bin;" + $env:Path
+   $env:VCPKG_ROOT = "C:\MQ-EMU-Dev\macroquest\contrib\vcpkg"
    ```
 
 2. **Build the EMU clone** (see `MacroQuestCoOpt\BUILD_NOTES.md` and `.cursor\rules\mq-plugin-build-gotchas.mdc`):
    ```powershell
-   cd C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone
+   cd C:\MQ-EMU-Dev\macroquest
    # If you previously used CMake 4.x, delete build/solution first
    cmake -B build/solution -G "Visual Studio 17 2022" -A Win32 -DMQ_BUILD_CUSTOM_PLUGINS=ON -DMQ_BUILD_LAUNCHER=ON
    cmake --build build/solution --config Release
@@ -36,7 +36,7 @@ Do this when setting up a new machine, after pulling MQ clone changes that affec
 
 3. **Assemble the deploy:**
    ```powershell
-   cd C:\MIS\MacroquestEnvironments\MacroQuestCoOpt
+   cd C:\MQ-Deploy\MacroQuestCoOpt
    .\assemble_deploy.ps1
    ```
 
@@ -64,16 +64,16 @@ Use this table to decide what to rebuild and what to re-run.
 - **Lua/Macros/config/mono/resources only (CoOpt “content”):**  
   Just re-run **assemble** — no need to rebuild the EMU clone.
   ```powershell
-   cd C:\MIS\MacroquestEnvironments\MacroQuestCoOpt
+   cd C:\MQ-Deploy\MacroQuestCoOpt
    .\assemble_deploy.ps1
   ```
 
 - **MQ2CoOptUI or MQ2Mono (or any C++ in the clone):**  
   Rebuild the **EMU clone**, then **assemble**.
   ```powershell
-   cd C:\MIS\MacroquestEnvironments\MacroquestEMU\macroquest-clone
+   cd C:\MQ-EMU-Dev\macroquest
    cmake --build build/solution --config Release
-   cd C:\MIS\MacroquestEnvironments\MacroQuestCoOpt
+   cd C:\MQ-Deploy\MacroQuestCoOpt
    .\assemble_deploy.ps1
   ```
 
@@ -102,4 +102,4 @@ Use this table to decide what to rebuild and what to re-run.
 - **Build gotchas:** `.cursor\rules\mq-plugin-build-gotchas.mdc`
 - **MacroQuestCoOpt build notes:** `MacroQuestCoOpt\BUILD_NOTES.md` (in MacroquestEnvironments)
 - **Plugin dev setup:** `docs\plugin\dev_setup.md`
-- **Plugin Master Plan:** `docs\Plugin_Master_Plan.md`
+- **Plugin implementation plan:** `docs\plugin\MQ2COOPTCORE_IMPLEMENTATION_PLAN.md`

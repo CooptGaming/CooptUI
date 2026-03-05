@@ -9,7 +9,7 @@ Build MacroQuest EMU + MQ2Mono + MQ2CoOptUI + E3Next from source, deploy with Co
 | Tool | Version | Notes |
 |------|---------|-------|
 | **Visual Studio 2022** | Community or Build Tools | Workloads: "Desktop development with C++" (with C++ MFC), ".NET desktop development" (for E3Next). |
-| **CMake** | **3.30** (not 4.x) | Install to `C:\MIS\CMake-3.30`. The scripts put it first on PATH. |
+| **CMake** | **3.30** (not 4.x) | Install to `C:\Program Files\CMake`. The scripts put it first on PATH. |
 | **Git** | Any recent | With submodule support (standard install). |
 | **.NET Framework 4.8 Developer Pack** | Optional | Only needed if building E3Next from source. [Download](https://dotnet.microsoft.com/download/dotnet-framework/net48). |
 | **Windows** | 10/11 | Developer Mode or elevated prompt recommended (for symlinks). |
@@ -21,7 +21,7 @@ Build MacroQuest EMU + MQ2Mono + MQ2CoOptUI + E3Next from source, deploy with Co
 ### 1. Assemble the source tree
 
 ```powershell
-cd C:\MIS\E3NextAndMQNextBinary-main
+cd C:\Projects\CoOptUI
 .\scripts\setup-source-env.ps1 -SourceRoot "C:\MQ-EMU-Dev"
 ```
 
@@ -44,7 +44,7 @@ C:\MQ-EMU-Dev\
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `-SourceRoot` | `../MQ-EMU-Dev` (sibling of repo) | Root directory for all source trees. |
-| `-CMakePath` | `C:\MIS\CMake-3.30` | Path to CMake 3.30 installation. |
+| `-CMakePath` | `C:\Program Files\CMake` | Path to CMake 3.30 installation. |
 | `-MQRepo` | `https://github.com/macroquest/macroquest.git` | MacroQuest git URL. |
 | `-EqLibBranch` | `emu` | Branch for eqlib (use `emu` for EMU, `main` for Live). |
 | `-MQ2MonoRepo` | *(empty)* | MQ2Mono git URL. Required for E3Next support. |
@@ -70,7 +70,7 @@ This:
 |-----------|---------|-------------|
 | `-SourceRoot` | *(required)* | Path from setup-source-env.ps1. |
 | `-DeployPath` | *(required)* | Target deploy folder. |
-| `-CMakePath` | `C:\MIS\CMake-3.30` | CMake 3.30 path. |
+| `-CMakePath` | `C:\Program Files\CMake` | CMake 3.30 path. |
 | `-Configuration` | `Release` | Build configuration. |
 | `-E3NextBinaryPath` | | Path to pre-built E3Next binaries (skip building from source). |
 | `-MonoFrameworkPath` | | Path to MQ2Mono-Framework32 (mono-2.0-sgen.dll + BCL). |
@@ -152,7 +152,7 @@ Deploy/
 After the initial deploy, use `sync-to-deploytest.ps1` to push Lua/Macro/resource changes without a full rebuild:
 
 ```powershell
-.\scripts\sync-to-deploytest.ps1 -Target "C:\MIS\MacroquestEnvironments\DeployTest\CoOptUI2"
+.\scripts\sync-to-deploytest.ps1 -Target "C:\MQ-Deploy\CoOptUI2"
 ```
 
 This copies:

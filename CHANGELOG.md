@@ -6,6 +6,40 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [1.0.0] — 2026-03-05
+
+### Summary
+
+First stable release. CoOpt UI is a unified inventory, selling, looting, and item management companion for EverQuest emulator players using MacroQuest2. Everything from the alpha/beta cycle is production-ready.
+
+### Added
+- **MQ2CoOptUI plugin** (optional) — C++ plugin providing native-speed inventory, bank, loot, and sell scanning (~0 ms vs ~300 ms Lua). IPC event streaming for real-time loot/sell UI feedback. Rules engine, cache management, and item data population with 120+ fields. Fully optional: all features work without the plugin via Lua/TLO fallback.
+- **Plugin capabilities** — INI read/write, IPC channels (loot/sell streaming), cursor detection, window state queries, full item data (stats, spell IDs, augment slots, worn slots), loot scanning, and sell cache writing.
+- **Release documentation** — Installation guide, troubleshooting, configuration reference, architecture overview, and developer documentation all updated for 1.0.
+
+### Changed
+- Repository hygiene for public release: all developer-specific paths parameterized in scripts, documentation examples use generic paths, `ItemColorBG.tga` texture committed (was missing).
+- Version bumped from 0.9.0-beta to 1.0.0 across all components.
+- `build-release.ps1` handles missing optional resources gracefully.
+
+### What's included
+- **ItemUI** — Unified inventory/bank/sell/loot/augments/AA/equipment/reroll UI
+- **ScriptTracker** — AA script progress tracker
+- **Auto Sell** (`sell.mac`) and **Auto Loot** (`loot.mac`) with shared rule evaluation
+- **MQ2CoOptUI plugin** (optional, x86) — performance acceleration layer
+- **Patcher** — Desktop updater for easy updates
+- **Config templates** — Safe defaults for all sell, loot, and shared configuration
+
+### Planned for future releases
+- Non-blocking augment operations (RT-01)
+- `saveInventory` C++ serialization for faster bank snapshots (PERF-01)
+- Item stat comparison tooltips (UX-01)
+- Global error handler (REL-01)
+- Health check dashboard (OPS-01)
+- See `docs/plugin/FUTURE_OPPORTUNITIES.md` for the full roadmap.
+
+---
+
 ## [0.9.0-beta] — 2026-03-01
 
 ### Added

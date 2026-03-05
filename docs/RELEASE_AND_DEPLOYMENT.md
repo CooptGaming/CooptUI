@@ -57,121 +57,57 @@ See the project `.gitignore` for the exact patterns; adjust if you want to add o
 
 ---
 
-## 3. Repository File List (Files We Are Working With)
+## 3. Repository File List
 
-This is the canonical list of project files under version control and included in releases. Use it when setting up the repo, building packages, or auditing what to sync.
+The authoritative source for what goes into a release is `scripts/build-release.ps1` (for the user zip) and `release_manifest.json` (for the patcher). This section provides a high-level overview.
 
-### 3.1 Lua — ItemUI (`lua/itemui/`)
+### 3.1 Lua modules
 
-| Path | Role |
-|------|------|
-| `lua/itemui/init.lua` | Entry point; binds /itemui, /inv, /dosell, /doloot; main loop |
-| `lua/itemui/config.lua` | INI read/write, paths for sell_config, shared_config, loot_config |
-| `lua/itemui/config_cache.lua` | Cached sell/loot flags and lists |
-| `lua/itemui/context.lua` | Shared UI context |
-| `lua/itemui/rules.lua` | willSell, willLoot, epic protection rules |
-| `lua/itemui/storage.lua` | Per-char inventory/bank persistence |
-| `lua/itemui/upvalue_check.lua` | Upvalue / module checks |
-| `lua/itemui/README.md` | ItemUI readme |
-| `lua/itemui/components/filters.lua` | Filter UI components |
-| `lua/itemui/components/progressbar.lua` | Progress bar component |
-| `lua/itemui/components/searchbar.lua` | Search bar component |
-| `lua/itemui/core/cache.lua` | Cache logic |
-| `lua/itemui/core/events.lua` | Event handling |
-| `lua/itemui/services/filter_service.lua` | Filter service |
-| `lua/itemui/services/loot_feed_events.lua` | Loot feed chat events |
-| `lua/itemui/services/macro_bridge.lua` | Macro bridge |
-| `lua/itemui/services/scan.lua` | Scan service |
-| `lua/itemui/services/script_consume_events.lua` | Script consume verification (alt currency chat) |
-| `lua/itemui/utils/column_config.lua` | Column configuration |
-| `lua/itemui/utils/columns.lua` | Column definitions |
-| `lua/itemui/utils/file_safe.lua` | File-safe utilities |
-| `lua/itemui/utils/item_tooltip.lua` | Item tooltip |
-| `lua/itemui/utils/layout.lua` | Layout utilities |
-| `lua/itemui/utils/sort.lua` | Sort utilities |
-| `lua/itemui/utils/theme.lua` | Theme utilities |
-| `lua/itemui/views/augments.lua` | Augments view |
-| `lua/itemui/views/bank.lua` | Bank view |
-| `lua/itemui/views/config.lua` | Config view |
-| `lua/itemui/views/inventory.lua` | Inventory view |
-| `lua/itemui/views/loot.lua` | Loot view |
-| `lua/itemui/views/sell.lua` | Sell view |
-| `lua/itemui/docs/*.md` | ItemUI design/phase docs (optional in release zip) |
+| Directory | Purpose |
+|-----------|---------|
+| `lua/itemui/` | Main UI — init, app, commands, config, rules, storage, components/, core/, services/, utils/, views/ |
+| `lua/coopui/` | Shared core — version.lua, core/events.lua, core/cache.lua, utils/theme.lua |
+| `lua/scripttracker/` | AA Script Tracker |
+| `lua/mq/ItemUtils.lua` | Shared item formatting utilities |
 
-### 3.2 Lua — ScriptTracker (`lua/scripttracker/`)
+Dev-only files (`lua/itemui/docs/archive/`, `upvalue_check.lua`) are excluded from release builds.
 
-| Path | Role |
-|------|------|
-| `lua/scripttracker/init.lua` | AA script tracker; /scripttracker |
-| `lua/scripttracker/README.md` | ScriptTracker readme |
-| `lua/scripttracker/scripttracker.ini` | Optional config (script may not read it yet) |
+### 3.2 Macros
 
-### 3.3 Lua — MQ shared (`lua/mq/`)
+| File | Purpose |
+|------|---------|
+| `Macros/sell.mac` | Auto-sell macro |
+| `Macros/loot.mac` | Auto-loot macro |
+| `Macros/shared_config/*.mac` | Shared macro includes (log_item, validate_config) |
 
-| Path | Role |
-|------|------|
-| `lua/mq/ItemUtils.lua` | formatValue, formatWeight (ItemUI dependency) |
+### 3.3 Config templates (`config_templates/`)
 
-*(Other files under `lua/mq/` such as `eval.lua`, `Icons.lua`, `ImGuiFileDialog.lua`, etc., are MQ2/Lua ecosystem files; include in repo only if this project owns or modifies them.)*
+Default INI files for sell, loot, and shared configuration. Installed to `Macros/` subdirectories on first run (create-if-missing). See `default_config_manifest.json` for the full mapping. User INIs in `Macros/*/` are never overwritten.
 
-### 3.4 Macros (release scope)
+### 3.4 UI resources
 
-| Path | Role |
-|------|------|
-| `Macros/sell.mac` | Sell flow; used by ItemUI /dosell |
-| `Macros/loot.mac` | Loot flow; used by ItemUI /doloot |
-| `Macros/shared_config/log_item.mac` | Log items to valuable lists |
-| `Macros/shared_config/validate_config.mac` | Validate config INIs |
-
-### 3.5 Config templates (source: Macros; for release use `config_templates/`)
-
-Template INIs are copied from the repo’s `Macros/sell_config`, `Macros/shared_config`, and `Macros/loot_config` into `config_templates/` when building the zip. **Do not commit user-specific or runtime files** (e.g. `Macros/sell_config/Chars/`, `Macros/logs/`). Track these INI template sources:
-
-- **sell_config:** `sell_flags.ini`, `sell_value.ini`, `sell_keep_exact.ini`, `sell_keep_contains.ini`, `sell_keep_types.ini`, `sell_always_sell_exact.ini`, `sell_always_sell_contains.ini`, `sell_protected_types.ini`, `sell_augment_always_sell_exact.ini`
-- **shared_config:** `epic_classes.ini`, `epic_items_exact.ini`, `epic_items_<class>.ini` (all class variants), `valuable_exact.ini`, `valuable_contains.ini`, `valuable_types.ini`
-- **loot_config:** `loot_flags.ini`, `loot_value.ini`, `loot_sorting.ini`, `loot_always_exact.ini`, `loot_always_contains.ini`, `loot_always_types.ini`, `loot_skip_exact.ini`, `loot_skip_contains.ini`, `loot_skip_types.ini`, `loot_augment_skip_exact.ini`
-
-### 3.6 UI resources (ItemUI-related only)
-
-| Path | Role |
-|------|------|
-| `resources/UIFiles/Default/EQUI.xml` | Modified to include ItemUI summary |
+| File | Purpose |
+|------|---------|
+| `resources/UIFiles/Default/EQUI.xml` | EQ UI definitions |
 | `resources/UIFiles/Default/MQUI_ItemColorAnimation.xml` | Item color animation |
 | `resources/UIFiles/Default/ItemColorBG.tga` | Item color texture |
 
-### 3.7 Documentation and root
+### 3.5 C++ plugin (`plugin/MQ2CoOptUI/`)
 
-| Path | Role |
-|------|------|
-| `docs/RELEASE_AND_DEPLOYMENT.md` | This document |
-| `docs/MQ2_BEST_PRACTICES.md` | MQ2 best practices |
-| `docs/MQ2_STATUS_CHECK_AND_PLAN.md` | Status and plan |
-| `docs/OPTIMIZATION_ROADMAP.md` | Optimization roadmap |
-| `docs/SELL_CACHE_DESIGN.md` | Sell cache design |
-| `docs/QUICK_REFERENCE_NEW_FEATURES.md` | Quick reference |
-| `docs/guides/classes/*.md` | Class guides (e.g. warrior, rogue, shadowknight) |
-| `README.md` | Project readme (root) |
-| `DEPLOY.md` | *(Create for releases)* User-facing install/update steps; copy into zip root |
-| `CHANGELOG.md` | *(Optional)* Version history; can live in repo and zip |
+MQ2CoOptUI plugin source. Built separately via CMake against a MacroQuest clone. Not included in the release zip (architecture-specific). See `docs/plugin/dev_setup.md`.
 
-### 3.8 Epic quests (optional project scope)
+### 3.6 Other tracked content
 
-| Path | Role |
-|------|------|
-| `epic_quests/README.md`, `epic_quests/IMPLEMENTATION_SUMMARY.md`, `epic_quests/GENERATED_FILES.md` | Epic quests docs |
-| `epic_quests/data/*.json`, `epic_quests/data/*.lua`, `epic_quests/data/lua/*.lua` | Epic data and generated Lua |
-| `epic_quests/scripts/*.py` | Scripts to generate epic data |
-| `epic_quests/docs/SUGGESTIONS.md` | Suggestions |
+| Path | Purpose |
+|------|---------|
+| `patcher/` | Desktop updater (Python source, PyInstaller spec) |
+| `epic_quests/` | Epic quest data and generation scripts |
+| `scripts/` | Build, deploy, and utility scripts |
+| `docs/` | User and developer documentation |
+| `README.md`, `DEPLOY.md`, `CHANGELOG.md` | Root documentation |
+| `release_manifest.json` | Patcher file manifest with SHA-256 hashes |
+| `default_config_manifest.json` | Config template install mapping |
 
-*(Include in the repo if epic_quests is part of this project; omit from the ItemUI/ScriptTracker release zip unless you ship it.)*
-
-### 3.9 Other (optional)
-
-| Path | Role |
-|------|------|
-| `.cursor/agents/*.md` | Cursor/agent rules (if you want them in the repo) |
-| `.gitignore` | Git ignore rules (see below) |
-| `archive_backups.ps1` | Backup script (if used for repo workflow) |
 
 ---
 
@@ -418,7 +354,7 @@ For testing "clean installs" (what a new user would see), use `scripts/deploy-cl
 
 This script:
 
-- Copies from `C:\MIS\MacroquestEnvironments\DeployTest\E3NextAndMQNextBinary-main` (or via `-SourceFolder`) into `C:\MIS\MacroquestEnvironments\DeployTest`
+- Copies from `C:\MQ-Deploy\E3NextAndMQNextBinary-main` (or via `-SourceFolder`) into `C:\MQ-Deploy`
 - Creates `CoOptUI`, `CoOptUI2`, `CoOptUI3`, … (sequential if folders exist)
 - **CoOpt UI patcher simulation:** Copies all `release_manifest.json` files from the repo, then applies `default_config_manifest.json` (config templates → `Macros/`)
 - Copies `CoOptUIPatcher.exe` to the deploy root (if built via `pyinstaller patcher.spec`)

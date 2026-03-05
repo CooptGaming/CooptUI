@@ -11,10 +11,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = if ($PSScriptRoot) { Split-Path $PSScriptRoot -Parent } else { Get-Location }
-if (-not $Version) { $Version = "0.2.0-alpha" }
+if (-not $Version) { $Version = "1.0.0" }
 if (-not $OutputDir) { $OutputDir = $RepoRoot }
 
-$ZipName = "CoOpt UI_v$Version.zip"
+$ZipName = "CoOptUI-v$Version.zip"
 $Staging = Join-Path $env:TEMP "CoOptUI_release_staging_$(Get-Random)"
 New-Item -ItemType Directory -Path $Staging -Force | Out-Null
 
@@ -59,7 +59,12 @@ try {
     New-Item -ItemType Directory -Path $resDest -Force | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\EQUI.xml") -Destination $resDest -Force
     Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\MQUI_ItemColorAnimation.xml") -Destination $resDest -Force
-    Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\ItemColorBG.tga") -Destination $resDest -Force
+    $tgaPath = Join-Path $RepoRoot "resources\UIFiles\Default\ItemColorBG.tga"
+    if (Test-Path $tgaPath) {
+        Copy-Item -Path $tgaPath -Destination $resDest -Force
+    } else {
+        Write-Warning "ItemColorBG.tga not found at $tgaPath (optional UI texture)"
+    }
 
     # Root: DEPLOY.md, optional CHANGELOG.md
     Copy-Item -Path (Join-Path $RepoRoot "DEPLOY.md") -Destination $Staging -Force
