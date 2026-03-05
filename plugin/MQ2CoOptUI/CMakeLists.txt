@@ -13,6 +13,7 @@ set(MQ2CoOptUI_SOURCES
   core/Config.cpp
   core/CacheManager.cpp
   core/Logger.cpp
+  core/ItemDataPopulate.cpp
   capabilities/ini.cpp
   capabilities/ipc.cpp
   capabilities/cursor.cpp

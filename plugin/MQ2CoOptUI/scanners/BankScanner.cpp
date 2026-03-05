@@ -9,6 +9,7 @@
 
 #include "../core/CacheManager.h"
 #include "../core/Config.h"
+#include "../core/ItemDataPopulate.h"
 #include "../core/Logger.h"
 
 namespace cooptui {
@@ -100,7 +101,7 @@ void BankScanner::DoScan() {
             }
           }
 
-          d.wornSlots = "";
+          core::PopulateItemDataFromDefinition(d, def, item);
           fresh.push_back(std::move(d));
         }
       } else {
@@ -145,7 +146,7 @@ void BankScanner::DoScan() {
           }
         }
 
-        d.wornSlots = "";
+        core::PopulateItemDataFromDefinition(d, bagDef, bagItem);
         fresh.push_back(std::move(d));
       }
     }

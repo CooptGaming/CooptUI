@@ -8,6 +8,7 @@
 
 #include "../core/CacheManager.h"
 #include "../core/Config.h"
+#include "../core/ItemDataPopulate.h"
 #include "../core/Logger.h"
 
 namespace cooptui {
@@ -147,8 +148,7 @@ const std::vector<core::CoOptItemData>& InventoryScanner::Scan(bool force) {
           }
         }
 
-        // wornSlots: bitmask → string (lazy in Lua; provide empty here — Phase 9 can fill)
-        d.wornSlots = "";
+        core::PopulateItemDataFromDefinition(d, def, item);
 
         items_.push_back(std::move(d));
       }

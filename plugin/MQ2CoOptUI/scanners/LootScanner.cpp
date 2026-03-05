@@ -10,6 +10,7 @@
 
 #include "../core/CacheManager.h"
 #include "../core/Config.h"
+#include "../core/ItemDataPopulate.h"
 #include "../core/Logger.h"
 #include "../rules/RulesEngine.h"
 
@@ -115,7 +116,7 @@ void LootScanner::DoScan() {
         }
       }
 
-      d.wornSlots = "";
+      core::PopulateItemDataFromDefinition(d, def, item);
 
       // Pre-evaluate loot rules
       auto [shouldLoot, reason] = rulesEngine.ShouldItemBeLooted(d);
