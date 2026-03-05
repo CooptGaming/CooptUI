@@ -44,7 +44,6 @@ class LootScanner {
   LootScanner();
 
   void DoScan();
-  std::string ItemTypeString(uint8_t itemClass) const;
   bool HasLoreDuplicate(const std::string& itemName) const;
 
   std::vector<core::CoOptItemData> items_;

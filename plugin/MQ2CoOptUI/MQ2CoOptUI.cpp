@@ -421,6 +421,31 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
                        items.size(), elapsed, lootCount, lootOpen ? "open" : "closed");
     return;
   }
+  if (strncmp(szLine, "test getitem ", 13) == 0) {
+    const char* rest = szLine + 13;
+    while (*rest == ' ') ++rest;
+    int bag = 0, slot = 0;
+    char srcBuf[32] = {0};
+    if (sscanf_s(rest, "%d %d %31s", &bag, &slot, srcBuf, static_cast<unsigned>(sizeof(srcBuf))) < 3) {
+      cooptui::core::Log(0, "Usage: /cooptui test getitem <bag> <slot> <source>");
+      cooptui::core::Log(0, "  source: inv | bank | equipped | corpse | loot");
+      cooptui::core::Log(0, "  inv: bag 1-10, slot 1-based. equipped: slot 0-22 (0-based).");
+      return;
+    }
+    std::string source(srcBuf);
+    auto opt = cooptui::items::GetItemData(bag, slot, source);
+    if (!opt) {
+      cooptui::core::Log(0, "getItem(%d, %d, \"%s\") -> nil (empty or invalid)", bag, slot, source.c_str());
+      return;
+    }
+    const auto& d = *opt;
+    cooptui::core::Log(0, "getItem(%d, %d, \"%s\") -> id=%d name=\"%s\" type=%s value=%d stack=%d",
+                       bag, slot, source.c_str(), d.id, d.name.c_str(), d.type.c_str(),
+                       d.value, d.stackSize);
+    cooptui::core::Log(0, "  wornSlots=%s augType=%d augRestrictions=%d ac=%d hp=%d proc=%d focus=%d",
+                       d.wornSlots.c_str(), d.augType, d.augRestrictions, d.ac, d.hp, d.proc, d.focus);
+    return;
+  }
   if (strncmp(szLine, "scan sell", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
     uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::SellScanner::Instance().Scan(/*force=*/true);
@@ -444,7 +469,7 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | perf | perf reset | stress loot <N> | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | test getitem <bag> <slot> <source> | perf | perf reset | stress loot <N> | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {

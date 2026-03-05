@@ -42,7 +42,6 @@ class BankScanner {
   BankScanner() = default;
 
   void DoScan();
-  std::string ItemTypeString(uint8_t itemClass) const;
 
   std::vector<core::CoOptItemData> snapshot_;  // retained after bank closes
   uint64_t lastScanTimeMs_ = 0;

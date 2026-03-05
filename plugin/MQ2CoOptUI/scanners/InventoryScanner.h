@@ -30,7 +30,6 @@ class InventoryScanner {
   InventoryScanner() = default;
 
   uint64_t ComputeFingerprint() const;
-  std::string ItemTypeString(uint8_t itemClass) const;
 
   std::vector<core::CoOptItemData> items_;
   uint64_t lastFingerprint_ = 0;

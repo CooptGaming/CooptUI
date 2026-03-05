@@ -5,9 +5,16 @@
 #include "eqlib/game/Globals.h"
 
 #include <sstream>
+#include <string>
 
 namespace cooptui {
 namespace core {
+
+static std::string ItemTypeString(uint8_t itemClass) {
+  if (itemClass < eqlib::MAX_ITEMCLASSES && eqlib::szItemClasses[itemClass] != nullptr)
+    return eqlib::szItemClasses[itemClass];
+  return "";
+}
 
 // Slot index 0-22 to display name (matches Lua SLOT_DISPLAY_NAMES in item_tlo.lua).
 static const char* const kSlotDisplayNames[] = {
@@ -238,6 +245,55 @@ void PopulateItemDataFromDefinition(CoOptItemData& d,
 
   // Charges from ItemPtr (instance)
   d.charges = item ? item->Charges : 0;
+}
+
+void PopulateItemData(CoOptItemData& d,
+                     const eqlib::ItemPtr& item,
+                     const eqlib::ItemDefinition* def,
+                     int bag,
+                     int slot,
+                     const std::string& source) {
+  if (!item || !def) return;
+
+  using namespace eqlib;
+
+  d.id = item->GetID();
+  d.bag = bag;
+  d.slot = slot;
+  d.source = source;
+  d.name = def->Name;
+  d.type = ItemTypeString(def->ItemClass);
+  d.value = def->Cost;
+  d.stackSize = item->GetItemCount();
+  if (d.stackSize < 1) d.stackSize = 1;
+  d.totalValue = d.value * d.stackSize;
+  d.weight = def->Weight;
+  d.icon = def->IconNumber;
+  d.tribute = def->Favor;
+  d.nodrop = !def->IsDroppable;
+  d.notrade = !def->IsDroppable;
+  d.lore = (def->Lore != 0);
+  d.attuneable = def->Attuneable;
+  d.heirloom = def->Heirloom;
+  d.collectible = def->Collectible;
+  d.quest = def->QuestItem;
+
+  d.augSlots = 0;
+  for (int a = 0; a < MAX_AUG_SOCKETS; ++a) {
+    if (def->AugData.IsSocketValid(a)) ++d.augSlots;
+  }
+
+  d.clicky = 0;
+  {
+    int sid = def->SpellData.GetSpellId(ItemSpellType_Clicky);
+    eItemEffectType eff = def->SpellData.GetSpellEffectType(ItemSpellType_Clicky);
+    if (sid > 0 && (eff == ItemEffectClicky || eff == ItemEffectClickyWorn ||
+                    eff == ItemEffectClickyRestricted)) {
+      d.clicky = sid;
+    }
+  }
+
+  PopulateItemDataFromDefinition(d, def, item);
 }
 
 }  // namespace core

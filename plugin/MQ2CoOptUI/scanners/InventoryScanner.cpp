@@ -54,13 +54,6 @@ uint64_t InventoryScanner::ComputeFingerprint() const {
   return hash;
 }
 
-std::string InventoryScanner::ItemTypeString(uint8_t itemClass) const {
-  // szItemClasses is MQ's exported string table (same source as TLO Item.Type).
-  if (itemClass < MAX_ITEMCLASSES && szItemClasses[itemClass] != nullptr)
-    return szItemClasses[itemClass];
-  return "";
-}
-
 const std::vector<core::CoOptItemData>& InventoryScanner::Scan(bool force) {
   if (!pLocalPC) {
     items_.clear();
@@ -106,50 +99,10 @@ const std::vector<core::CoOptItemData>& InventoryScanner::Scan(bool force) {
         ItemDefinition* def = item->GetItemDefinition();
         if (!def) continue;
 
-        int id = item->GetID();
-        if (id <= 0) continue;
+        if (item->GetID() <= 0) continue;
 
         core::CoOptItemData d;
-        d.id = id;
-        d.bag = luaBag;
-        d.slot = s + 1;  // Lua expects 1-based slot
-        d.source = "inv";
-        d.name = def->Name;
-        d.type = ItemTypeString(def->ItemClass);
-        d.value = def->Cost;
-        d.stackSize = item->GetItemCount();
-        if (d.stackSize < 1) d.stackSize = 1;
-        d.totalValue = d.value * d.stackSize;
-        d.weight = def->Weight;
-        d.icon = def->IconNumber;
-        d.tribute = def->Favor;
-        d.nodrop = !def->IsDroppable;
-        d.notrade = !def->IsDroppable;  // EQ: NoDrop and NoTrade are equivalent here
-        d.lore = (def->Lore != 0);
-        d.attuneable = def->Attuneable;
-        d.heirloom = def->Heirloom;
-        d.collectible = def->Collectible;
-        d.quest = def->QuestItem;
-
-        // Count valid aug sockets
-        d.augSlots = 0;
-        for (int a = 0; a < MAX_AUG_SOCKETS; ++a) {
-          if (def->AugData.IsSocketValid(a)) ++d.augSlots;
-        }
-
-        // Clicky: spell ID if item has an active click effect
-        d.clicky = 0;
-        {
-          int sid = def->SpellData.GetSpellId(ItemSpellType_Clicky);
-          eItemEffectType eff = def->SpellData.GetSpellEffectType(ItemSpellType_Clicky);
-          if (sid > 0 && (eff == ItemEffectClicky || eff == ItemEffectClickyWorn ||
-                          eff == ItemEffectClickyRestricted)) {
-            d.clicky = sid;
-          }
-        }
-
-        core::PopulateItemDataFromDefinition(d, def, item);
-
+        core::PopulateItemData(d, item, def, luaBag, s + 1, "inv");
         items_.push_back(std::move(d));
       }
     }

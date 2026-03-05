@@ -24,12 +24,6 @@ bool BankScanner::IsBankWindowOpen() {
   return pBankWnd && pBankWnd->IsVisible();
 }
 
-std::string BankScanner::ItemTypeString(uint8_t itemClass) const {
-  if (itemClass < MAX_ITEMCLASSES && szItemClasses[itemClass] != nullptr)
-    return szItemClasses[itemClass];
-  return "";
-}
-
 void BankScanner::DoScan() {
   if (!pLocalPC) return;
 
@@ -61,92 +55,18 @@ void BankScanner::DoScan() {
           ItemDefinition* def = item->GetItemDefinition();
           if (!def) continue;
 
-          int id = item->GetID();
-          if (id <= 0) continue;
+          if (item->GetID() <= 0) continue;
 
           core::CoOptItemData d;
-          d.id = id;
-          d.bag = luaBag;
-          d.slot = s + 1;  // Lua: (ItemSlot2 0-based) + 1
-          d.source = "bank";
-          d.name = def->Name;
-          d.type = ItemTypeString(def->ItemClass);
-          d.value = def->Cost;
-          d.stackSize = item->GetItemCount();
-          if (d.stackSize < 1) d.stackSize = 1;
-          d.totalValue = d.value * d.stackSize;
-          d.weight = def->Weight;
-          d.icon = def->IconNumber;
-          d.tribute = def->Favor;
-          d.nodrop = !def->IsDroppable;
-          d.notrade = !def->IsDroppable;
-          d.lore = (def->Lore != 0);
-          d.attuneable = def->Attuneable;
-          d.heirloom = def->Heirloom;
-          d.collectible = def->Collectible;
-          d.quest = def->QuestItem;
-
-          d.augSlots = 0;
-          for (int a = 0; a < MAX_AUG_SOCKETS; ++a) {
-            if (def->AugData.IsSocketValid(a)) ++d.augSlots;
-          }
-
-          d.clicky = 0;
-          {
-            int sid = def->SpellData.GetSpellId(ItemSpellType_Clicky);
-            eItemEffectType eff = def->SpellData.GetSpellEffectType(ItemSpellType_Clicky);
-            if (sid > 0 && (eff == ItemEffectClicky || eff == ItemEffectClickyWorn ||
-                            eff == ItemEffectClickyRestricted)) {
-              d.clicky = sid;
-            }
-          }
-
-          core::PopulateItemDataFromDefinition(d, def, item);
+          core::PopulateItemData(d, item, def, luaBag, s + 1, "bank");
           fresh.push_back(std::move(d));
         }
       } else {
         // Single item directly in a bank slot (not a container bag)
-        int id = bagItem->GetID();
-        if (id <= 0) continue;
+        if (bagItem->GetID() <= 0) continue;
 
         core::CoOptItemData d;
-        d.id = id;
-        d.bag = luaBag;
-        d.slot = 1;  // Lua: (ItemSlot2 == 0) + 1 = 1
-        d.source = "bank";
-        d.name = bagDef->Name;
-        d.type = ItemTypeString(bagDef->ItemClass);
-        d.value = bagDef->Cost;
-        d.stackSize = bagItem->GetItemCount();
-        if (d.stackSize < 1) d.stackSize = 1;
-        d.totalValue = d.value * d.stackSize;
-        d.weight = bagDef->Weight;
-        d.icon = bagDef->IconNumber;
-        d.tribute = bagDef->Favor;
-        d.nodrop = !bagDef->IsDroppable;
-        d.notrade = !bagDef->IsDroppable;
-        d.lore = (bagDef->Lore != 0);
-        d.attuneable = bagDef->Attuneable;
-        d.heirloom = bagDef->Heirloom;
-        d.collectible = bagDef->Collectible;
-        d.quest = bagDef->QuestItem;
-
-        d.augSlots = 0;
-        for (int a = 0; a < MAX_AUG_SOCKETS; ++a) {
-          if (bagDef->AugData.IsSocketValid(a)) ++d.augSlots;
-        }
-
-        d.clicky = 0;
-        {
-          int sid = bagDef->SpellData.GetSpellId(ItemSpellType_Clicky);
-          eItemEffectType eff = bagDef->SpellData.GetSpellEffectType(ItemSpellType_Clicky);
-          if (sid > 0 && (eff == ItemEffectClicky || eff == ItemEffectClickyWorn ||
-                          eff == ItemEffectClickyRestricted)) {
-            d.clicky = sid;
-          }
-        }
-
-        core::PopulateItemDataFromDefinition(d, bagDef, bagItem);
+        core::PopulateItemData(d, bagItem, bagDef, luaBag, 1, "bank");
         fresh.push_back(std::move(d));
       }
     }
