@@ -446,6 +446,10 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
                        d.wornSlots.c_str(), d.augType, d.augRestrictions, d.ac, d.hp, d.proc, d.focus);
     return;
   }
+  if (strncmp(szLine, "test cursor", 11) == 0 && (szLine[11] == '\0' || szLine[11] == ' ')) {
+    cooptui::cursor::LogCursorState();
+    return;
+  }
   if (strncmp(szLine, "scan sell", 9) == 0 && (szLine[9] == '\0' || szLine[9] == ' ')) {
     uint64_t t0 = cooptui::core::MonotonicUs();
     const auto& items = cooptui::scanners::SellScanner::Instance().Scan(/*force=*/true);
@@ -469,7 +473,7 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     return;
   }
 
-  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | test getitem <bag> <slot> <source> | perf | perf reset | stress loot <N> | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
+  cooptui::core::Log(0, "Usage: /cooptui status | reload | reloadrules | scan inv | scan bank | scan loot | scan sell | test getitem <bag> <slot> <source> | test cursor | perf | perf reset | stress loot <N> | eval sell <name> | eval loot <name> | debug <0-3> | ipc send <channel> <message>");
 }
 
 PLUGIN_API void InitializePlugin() {

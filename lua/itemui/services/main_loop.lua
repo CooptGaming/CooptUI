@@ -1047,11 +1047,11 @@ local function phase8c_pendingAugRollComplete(now)
         return
     end
     if not hasItemOnCursor() then return end
-    local cur = mq.TLO and mq.TLO.Cursor
-    local name = (cur and cur.Name and cur.Name()) or ""
+    local itemOps = d.itemOps
+    local name = (itemOps and itemOps.getCursorItemName and itemOps.getCursorItemName()) or (mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()) or ""
     if name and name ~= "" then
         print("\ag[CoOpt UI]\ax Augment roll result: " .. name)
-        local link = (cur and cur.Link and cur.Link()) or (cur and cur.ItemLink and cur.ItemLink()) or nil
+        local link = (itemOps and itemOps.getCursorItemLink and itemOps.getCursorItemLink()) or (mq.TLO.Cursor and (mq.TLO.Cursor.Link and mq.TLO.Cursor.Link() or mq.TLO.Cursor.ItemLink and mq.TLO.Cursor.ItemLink())) or nil
         if link and link ~= "" then
             mq.cmdf("/guild %s", link)
         else
