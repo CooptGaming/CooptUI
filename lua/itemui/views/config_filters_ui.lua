@@ -188,11 +188,12 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
         if not hc then ImGui.BeginDisabled() end
         if ImGui.Button("From cursor##" .. section, ImVec2(95, 0)) then
             local toAdd = nil
+            local itemOps = ctx.itemOps
             if typeMode == 0 or typeMode == 1 then
-                local raw = mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()
+                local raw = (itemOps and itemOps.getCursorItemName and itemOps.getCursorItemName()) or (mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name())
                 if raw and raw ~= "" then toAdd = config.sanitizeItemName(raw) end
             else
-                local raw = mq.TLO.Cursor and mq.TLO.Cursor.Type and mq.TLO.Cursor.Type()
+                local raw = (itemOps and itemOps.getCursorItemType and itemOps.getCursorItemType()) or (mq.TLO.Cursor and mq.TLO.Cursor.Type and mq.TLO.Cursor.Type())
                 if raw and raw ~= "" then toAdd = raw:match("^%s*(.-)%s*$") end
             end
             if toAdd and toAdd ~= "" then
@@ -396,11 +397,12 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
             if not hc then ImGui.BeginDisabled() end
             if ImGui.Button("From cursor##Valuable", ImVec2(95, 0)) then
                 local toAdd = nil
+                local itemOps = ctx.itemOps
                 if filterState.valuableFilterTypeMode == 0 or filterState.valuableFilterTypeMode == 1 then
-                    local raw = mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()
+                    local raw = (itemOps and itemOps.getCursorItemName and itemOps.getCursorItemName()) or (mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name())
                     if raw and raw ~= "" then toAdd = config.sanitizeItemName(raw) end
                 else
-                    local raw = mq.TLO.Cursor and mq.TLO.Cursor.Type and mq.TLO.Cursor.Type()
+                    local raw = (itemOps and itemOps.getCursorItemType and itemOps.getCursorItemType()) or (mq.TLO.Cursor and mq.TLO.Cursor.Type and mq.TLO.Cursor.Type())
                     if raw and raw ~= "" then toAdd = raw:match("^%s*(.-)%s*$") end
                 end
                 if toAdd and toAdd ~= "" then

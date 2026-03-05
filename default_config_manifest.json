@@ -151,6 +151,14 @@
     {
       "repoPath": "config_templates/shared_config/valuable_types.ini",
       "installPath": "Macros/shared_config/valuable_types.ini"
+    },
+    {
+      "repoPath": "config_templates/loot_config/loot_sorting.ini",
+      "installPath": "Macros/loot_config/loot_sorting.ini"
+    },
+    {
+      "repoPath": "config_templates/sell_config/coopui_onboarding.ini",
+      "installPath": "Macros/sell_config/coopui_onboarding.ini"
     }
   ]
 }

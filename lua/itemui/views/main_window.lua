@@ -769,9 +769,9 @@ function M.render(refs)
         local hasCursor = refs.hasItemOnCursor and refs.hasItemOnCursor()
         if hasCursor then
             ImGui.Separator()
-            local cursor = mq.TLO and mq.TLO.Cursor
-            local cn = (cursor and cursor.Name and cursor.Name()) or "Item"
-            local st = (cursor and cursor.Stack and cursor.Stack()) or 0
+            local itemOps = refs.itemOps
+            local cn = (itemOps and itemOps.getCursorItemName and itemOps.getCursorItemName()) or (mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()) or "Item"
+            local st = (itemOps and itemOps.getCursorItemStack and itemOps.getCursorItemStack()) or (mq.TLO.Cursor and mq.TLO.Cursor.Stack and mq.TLO.Cursor.Stack()) or 0
             if st and st > 1 then cn = cn .. string.format(" (x%d)", st) end
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Cursor: " .. cn)
             if ImGui.Button("Clear cursor", ImVec2(90,0)) then refs.removeItemFromCursor() end

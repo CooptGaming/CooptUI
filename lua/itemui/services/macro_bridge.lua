@@ -387,6 +387,117 @@ function MacroBridge.getLootSession()
     }
 end
 
+-- IPC event streaming (Phase 9): plugin module accessor with one-shot detection
+local coopui_ipc = nil
+local ipc_checked = false
+
+local function getIPC()
+    if ipc_checked then return coopui_ipc end
+    ipc_checked = true
+    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+    if ok and mod and mod.ipc and mod.ipc.receiveAll then
+        coopui_ipc = mod.ipc
+    end
+    return coopui_ipc
+end
+
+-- Drain high-frequency IPC channels at frame rate (called every tick from main_loop)
+-- Process loot_start before loot_item so the run-start clear doesn't wipe items we just added.
+function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MAX)
+    local ipc = getIPC()
+    if not ipc then return end
+
+    local starts = ipc.receiveAll("loot_start")
+    if starts and #starts > 0 then
+        uiState.lootUIOpen = true
+        uiState.lootRunFinished = false
+        uiState.lootRunLootedItems = {}
+        uiState.lootRunLootedList = {}
+        uiState.lootRunTotalValue = 0
+        uiState.lootRunTributeValue = 0
+        uiState.lootRunBestItemName = ""
+        uiState.lootRunBestItemValue = 0
+    end
+
+    local items = ipc.receiveAll("loot_item")
+    if items and #items > 0 then
+        if not uiState.lootRunLootedItems then uiState.lootRunLootedItems = {} end
+        if not uiState.lootRunLootedList then uiState.lootRunLootedList = {} end
+        if not uiState.lootHistory then uiState.lootHistory = {} end
+        for _, msg in ipairs(items) do
+            local name, valStr, tribStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
+            if name and name ~= "" then
+                local value = tonumber(valStr) or 0
+                local tribute = tonumber(tribStr) or 0
+                local statusText, willSell = "—", false
+                if getSellStatusForItem then
+                    statusText, willSell = getSellStatusForItem({ name = name })
+                    if statusText == "" then statusText = "—" end
+                end
+                table.insert(uiState.lootRunLootedList, name)
+                table.insert(uiState.lootRunLootedItems, {
+                    name = name, value = value, tribute = tribute,
+                    statusText = statusText, willSell = willSell
+                })
+                table.insert(uiState.lootHistory, {
+                    name = name, value = value,
+                    statusText = statusText, willSell = willSell
+                })
+                while #uiState.lootHistory > LOOT_HISTORY_MAX do
+                    table.remove(uiState.lootHistory, 1)
+                end
+                uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
+                uiState.lootRunTributeValue = (uiState.lootRunTributeValue or 0) + tribute
+                if value > (uiState.lootRunBestItemValue or 0) then
+                    uiState.lootRunBestItemValue = value
+                    uiState.lootRunBestItemName = name
+                end
+            end
+        end
+    end
+
+    local skips = ipc.receiveAll("loot_skip")
+    if skips and #skips > 0 then
+        if not uiState.skipHistory then uiState.skipHistory = {} end
+        for _, msg in ipairs(skips) do
+            local name, reason = msg:match("^([^|]+)|(.+)$")
+            if name and name ~= "" then
+                table.insert(uiState.skipHistory, {
+                    name = name, reason = reason or ""
+                })
+                while #uiState.skipHistory > LOOT_HISTORY_MAX do
+                    table.remove(uiState.skipHistory, 1)
+                end
+            end
+        end
+    end
+
+    local progress = ipc.receiveAll("loot_progress")
+    if progress and #progress > 0 then
+        local last = progress[#progress]
+        local looted, total, corpse = last:match("^([^|]+)|([^|]+)|(.*)$")
+        if looted then
+            uiState.lootRunCorpsesLooted = tonumber(looted) or 0
+            uiState.lootRunTotalCorpses = tonumber(total) or 0
+            uiState.lootRunCurrentCorpse = corpse or ""
+        end
+    end
+
+    local ends = ipc.receiveAll("loot_end")
+    if ends and #ends > 0 then
+        local last = ends[#ends]
+        local parts = {}
+        for p in (last .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = p end
+        if #parts >= 6 then
+            uiState.lootRunTotalValue = tonumber(parts[3]) or uiState.lootRunTotalValue
+            uiState.lootRunTributeValue = tonumber(parts[4]) or uiState.lootRunTributeValue
+            if parts[5] ~= "" then uiState.lootRunBestItemName = parts[5] end
+            uiState.lootRunBestItemValue = tonumber(parts[6]) or uiState.lootRunBestItemValue
+        end
+        uiState.lootRunFinished = true
+    end
+end
+
 -- Get statistics
 function MacroBridge.getStats()
     return {
@@ -519,6 +630,35 @@ function MacroBridge.poll()
     end
     
     MacroBridge.state.sell.lastRunning = sellRunning
+    
+    -- Drain sell IPC channels (supplements INI polling; higher priority when plugin loaded)
+    local ipc = getIPC()
+    if ipc then
+        local sp = ipc.receiveAll("sell_progress")
+        if sp and #sp > 0 then
+            local last = sp[#sp]
+            local cur, tot, rem = last:match("^([^|]+)|([^|]+)|(.+)$")
+            if cur then
+                MacroBridge.state.sell.progress = {
+                    total = tonumber(tot) or 0,
+                    current = tonumber(cur) or 0,
+                    remaining = tonumber(rem) or 0
+                }
+                MacroBridge.state.sell.running = true
+            end
+        end
+        local sf = ipc.receiveAll("sell_failed")
+        if sf and #sf > 0 then
+            for _, msg in ipairs(sf) do
+                table.insert(MacroBridge.state.sell.failedItems, msg)
+                MacroBridge.state.sell.failedCount = MacroBridge.state.sell.failedCount + 1
+            end
+        end
+        local se = ipc.receiveAll("sell_end")
+        if se and #se > 0 then
+            MacroBridge.state.sell.running = false
+        end
+    end
     
     -- Check loot.mac state: live TLO first, then fallback to loot_progress.ini Progress/line (running##...) so UI works when macro name isn't detected
     local liveLootRunning = isMacroRunning("loot")

@@ -11,6 +11,19 @@ local constants = require('itemui.constants')
 local M = {}
 local deps  -- set by init()
 
+-- Optional C++ plugin: when loaded, use coopui.cursor for cursor state (cached per-frame).
+local coopuiPluginCache = nil
+local function tryCoopUIPlugin()
+    if coopuiPluginCache == nil then
+        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+        if not ok or not mod or type(mod) ~= "table" then
+            ok, mod = pcall(require, "plugin.CoopUIHelper")
+        end
+        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
+    end
+    return (coopuiPluginCache and coopuiPluginCache) or nil
+end
+
 -- Per 4.2 state ownership: destroy, move, quantity picker, cursor/pickup
 -- sellState: nil when idle; else { phase, item = {name, bag, slot}, enteredAt, pollCount? } for non-blocking sell (task 1.3)
 local state = {
@@ -389,7 +402,66 @@ function M.getItemFlags(d)
 end
 
 function M.hasItemOnCursor()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.hasItem then
+        return coop.cursor.hasItem()
+    end
     return (mq.TLO and mq.TLO.Cursor and mq.TLO.Cursor()) and true or false
+end
+
+--- Cursor item ID (or 0). Uses plugin when available.
+function M.getCursorItemId()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemId then
+        local id = coop.cursor.getItemId()
+        return (id ~= nil) and id or 0
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.ID and cur.ID()) or 0
+end
+
+--- Cursor item name (or ""). Uses plugin when available.
+function M.getCursorItemName()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemName then
+        local name = coop.cursor.getItemName()
+        return (name ~= nil) and name or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.Name and cur.Name()) or ""
+end
+
+--- Cursor item type (or ""). Uses plugin when available.
+function M.getCursorItemType()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemType then
+        local typ = coop.cursor.getItemType()
+        return (typ ~= nil) and typ or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.Type and cur.Type()) or ""
+end
+
+--- Cursor item link (or ""). Uses plugin when available.
+function M.getCursorItemLink()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemLink then
+        local link = coop.cursor.getItemLink()
+        return (link ~= nil) and link or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and (cur.Link and cur.Link() or cur.ItemLink and cur.ItemLink())) or ""
+end
+
+--- Cursor item stack count (or 1). Uses plugin when available.
+function M.getCursorItemStack()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemStack then
+        local st = coop.cursor.getItemStack()
+        return (st ~= nil and st > 0) and st or 1
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.Stack and cur.Stack()) or 1
 end
 
 -- ============================================================================

@@ -111,6 +111,10 @@ Sub Main
 /declare sellMaxTimeoutSeconds int outer 60
 /declare logPathEnsured bool outer FALSE
 
+| IPC: detect CoOptUI plugin for real-time event streaming (Phase 9)
+/declare pluginLoaded bool outer FALSE
+/if (${Plugin[MQ2CoOptUI].Name.Length}) /varset pluginLoaded TRUE
+
 | ------------------------------------------------- |
 | SELL CACHE (ItemUI: only sell items in list)      |
 | Read before LoadConfig so cache mode can skip full config load |
@@ -307,6 +311,7 @@ Sub Main
     /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress current 0
     /ini "${MacroQuest.Path}/Macros/logs/item_management/sell_progress.ini" Progress remaining 0
 }
+/if (${pluginLoaded} && ${doConfirm}) /squelch /cooptui ipc send sell_end "${soldCount}|${failedCount}|${totalValue}"
 
 /return
 
@@ -1127,6 +1132,7 @@ sub WriteProgress
     /ini "${logPath}/sell_progress.ini" Progress total ${totalToSell}
     /ini "${logPath}/sell_progress.ini" Progress current ${soldCount}
     /ini "${logPath}/sell_progress.ini" Progress remaining ${remaining}
+    /if (${pluginLoaded}) /squelch /cooptui ipc send sell_progress "${soldCount}|${totalToSell}|${remaining}"
 /return
 
 | ================================================= |
@@ -1137,6 +1143,7 @@ sub LogFailedItem(string itemName)
     /ini "${logPath}/sell_failed.ini" Protocol Version 1
     /ini "${logPath}/sell_failed.ini" Failed count ${failedCount}
     /ini "${logPath}/sell_failed.ini" Failed item${failedCount} "${itemName}"
+    /if (${pluginLoaded}) /squelch /cooptui ipc send sell_failed "${itemName}"
 /return
 
 | ================================================= |

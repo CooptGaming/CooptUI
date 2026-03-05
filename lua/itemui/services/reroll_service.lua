@@ -13,6 +13,49 @@ local mq = require('mq')
 local constants = require('itemui.constants')
 
 local REROLL = constants.REROLL or {}
+
+-- Optional C++ plugin: when loaded, use coopui.cursor for cursor data.
+local coopuiPluginCache = nil
+local function tryCoopUIPlugin()
+    if coopuiPluginCache == nil then
+        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+        if not ok or not mod or type(mod) ~= "table" then
+            ok, mod = pcall(require, "plugin.CoopUIHelper")
+        end
+        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
+    end
+    return (coopuiPluginCache and coopuiPluginCache) or nil
+end
+
+local function getCursorId()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemId then
+        local id = coop.cursor.getItemId()
+        return (id ~= nil) and id or 0
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.ID and cur.ID()) or 0
+end
+
+local function getCursorName()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemName then
+        local name = coop.cursor.getItemName()
+        return (name ~= nil) and name or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.Name and cur.Name()) or ""
+end
+
+local function getCursorLink()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemLink then
+        local link = coop.cursor.getItemLink()
+        return (link ~= nil) and link or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and (cur.Link and cur.Link() or cur.ItemLink and cur.ItemLink())) or ""
+end
 local LIST_PARSE_MS = REROLL.LIST_RESPONSE_PARSE_MS or 3000
 -- Cap per-list size so very large server responses don't cause buffer/UI issues (chunked parsing already line-by-line).
 local MAX_LIST_ENTRIES = 2000
@@ -292,12 +335,12 @@ end
 --- Add item on cursor to augment reroll list. Call when cursor has an augment.
 --- Optimistic: add to in-memory list immediately, then send command (no requestAugList = no grey-out).
 function M.addAugFromCursor()
-    local cur = mq.TLO and mq.TLO.Cursor
-    if not cur or not cur.ID or cur.ID() == 0 then
+    local id = getCursorId()
+    if not id or id == 0 then
         setStatusMessageFn("No item on cursor.")
         return
     end
-    local id, name = cur.ID(), (cur.Name and cur.Name()) or ""
+    local name = getCursorName()
     M.addEntryToList("aug", id, name)
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_ADD or "!augadd"))
     setStatusMessageFn("Added to augment list.")
@@ -306,12 +349,12 @@ end
 --- Add item on cursor to mythical reroll list. Call when cursor has a mythical item.
 --- Optimistic: add to in-memory list immediately, then send command (no requestMythicalList = no grey-out).
 function M.addMythicalFromCursor()
-    local cur = mq.TLO and mq.TLO.Cursor
-    if not cur or not cur.ID or cur.ID() == 0 then
+    local id = getCursorId()
+    if not id or id == 0 then
         setStatusMessageFn("No item on cursor.")
         return
     end
-    local id, name = cur.ID(), (cur.Name and cur.Name()) or ""
+    local name = getCursorName()
     M.addEntryToList("mythical", id, name)
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd"))
     setStatusMessageFn("Added to mythical list.")
@@ -369,9 +412,7 @@ end
 
 --- Return whether cursor item name starts with Mythical (for mythical track).
 function M.isCursorMythical()
-    local cur = mq.TLO and mq.TLO.Cursor
-    if not cur or not cur.Name then return false end
-    local name = cur.Name() or ""
+    local name = getCursorName()
     local prefix = REROLL.MYTHICAL_NAME_PREFIX or "Mythical"
     return name:sub(1, #prefix) == prefix
 end
@@ -379,9 +420,7 @@ end
 --- Check if cursor item is already in the given list (by id).
 function M.isCursorIdInList(listEntries)
     if not listEntries then return false end
-    local cur = mq.TLO and mq.TLO.Cursor
-    if not cur or not cur.ID then return false end
-    local cursorId = cur.ID()
+    local cursorId = getCursorId()
     if not cursorId or cursorId == 0 then return false end
     for _, e in ipairs(listEntries) do
         if e.id == cursorId then return true end

@@ -21,6 +21,7 @@
 !Macros/
 !resources/
 !docs/
+!plugin/
 
 # --- Ignore these project paths (do not track or push) ---
 .cursor/agents/
@@ -33,6 +34,8 @@ docs/*
 !docs/TROUBLESHOOTING.md
 !docs/RELEASE_AND_DEPLOYMENT.md
 !docs/ARCHITECTURE.md
+!docs/plugin/
+!docs/mono/
 
 # --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
