@@ -1,6 +1,6 @@
-# Build CoopUI release zip and patcher exe, then create a GitHub Release when a version tag is pushed.
-# Usage: tag and push, e.g.  git tag v0.1.0-alpha   &&   git push origin v0.1.0-alpha
-# Assets: CoOpt UI_v<version>.zip and CoOptUIPatcher.exe
+# Build CoopUI release zip, patcher exe, and optional plugin zip, then create a GitHub Release when a version tag is pushed.
+# Usage: tag and push, e.g.  git tag v1.0.0   &&   git push origin v1.0.0
+# Assets: CoOptUI-v<version>.zip, CoOptUIPatcher.exe, and (if present) MQ2CoOptUI-v<version>-optional-E3Next-Win32.zip
 
 name: Release
 
@@ -52,12 +52,41 @@ jobs:
           }
         shell: pwsh
 
+      - name: Package optional plugin (if pre-built DLL present)
+        id: plugin
+        run: |
+          $dll = "release_artifacts/plugins/MQ2CoOptUI.dll"
+          $zipName = "MQ2CoOptUI-v${{ steps.version.outputs.VERSION }}-optional-E3Next-Win32.zip"
+          if (Test-Path $dll) {
+            Compress-Archive -Path "release_artifacts/plugins/*" -DestinationPath $zipName -Force
+            echo "path=$zipName" >> $env:GITHUB_OUTPUT
+            echo "included=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "path=" >> $env:GITHUB_OUTPUT
+            echo "included=false" >> $env:GITHUB_OUTPUT
+          }
+        shell: pwsh
+
+      - name: Build release file list
+        id: release_files
+        run: |
+          $files = @(
+            "CoOptUI-v${{ steps.version.outputs.VERSION }}.zip",
+            "patcher/dist/CoOptUIPatcher.exe"
+          )
+          if ("${{ steps.plugin.outputs.included }}" -eq "true") {
+            $files += "MQ2CoOptUI-v${{ steps.version.outputs.VERSION }}-optional-E3Next-Win32.zip"
+          }
+          $list = $files -join "`n"
+          echo "list<<EOF" >> $env:GITHUB_OUTPUT
+          echo "$list" >> $env:GITHUB_OUTPUT
+          echo "EOF" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            CoOptUI-v${{ steps.version.outputs.VERSION }}.zip
-            patcher/dist/CoOptUIPatcher.exe
+          files: ${{ steps.release_files.outputs.list }}
           generate_release_notes: true
           draft: true
         env:

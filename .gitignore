@@ -22,6 +22,12 @@
 !resources/
 !docs/
 !plugin/
+!release_artifacts/
+release_artifacts/*
+!release_artifacts/plugins/
+!release_artifacts/plugins/*
+# Allow DLL in this folder only (overrides root *.dll for release plugin)
+!release_artifacts/plugins/*.dll
 
 # --- Ignore these project paths (do not track or push) ---
 .cursor/agents/
@@ -96,6 +102,7 @@ Logs/
 /E3NextAndMQNextBinary-main/
 *.exe
 *.dll
+!release_artifacts/plugins/*.dll
 *.zip
 *.db
 *.db-shm
