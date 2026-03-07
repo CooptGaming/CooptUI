@@ -1,6 +1,11 @@
 """
 CoOpt UI Patcher — Desktop app to update CoOpt UI project files in an MQ root from a GitHub repo manifest.
-Run from MacroQuest root; only CoOpt UI files (ItemUI, ScriptTracker, macros, etc.) are updated.
+
+SCOPE — IMPORTANT: The patcher is ONLY designed to work with CoOpt UI files. It does NOT patch
+MacroQuest, E3Next, plugins, or any other binaries. It only updates CoOpt UI project files:
+lua/itemui, lua/coopui, lua/scripttracker, lua/mq/ItemUtils.lua, Macros (sell.mac, loot.mac,
+shared_config), config/MQ2CustomBinds.txt, resources/UIFiles/Default (ItemUI UI files), and
+default config templates. Run from MacroQuest root.
 """
 
 import os
@@ -32,8 +37,11 @@ def resource_path(relative_path: str) -> str:
 
 
 # Repo config: raw base URL (no trailing slash) and manifest paths in repo.
-# Must point to a repo that contains release_manifest.json and all listed files (including config/MQ2CustomBinds.txt).
-REPO_BASE_URL = "https://raw.githubusercontent.com/RekkasGit/E3NextAndMQNextBinary/main"
+# Patcher is COOPT UI ONLY — it only updates CoOpt UI files listed in the manifest.
+# REPO_BASE_URL must point to a repo that contains the CoOpt UI source tree and release_manifest.json
+# (lua/itemui, lua/coopui, lua/scripttracker, Macros, config/MQ2CustomBinds.txt, etc.),
+# NOT the full E3NextAndMQNextBinary prebuilt zip (which has no manifest).
+REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/master"
 MANIFEST_PATH = "release_manifest.json"
 DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 

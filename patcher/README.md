@@ -1,6 +1,10 @@
 # CoOpt UI Patcher
 
-Desktop application that updates **CoOpt UI project files only** (ItemUI, ScriptTracker, macros, resources) in your MacroQuest root. It validates that you are in an MQ root, fetches a release manifest, compares local files by hash, and downloads only changed CoOpt UI files via raw GitHub URLs.
+Desktop application that updates **CoOpt UI project files only** in your MacroQuest root.
+
+**Scope — the patcher is ONLY designed to work with CoOpt UI files.** It does not patch MacroQuest, E3Next, plugins, or any other binaries. It only updates CoOpt UI assets: ItemUI, ScriptTracker, coopui, macros (sell.mac, loot.mac, shared_config), config/MQ2CustomBinds.txt, UI resources, and default config templates. The repo it fetches from must contain the CoOpt UI source and `release_manifest.json`, not the full prebuilt MQ/E3 zip.
+
+It validates that you are in an MQ root, fetches a release manifest, compares local files by hash, and downloads only changed CoOpt UI files via raw GitHub URLs.
 
 ## Requirements
 
@@ -84,7 +88,7 @@ The patcher also fetches `default_config_manifest.json`, which lists default INI
 
 Repo URL and manifest path are set in `patcher.py`:
 
-- `REPO_BASE_URL`: raw GitHub base URL (e.g. `https://raw.githubusercontent.com/owner/repo/main`).
+- `REPO_BASE_URL`: raw GitHub base URL (e.g. `https://raw.githubusercontent.com/CooptGaming/CooptUI/master`).
 - `MANIFEST_PATH`: path to the manifest file in the repo (default `release_manifest.json`).
 
 Change these to point at a different repository or branch if needed.
