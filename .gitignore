@@ -22,6 +22,7 @@
 !resources/
 !docs/
 !plugin/
+!config/
 
 # --- Ignore these project paths (do not track or push) ---
 .cursor/agents/
@@ -83,12 +84,15 @@ patcher/__pycache__/
 Backup/
 Logs/
 
+# --- config: only track MQ2CustomBinds.txt for patcher / keybinds ---
+config/*
+!config/MQ2CustomBinds.txt
+
 # --- Root-level: binaries, IDE, nested repo, runtime (Windows-friendly) ---
 /.cursor/
 /.claude/
 /Backup/
 /Logs/
-/config/
 /plugins/
 /modules/
 /mono/

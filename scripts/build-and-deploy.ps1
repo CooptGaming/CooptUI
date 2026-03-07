@@ -1,4 +1,4 @@
-﻿# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
+# Build MacroQuest (with MQ2Mono + MQ2CoOptUI) and E3Next, then deploy everything
 # to a target folder with the full CoOpt UI layout.
 #
 # Prerequisite: run setup-source-env.ps1 first to assemble the source tree.
@@ -424,7 +424,7 @@ mq2dannet=1
     }
 }
 
-# Ensure mq2mono and MQ2CoOptUI are enabled
+# Ensure mq2mono, MQ2CoOptUI, and mq2custombinds are enabled (keybinding needs MQ2CustomBinds)
 if (Test-Path $mqIniDst) {
     $iniContent = Get-Content $mqIniDst -Raw
     $modified = $false
@@ -436,17 +436,21 @@ if (Test-Path $mqIniDst) {
         $iniContent = $iniContent -replace "(\[Plugins\])", "`$1`r`nMQ2CoOptUI=1"
         $modified = $true
     }
+    if ($iniContent -notmatch "mq2custombinds\s*=\s*1") {
+        $iniContent = $iniContent -replace "(\[Plugins\])", "`$1`r`nmq2custombinds=1"
+        $modified = $true
+    }
     if ($modified) {
         Set-Content $mqIniDst $iniContent -NoNewline
-        Write-Host "    Ensured mq2mono=1 and MQ2CoOptUI=1 in MacroQuest.ini"
+        Write-Host "    Ensured mq2mono=1, MQ2CoOptUI=1, mq2custombinds=1 in MacroQuest.ini"
     }
 }
 
 $bindsSrc = Join-Path $CoOptUIRepo "config\MQ2CustomBinds.txt"
 $bindsDst = Join-Path $configDst "MQ2CustomBinds.txt"
-if ((Test-Path $bindsSrc) -and -not (Test-Path $bindsDst)) {
+if (Test-Path $bindsSrc) {
     Copy-Item $bindsSrc -Destination $bindsDst -Force
-    Write-Host "    Copied MQ2CustomBinds.txt"
+    Write-Host "    Copied MQ2CustomBinds.txt (ItemUI keybind)"
 }
 
 # Remove AutoExec.cfg if present (from reference); E3 loads via /mono load e3 when user chooses

@@ -1,0 +1,4 @@
+# MacroQuest ref (branch, tag, or commit SHA) to build MQ2CoOptUI against.
+# Must match the MQ2 version in the prebuild binary bundle for drop-in compatibility.
+# EMU: use rel-emu tag. Live: use master. Examples: rel-emu, master, v2024.01.15
+rel-emu

@@ -208,6 +208,21 @@ if ((Test-Path $eqlibCMake) -and -not (Test-Path $eqstdMutexH)) {
     Write-Skip "18b" "eqlib CMakeLists not found or eqstd/mutex.h exists"
 }
 
+# --- #20: Achievements.h missing eqstd/unordered_map include ---
+$achievementsH = Join-Path $MQClone "src\eqlib\include\eqlib\game\Achievements.h"
+if (Test-Path $achievementsH) {
+    $content = Get-Content $achievementsH -Raw
+    if ($content -match "eqstd::unordered_map" -and $content -notmatch "eqstd/unordered_map\.h") {
+        $content = $content -replace '(#include\s+"eqlib/game/Types\.h")', "`$1`n#include `"eqstd/unordered_map.h`""
+        Set-Content $achievementsH $content -NoNewline
+        Write-Fix "20" "Added missing #include <eqstd/unordered_map.h> to Achievements.h"
+    } else {
+        Write-Skip "20" "Achievements.h include already present or not needed"
+    }
+} else {
+    Write-Skip "20" "Achievements.h not found"
+}
+
 # --- #9: Loader linker libraries ---
 if (Test-Path $loaderCMake) {
     $content = Get-Content $loaderCMake -Raw

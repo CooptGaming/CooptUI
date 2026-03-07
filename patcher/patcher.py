@@ -31,8 +31,9 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base, relative_path)
 
 
-# Repo config: raw base URL (no trailing slash) and manifest paths in repo
-REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/master"
+# Repo config: raw base URL (no trailing slash) and manifest paths in repo.
+# Must point to a repo that contains release_manifest.json and all listed files (including config/MQ2CustomBinds.txt).
+REPO_BASE_URL = "https://raw.githubusercontent.com/RekkasGit/E3NextAndMQNextBinary/main"
 MANIFEST_PATH = "release_manifest.json"
 DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 

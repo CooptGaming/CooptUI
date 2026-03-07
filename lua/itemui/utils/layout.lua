@@ -608,10 +608,11 @@ end
 
 local ITEMUI_BIND_NAME = "itemui_inv"
 
---- Ensure ItemUI toggle bind command is set (bind created from MQ2CustomBinds.txt; we only update via /custombind set to avoid "name in use").
---- Uses /squelch to suppress bind echo (avoids "[itemui_inv] [Down:/inv] [Up:]" and "Normal itemui_inv now bound as I" on every apply).
+--- Ensure ItemUI toggle bind exists and runs /inv. Creates the bind name with /custombind add if needed
+--- (so it works even when MQ2CustomBinds.txt is missing), then sets the command. Uses /squelch to suppress echo.
 local function ensureItemUIBindExists()
     pcall(function()
+        mq.cmd("/squelch /custombind add " .. ITEMUI_BIND_NAME)  -- no-op if name already exists from MQ2CustomBinds.txt
         mq.cmd("/squelch /custombind set " .. ITEMUI_BIND_NAME .. "-down /inv")
     end)
 end
