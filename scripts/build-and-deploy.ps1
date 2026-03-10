@@ -162,6 +162,11 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
     }
     if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
 
+    # Re-run gotchas with build dir so Fix 19/19c can patch MQ2Mono (Mono include path) in generated CMakeLists/vcxproj for full build
+    if (Test-Path $gotchasScript) {
+        & $gotchasScript -MQClone $MQClone -MQBuildDir $MQBuildDir
+    }
+
     # Force crashpad to use release libs only (avoid MTd/__malloc_dbg link errors when building Release)
     $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
     if (($Configuration -eq "Release") -and (Test-Path $crashpadConfig)) {
@@ -181,7 +186,9 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
     }
 
     # Build
-    if ($PluginOnly) {
+    # When using prebuilt MQ core we only need MQ2CoOptUI from build; building everything would
+    # require MQ2Mono (Mono SDK headers) and can fail. So build only the plugin target.
+    if ($PluginOnly -or $UsePrebuiltMQCore) {
         Write-Host "  Building MQ2CoOptUI only ($Configuration)..."
         # /p:ContinueOnError=true lets MQ2Main.vcxproj fail (pre-existing crashpad linker issue)
         # while still building MQ2CoOptUI, which has no link dependency on MQ2Main.
