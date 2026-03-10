@@ -60,9 +60,10 @@ C:\MQ-EMU-Dev\
 ```
 
 This:
-1. Configures and builds MQ with CMake 3.30 (Win32, Release).
-2. Builds E3Next (if source is present and MSBuild is available).
-3. Deploys everything to `-DeployPath` with the full CoOpt UI layout.
+1. Applies build gotchas to the MQ clone (Fix 19 Mono include, Fix 3 loader portfile, etc.) so the tree is build-ready.
+2. Configures and builds MQ with CMake 3.30 (Win32, Release). When crashpad is present, the script patches the installed vcpkg crashpad config (duplicate-target guard) and re-runs configure as a required step—no fallback.
+3. Builds E3Next (if source is present and MSBuild is available).
+4. Deploys everything to `-DeployPath` with the full CoOpt UI layout.
 
 **Options:**
 

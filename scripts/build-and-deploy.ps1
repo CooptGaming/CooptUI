@@ -107,6 +107,14 @@ Write-Host ""
 if (-not $SkipBuild -and -not $SkipMQBuild) {
     Write-Host "--- Stage 1: Build MacroQuest ---" -ForegroundColor Yellow
 
+    # Apply build gotchas to MQ clone so Fix 19 (Mono include), Fix 3 (loader portfile), etc. are present.
+    $gotchasScript = Join-Path $RepoRoot "scripts\apply-build-gotchas.ps1"
+    if (Test-Path $gotchasScript) {
+        Write-Host "  Applying build gotchas to MQ clone..."
+        & $gotchasScript -MQClone $MQClone
+        if ($LASTEXITCODE -ne 0) { Write-Error "apply-build-gotchas.ps1 failed" }
+    }
+
     $origPath = $env:Path
     $env:Path = "$CMakePath\bin;" + $env:Path
     $env:VCPKG_ROOT = Join-Path $MQClone "contrib\vcpkg"
@@ -133,27 +141,26 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
         -DMQ_BUILD_CUSTOM_PLUGINS=ON `
         -DMQ_BUILD_LAUNCHER=ON `
         -DMQ_REGENERATE_SOLUTION=OFF
-    if ($LASTEXITCODE -ne 0) {
-        # Apply crashpad duplicate-target fix to installed config (registry port has no guard)
-        $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
-        if (Test-Path $crashpadConfig) {
-            $content = Get-Content $crashpadConfig -Raw
-            if ($content -match "add_library\(crashpad INTERFACE\)" -and $content -notmatch "if\s*\(\s*NOT\s+TARGET\s+crashpad\s*\)") {
-                $content = $content -replace "add_library\(crashpad INTERFACE\)", "if(NOT TARGET crashpad)`nadd_library(crashpad INTERFACE)"
-                $content = $content.TrimEnd() + "`nendif()`n"
-                Set-Content $crashpadConfig $content -NoNewline
-                Write-Host "  Patched crashpad config (duplicate target guard), re-running configure (keep cache so vcpkg does not overwrite patch)..."
-                & $cmakeExe -B $MQBuildDir -S $MQClone `
-                    -G $Generator -A Win32 `
-                    -DVCPKG_TARGET_TRIPLET=x86-windows-static `
-                    -DVCPKG_BUILD_TYPE=release `
-                    -DMQ_BUILD_CUSTOM_PLUGINS=ON `
-                    -DMQ_BUILD_LAUNCHER=ON `
-                    -DMQ_REGENERATE_SOLUTION=OFF
-            }
+
+    # Required: patch crashpad installed config (registry port has no duplicate-target guard), then reconfigure.
+    $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
+    if (Test-Path $crashpadConfig) {
+        $content = Get-Content $crashpadConfig -Raw
+        if ($content -match "add_library\(crashpad INTERFACE\)" -and $content -notmatch "if\s*\(\s*NOT\s+TARGET\s+crashpad\s*\)") {
+            $content = $content -replace "add_library\(crashpad INTERFACE\)", "if(NOT TARGET crashpad)`nadd_library(crashpad INTERFACE)"
+            $content = $content.TrimEnd() + "`nendif()`n"
+            Set-Content $crashpadConfig $content -NoNewline
+            Write-Host "  Patched crashpad config (duplicate target guard), re-running configure..."
+            & $cmakeExe -B $MQBuildDir -S $MQClone `
+                -G $Generator -A Win32 `
+                -DVCPKG_TARGET_TRIPLET=x86-windows-static `
+                -DVCPKG_BUILD_TYPE=release `
+                -DMQ_BUILD_CUSTOM_PLUGINS=ON `
+                -DMQ_BUILD_LAUNCHER=ON `
+                -DMQ_REGENERATE_SOLUTION=OFF
         }
-        if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
     }
+    if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
 
     # Force crashpad to use release libs only (avoid MTd/__malloc_dbg link errors when building Release)
     $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
@@ -310,11 +317,19 @@ if (-not $PluginOnly) {
         $refItems = Get-ChildItem $effectiveRefPath -Force -ErrorAction SilentlyContinue
         foreach ($item in $refItems) {
             $dst = Join-Path $DeployPath $item.Name
-            if ($item.PSIsContainer) {
-                if (-not (Test-Path $dst)) { Copy-Item $item.FullName -Destination $dst -Recurse -Force }
-                else { Copy-Item "$($item.FullName)\*" -Destination $dst -Recurse -Force }
-            } else {
-                Copy-Item $item.FullName -Destination $dst -Force
+            try {
+                if ($item.PSIsContainer) {
+                    if (-not (Test-Path $dst)) { Copy-Item $item.FullName -Destination $dst -Recurse -Force }
+                    else { Copy-Item "$($item.FullName)\*" -Destination $dst -Recurse -Force }
+                } else {
+                    Copy-Item $item.FullName -Destination $dst -Force
+                }
+            } catch {
+                if ($_.Exception.Message -match "user-mapped section|being used by another process|cannot be accessed") {
+                    Write-Warning "  A file in the deploy folder is locked (likely MacroQuest or EverQuest is running from $DeployPath)."
+                    Write-Warning "  Close MacroQuest and EverQuest, then re-run this script (use -SkipBuild to deploy only)."
+                }
+                throw
             }
         }
         Write-Host "    Copied reference base (plugins, lua, macros, mono, modules, resources, etc.)" -ForegroundColor Green

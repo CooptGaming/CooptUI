@@ -254,7 +254,11 @@ $mq2MonoSharedH = Join-Path $MQClone "plugins\MQ2Mono\MQ2MonoShared.h"
 if (Test-Path $mq2MonoSharedH) {
     $content = Get-Content $mq2MonoSharedH -Raw
     if ($content -notmatch "#include\s*<array>") {
-        $content = $content -replace "(#include\s*<[^>]+>)", "`$1`n#include <array>", 1
+        # Insert after first #include (PS5.1-safe; -replace with 3rd arg is PS6+ only).
+        $firstInclude = [regex]::Match($content, '#include\s*<[^>]+>')
+        if ($firstInclude.Success) {
+            $content = $content.Insert($firstInclude.Index + $firstInclude.Length, "`n#include <array>")
+        }
         Set-Content $mq2MonoSharedH $content -NoNewline
         Write-Fix "16a" "Added #include <array> to MQ2MonoShared.h"
     } else {
@@ -340,3 +344,4 @@ if (Test-Path $staleBuild) {
 
 Write-Host ""
 Write-Host "Done. Applied: $applied fix(es), Skipped: $skipped (already applied or N/A)." -ForegroundColor Cyan
+exit 0
