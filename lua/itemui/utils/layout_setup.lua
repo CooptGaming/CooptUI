@@ -83,6 +83,9 @@ function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
     layoutDefaults.SuppressWhenLootMac = uiState.suppressWhenLootMac and 1 or 0
+    layoutDefaults.EnableRealTimeLoot = (uiState.enableRealTimeLoot == true) and 1 or 0
+    layoutDefaults.EnableLootHistory = (uiState.enableLootHistory == true) and 1 or 0
+    layoutDefaults.EnableSkipHistory = (uiState.enableSkipHistory == true) and 1 or 0
     layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
     if ImGui and ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
 
@@ -163,6 +166,9 @@ function layout_setup_captureCurrentLayoutAsDefault()
             f:write("RerollWindowX=" .. tostring(layoutDefaults.RerollWindowX or 0) .. "\n")
             f:write("RerollWindowY=" .. tostring(layoutDefaults.RerollWindowY or 0) .. "\n")
             f:write("SuppressWhenLootMac=" .. layoutDefaults.SuppressWhenLootMac .. "\n")
+            f:write("EnableRealTimeLoot=" .. (layoutDefaults.EnableRealTimeLoot or 0) .. "\n")
+            f:write("EnableLootHistory=" .. (layoutDefaults.EnableLootHistory or 0) .. "\n")
+            f:write("EnableSkipHistory=" .. (layoutDefaults.EnableSkipHistory or 0) .. "\n")
             f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
             f:write("\n[ColumnVisibilityDefaults]\n")
             for view, cols in pairs(columnVisibility) do

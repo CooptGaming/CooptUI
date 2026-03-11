@@ -253,9 +253,11 @@ local function phase5_lootMacro(now)
                                 statusText = statusText,
                                 willSell = willSell
                             })
-                            if not uiState.lootHistory then loadLootHistoryFromFile() end
-                            if not uiState.lootHistory then uiState.lootHistory = {} end
-                            table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
+                            if uiState.enableLootHistory then
+                                if not uiState.lootHistory then loadLootHistoryFromFile() end
+                                if not uiState.lootHistory then uiState.lootHistory = {} end
+                                table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
+                            end
                         end
                     end
                 end
@@ -263,6 +265,7 @@ local function phase5_lootMacro(now)
             end
         end
         if uiState.lootUIOpen then
+            if uiState.enableSkipHistory then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if skippedPath and skippedPath ~= "" then
                 local skipCount = 0
@@ -304,6 +307,7 @@ local function phase5_lootMacro(now)
                     lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                 end
             end
+            end
             -- Session summary (authoritative totals from macro) and loot history cap
             if session then
                 uiState.lootRunTotalValue = session.totalValue or 0
@@ -311,10 +315,10 @@ local function phase5_lootMacro(now)
                 local bestNameNorm = item_name.normalizeItemName(session.bestItemName or "")
                 uiState.lootRunBestItemName = (bestNameNorm ~= "" and bestNameNorm) or (session.bestItemName or "")
                 uiState.lootRunBestItemValue = session.bestItemValue or 0
-                if uiState.lootHistory then
+                if uiState.enableLootHistory and uiState.lootHistory then
                     while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                    lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                 end
-                lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
             end
             uiState.lootRunFinished = true
         end
@@ -367,14 +371,15 @@ local function phase5_lootMacro(now)
     lootMacState.lastRunning = lootMacRunning
 end
 
--- Phase 6: Deferred history saves
+-- Phase 6: Deferred history saves (only when the corresponding feature is enabled)
 local function phase6_deferredHistorySaves(now)
     local lootLoopRefs = d.lootLoopRefs
-    if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt then
+    local uiState = d.uiState
+    if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt and (uiState and uiState.enableLootHistory == true) then
         lootLoopRefs.saveHistoryAt = 0
         lootLoopRefs.saveLootHistory()
     end
-    if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt then
+    if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt and (uiState and uiState.enableSkipHistory == true) then
         lootLoopRefs.saveSkipAt = 0
         lootLoopRefs.saveSkipHistory()
     end

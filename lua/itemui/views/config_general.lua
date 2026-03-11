@@ -65,6 +65,39 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Uncheck to keep the Loot UI closed during looting.")
             ImGui.EndTooltip()
         end
+        local prevRealTime = (uiState.enableRealTimeLoot == true)
+        local realTime = ImGui.Checkbox("Enable real-time loot (Current tab updates each corpse)", prevRealTime)
+        if prevRealTime ~= realTime then
+            uiState.enableRealTimeLoot = realTime
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("When on, the Current tab updates as items are looted. When off, the progress bar advances per corpse and the Current tab fills when the run completes.")
+            ImGui.EndTooltip()
+        end
+        local prevLootHist = (uiState.enableLootHistory == true)
+        local lootHist = ImGui.Checkbox("Enable Loot History tab", prevLootHist)
+        if prevLootHist ~= lootHist then
+            uiState.enableLootHistory = lootHist
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("When on, the Loot History tab is shown and cumulative loot is recorded. When off, the tab is hidden and no loot history is kept.")
+            ImGui.EndTooltip()
+        end
+        local prevSkipHist = (uiState.enableSkipHistory == true)
+        local skipHist = ImGui.Checkbox("Enable Skip History tab", prevSkipHist)
+        if prevSkipHist ~= skipHist then
+            uiState.enableSkipHistory = skipHist
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("When on, the Skip History tab is shown and skipped items are recorded. When off, the tab is hidden and no skip history is kept.")
+            ImGui.EndTooltip()
+        end
         local prevConfirm = uiState.confirmBeforeDelete
         uiState.confirmBeforeDelete = ImGui.Checkbox("Enable confirm before delete", uiState.confirmBeforeDelete)
         if prevConfirm ~= uiState.confirmBeforeDelete then scheduleLayoutSave() end

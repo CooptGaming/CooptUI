@@ -481,11 +481,12 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         uiState.lootRunBestItemValue = 0
     end
 
+    local realTime = (uiState.enableRealTimeLoot == true)
     local items = ipc.receiveAll("loot_item")
-    if items and #items > 0 then
+    if items and #items > 0 and realTime then
         if not uiState.lootRunLootedItems then uiState.lootRunLootedItems = {} end
         if not uiState.lootRunLootedList then uiState.lootRunLootedList = {} end
-        if not uiState.lootHistory then uiState.lootHistory = {} end
+        if uiState.enableLootHistory and not uiState.lootHistory then uiState.lootHistory = {} end
         for _, msg in ipairs(items) do
             local rawName, valStr, tribStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
             local name = item_name.normalizeItemName(rawName)
@@ -502,12 +503,14 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
                     name = name, value = value, tribute = tribute,
                     statusText = statusText, willSell = willSell
                 })
-                table.insert(uiState.lootHistory, {
-                    name = name, value = value,
-                    statusText = statusText, willSell = willSell
-                })
-                while #uiState.lootHistory > LOOT_HISTORY_MAX do
-                    table.remove(uiState.lootHistory, 1)
+                if uiState.enableLootHistory then
+                    table.insert(uiState.lootHistory, {
+                        name = name, value = value,
+                        statusText = statusText, willSell = willSell
+                    })
+                    while #uiState.lootHistory > LOOT_HISTORY_MAX do
+                        table.remove(uiState.lootHistory, 1)
+                    end
                 end
                 uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
                 uiState.lootRunTributeValue = (uiState.lootRunTributeValue or 0) + tribute
@@ -520,7 +523,7 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
     end
 
     local skips = ipc.receiveAll("loot_skip")
-    if skips and #skips > 0 then
+    if skips and #skips > 0 and realTime and (uiState.enableSkipHistory == true) then
         if not uiState.skipHistory then uiState.skipHistory = {} end
         for _, msg in ipairs(skips) do
             local rawName, reason = msg:match("^([^|]+)|(.+)$")

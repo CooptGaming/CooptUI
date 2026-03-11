@@ -91,23 +91,31 @@ function LootUIView.render(ctx)
         theme.TextHeader("Loot")
         ImGui.Separator()
 
-        -- Tabs: Current | Loot History | Skip History (guard when tab bar API unavailable)
+        -- Tabs: Current (always) | Loot History (if enabled) | Skip History (if enabled)
         if not state.lootUITab then state.lootUITab = 0 end
+        local enableLootHist = (ctx.uiState and ctx.uiState.enableLootHistory == true)
+        local enableSkipHist = (ctx.uiState and ctx.uiState.enableSkipHistory == true)
+        if state.lootUITab == 1 and not enableLootHist then state.lootUITab = 0 end
+        if state.lootUITab == 2 and not enableSkipHist then state.lootUITab = 0 end
         local hasTabBarAPI = ImGui.BeginTabBar and ImGuiTabBarFlags and (ImGuiTabBarFlags.None ~= nil)
         if hasTabBarAPI and ImGui.BeginTabBar("LootUITabs", ImGuiTabBarFlags.None) then
             if ImGui.BeginTabItem("Current") then
                 state.lootUITab = 0
                 ImGui.EndTabItem()
             end
-            if ImGui.BeginTabItem("Loot History") then
-                state.lootUITab = 1
-                if ctx.loadLootHistory then ctx.loadLootHistory() end
-                ImGui.EndTabItem()
+            if enableLootHist then
+                if ImGui.BeginTabItem("Loot History") then
+                    state.lootUITab = 1
+                    if ctx.loadLootHistory then ctx.loadLootHistory() end
+                    ImGui.EndTabItem()
+                end
             end
-            if ImGui.BeginTabItem("Skip History") then
-                state.lootUITab = 2
-                if ctx.loadSkipHistory then ctx.loadSkipHistory() end
-                ImGui.EndTabItem()
+            if enableSkipHist then
+                if ImGui.BeginTabItem("Skip History") then
+                    state.lootUITab = 2
+                    if ctx.loadSkipHistory then ctx.loadSkipHistory() end
+                    ImGui.EndTabItem()
+                end
             end
             ImGui.EndTabBar()
         end
@@ -162,13 +170,19 @@ function LootUIView.render(ctx)
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
-        if ctx.clearLootHistory and ctx.clearSkipHistory and ImGui.Button("Clear history", ImVec2(100, 0)) then
-            ctx.clearLootHistory()
-            ctx.clearSkipHistory()
+        if (enableLootHist or enableSkipHist) and ctx.clearLootHistory and ctx.clearSkipHistory and ImGui.Button("Clear history", ImVec2(100, 0)) then
+            if enableLootHist then ctx.clearLootHistory() end
+            if enableSkipHist then ctx.clearSkipHistory() end
         end
-        if ImGui.IsItemHovered() then
+        if (enableLootHist or enableSkipHist) and ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Clear both Loot History and Skip History (this tab and the other tabs).")
+            if enableLootHist and enableSkipHist then
+                ImGui.Text("Clear both Loot History and Skip History (this tab and the other tabs).")
+            elseif enableLootHist then
+                ImGui.Text("Clear Loot History.")
+            else
+                ImGui.Text("Clear Skip History.")
+            end
             ImGui.EndTooltip()
         end
         ImGui.Separator()
