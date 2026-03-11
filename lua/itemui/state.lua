@@ -44,6 +44,9 @@ local uiState = {
     alignToContext = true,
     uiLocked = true,
     suppressWhenLootMac = false,
+    enableRealTimeLoot = false,
+    enableLootHistory = false,
+    enableSkipHistory = false,
     itemUIPositionX = nil, itemUIPositionY = nil,
     setupMode = false, setupStep = 0,
     revertLayoutConfirmOpen = false,
@@ -96,6 +99,9 @@ do
     layoutDefaults.AlignToContext = 1
     layoutDefaults.UILocked = 1
     layoutDefaults.SuppressWhenLootMac = 0
+    layoutDefaults.EnableRealTimeLoot = 0
+    layoutDefaults.EnableLootHistory = 0
+    layoutDefaults.EnableSkipHistory = 0
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1
     layoutDefaults.ItemUIToggleKey = "shift+q"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind

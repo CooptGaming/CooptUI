@@ -253,9 +253,11 @@ local function phase5_lootMacro(now)
                                 statusText = statusText,
                                 willSell = willSell
                             })
-                            if not uiState.lootHistory then loadLootHistoryFromFile() end
-                            if not uiState.lootHistory then uiState.lootHistory = {} end
-                            table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
+                            if uiState.enableLootHistory then
+                                if not uiState.lootHistory then loadLootHistoryFromFile() end
+                                if not uiState.lootHistory then uiState.lootHistory = {} end
+                                table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
+                            end
                         end
                     end
                 end
@@ -263,24 +265,48 @@ local function phase5_lootMacro(now)
             end
         end
         if uiState.lootUIOpen then
+            if uiState.enableSkipHistory then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if skippedPath and skippedPath ~= "" then
-                local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
-                local skipCount = tonumber(skipCountStr) or 0
+                local skipCount = 0
+                local skippedSec = nil
+                if macroBridge and macroBridge.getPluginIni then
+                    local ini = macroBridge.getPluginIni()
+                    if ini and ini.readSection then
+                        skippedSec = ini.readSection(skippedPath, "Skipped")
+                        if skippedSec and skippedSec.count then skipCount = tonumber(skippedSec.count) or 0 end
+                    end
+                end
+                if skippedSec == nil then
+                    local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
+                    skipCount = tonumber(skipCountStr) or 0
+                end
                 if skipCount > 0 then
                     if not uiState.skipHistory and loadSkipHistoryFromFile then loadSkipHistoryFromFile() end
                     if not uiState.skipHistory then uiState.skipHistory = {} end
-                    for j = 1, skipCount do
-                        local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
-                        if raw and raw ~= "" then
-                            local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
-                            local name = item_name.normalizeItemName(rawName or raw)
-                            if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                    if skippedSec then
+                        for j = 1, skipCount do
+                            local raw = skippedSec[tostring(j)] or ""
+                            if raw and raw ~= "" then
+                                local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
+                                local name = item_name.normalizeItemName(rawName or raw)
+                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                            end
+                        end
+                    else
+                        for j = 1, skipCount do
+                            local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
+                            if raw and raw ~= "" then
+                                local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
+                                local name = item_name.normalizeItemName(rawName or raw)
+                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                            end
                         end
                     end
                     while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end
                     lootLoopRefs.saveSkipAt = now + lootLoopRefs.deferMs
                 end
+            end
             end
             -- Session summary (authoritative totals from macro) and loot history cap
             if session then
@@ -289,10 +315,10 @@ local function phase5_lootMacro(now)
                 local bestNameNorm = item_name.normalizeItemName(session.bestItemName or "")
                 uiState.lootRunBestItemName = (bestNameNorm ~= "" and bestNameNorm) or (session.bestItemName or "")
                 uiState.lootRunBestItemValue = session.bestItemValue or 0
-                if uiState.lootHistory then
+                if uiState.enableLootHistory and uiState.lootHistory then
                     while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
+                    lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
                 end
-                lootLoopRefs.saveHistoryAt = now + lootLoopRefs.deferMs
             end
             uiState.lootRunFinished = true
         end
@@ -345,14 +371,15 @@ local function phase5_lootMacro(now)
     lootMacState.lastRunning = lootMacRunning
 end
 
--- Phase 6: Deferred history saves
+-- Phase 6: Deferred history saves (only when the corresponding feature is enabled)
 local function phase6_deferredHistorySaves(now)
     local lootLoopRefs = d.lootLoopRefs
-    if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt then
+    local uiState = d.uiState
+    if lootLoopRefs.saveHistoryAt > 0 and now >= lootLoopRefs.saveHistoryAt and (uiState and uiState.enableLootHistory == true) then
         lootLoopRefs.saveHistoryAt = 0
         lootLoopRefs.saveLootHistory()
     end
-    if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt then
+    if lootLoopRefs.saveSkipAt > 0 and now >= lootLoopRefs.saveSkipAt and (uiState and uiState.enableSkipHistory == true) then
         lootLoopRefs.saveSkipAt = 0
         lootLoopRefs.saveSkipHistory()
     end
