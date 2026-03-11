@@ -25,6 +25,14 @@ function BankView.render(ctx)
     local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
     ctx.ensureBankCacheFromStorage()
     local list = bankOpen and ctx.bankItems or ctx.bankCache
+    -- Ensure cached bank list has current sell status (e.g. RerollList) so initial display matches reroll list before live scan runs.
+    if list and list == ctx.bankCache and #list > 0 and ctx.computeAndAttachSellStatus then
+        local needStatus = false
+        for _, it in ipairs(list) do
+            if it.sellReason == nil or it.willSell == nil then needStatus = true; break end
+        end
+        if needStatus then ctx.computeAndAttachSellStatus(list) end
+    end
     
     -- Window positioning: free-float with saved position; hub-relative default when 0,0 is set in main_window
     local bankX = ctx.layoutConfig.BankWindowX

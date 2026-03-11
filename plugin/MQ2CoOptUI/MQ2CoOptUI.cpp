@@ -291,6 +291,14 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
     std::string channel(rest, space - rest);
     while (*space == ' ') ++space;
     std::string message(space);
+    // Macro command often wraps payload in quotes to preserve spaces/pipes.
+    // Strip one level so Lua consumers receive the raw message body.
+    if (message.size() >= 2) {
+      char q = message.front();
+      if ((q == '"' || q == '\'') && message.back() == q) {
+        message = message.substr(1, message.size() - 2);
+      }
+    }
     cooptui::ipc::sendFromMacro(channel, message);
     return;
   }
@@ -570,9 +578,7 @@ PLUGIN_API void OnPulse() {
         cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
     if (cooptui::scanners::InventoryScanner::Instance().HasChanged()) {
       cooptui::core::CacheManager::Instance().IncrementInventoryVersion();
-      // Also re-attach sell status since inventory changed
-      cooptui::rules::RulesEngine::Instance().AttachSellStatus(
-          cooptui::core::CacheManager::Instance().GetInventoryMut());
+      // Fix 2: Sell status is Lua's domain. C++ scan only; Lua attaches status on next scanInventory.
       cooptui::core::CacheManager::Instance().IncrementSellVersion();
       // Bump inventory fingerprint stored in scanner
       s_lastInvFingerprint = cooptui::core::CacheManager::Instance().GetInventoryVersion();

@@ -112,11 +112,8 @@ const std::vector<core::CoOptItemData>& LootScanner::Scan(bool force) {
     items_.clear();
     return items_;
   }
-
-  if (force || items_.empty()) {
-    DoScan();
-  }
-
+  (void)force;  // Always refresh when window open so list matches current corpse after looting
+  DoScan();
   return items_;
 }
 

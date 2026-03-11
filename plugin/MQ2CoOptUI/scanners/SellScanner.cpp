@@ -45,9 +45,8 @@ void SellScanner::DoScan() {
 }
 
 const std::vector<core::CoOptItemData>& SellScanner::Scan(bool force) {
-  if (force || items_.empty()) {
-    DoScan();
-  }
+  (void)force;  // Always refresh from CacheManager so post-sell macro UI shows current list
+  DoScan();
   return items_;
 }
 

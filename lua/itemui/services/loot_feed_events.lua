@@ -7,6 +7,7 @@
 ]]
 
 local mq = require('mq')
+local item_name = require('itemui.utils.item_name')
 
 local M = {}
 local deps
@@ -15,6 +16,13 @@ local diagnostics
 -- Pattern: [ItemUI Loot] name|value|tribute (value and tribute are numbers; name may not contain |)
 local EVENT_NAME = "ItemUILootItem"
 local LINE_PATTERN = "#*#[ItemUI Loot] #*#"
+
+local function isPluginIpcAvailable()
+    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+    if not ok or type(mod) ~= "table" then return false end
+    local ipc = mod.ipc
+    return type(ipc) == "table" and type(ipc.receiveAll) == "function"
+end
 
 local function onLootItemLine(line)
     if not line or type(line) ~= "string" then return end
@@ -25,7 +33,7 @@ local function onLootItemLine(line)
         parts[#parts + 1] = part
     end
     if #parts < 3 then return end
-    local name = (parts[1] and parts[1]:match("^%s*(.-)%s*$")) or ""
+    local name = item_name.normalizeItemName(parts[1])
     if name == "" then return end
     local value = tonumber(parts[2]) or 0
     local tribute = tonumber(parts[3]) or 0
@@ -54,6 +62,9 @@ end
 function M.init(d)
     deps = d
     diagnostics = require('itemui.core.diagnostics')
+    -- When plugin IPC is available, avoid registering echo-based loot feed to
+    -- prevent dual ingestion (IPC + mq.event) and reduce per-item overhead.
+    if isPluginIpcAvailable() then return end
     local ok, err = pcall(function()
         mq.event(EVENT_NAME, LINE_PATTERN, onLootItemLine)
     end)
