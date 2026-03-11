@@ -6,6 +6,7 @@
 
 param(
     [Parameter(Mandatory)][string]$MQClone,
+    [string]$MQBuildDir = "",
     [switch]$ShowSkipped
 )
 
@@ -254,7 +255,11 @@ $mq2MonoSharedH = Join-Path $MQClone "plugins\MQ2Mono\MQ2MonoShared.h"
 if (Test-Path $mq2MonoSharedH) {
     $content = Get-Content $mq2MonoSharedH -Raw
     if ($content -notmatch "#include\s*<array>") {
-        $content = $content -replace "(#include\s*<[^>]+>)", "`$1`n#include <array>", 1
+        # Insert after first #include (PS5.1-safe; -replace with 3rd arg is PS6+ only).
+        $firstInclude = [regex]::Match($content, '#include\s*<[^>]+>')
+        if ($firstInclude.Success) {
+            $content = $content.Insert($firstInclude.Index + $firstInclude.Length, "`n#include <array>")
+        }
         Set-Content $mq2MonoSharedH $content -NoNewline
         Write-Fix "16a" "Added #include <array> to MQ2MonoShared.h"
     } else {
@@ -300,19 +305,57 @@ if (Test-Path $mq2MonoImGuiCpp) {
 }
 
 # --- #19: MQ2Mono CMake — Mono SDK include path (vcxproj conversion omits it) ---
-$mq2MonoCMake = Join-Path $MQClone "plugins\MQ2Mono\CMakeLists.txt"
+# Headers live in source at plugins/MQ2Mono/Mono/include/mono-2.0 (RekkasGit/MQ2Mono repo).
+# CMakeLists.txt may be in source or generated in build tree; use CMAKE_SOURCE_DIR so path works for both.
 $monoIncludeDir = Join-Path $MQClone "plugins\MQ2Mono\Mono\include\mono-2.0"
-if ((Test-Path $mq2MonoCMake) -and (Test-Path $monoIncludeDir)) {
-    $content = Get-Content $mq2MonoCMake -Raw
-    if ($content -notmatch "Mono/include/mono-2.0") {
-        $content = $content -replace "(target_Plugin_props\(MQ2Mono\))", "`$1`n`n# Mono SDK headers (bundled in MQ2Mono repo)`ntarget_include_directories(MQ2Mono PRIVATE `"`${CMAKE_CURRENT_LIST_DIR}/Mono/include/mono-2.0`")"
-        Set-Content $mq2MonoCMake $content -NoNewline
-        Write-Fix "19" "Added Mono include path to MQ2Mono CMakeLists.txt"
-    } else {
-        Write-Skip "19" "MQ2Mono already has Mono include path"
+$monoIncludeLine = "target_include_directories(MQ2Mono PRIVATE `"`${CMAKE_SOURCE_DIR}/plugins/MQ2Mono/Mono/include/mono-2.0`")"
+$fix19Applied = $false
+if (Test-Path $monoIncludeDir) {
+    $candidates = @(Join-Path $MQClone "plugins\MQ2Mono\CMakeLists.txt")
+    if ($MQBuildDir) {
+        $candidates += Join-Path $MQBuildDir "plugins\MQ2Mono\CMakeLists.txt"
+    }
+    foreach ($mq2MonoCMake in $candidates) {
+        if (-not (Test-Path $mq2MonoCMake)) { continue }
+        $content = Get-Content $mq2MonoCMake -Raw
+        if ($content -match "Mono/include/mono-2.0") {
+            Write-Skip "19" "MQ2Mono already has Mono include path"
+            $fix19Applied = $true
+            break
+        }
+        if ($content -match "target_Plugin_props\(MQ2Mono\)") {
+            $content = $content -replace "(target_Plugin_props\(MQ2Mono\))", "`$1`n`n# Mono SDK headers (RekkasGit/MQ2Mono)`n$monoIncludeLine"
+            Set-Content $mq2MonoCMake $content -NoNewline
+            Write-Fix "19" "Added Mono include path to MQ2Mono CMakeLists.txt"
+            $fix19Applied = $true
+            break
+        }
+    }
+    if (-not $fix19Applied) {
+        Write-Skip "19" "MQ2Mono CMakeLists or target_Plugin_props(MQ2Mono) not found (run gotchas after cmake configure with -MQBuildDir for full build)"
     }
 } else {
-    Write-Skip "19" "MQ2Mono CMakeLists or Mono include dir not found"
+    Write-Skip "19" "MQ2Mono Mono/include/mono-2.0 not found in clone (ensure RekkasGit/MQ2Mono cloned with Mono tree)"
+}
+
+# --- #19c: MQ2Mono generated vcxproj — add Mono include when CMake-generated project omits it (full build) ---
+if ($MQBuildDir -and (Test-Path $monoIncludeDir)) {
+    $mq2MonoVcxproj = Join-Path $MQBuildDir "plugins\MQ2Mono\MQ2Mono.vcxproj"
+    if (Test-Path $mq2MonoVcxproj) {
+        $content = Get-Content $mq2MonoVcxproj -Raw
+        $monoIncludeEscaped = $monoIncludeDir -replace '\\', '\\'
+        if ($content -notmatch [regex]::Escape($monoIncludeEscaped) -and $content -match '<AdditionalIncludeDirectories>([^<]*)</AdditionalIncludeDirectories>') {
+            $content = $content -replace '(<AdditionalIncludeDirectories>)([^<]*)(</AdditionalIncludeDirectories>)', "`$1`$2;$monoIncludeDir`$3"
+            Set-Content $mq2MonoVcxproj $content -NoNewline
+            Write-Fix "19c" "Added Mono include path to generated MQ2Mono.vcxproj"
+        } elseif ($content -match [regex]::Escape($monoIncludeDir)) {
+            Write-Skip "19c" "MQ2Mono.vcxproj already has Mono include path"
+        } else {
+            Write-Skip "19c" "MQ2Mono.vcxproj AdditionalIncludeDirectories pattern not found"
+        }
+    } else {
+        Write-Skip "19c" "Generated MQ2Mono.vcxproj not found (run with -MQBuildDir after cmake configure)"
+    }
 }
 
 # --- #15: Remove stale build/solution if it exists (from cmake 4.x) ---
@@ -340,3 +383,4 @@ if (Test-Path $staleBuild) {
 
 Write-Host ""
 Write-Host "Done. Applied: $applied fix(es), Skipped: $skipped (already applied or N/A)." -ForegroundColor Cyan
+exit 0

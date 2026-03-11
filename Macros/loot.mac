@@ -1965,8 +1965,9 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
         /varset runBestItemName ${itemName}
     }
     
-    | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event() when enableLiveLootFeed=TRUE
-    /if (${enableLiveLootFeed}) /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
+    | Real-time loot feed (Task 7.8): echo one line per looted item for ItemUI mq.event() when enableLiveLootFeed=TRUE.
+    | If plugin IPC is loaded, skip echo to avoid dual ingestion and extra per-item overhead.
+    /if (${enableLiveLootFeed} && !${pluginLoaded}) /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
     /if (${pluginLoaded}) /squelch /cooptui ipc send loot_item "${itemName}|${itemValue}|${tribute}"
 
     | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)

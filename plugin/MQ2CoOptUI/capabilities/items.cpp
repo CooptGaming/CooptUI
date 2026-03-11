@@ -17,7 +17,6 @@
 #include "../scanners/BankScanner.h"
 #include "../scanners/InventoryScanner.h"
 #include "../scanners/SellScanner.h"
-#include "../storage/SellCacheWriter.h"
 
 namespace cooptui {
 namespace items {
@@ -282,12 +281,7 @@ void registerLua(sol::state_view L, sol::table& table) {
     for (const auto& d : items) {
       result.add(ItemDataToTable(sv, d));
     }
-    // Write sell cache after scan (mirrors Lua writeSellCache behavior)
-    if (!items.empty() && gPathMacros[0] != '\0' &&
-        pLocalPlayer && pLocalPlayer->Name[0] != '\0') {
-      storage::SellCacheWriter::Write(std::string(gPathMacros),
-                                      std::string(pLocalPlayer->Name), items);
-    }
+    // Fix 2: Sell cache write is Lua's domain (phase2 + inventory close). Avoid blocking main thread.
     return result;
   });
 

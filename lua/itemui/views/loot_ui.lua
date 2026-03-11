@@ -7,6 +7,7 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local item_name = require('itemui.utils.item_name')
 
 local constants = require('itemui.constants')
 local diagnostics = require('itemui.core.diagnostics')
@@ -367,7 +368,7 @@ function LootUIView.render(ctx)
                         ImGui.TableNextColumn()
                         ImGui.Text(tostring(i))
                         ImGui.TableNextColumn()
-                        if state.lootRunBestItemName and row.name == state.lootRunBestItemName then
+                        if state.lootRunBestItemName and item_name.normalizeItemName(row.name) == item_name.normalizeItemName(state.lootRunBestItemName) then
                             ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
                         else
                             ImGui.Text(row.name or "")
@@ -447,7 +448,7 @@ function LootUIView.render(ctx)
             local uniqueList = {}
             local seen = {}
             for _, row in ipairs(sk) do
-                local name = row.name and row.name:match("^%s*(.-)%s*$") or ""
+                local name = item_name.normalizeItemName(row.name)
                 if name ~= "" then
                     if not seen[name] then
                         seen[name] = { name = name, reason = row.reason or "", count = 1 }

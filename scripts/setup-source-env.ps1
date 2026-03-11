@@ -147,9 +147,20 @@ if (Test-Path $MQ2MonoDir) {
     Write-Host "  MQ2Mono already present at $MQ2MonoDir"
 } else {
     Write-Host "  Cloning MQ2Mono from $MQ2MonoRepo ..."
-    git clone $MQ2MonoRepo $MQ2MonoDir
+    git clone --recursive $MQ2MonoRepo $MQ2MonoDir
     if ($LASTEXITCODE -ne 0) { Write-Error "git clone failed for MQ2Mono" }
     Write-Host "  MQ2Mono cloned." -ForegroundColor Green
+}
+# Ensure Mono headers (Mono/include/mono-2.0) are present for full MQ build (needed for -UsePrebuiltMQCore:$false)
+if (Test-Path $MQ2MonoDir) {
+    Push-Location $MQ2MonoDir
+    try {
+        git submodule update --init --recursive 2>$null
+        $monoInclude = Join-Path $MQ2MonoDir "Mono\include\mono-2.0"
+        if (-not (Test-Path $monoInclude)) {
+            Write-Warning "  MQ2Mono Mono/include/mono-2.0 not found. Full MQ build (MQ2Mono) may fail; use -UsePrebuiltMQCore for plugin-only build."
+        }
+    } finally { Pop-Location }
 }
 
 if (Test-Path $MQ2MonoDir) {

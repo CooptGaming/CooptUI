@@ -129,20 +129,14 @@ function M.scanInventory()
             end
             local scanMs = mq.gettime() - t0
             env.perfCache.lastScanTimeInv = mq.gettime()
-            local saveMs = 0
             local now = mq.gettime()
-            local shouldPersist = (scanState.lastPersistSaveTime == 0) or ((now - scanState.lastPersistSaveTime) >= env.C.PERSIST_SAVE_INTERVAL_MS)
-            if shouldPersist and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" and #inventoryItems > 0 then
-                local t1 = mq.gettime()
-                env.storage.ensureCharFolderExists()
+            -- Fix 1: Always attach sell status so UI never shows "—". Persist is handled by phase2.
+            if #inventoryItems > 0 and env.computeAndAttachSellStatus then
                 env.computeAndAttachSellStatus(inventoryItems)
-                env.storage.saveInventory(inventoryItems)
-                env.storage.writeSellCache(inventoryItems)
-                saveMs = mq.gettime() - t1
-                scanState.lastPersistSaveTime = now
+                scanState.sellStatusAttachedAt = now
             end
-            if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-                print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (plugin), save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+            if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+                print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (plugin) (%d items)", scanMs, #inventoryItems))
             end
             scanState.lastInventoryFingerprint = buildInventoryFingerprint()
             if env.invalidateTooltipCache then env.invalidateTooltipCache() end
@@ -179,20 +173,14 @@ function M.scanInventory()
     end
     local scanMs = mq.gettime() - t0
     env.perfCache.lastScanTimeInv = mq.gettime()
-    local saveMs = 0
     local now = mq.gettime()
-    local shouldPersist = (scanState.lastPersistSaveTime == 0) or ((now - scanState.lastPersistSaveTime) >= env.C.PERSIST_SAVE_INTERVAL_MS)
-    if shouldPersist and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" and #inventoryItems > 0 then
-        local t1 = mq.gettime()
-        env.storage.ensureCharFolderExists()
+    -- Fix 1: Always attach sell status so UI never shows "—". Persist is handled by phase2.
+    if #inventoryItems > 0 and env.computeAndAttachSellStatus then
         env.computeAndAttachSellStatus(inventoryItems)
-        env.storage.saveInventory(inventoryItems)
-        env.storage.writeSellCache(inventoryItems)
-        saveMs = mq.gettime() - t1
-        scanState.lastPersistSaveTime = now
+        scanState.sellStatusAttachedAt = now
     end
-    if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms, save=%d ms (%d items)", scanMs, saveMs, #inventoryItems))
+    if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+        print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (%d items)", scanMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
@@ -264,18 +252,14 @@ function M.processIncrementalScan()
     if incrementalScanState.currentBag > 10 then
         local scanMs = mq.gettime() - incrementalScanState.startTime
         env.perfCache.lastScanTimeInv = mq.gettime()
-        local saveMs = 0
-        if mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() ~= "" and #inventoryItems > 0 then
-            local t1 = mq.gettime()
-            env.storage.ensureCharFolderExists()
+        -- Fix 1: Always attach sell status. Fix 3: Persist is handled by phase2.
+        if #inventoryItems > 0 and env.computeAndAttachSellStatus then
             env.computeAndAttachSellStatus(inventoryItems)
-            env.storage.saveInventory(inventoryItems)
-            env.storage.writeSellCache(inventoryItems)
-            saveMs = mq.gettime() - t1
+            env.scanState.sellStatusAttachedAt = mq.gettime()
         end
-        if env.C.PROFILE_ENABLED and (scanMs >= env.C.PROFILE_THRESHOLD_MS or saveMs >= env.C.PROFILE_THRESHOLD_MS) then
-            print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms, save=%d ms (%d items, %d bags/frame)",
-                scanMs, saveMs, #inventoryItems, incrementalScanState.bagsPerFrame))
+        if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+            print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms (%d items, %d bags/frame)",
+                scanMs, #inventoryItems, incrementalScanState.bagsPerFrame))
         end
         env.scanState.lastInventoryFingerprint = buildInventoryFingerprint()
         incrementalScanState.active = false
@@ -322,6 +306,11 @@ local function targetedRescanBags(changedBags)
     local scanMs = mq.gettime() - t0
     if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
         print(string.format("\ag[CoOpt UI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
+    end
+    -- Fix 1: Attach sell status after targeted rescan so Status column never shows "—"
+    if #inventoryItems > 0 and env.computeAndAttachSellStatus then
+        env.computeAndAttachSellStatus(inventoryItems)
+        env.scanState.sellStatusAttachedAt = mq.gettime()
     end
     -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
     env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()
@@ -460,6 +449,10 @@ function M.scanSellItems()
             for _, row in ipairs(result) do
                 if type(row) == "table" then sellItems[#sellItems + 1] = row end
             end
+            -- Fix 5: C++ path lacks granular flags (inKeep, inJunk, isProtected). Lua is authoritative.
+            if env.computeAndAttachSellStatus and #sellItems > 0 then
+                env.computeAndAttachSellStatus(sellItems)
+            end
             env.scanState.sellStatusAttachedAt = nil
             if env.invalidateTooltipCache then env.invalidateTooltipCache() end
             scanSellItemsRunning = false
@@ -502,6 +495,11 @@ function M.loadSnapshotsFromDisk()
         for i = #env.inventoryItems, 1, -1 do env.inventoryItems[i] = nil end
         for _, it in ipairs(invItems) do table.insert(env.inventoryItems, it) end
         if nextSeq then env.scanState.nextAcquiredSeq = nextSeq end
+        -- Fix 4: After load from disk (e.g. post-zone), attach sell status so UI never shows "—"
+        if env.computeAndAttachSellStatus then
+            env.computeAndAttachSellStatus(env.inventoryItems)
+            env.scanState.sellStatusAttachedAt = mq.gettime()
+        end
         loaded = true
     end
     local bankItems_, bankSavedAt = env.storage.loadBank()

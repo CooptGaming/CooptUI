@@ -5,6 +5,7 @@
 --]]
 
 local mq = require('mq')
+local item_name = require('itemui.utils.item_name')
 
 -- MQ macro variables have 2048 char limit; keep chunks safely under
 local MAX_INI_CHUNK_LEN = 2000
@@ -265,7 +266,7 @@ end
 
 local function sanitizeItemName(name)
     if not name then return nil end
-    name = name:match("^%s*(.-)%s*$")
+    name = item_name.normalizeItemName(name)
     if name == "" then return nil end
     name = name:gsub("/", "")
     name = name:gsub("%c", "")

@@ -9,6 +9,7 @@ local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
 local scriptConsumeEvents = require('itemui.services.script_consume_events')
 local ItemDisplayView = require('itemui.views.item_display')
+local item_name = require('itemui.utils.item_name')
 
 local d  -- deps, set by init()
 
@@ -230,12 +231,13 @@ local function phase5_lootMacro(now)
                 local existing = uiState.lootRunLootedItems or {}
                 local seen = {}
                 for _, row in ipairs(existing) do
-                    if row.name and row.name ~= "" then seen[row.name] = true end
+                    local n = item_name.normalizeItemName(row.name)
+                    if n ~= "" then seen[n] = true end
                 end
                 uiState.lootRunLootedList = uiState.lootRunLootedList or {}
                 for i, row in ipairs(session.items or {}) do
-                    local name = row.name
-                    if name and name ~= "" then
+                    local name = item_name.normalizeItemName(row.name)
+                    if name ~= "" then
                         if not seen[name] then
                             seen[name] = true
                             table.insert(uiState.lootRunLootedList, name)
@@ -271,8 +273,9 @@ local function phase5_lootMacro(now)
                     for j = 1, skipCount do
                         local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
                         if raw and raw ~= "" then
-                            local name, reason = raw:match("^([^%^]*)%^?(.*)$")
-                            table.insert(uiState.skipHistory, { name = name or raw, reason = reason or "" })
+                            local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
+                            local name = item_name.normalizeItemName(rawName or raw)
+                            if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
                         end
                     end
                     while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end
@@ -283,7 +286,8 @@ local function phase5_lootMacro(now)
             if session then
                 uiState.lootRunTotalValue = session.totalValue or 0
                 uiState.lootRunTributeValue = session.tributeValue or 0
-                uiState.lootRunBestItemName = session.bestItemName or ""
+                local bestNameNorm = item_name.normalizeItemName(session.bestItemName or "")
+                uiState.lootRunBestItemName = (bestNameNorm ~= "" and bestNameNorm) or (session.bestItemName or "")
                 uiState.lootRunBestItemValue = session.bestItemValue or 0
                 if uiState.lootHistory then
                     while #uiState.lootHistory > LOOT_HISTORY_MAX do table.remove(uiState.lootHistory, 1) end
@@ -657,6 +661,10 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     local bankJustOpened = bankOpen and not lastBankWindowState
     local lootJustClosed = lastLootWindowState and not lootOpen
     if lootOpen or lootJustClosed then scanState.inventoryBagsDirty = true end
+    -- When bank just opened, apply sell status (incl. RerollList) to bankCache so initial display matches reroll list before deferred scan runs.
+    if bankJustOpened and bankCache and #bankCache > 0 and computeAndAttachSellStatus then
+        computeAndAttachSellStatus(bankCache)
+    end
     local shouldDraw = getShouldDraw()
     local shouldDrawBefore = shouldDraw
     local lastInventoryWindowState = getLastInventoryWindowState()

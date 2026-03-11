@@ -39,6 +39,7 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local item_name = require('itemui.utils.item_name')
 
 local IPC_PROTOCOL_VERSION = (constants.TIMING and constants.TIMING.IPC_PROTOCOL_VERSION) or 1
 
@@ -363,8 +364,9 @@ function MacroBridge.getLootSession()
     local items = {}
     if count > 0 then
         for i = 1, count do
-            local name = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
-            if name and name ~= "" then
+            local rawName = config.safeIniValueByPath(sessionPath, "Items", tostring(i), "")
+            local name = item_name.normalizeItemName(rawName)
+            if name ~= "" then
                 local valStr = config.safeIniValueByPath(sessionPath, "ItemValues", tostring(i), "0")
                 local tribStr = config.safeIniValueByPath(sessionPath, "ItemTributes", tostring(i), "0")
                 table.insert(items, {
@@ -377,12 +379,14 @@ function MacroBridge.getLootSession()
     end
     local sv = config.safeIniValueByPath(sessionPath, "Summary", "totalValue", "0")
     local tv = config.safeIniValueByPath(sessionPath, "Summary", "tributeValue", "0")
+    local rawBest = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or ""
+    local bestNorm = item_name.normalizeItemName(rawBest)
     return {
         count = count,
         items = items,
         totalValue = tonumber(sv) or 0,
         tributeValue = tonumber(tv) or 0,
-        bestItemName = config.safeIniValueByPath(sessionPath, "Summary", "bestItemName", "") or "",
+        bestItemName = (bestNorm ~= "" and bestNorm) or rawBest,
         bestItemValue = tonumber(config.safeIniValueByPath(sessionPath, "Summary", "bestItemValue", "0")) or 0
     }
 end
@@ -425,8 +429,9 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         if not uiState.lootRunLootedList then uiState.lootRunLootedList = {} end
         if not uiState.lootHistory then uiState.lootHistory = {} end
         for _, msg in ipairs(items) do
-            local name, valStr, tribStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
-            if name and name ~= "" then
+            local rawName, valStr, tribStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
+            local name = item_name.normalizeItemName(rawName)
+            if name ~= "" then
                 local value = tonumber(valStr) or 0
                 local tribute = tonumber(tribStr) or 0
                 local statusText, willSell = "—", false
@@ -460,8 +465,9 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
     if skips and #skips > 0 then
         if not uiState.skipHistory then uiState.skipHistory = {} end
         for _, msg in ipairs(skips) do
-            local name, reason = msg:match("^([^|]+)|(.+)$")
-            if name and name ~= "" then
+            local rawName, reason = msg:match("^([^|]+)|(.+)$")
+            local name = item_name.normalizeItemName(rawName)
+            if name ~= "" then
                 table.insert(uiState.skipHistory, {
                     name = name, reason = reason or ""
                 })
@@ -491,7 +497,7 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         if #parts >= 6 then
             uiState.lootRunTotalValue = tonumber(parts[3]) or uiState.lootRunTotalValue
             uiState.lootRunTributeValue = tonumber(parts[4]) or uiState.lootRunTributeValue
-            if parts[5] ~= "" then uiState.lootRunBestItemName = parts[5] end
+            if parts[5] ~= "" then uiState.lootRunBestItemName = item_name.normalizeItemName(parts[5]) end
             uiState.lootRunBestItemValue = tonumber(parts[6]) or uiState.lootRunBestItemValue
         end
         uiState.lootRunFinished = true
