@@ -346,6 +346,7 @@ function MacroBridge.pollLootProgress()
 end
 
 -- Public API: read loot_session.ini (no throttle; caller enforces LOOT_SESSION_READ_DELAY_MS). Returns table: count, items (array of {name, value, tribute}), totalValue, tributeValue, bestItemName, bestItemValue. Versioned: if Protocol.Version > supported return empty.
+-- When MQ2CoOptUI plugin is loaded, uses ini.readSection for one read per section (fast); otherwise falls back to per-key safeIniValueByPath.
 function MacroBridge.getLootSession()
     local getLootConfigFile = MacroBridge.config.getLootConfigFile
     if not getLootConfigFile then
@@ -356,9 +357,53 @@ function MacroBridge.getLootSession()
     local sessionPath = getLootConfigFile("loot_session.ini")
     if not sessionPath or sessionPath == "" then return { count = 0, items = {}, totalValue = 0, tributeValue = 0, bestItemName = "", bestItemValue = 0 } end
     local config = require('itemui.config')
+    local empty = { count = 0, items = {}, totalValue = 0, tributeValue = 0, bestItemName = "", bestItemValue = 0 }
+    local ini = MacroBridge.getPluginIni()
+    if ini and ini.readSection then
+        local protocol = ini.readSection(sessionPath, "Protocol")
+        local verStr = (protocol and protocol.Version) or "1"
+        local ver = tonumber(verStr) or 1
+        if ver > IPC_PROTOCOL_VERSION then return empty end
+        local itemsSec = ini.readSection(sessionPath, "Items")
+        local countStr = (itemsSec and itemsSec.count) or "0"
+        local count = tonumber(countStr) or 0
+        local items = {}
+        if count > 0 then
+            local valuesSec = ini.readSection(sessionPath, "ItemValues")
+            local tributesSec = ini.readSection(sessionPath, "ItemTributes")
+            for i = 1, count do
+                local key = tostring(i)
+                local rawName = (itemsSec and itemsSec[key]) or ""
+                local name = item_name.normalizeItemName(rawName)
+                if name ~= "" then
+                    local valStr = (valuesSec and valuesSec[key]) or "0"
+                    local tribStr = (tributesSec and tributesSec[key]) or "0"
+                    table.insert(items, {
+                        name = name,
+                        value = tonumber(valStr) or 0,
+                        tribute = tonumber(tribStr) or 0
+                    })
+                end
+            end
+        end
+        local summary = ini.readSection(sessionPath, "Summary")
+        local sv = (summary and summary.totalValue) or "0"
+        local tv = (summary and summary.tributeValue) or "0"
+        local rawBest = (summary and summary.bestItemName) or ""
+        local bestNorm = item_name.normalizeItemName(rawBest)
+        return {
+            count = count,
+            items = items,
+            totalValue = tonumber(sv) or 0,
+            tributeValue = tonumber(tv) or 0,
+            bestItemName = (bestNorm ~= "" and bestNorm) or rawBest,
+            bestItemValue = tonumber((summary and summary.bestItemValue) or "0") or 0
+        }
+    end
+    -- Fallback: no plugin or no readSection (per-key reads)
     local verStr = config.safeIniValueByPath(sessionPath, "Protocol", "Version", "1")
     local ver = tonumber(verStr) or 1
-    if ver > IPC_PROTOCOL_VERSION then return { count = 0, items = {}, totalValue = 0, tributeValue = 0, bestItemName = "", bestItemValue = 0 } end
+    if ver > IPC_PROTOCOL_VERSION then return empty end
     local countStr = config.safeIniValueByPath(sessionPath, "Items", "count", "0")
     local count = tonumber(countStr) or 0
     local items = {}
@@ -394,6 +439,8 @@ end
 -- IPC event streaming (Phase 9): plugin module accessor with one-shot detection
 local coopui_ipc = nil
 local ipc_checked = false
+local coopui_ini = nil
+local ini_checked = false
 
 local function getIPC()
     if ipc_checked then return coopui_ipc end
@@ -403,6 +450,17 @@ local function getIPC()
         coopui_ipc = mod.ipc
     end
     return coopui_ipc
+end
+
+--- Return plugin ini table (readSection, read) when MQ2CoOptUI is loaded; nil otherwise. Used for bulk INI reads to avoid per-key TLO cost.
+function MacroBridge.getPluginIni()
+    if ini_checked then return coopui_ini end
+    ini_checked = true
+    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
+    if ok and mod and mod.ini and mod.ini.readSection then
+        coopui_ini = mod.ini
+    end
+    return coopui_ini
 end
 
 -- Drain high-frequency IPC channels at frame rate (called every tick from main_loop)

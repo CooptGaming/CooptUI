@@ -40,7 +40,7 @@ local function onLootItemLine(line)
 
     local uiState = deps and deps.uiState
     local getSellStatusForItem = deps and deps.getSellStatusForItem
-    local LOOT_HISTORY_MAX = (deps and deps.LOOT_HISTORY_MAX) or 200
+    local LOOT_HISTORY_MAX = (deps and deps.LOOT_HISTORY_MAX) or 100
     if not uiState then return end
 
     local statusText, willSell = "—", false

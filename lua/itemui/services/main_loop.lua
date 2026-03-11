@@ -265,17 +265,39 @@ local function phase5_lootMacro(now)
         if uiState.lootUIOpen then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if skippedPath and skippedPath ~= "" then
-                local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
-                local skipCount = tonumber(skipCountStr) or 0
+                local skipCount = 0
+                local skippedSec = nil
+                if macroBridge and macroBridge.getPluginIni then
+                    local ini = macroBridge.getPluginIni()
+                    if ini and ini.readSection then
+                        skippedSec = ini.readSection(skippedPath, "Skipped")
+                        if skippedSec and skippedSec.count then skipCount = tonumber(skippedSec.count) or 0 end
+                    end
+                end
+                if skippedSec == nil then
+                    local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
+                    skipCount = tonumber(skipCountStr) or 0
+                end
                 if skipCount > 0 then
                     if not uiState.skipHistory and loadSkipHistoryFromFile then loadSkipHistoryFromFile() end
                     if not uiState.skipHistory then uiState.skipHistory = {} end
-                    for j = 1, skipCount do
-                        local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
-                        if raw and raw ~= "" then
-                            local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
-                            local name = item_name.normalizeItemName(rawName or raw)
-                            if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                    if skippedSec then
+                        for j = 1, skipCount do
+                            local raw = skippedSec[tostring(j)] or ""
+                            if raw and raw ~= "" then
+                                local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
+                                local name = item_name.normalizeItemName(rawName or raw)
+                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                            end
+                        end
+                    else
+                        for j = 1, skipCount do
+                            local raw = config.safeIniValueByPath(skippedPath, "Skipped", tostring(j), "")
+                            if raw and raw ~= "" then
+                                local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
+                                local name = item_name.normalizeItemName(rawName or raw)
+                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                            end
                         end
                     end
                     while #uiState.skipHistory > LOOT_HISTORY_MAX do table.remove(uiState.skipHistory, 1) end

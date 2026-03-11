@@ -441,23 +441,9 @@ function LootUIView.render(ctx)
             end
         end
 
-        -- Skip History tab: unique skipped items (one row per name, with count)
+        -- Skip History tab: list of skipped items (one row per occurrence, no combining)
         if state.lootUITab == 2 then
             local sk = state.skipHistory or {}
-            -- Build unique-by-name list with count (first reason seen, count of occurrences)
-            local uniqueList = {}
-            local seen = {}
-            for _, row in ipairs(sk) do
-                local name = item_name.normalizeItemName(row.name)
-                if name ~= "" then
-                    if not seen[name] then
-                        seen[name] = { name = name, reason = row.reason or "", count = 1 }
-                        uniqueList[#uniqueList + 1] = seen[name]
-                    else
-                        seen[name].count = seen[name].count + 1
-                    end
-                end
-            end
             if ctx.clearSkipHistory and ImGui.Button("Clear history", ImVec2(100, 0)) then
                 ctx.clearSkipHistory()
             end
@@ -467,18 +453,17 @@ function LootUIView.render(ctx)
                 ImGui.EndTooltip()
             end
             ImGui.SameLine()
-            ImGui.Text(string.format("Skipped (unique: %d, total: %d):", #uniqueList, #sk))
-            if #uniqueList > 0 then
+            ImGui.Text(string.format("Skipped (%d):", #sk))
+            if #sk > 0 then
                 local tableFlags = ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollY + ImGuiTableFlags.RowBg
                 if ImGui.BeginChild("SkipHistoryList", ImVec2(-1, -constants.UI.LOOT_HISTORY_FOOTER_HEIGHT), true) then
-                    if ImGui.BeginTable("SkipHistoryTable", 4, tableFlags) then
+                    if ImGui.BeginTable("SkipHistoryTable", 3, tableFlags) then
                         ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 28, 0)
                         ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 1)
                         ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_REASON_WIDTH, 2)
-                        ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 44, 3)
                         ImGui.TableSetupScrollFreeze(0, 1)
                         ImGui.TableHeadersRow()
-                        for i, row in ipairs(uniqueList) do
+                        for i, row in ipairs(sk) do
                             ImGui.TableNextRow()
                             ImGui.TableNextColumn()
                             ImGui.Text(tostring(i))
@@ -486,12 +471,6 @@ function LootUIView.render(ctx)
                             ImGui.Text(row.name or "")
                             ImGui.TableNextColumn()
                             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), row.reason or "")
-                            ImGui.TableNextColumn()
-                            if row.count and row.count > 1 then
-                                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "×" .. tostring(row.count))
-                            else
-                                ImGui.Text("")
-                            end
                         end
                         ImGui.EndTable()
                     end

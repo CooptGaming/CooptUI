@@ -244,12 +244,28 @@ local function loadLootHistoryFromFile()
     if not config.getLootConfigFile then return end
     local path = config.getLootConfigFile("loot_history.ini")
     if not path or path == "" then return end
-    local countStr = config.safeIniValueByPath(path, "History", "count", "0")
-    local count = tonumber(countStr) or 0
+    local count = 0
+    local historySec = nil
+    if macroBridge and macroBridge.getPluginIni then
+        local ini = macroBridge.getPluginIni()
+        if ini and ini.readSection then
+            historySec = ini.readSection(path, "History")
+            if historySec and historySec.count then count = tonumber(historySec.count) or 0 end
+        end
+    end
+    if historySec == nil then
+        local countStr = config.safeIniValueByPath(path, "History", "count", "0")
+        count = tonumber(countStr) or 0
+    end
     if count == 0 then uiState.lootHistory = {}; return end
     uiState.lootHistory = {}
     for i = 1, count do
-        local raw = config.safeIniValueByPath(path, "History", tostring(i), "")
+        local raw
+        if historySec then
+            raw = historySec[tostring(i)] or ""
+        else
+            raw = config.safeIniValueByPath(path, "History", tostring(i), "")
+        end
         if raw and raw ~= "" then
             local parts = {}
             for p in (raw .. LOOT_HISTORY_DELIM):gmatch("(.-)" .. LOOT_HISTORY_DELIM) do parts[#parts + 1] = p end
@@ -277,12 +293,28 @@ local function loadSkipHistoryFromFile()
     if not config.getLootConfigFile then return end
     local path = config.getLootConfigFile("skip_history.ini")
     if not path or path == "" then return end
-    local countStr = config.safeIniValueByPath(path, "Skip", "count", "0")
-    local count = tonumber(countStr) or 0
+    local count = 0
+    local skipSec = nil
+    if macroBridge and macroBridge.getPluginIni then
+        local ini = macroBridge.getPluginIni()
+        if ini and ini.readSection then
+            skipSec = ini.readSection(path, "Skip")
+            if skipSec and skipSec.count then count = tonumber(skipSec.count) or 0 end
+        end
+    end
+    if skipSec == nil then
+        local countStr = config.safeIniValueByPath(path, "Skip", "count", "0")
+        count = tonumber(countStr) or 0
+    end
     if count == 0 then uiState.skipHistory = {}; return end
     uiState.skipHistory = {}
     for i = 1, count do
-        local raw = config.safeIniValueByPath(path, "Skip", tostring(i), "")
+        local raw
+        if skipSec then
+            raw = skipSec[tostring(i)] or ""
+        else
+            raw = config.safeIniValueByPath(path, "Skip", tostring(i), "")
+        end
         if raw and raw ~= "" then
             local pos = raw:find(LOOT_HISTORY_DELIM, 1, true)
             local name = pos and raw:sub(1, pos - 1) or raw
