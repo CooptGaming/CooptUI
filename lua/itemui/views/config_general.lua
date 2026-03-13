@@ -107,6 +107,19 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Uncheck to destroy without confirming.")
             ImGui.EndTooltip()
         end
+        local guardEnabled = (layoutConfig.ActivationGuardEnabled == nil or layoutConfig.ActivationGuardEnabled)
+        local prevGuard = guardEnabled
+        guardEnabled = ImGui.Checkbox("Enable click-through protection", guardEnabled)
+        if prevGuard ~= guardEnabled then
+            layoutConfig.ActivationGuardEnabled = guardEnabled
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("When enabled, an item on cursor that was not picked up from ItemUI (e.g. accidental game-window click) is auto-put in bags.")
+            ImGui.Text("Uncheck to allow items on cursor from any source without auto-bagging.")
+            ImGui.EndTooltip()
+        end
         ImGui.Spacing()
         local epicEnabled = configSellFlags.protectEpic or configLootFlags.alwaysLootEpic
         local prevEpic = epicEnabled
