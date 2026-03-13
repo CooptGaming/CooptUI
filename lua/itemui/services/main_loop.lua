@@ -71,21 +71,38 @@ local function phase1_statusExpiry(now)
     end
 end
 
--- Phase 1b: Click-through protection — item on cursor we didn't initiate (e.g. focus click went to game)
--- Auto-bag and block new pickups for ACTIVATION_GUARD_MS to prevent rapid pickup/bag cycles.
+-- True when the item on cursor is from a known ItemUI source (we initiated the pickup). Guard runs only when unknown.
+local function isCursorFromKnownSource(uiState)
+    if not uiState then return false end
+    local lp = uiState.lastPickup
+    if lp and (lp.bag ~= nil or lp.slot ~= nil) then return true end
+    if uiState.pendingRerollAdd then return true end
+    if uiState.pendingDestroyAction then return true end
+    if uiState.pendingMoveAction then return true end
+    if uiState.pendingInsertAugment then return true end
+    if uiState.pendingRemoveAugment then return true end
+    if uiState.pendingQuantityAction then return true end
+    if uiState.pendingQuantityPickup then return true end
+    if uiState.pendingAugRollComplete then return true end
+    if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return true end
+    local q = uiState.cursorActionQueue
+    if q and #q > 0 and q[1] then
+        local t = q[1].type
+        if t == "reroll_add" or t == "destroy" then return true end
+    end
+    return false
+end
+
+-- Phase 1b: Click-through protection — only when option on and item on cursor from non-known source (e.g. game-window click).
 local function phase1b_activationGuard(now)
     local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
     if not uiState then return end
     if not (d.layoutConfig and d.layoutConfig.ActivationGuardEnabled ~= false) then return end
+    if not hasItemOnCursor or not hasItemOnCursor() then return end
+    if isCursorFromKnownSource(uiState) then return end
     local C = constants.TIMING
     local guardMs = C and C.ACTIVATION_GUARD_MS or 450
     local graceMs = C and C.UNEXPECTED_CURSOR_GRACE_MS or 500
-    if not hasItemOnCursor or not hasItemOnCursor() then return end
-    local lp = uiState.lastPickup
-    if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
-    if uiState.pendingQuantityPickup then return end
-    if uiState.pendingAugRollComplete then return end  -- roll result arrives on cursor from server
-    if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return end
     local clearedAt = uiState.lastPickupClearedAt or 0
     if (now - clearedAt) <= graceMs then return end
     mq.cmd('/autoinv')
@@ -94,6 +111,37 @@ local function phase1b_activationGuard(now)
     local delayMs = (constants.TIMING and constants.TIMING.DEFERRED_SCAN_DELAY_MS) or 120
     uiState.deferredInventoryScanAt = now + delayMs
     if setStatusMessage then setStatusMessage("Put in bags (click-through protection)") end
+end
+
+-- Guild hall reroll refresh: state for zone/bank edge detection (local to main_loop)
+local lastZoneShortName = nil
+local lastBankOpen = false
+local GUILD_HALL_ZONE = "guildhall"
+
+-- Phase 1c: In guild hall — on zone enter or bank open, request !auglist and !mythicallist to refresh reroll lists.
+local function phase1c_guildHallRerollRefresh(now)
+    local rerollService, isBankWindowOpen = d.rerollService, d.isBankWindowOpen
+    if not rerollService or not rerollService.requestAugList or not rerollService.requestMythicalList then return end
+    local Zone = mq.TLO and mq.TLO.Zone
+    if not Zone or not Zone.ShortName then return end
+    local sn = Zone.ShortName()
+    if not sn or sn == "" then return end  -- nil or empty during zone transition
+    local inGuildHall = (sn == GUILD_HALL_ZONE)
+    local bankOpen = isBankWindowOpen and isBankWindowOpen() or false
+    local fired = false
+    -- Trigger 1: just entered guild hall (zone changed to guildhall)
+    if inGuildHall and lastZoneShortName ~= GUILD_HALL_ZONE then
+        rerollService.requestAugList()
+        rerollService.requestMythicalList()
+        fired = true
+    end
+    -- Trigger 2: bank just opened while in guild hall (skip if we already fired for zone enter this frame)
+    if not fired and inGuildHall and bankOpen and not lastBankOpen then
+        rerollService.requestAugList()
+        rerollService.requestMythicalList()
+    end
+    lastZoneShortName = sn
+    lastBankOpen = bankOpen
 end
 
 -- Phase 2: Periodic persist (inventory/bank so data survives game close/crash)
@@ -1050,7 +1098,11 @@ local function phase8b_pendingRerollAdd(now)
     end
     if pending.step == "pickup" then
         if not pending.pickupStartedAt then pending.pickupStartedAt = now end
-        if hasItemOnCursor() and lp and lp.bag == pending.bag and lp.slot == pending.slot and lp.source == pending.source then
+        -- Use only live cursor check (no cached hasItemOnCursor); cache can lag one frame after click.
+        local hasCursor = (d.hasItemOnCursorWithTLOFallback and d.hasItemOnCursorWithTLOFallback()) or false
+        local lb, ls = tonumber(lp and lp.bag) or (lp and lp.bag), tonumber(lp and lp.slot) or (lp and lp.slot)
+        local pb, ps = tonumber(pending.bag) or pending.bag, tonumber(pending.slot) or pending.slot
+        if hasCursor and lp and lb == pb and ls == ps and (lp.source or "") == (pending.source or "") then
             -- Optimistic: update cache immediately so UI shows new state without waiting for server
             rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
             local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
@@ -1138,6 +1190,7 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
+    phase1c_guildHallRerollRefresh(now)
     phase0_cursorActionQueue(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()

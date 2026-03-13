@@ -1122,6 +1122,7 @@ local function buildMainLoopDeps()
         itemOps = itemOps,
         augmentOps = augmentOps,
         hasItemOnCursor = hasItemOnCursor,
+        hasItemOnCursorWithTLOFallback = function() return itemOps.hasItemOnCursorWithTLOFallback() end,
         maybeScanInventory = maybeScanInventory,
         maybeScanBank = maybeScanBank,
         maybeScanSellItems = maybeScanSellItems,

@@ -453,6 +453,37 @@ function M.getCursorItemLink()
     return (cur and (cur.Link and cur.Link() or cur.ItemLink and cur.ItemLink())) or ""
 end
 
+--- Centralized cursor state: hasItem, id, name. Uses plugin when available, else TLO.
+function M.getCursorState()
+    local hasItem = M.hasItemOnCursor()
+    return {
+        hasItem = hasItem,
+        id = hasItem and M.getCursorItemId() or 0,
+        name = hasItem and M.getCursorItemName() or "",
+    }
+end
+
+--- Live check: does MQ2 report an item on cursor? Uses TLO only (no plugin cache). Safe for use in main loop.
+local function hasItemOnCursorTLO()
+    if not mq.TLO or not mq.TLO.Cursor then return false end
+    local ok, id = pcall(function()
+        local cur = mq.TLO.Cursor
+        local c = (type(cur) == "function") and cur() or cur
+        if not c then return 0 end
+        return (c.ID and c.ID()) and c.ID() or 0
+    end)
+    return ok and id and tonumber(id) and tonumber(id) > 0
+end
+
+--- Like hasItemOnCursor() but with TLO fallback when plugin is loaded (plugin cache can lag one frame).
+--- Use for flows that must detect item-on-cursor promptly (e.g. reroll add after pickup).
+--- Tries TLO first so we see cursor immediately; then plugin.
+function M.hasItemOnCursorWithTLOFallback()
+    if hasItemOnCursorTLO() then return true end
+    if M.hasItemOnCursor() then return true end
+    return false
+end
+
 --- Cursor item stack count (or 1). Uses plugin when available.
 function M.getCursorItemStack()
     local coop = tryCoopUIPlugin()

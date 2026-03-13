@@ -786,8 +786,11 @@ function M.render(refs)
         if hasCursor and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and ImGui.IsWindowHovered() then
             refs.removeItemFromCursor()
         end
-        -- Don't clear lastPickup while quantity picker is open or quantity action is in progress (phase 7 delay)
-        if not hasCursor and not uiState.lastPickupSetThisFrame and not uiState.pendingQuantityPickup and not uiState.pendingQuantityAction then
+        -- Don't clear lastPickup while quantity picker is open or quantity action is in progress (phase 7 delay).
+        -- Use live cursor check (not cached hasCursor) so we don't clear one frame too early after pickup (avoids
+        -- phase8b reroll-add never seeing matching lastPickup and timing out).
+        local liveHasCursor = (refs.itemOps and refs.itemOps.hasItemOnCursorWithTLOFallback and refs.itemOps.hasItemOnCursorWithTLOFallback()) or false
+        if not liveHasCursor and not uiState.lastPickupSetThisFrame and not uiState.pendingQuantityPickup and not uiState.pendingQuantityAction then
             if uiState.lastPickup and (uiState.lastPickup.bag ~= nil or uiState.lastPickup.slot ~= nil) then
                 uiState.deferredInventoryScanAt = mq.gettime() + constants.TIMING.DEFERRED_SCAN_DELAY_MS
             end
