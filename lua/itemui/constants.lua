@@ -183,6 +183,8 @@ M.VIEWS = {
 -- ---------------------------------------------------------------------------
 M.REROLL = {
     ITEMS_REQUIRED = 10,
+    -- Zone short name(s) where !augadd/!mythicaladd are accepted (e.g. "guildlobby", "guildhall"). Nil = unknown.
+    GUILD_HALL_ZONE_SHORT_NAMES = { "guildlobby", "guildhall" },
     COMMAND_AUG_ADD = "!augadd",
     COMMAND_AUG_REMOVE = "!augremove",
     COMMAND_AUG_LIST = "!auglist",
@@ -192,8 +194,8 @@ M.REROLL = {
     COMMAND_MYTHICAL_LIST = "!mythicallist",
     COMMAND_MYTHICAL_ROLL = "!mythicalroll",
     MYTHICAL_NAME_PREFIX = "Mythical",
-    -- Chat list response: assume server sends lines like "12345: Item Name" or "12345 - Item Name"
-    LIST_RESPONSE_PARSE_MS = 3000,
+    -- Chat list response: longer window so we capture full list from slow or alternate chat.
+    LIST_RESPONSE_PARSE_MS = 6000,
 }
 
 -- Layout INI file and section names (shared with utils/layout.lua)

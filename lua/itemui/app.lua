@@ -541,6 +541,11 @@ rerollService.init({
         if not name or name == "" then return nil end
         return config.getCharStoragePath(name, "reroll_lists.lua")
     end,
+    onRerollListChanged = function()
+        if sellStatusService and sellStatusService.invalidateSellConfigCache then sellStatusService.invalidateSellConfigCache() end
+        if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+        if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+    end,
 })
 augmentOps.init({
     setStatusMessage = setStatusMessage,
@@ -581,17 +586,32 @@ local function cursorActionBusy()
         or #(uiState.cursorActionQueue or {}) > 0
 end
 
--- Reroll list add: queues into the unified cursor-action queue when another action is in progress,
--- or starts immediately if the cursor is free. Allows rapid right-click chaining across action types.
+-- Reroll list add: in guild hall, pickup and send command; outside guild hall, add to pending only (sync later).
 local function requestAddToRerollList(list, item)
     if not item or (list ~= "aug" and list ~= "mythical") then return end
+    local itemId = item.id or item.ID
+    if not itemId then
+        setStatusMessage("Item location unavailable.")
+        return
+    end
+    if not rerollService.isInGuildHall() then
+        local ok = rerollService.addToPendingList(list, itemId, item.name or "")
+        if ok then
+            setStatusMessage("Added to list (sync required in guild hall).")
+            if sellStatusService.invalidateSellConfigCache then sellStatusService.invalidateSellConfigCache() end
+            if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+        else
+            setStatusMessage("Already on pending list or list full.")
+        end
+        return
+    end
     local source = item.source or "inv"
     local payload = {
         list = list,
         bag = item.bag,
         slot = item.slot,
         source = source,
-        itemId = item.id or item.ID,
+        itemId = itemId,
         itemName = item.name or "",
         step = "pickup",
     }

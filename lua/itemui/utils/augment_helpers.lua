@@ -1,7 +1,17 @@
 --[[ augment_helpers.lua: Augment compatibility (socket type, restrictions, worn slot, index, getCompatibleAugments). ]]
 local item_tlo = require('itemui.utils.item_tlo')
+-- Lazy-load item_tooltip to avoid circular require: item_helpers -> augment_helpers -> item_tooltip -> item_helpers
 
 local M = {}
+
+--- True if the current player can use this augment (level, deity, class, race). Same logic as ItemTooltip.getCanUseInfo.
+--- Always applied in getCompatibleAugments so the game would never reject the augment; not gated by "Only show usable by me".
+local function augmentPassesCanUse(itemRow)
+    if not itemRow then return false end
+    local ItemTooltip = require('itemui.utils.item_tooltip')
+    local info = ItemTooltip.getCanUseInfo(itemRow, itemRow.source or "inv")
+    return info and info.canUse
+end
 
 --- Expand AugType (bitmask or single type) to list of slot type IDs (1-based). Used for "This augment fits in slot types" display.
 function M.getAugTypeSlotIds(augType)
@@ -86,9 +96,18 @@ local augmentIndex = {}
 function M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
     augmentIndex = {}
     if not inventoryItems and not bankItemsOrCache then return end
-    local function addFromList(list)
+    local seen = {}  -- (bag, slot, source) -> true; skip same slot twice
+    local seenByIdName = {}  -- (id, name) from inventory; when adding from bank, skip if already present (avoids same physical item in both lists when inv is stale)
+    local function addFromList(list, fromBank)
         if not list then return end
         for _, row in ipairs(list) do
+            local key = tostring(row.bag or 0) .. "_" .. tostring(row.slot or 0) .. "_" .. (row.source or "inv")
+            if seen[key] then goto next end
+            seen[key] = true
+            if fromBank then
+                local idName = tostring(row.id or 0) .. "_" .. tostring(row.name or ""):gsub("%s+", " ")
+                if seenByIdName[idName] then goto next end
+            end
             if (row.type or ""):lower() == "augmentation" then
                 local src = row.source or "inv"
                 local augIt = item_tlo.getItemTLO(row.bag, row.slot, src)
@@ -103,13 +122,18 @@ function M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
                             augRestrictions = augRestrictions or 0,
                             wornSlotIndices = wornSlotIndices,
                         }
+                        if not fromBank then
+                            local idName = tostring(row.id or 0) .. "_" .. tostring(row.name or ""):gsub("%s+", " ")
+                            seenByIdName[idName] = true
+                        end
                     end
                 end
             end
+            ::next::
         end
     end
-    addFromList(inventoryItems)
-    addFromList(bankItemsOrCache)
+    addFromList(inventoryItems, false)
+    addFromList(bankItemsOrCache, true)
 end
 
 --- Check if an augment item (with augType from TLO) fits the given socket type.
@@ -148,9 +172,13 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
     if #augmentIndex > 0 then
         for _, entry in ipairs(augmentIndex) do
             local itemRow = entry.itemRow
+            -- Bank-closed: never show bank-only augments when bank window is closed
+            if not bankItemsOrCache and (itemRow.source or "inv") == "bank" then goto continue end
             if not M.augmentFitsSocket(entry.augType, socketType) then goto continue end
             if not M.augmentRestrictionAllowsParent(it, entry.augRestrictions) then goto continue end
             if not M.augmentWornSlotAllowsParentWithCachedAugSlots(it, entry.wornSlotIndices) then goto continue end
+            -- Core compatibility: level, deity, class, race always enforced (game would reject otherwise)
+            if not augmentPassesCanUse(itemRow) then goto continue end
             if type(canUseFilter) == "function" and not canUseFilter(itemRow) then goto continue end
             candidates[#candidates + 1] = itemRow
             ::continue::
@@ -168,6 +196,8 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
         local augRestrictions = item_tlo.getAugRestrictionsFromTLO(augIt)
         if not M.augmentRestrictionAllowsParent(it, augRestrictions) then return end
         if not M.augmentWornSlotAllowsParent(it, augIt) then return end
+        -- Core compatibility: level, deity, class, race always enforced
+        if not augmentPassesCanUse(itemRow) then return end
         if type(canUseFilter) == "function" and not canUseFilter(itemRow) then return end
         candidates[#candidates + 1] = itemRow
     end

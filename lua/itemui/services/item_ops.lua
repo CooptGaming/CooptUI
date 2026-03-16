@@ -361,6 +361,13 @@ end
 function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize, itemType, nodrop, notrade, lore, quest, collectible, heirloom, attuneable, augSlots, icon)
     icon = tonumber(icon) or 0
     deps.invalidateSortCache("inv")
+    -- Remove any existing row for this (bag, slot) so the same slot never appears twice
+    for i = #deps.inventoryItems, 1, -1 do
+        if deps.inventoryItems[i].bag == bag and deps.inventoryItems[i].slot == slot then
+            table.remove(deps.inventoryItems, i)
+            break
+        end
+    end
     local row = { bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
         stackSize = stackSize or 1, type = itemType or "", icon = icon,
         nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
@@ -373,6 +380,12 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
     deps.sellStatus.attachGranularFlags(row, nil)
     local ws, reason = deps.sellStatus.willItemBeSold(row)
     row.willSell, row.sellReason = ws, reason or ""
+    for i = #deps.sellItems, 1, -1 do
+        if deps.sellItems[i].bag == bag and deps.sellItems[i].slot == slot then
+            table.remove(deps.sellItems, i)
+            break
+        end
+    end
     local dup = { bag = row.bag, slot = row.slot, name = row.name, id = row.id, value = row.value, totalValue = row.totalValue,
         stackSize = row.stackSize, type = row.type, icon = row.icon,
         nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest,

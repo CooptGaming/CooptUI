@@ -36,6 +36,7 @@ end
 
 --- Returns { canUse = boolean, reason = string|nil } for the current player and item.
 --- reason is only set when canUse is false (e.g. "Requires level 85", "Requires Bard").
+--- When item.requiredLevel/class/race/deity are missing (e.g. plugin scan rows), fetches from TLO so restrictions are applied.
 function ItemTooltip.getCanUseInfo(item, source)
     local result = { canUse = true, reason = nil }
     if not item then return result end
@@ -43,45 +44,66 @@ function ItemTooltip.getCanUseInfo(item, source)
     local Me = mq.TLO and mq.TLO.Me
     if not Me or not Me.Level then return result end
     local myLevel = tonumber(Me.Level()) or 0
-    local reqLevel = (item.requiredLevel and item.requiredLevel > 0) and item.requiredLevel or nil
+    -- Use item fields; if missing and we have bag/slot, fetch from TLO (plugin scan rows may not have class/race/deity/level)
+    local reqLevel = (item.requiredLevel ~= nil and item.requiredLevel > 0) and item.requiredLevel or nil
+    local clsStr = item.class and tostring(item.class) or ""
+    local raceStr = item.race and tostring(item.race) or ""
+    local deityStr = item.deity and tostring(item.deity) or ""
+    if (reqLevel == nil or clsStr == "" or raceStr == "" or deityStr == "") and item.bag and item.slot and itemHelpers.getItemTLO then
+        local it = itemHelpers.getItemTLO(item.bag, item.slot, source)
+        if it and it.ID and it.ID() and it.ID() ~= 0 then
+            if reqLevel == nil then
+                local r = it.RequiredLevel and it.RequiredLevel()
+                if r and r > 0 then reqLevel = r end
+            end
+            if clsStr == "" or raceStr == "" then
+                local c, r = itemHelpers.getClassRaceStringsFromTLO(it)
+                if clsStr == "" then clsStr = c and tostring(c) or "" end
+                if raceStr == "" then raceStr = r and tostring(r) or "" end
+            end
+            if deityStr == "" and itemHelpers.getDeityStringFromTLO then
+                deityStr = itemHelpers.getDeityStringFromTLO(it) or ""
+            end
+        end
+    end
     if reqLevel and myLevel < reqLevel then
         result.canUse = false
         result.reason = "Requires level " .. tostring(reqLevel)
         return result
     end
     local myDeity = Me.Deity and Me.Deity() and tostring(Me.Deity()):lower() or ""
-    if item.deity and item.deity ~= "" then
+    if deityStr and deityStr ~= "" then
         local allowed = false
-        for part in (tostring(item.deity):lower()):gmatch("%S+") do
+        for part in (tostring(deityStr):lower()):gmatch("%S+") do
             if part == myDeity then allowed = true break end
         end
         if not allowed then
             result.canUse = false
-            result.reason = "Requires deity: " .. tostring(item.deity)
+            result.reason = "Requires deity: " .. tostring(deityStr)
             return result
         end
     end
     local myClass = Me.Class and tostring(Me.Class() or ""):lower() or ""
     local myRace = Me.Race and tostring(Me.Race() or ""):lower() or ""
-    if item.class and item.class ~= "" and item.class:lower() ~= "all" then
+    if clsStr and clsStr ~= "" and clsStr:lower() ~= "all" then
         local ok = false
-        for part in (tostring(item.class):lower()):gmatch("%S+") do
+        for part in (tostring(clsStr):lower()):gmatch("%S+") do
             if part == myClass then ok = true break end
         end
         if not ok then
             result.canUse = false
-            result.reason = "Requires class: " .. tostring(item.class)
+            result.reason = "Requires class: " .. tostring(clsStr)
             return result
         end
     end
-    if item.race and item.race ~= "" and item.race:lower() ~= "all" then
+    if raceStr and raceStr ~= "" and raceStr:lower() ~= "all" then
         local ok = false
-        for part in (tostring(item.race):lower()):gmatch("%S+") do
+        for part in (tostring(raceStr):lower()):gmatch("%S+") do
             if part == myRace then ok = true break end
         end
         if not ok then
             result.canUse = false
-            result.reason = "Requires race: " .. tostring(item.race)
+            result.reason = "Requires race: " .. tostring(raceStr)
             return result
         end
     end
