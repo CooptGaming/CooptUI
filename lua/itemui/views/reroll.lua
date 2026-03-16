@@ -31,6 +31,10 @@ end
 local function renderTabContent(ctx, track, rerollService)
     local isAug = (track == "aug")
     local list = isAug and rerollService.getAugList() or rerollService.getMythicalList()
+    local pendingList = isAug and rerollService.getPendingAugList() or rerollService.getPendingMythicalList()
+    local pendingIdSet = {}
+    if pendingList then for _, e in ipairs(pendingList) do if e.id then pendingIdSet[e.id] = true end end end
+    local inGuildHall = rerollService.isInGuildHall and rerollService.isInGuildHall()
     local inventoryItems = ctx.inventoryItems or {}
     local bankItems = ctx.bankItems or {}
     local bankCache = ctx.bankCache or {}
@@ -141,7 +145,31 @@ local function renderTabContent(ctx, track, rerollService)
     if ImGui.Button("Refresh List##" .. track, ImVec2(90, 0)) then
         if isAug then rerollService.requestAugList() else rerollService.requestMythicalList() end
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Re-query server list (!auglist / !mythicallist)"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Re-query this tab's list from server"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Refresh both##" .. track, ImVec2(85, 0)) then
+        rerollService.requestBothLists()
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Request both lists at once; both fill in one stream (fast)"); ImGui.EndTooltip() end
+
+    -- Sync pending: only active in guild hall when this tab's pending list is non-empty.
+    local pendingCount = pendingList and #pendingList or 0
+    local syncPendingDisabled = not inGuildHall or pendingCount == 0
+    ImGui.SameLine()
+    if syncPendingDisabled then
+        theme.PushKeepButton(true)
+    else
+        theme.PushKeepButton(false)
+    end
+    if ImGui.Button("Sync Pending##" .. track, ImVec2(95, 0)) then
+        if not syncPendingDisabled then rerollService.startPendingSync(track) end
+    end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        if not inGuildHall then ImGui.Text("Must be in guild hall to sync pending.") elseif pendingCount == 0 then ImGui.Text("No pending items to sync.") else ImGui.Text(string.format("Sync %d pending item(s) to server (one per cycle).", pendingCount)) end
+        ImGui.EndTooltip()
+    end
+    theme.PopButtonColors()
 
     ImGui.Separator()
 
@@ -408,8 +436,14 @@ local function renderTabContent(ctx, track, rerollService)
         end
     end
     local listIds = listIdSet(list)
+    local pendingIds = pendingIdSet or {}
 
     ImGui.Spacing()
+    if pendingCount and pendingCount > 0 then
+        theme.TextHeader("Pending (sync in guild hall)")
+        ImGui.Text(string.format("%d item(s) will be added to server list when you sync in guild hall.", pendingCount))
+        ImGui.Spacing()
+    end
     theme.TextHeader(isAug and "In your inventory (augmentations)" or "In your inventory (mythicals)")
     if #invFiltered == 0 then
         theme.TextMuted(isAug and "No augmentations in your bags." or "No mythical items in your bags.")
@@ -425,15 +459,18 @@ local function renderTabContent(ctx, track, rerollService)
                 ImGui.PushID("RerollInv_" .. track .. "_" .. tostring(idx))
                 local id = it.id or it.ID
                 local onList = id and listIds[id]
+                local onPending = id and pendingIds[id]
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 local dispName = it.name or ("ID " .. tostring(id))
                 if (it.stackSize or 1) > 1 then dispName = dispName .. string.format(" (x%d)", it.stackSize or 1) end
                 if onList then
                     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
+                elseif onPending then
+                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning or theme.Colors.Muted))
                 end
                 ImGui.Text(dispName)
-                if onList then ImGui.PopStyleColor(1) end
+                if onList or onPending then ImGui.PopStyleColor(1) end
                 if ImGui.IsItemHovered() and ctx.getItemStatsForTooltip then
                     local showItem = ctx.getItemStatsForTooltip(it, "inv")
                     if showItem then
@@ -453,6 +490,10 @@ local function renderTabContent(ctx, track, rerollService)
                 if onList then
                     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
                     ImGui.Text("Yes")
+                    ImGui.PopStyleColor(1)
+                elseif onPending then
+                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning or theme.Colors.Muted))
+                    ImGui.Text("Pending")
                     ImGui.PopStyleColor(1)
                 else
                     theme.TextMuted("No")

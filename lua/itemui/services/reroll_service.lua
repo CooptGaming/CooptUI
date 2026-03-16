@@ -56,14 +56,18 @@ local function getCursorLink()
     local cur = mq.TLO and mq.TLO.Cursor
     return (cur and (cur.Link and cur.Link() or cur.ItemLink and cur.ItemLink())) or ""
 end
-local LIST_PARSE_MS = REROLL.LIST_RESPONSE_PARSE_MS or 3000
+local LIST_PARSE_MS = REROLL.LIST_RESPONSE_PARSE_MS or 6000
 -- Cap per-list size so very large server responses don't cause buffer/UI issues (chunked parsing already line-by-line).
 local MAX_LIST_ENTRIES = 2000
 
 local augList = {}       -- { { id = number, name = string }, ... }
 local mythicalList = {}  -- { { id = number, name = string }, ... }
-local pendingAugListAt = nil      -- mq.gettime() when we sent !auglist; accept lines until this + LIST_PARSE_MS
-local pendingMythicalListAt = nil  -- same for !mythicallist
+local pendingAugList = {}     -- items added from field; sync in guild hall
+local pendingMythicalList = {}
+-- Single parse window: accept list lines until receivingListSince + LIST_PARSE_MS. Header sets currentList (aug/mythical).
+local receivingListSince = nil   -- mq.gettime() when we sent list request(s)
+local currentList = nil         -- "aug" or "mythical", set by last header seen in stream
+local lastListSaveAt = nil      -- throttle saveToFile during burst (persist every 200ms)
 local setStatusMessageFn = function() end
 
 -- Per 4.2 state ownership: add flow and bank-move state owned by reroll_service
@@ -72,8 +76,10 @@ local state = {
     pendingRerollBankMoves = nil,   -- { list, items, nextIndex } for main_loop to move items to bank
     pendingAugRollComplete = nil,   -- true when waiting for augment roll result on cursor
     pendingAugRollCompleteAt = nil,-- mq.gettime() for timeout
+    pendingRerollSync = nil,        -- { list = "aug"|"mythical", nextIndex, entries } for Sync pending (one per cycle)
 }
 local getRerollListStoragePathFn = nil  -- optional: function() return path end for persistence
+local onRerollListChangedFn = nil       -- optional: callback when aug/mythical/pending lists change (invalidate sell cache)
 -- When adding via pickup flow: after we send !augadd/!mythicaladd, we wait for a list line containing this id then call callback (put back, update UI).
 local pendingAddAckId = nil
 local pendingAddAckCallback = nil
@@ -106,9 +112,49 @@ local function parseListLine(line)
     return parseColonDashLine(line)
 end
 
+-- More permissive: "ID: 123 Name: Foo", "id 123 name Foo", or leading digits then rest as name (for paste/import).
+local function parseListLineFlexible(line)
+    if not line or type(line) ~= "string" then return nil, nil end
+    local id, name = parseIdNameLine(line)
+    if id then return id, name end
+    id, name = parseColonDashLine(line)
+    if id then return id, name end
+    -- "ID: 123", "id=123", or "id 123" with optional "name" or "Name" and value
+    local idStr = line:match("[Ii][Dd]%s*[:=]%s*(%d+)") or line:match("^%s*[Ii][Dd]%s+(%d+)")
+    if idStr then
+        id = tonumber(idStr)
+        if id and id > 0 then
+            name = line:match("[Nn]ame%s*[:=]%s*(.+)") or line:match("^%s*[Ii][Dd]%s*[:=]?%s*%d+%s+[Nn]ame%s*[:=]?%s*(.+)") or line:match("^%s*%d+%s*[%-:]%s*(.+)") or line:gsub("^%s*[Ii]?[Dd]?%s*[:=]?%s*%d+%s*", ""):match("^%s*(.-)%s*$")
+            return id, (name and name:match("^%s*(.-)%s*$")) or ""
+        end
+    end
+    -- Leading digits then rest of line as name: "12345 Item Name Here"
+    idStr, name = line:match("^%s*(%d+)%s+(.+)$")
+    if idStr and idStr ~= "" then
+        id = tonumber(idStr)
+        if id and id > 0 then return id, (name and name:match("^%s*(.-)%s*$")) or "" end
+    end
+    return nil, nil
+end
+
 -- Detect header to know which list we're filling (optional; we also use pending* from Refresh).
 -- Only treat as header if line looks like a section title (e.g. "===== Aug List =====").
 -- Do NOT treat "Aug list removed: ..." or "Aug list added: ..." as headers or we clear the list on every add/remove.
+--- True if current zone is a guild hall where !augadd/!mythicaladd are accepted.
+local function isInGuildHall()
+    local zones = REROLL.GUILD_HALL_ZONE_SHORT_NAMES
+    if not zones or type(zones) ~= "table" then return false end
+    local z = mq.TLO and mq.TLO.Zone
+    local short = z and z.ShortName and z.ShortName()
+    if not short or short == "" then return false end
+    short = short:lower()
+    for _, name in ipairs(zones) do
+        if (name or ""):lower() == short then return true end
+    end
+    return false
+end
+
+-- Detect header to know which list we're filling (optional; we also use pending* from Refresh).
 local function detectListHeader(line)
     if not line or type(line) ~= "string" then return nil end
     if not line:find("=====") then return nil end
@@ -134,6 +180,16 @@ local function saveToFile()
         for _, e in ipairs(mythicalList) do
             lines[#lines + 1] = string.format("    { id = %s, name = %q },", tostring(e.id), e.name or "")
         end
+        lines[#lines + 1] = "  },"
+        lines[#lines + 1] = "  pendingAug = {"
+        for _, e in ipairs(pendingAugList) do
+            lines[#lines + 1] = string.format("    { id = %s, name = %q },", tostring(e.id), e.name or "")
+        end
+        lines[#lines + 1] = "  },"
+        lines[#lines + 1] = "  pendingMythical = {"
+        for _, e in ipairs(pendingMythicalList) do
+            lines[#lines + 1] = string.format("    { id = %s, name = %q },", tostring(e.id), e.name or "")
+        end
         lines[#lines + 1] = "  }"
         lines[#lines + 1] = "}"
         local f = io.open(path, "w")
@@ -143,6 +199,8 @@ local function saveToFile()
         if setStatusMessageFn then setStatusMessageFn("Could not save reroll list cache") end
         local diag = require('itemui.core.diagnostics')
         diag.recordError("Reroll", "Could not save reroll list cache", err)
+    else
+        if onRerollListChangedFn then onRerollListChangedFn() end
     end
 end
 
@@ -164,6 +222,9 @@ local function loadFromFile()
     if ok and data and type(data) == "table" then
         if type(data.aug) == "table" then augList = data.aug end
         if type(data.mythical) == "table" then mythicalList = data.mythical end
+        if type(data.pendingAug) == "table" then pendingAugList = data.pendingAug end
+        if type(data.pendingMythical) == "table" then pendingMythicalList = data.pendingMythical end
+        if onRerollListChangedFn then onRerollListChangedFn() end
     elseif not ok then
         local diag = require('itemui.core.diagnostics')
         diag.recordError("Reroll", "Could not load reroll list cache", data)
@@ -191,28 +252,26 @@ local function onRerollAddConfirmation(line)
 end
 
 -- Chat event callback: when server echoes a list line or header, parse and add to the appropriate list.
--- Large-list handling: append line-by-line (no single huge string); cap at MAX_LIST_ENTRIES per list.
+-- Single window (receivingListSince): headers set currentList so both aug and mythical fill in one stream (fast).
 local function onRerollListLine(line)
     local now = mq.gettime()
     local header = detectListHeader(line)
     if header == "aug" then
         augList = {}
-        pendingAugListAt = now
-        pendingMythicalListAt = nil
+        currentList = "aug"
         return
     end
     if header == "mythical" then
         mythicalList = {}
-        pendingMythicalListAt = now
-        pendingAugListAt = nil
+        currentList = "mythical"
         return
     end
-    -- Skip "Total: N" and similar
     if line:match("^%s*[Tt]otal") then return end
+    if not receivingListSince or (now - receivingListSince) >= LIST_PARSE_MS then return end
+    if not currentList then return end
     local id, name = parseListLine(line)
+    if not id then id, name = parseListLineFlexible(line) end
     if not id then return end
-    -- If we're waiting for this id as add-ack (pickup→add→put-back flow), notify and clear.
-    -- Skip inserting this entry: we already added it optimistically when sending the command.
     if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
         pendingAddAckCallback()
         pendingAddAckId = nil
@@ -220,12 +279,17 @@ local function onRerollListLine(line)
         return
     end
     local entry = { id = id, name = name }
-    if pendingAugListAt and (now - pendingAugListAt) < LIST_PARSE_MS then
+    if currentList == "aug" then
         if #augList < MAX_LIST_ENTRIES then table.insert(augList, entry) end
-    elseif pendingMythicalListAt and (now - pendingMythicalListAt) < LIST_PARSE_MS then
+    else
         if #mythicalList < MAX_LIST_ENTRIES then table.insert(mythicalList, entry) end
     end
-    saveToFile()
+    setStatusMessageFn("Lists updated.")
+    -- Throttle persist during burst so update stays fast; data is already in memory.
+    if not lastListSaveAt or (now - lastListSaveAt) > 200 then
+        saveToFile()
+        lastListSaveAt = now
+    end
 end
 
 local M = {}
@@ -233,15 +297,27 @@ local M = {}
 function M.init(deps)
     setStatusMessageFn = deps.setStatusMessage or function() end
     getRerollListStoragePathFn = deps.getRerollListStoragePath
+    onRerollListChangedFn = deps.onRerollListChanged
     augList = {}
     mythicalList = {}
-    pendingAugListAt = nil
-    pendingMythicalListAt = nil
+    pendingAugList = {}
+    pendingMythicalList = {}
+    receivingListSince = nil
+    currentList = nil
+    lastListSaveAt = nil
     pendingAddAckId = nil
     pendingAddAckCallback = nil
     state.pendingRerollAdd = nil
     loadFromFile()
-    -- User can Refresh in Reroll Companion to request !auglist/!mythicallist; requesting both on init could mix responses.
+    -- Server list requests only: (1) explicit Refresh in UI, (2) stored list empty on load. Both lists in one stream (fast).
+    if #augList == 0 and #mythicalList == 0 then
+        M.requestBothLists()
+    elseif #augList == 0 then
+        M.requestAugList()
+    elseif #mythicalList == 0 then
+        M.requestMythicalList()
+    end
+    -- User can Refresh in Reroll Companion to re-query; other automatic triggers (post-roll, zone, bank) removed.
     -- Match server list lines: "id=123 name=..." or "123: Name" or "123 - Name". Header "===== Aug List =====" also matched.
     mq.event("ItemUIRerollListLine", "#*#id=#*#name=#*#", onRerollListLine)
     mq.event("ItemUIRerollListLineColon", "#*#:#*#", onRerollListLine)
@@ -260,26 +336,83 @@ function M.getMythicalList()
     return mythicalList
 end
 
---- Request server to return augment list; clears current list and sets pending so chat lines are parsed.
+function M.getPendingAugList()
+    return pendingAugList
+end
+
+function M.getPendingMythicalList()
+    return pendingMythicalList
+end
+
+function M.isInGuildHall()
+    return isInGuildHall()
+end
+
+--- Add item (by id/name) to pending list only; no cursor. Used when adding from context menu outside guild hall.
+function M.addToPendingList(listKind, id, name)
+    if not id or (listKind ~= "aug" and listKind ~= "mythical") then return false end
+    local list = (listKind == "aug") and pendingAugList or pendingMythicalList
+    for _, e in ipairs(list) do if e.id == id then return true end end
+    if #list >= MAX_LIST_ENTRIES then return false end
+    list[#list + 1] = { id = id, name = name or "" }
+    saveToFile()
+    return true
+end
+
+--- Remove one entry from pending list by id; persist. Used after successful sync.
+function M.removeFromPending(listKind, id)
+    if listKind == "aug" then
+        for i = #pendingAugList, 1, -1 do
+            if pendingAugList[i].id == id then table.remove(pendingAugList, i); saveToFile(); return end
+        end
+    elseif listKind == "mythical" then
+        for i = #pendingMythicalList, 1, -1 do
+            if pendingMythicalList[i].id == id then table.remove(pendingMythicalList, i); saveToFile(); return end
+        end
+    end
+end
+
+--- Request server to return augment list only.
 function M.requestAugList()
     augList = {}
-    pendingAugListAt = mq.gettime()
-    pendingMythicalListAt = nil
+    currentList = "aug"
+    receivingListSince = mq.gettime()
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_LIST or "!auglist"))
     setStatusMessageFn("Requesting augment list...")
 end
 
---- Request server to return mythical list.
+--- Request server to return mythical list only.
 function M.requestMythicalList()
     mythicalList = {}
-    pendingMythicalListAt = mq.gettime()
-    pendingAugListAt = nil
+    currentList = "mythical"
+    receivingListSince = mq.gettime()
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_LIST or "!mythicallist"))
     setStatusMessageFn("Requesting mythical list...")
 end
 
+--- Request both lists at once; one parse window, headers switch aug/mythical. Both lists fill in 1–2 seconds.
+function M.requestBothLists()
+    currentList = nil
+    receivingListSince = mq.gettime()
+    mq.cmd("/say " .. (REROLL.COMMAND_AUG_LIST or "!auglist"))
+    mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_LIST or "!mythicallist"))
+    setStatusMessageFn("Requesting lists...")
+end
+
+--- Call each tick: clear receiving window after timeout; persist once when done.
+function M.checkListRequestTimeout(now)
+    if receivingListSince and (now - receivingListSince) >= LIST_PARSE_MS then
+        receivingListSince = nil
+        currentList = nil
+        lastListSaveAt = nil
+        saveToFile()
+        setStatusMessageFn("List request finished.")
+        if onRerollListChangedFn then onRerollListChangedFn() end
+    end
+end
+
 --- Return protection sets for sell/loot rules: items in these sets must never be sold and should be skipped by loot.
---- Used by sell_status and rules to integrate Reroll List protection.
+--- Includes server list and pending list so items queued for sync are protected until synced or removed.
 function M.getRerollListProtection()
     local idSet = {}
     local nameSet = {}
@@ -288,6 +421,14 @@ function M.getRerollListProtection()
         if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
     for _, e in ipairs(mythicalList) do
+        if e.id then idSet[e.id] = true end
+        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
+    end
+    for _, e in ipairs(pendingAugList) do
+        if e.id then idSet[e.id] = true end
+        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
+    end
+    for _, e in ipairs(pendingMythicalList) do
         if e.id then idSet[e.id] = true end
         if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
@@ -332,8 +473,7 @@ function M.removeEntryFromCache(listKind, id)
     end
 end
 
---- Add item on cursor to augment reroll list. Call when cursor has an augment.
---- Optimistic: add to in-memory list immediately, then send command (no requestAugList = no grey-out).
+--- Add item on cursor to augment reroll list. In guild hall: add + send command. Outside: add to pending only.
 function M.addAugFromCursor()
     local id = getCursorId()
     if not id or id == 0 then
@@ -341,13 +481,20 @@ function M.addAugFromCursor()
         return
     end
     local name = getCursorName()
-    M.addEntryToList("aug", id, name)
-    mq.cmd("/say " .. (REROLL.COMMAND_AUG_ADD or "!augadd"))
-    setStatusMessageFn("Added to augment list.")
+    if isInGuildHall() then
+        M.addEntryToList("aug", id, name)
+        mq.cmd("/say " .. (REROLL.COMMAND_AUG_ADD or "!augadd"))
+        setStatusMessageFn("Added to augment list.")
+    else
+        for _, e in ipairs(pendingAugList) do if e.id == id then setStatusMessageFn("Already on pending list."); return end end
+        if #pendingAugList >= MAX_LIST_ENTRIES then setStatusMessageFn("Pending list full."); return end
+        pendingAugList[#pendingAugList + 1] = { id = id, name = name or "" }
+        saveToFile()
+        setStatusMessageFn("Added to list (sync required in guild hall).")
+    end
 end
 
---- Add item on cursor to mythical reroll list. Call when cursor has a mythical item.
---- Optimistic: add to in-memory list immediately, then send command (no requestMythicalList = no grey-out).
+--- Add item on cursor to mythical reroll list. In guild hall: add + send command. Outside: add to pending only.
 function M.addMythicalFromCursor()
     local id = getCursorId()
     if not id or id == 0 then
@@ -355,9 +502,17 @@ function M.addMythicalFromCursor()
         return
     end
     local name = getCursorName()
-    M.addEntryToList("mythical", id, name)
-    mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd"))
-    setStatusMessageFn("Added to mythical list.")
+    if isInGuildHall() then
+        M.addEntryToList("mythical", id, name)
+        mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd"))
+        setStatusMessageFn("Added to mythical list.")
+    else
+        for _, e in ipairs(pendingMythicalList) do if e.id == id then setStatusMessageFn("Already on pending list."); return end end
+        if #pendingMythicalList >= MAX_LIST_ENTRIES then setStatusMessageFn("Pending list full."); return end
+        pendingMythicalList[#pendingMythicalList + 1] = { id = id, name = name or "" }
+        saveToFile()
+        setStatusMessageFn("Added to list (sync required in guild hall).")
+    end
 end
 
 --- Remove item from augment list by ID. Updates cache immediately; persist to file.
@@ -382,18 +537,35 @@ function M.removeMythical(id)
     setStatusMessageFn("Removed from mythical list.")
 end
 
+local ITEMS_CONSUMED_PER_ROLL = REROLL.ITEMS_REQUIRED or 10
+
+--- Optimistically remove the last N entries from a list (after a roll the server consumes that many). Persist.
+local function removeLastNFromList(listKind, n)
+    if listKind == "aug" then
+        local remove = math.min(n, #augList)
+        for _ = 1, remove do table.remove(augList) end
+        if remove > 0 then saveToFile() end
+    elseif listKind == "mythical" then
+        local remove = math.min(n, #mythicalList)
+        for _ = 1, remove do table.remove(mythicalList) end
+        if remove > 0 then saveToFile() end
+    end
+end
+
 --- Consume 10 listed augments from inventory and grant one new augment.
+--- No server list request: list only changes by add/remove; optimistically update in-memory list.
 function M.augRoll()
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_ROLL or "!augroll"))
     setStatusMessageFn("Augment roll executed.")
-    M.requestAugList()
+    removeLastNFromList("aug", ITEMS_CONSUMED_PER_ROLL)
 end
 
 --- Consume 10 listed mythicals, grant Book of Mythical Reroll.
+--- No server list request: optimistically update in-memory list.
 function M.mythicalRoll()
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ROLL or "!mythicalroll"))
     setStatusMessageFn("Mythical roll executed.")
-    M.requestMythicalList()
+    removeLastNFromList("mythical", ITEMS_CONSUMED_PER_ROLL)
 end
 
 --- Count how many inventory/bank items are on the list (every instance counts).
@@ -426,6 +598,16 @@ function M.isCursorIdInList(listEntries)
         if e.id == cursorId then return true end
     end
     return false
+end
+
+--- Start syncing pending list to server (one item per cycle). Call when in guild hall and pending non-empty.
+function M.startPendingSync(listKind)
+    if listKind ~= "aug" and listKind ~= "mythical" then return end
+    local entries = (listKind == "aug") and pendingAugList or pendingMythicalList
+    if #entries == 0 then return end
+    local copy = {}
+    for _, e in ipairs(entries) do copy[#copy + 1] = { id = e.id, name = e.name or "" } end
+    state.pendingRerollSync = { list = listKind, nextIndex = 1, entries = copy }
 end
 
 --- Return state table for 4.2 ownership; init wires uiState.* to this so existing code unchanged.

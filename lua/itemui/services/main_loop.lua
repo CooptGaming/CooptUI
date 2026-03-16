@@ -18,8 +18,8 @@ local function getItemDisplayState()
 end
 
 local function resolveAugmentQueueStep(queueType)
-    local uiState, scanInventory, isBankWindowOpen, scanBank, refreshActiveItemDisplayTab, setStatusMessage =
-        d.uiState, d.scanInventory, d.isBankWindowOpen, d.scanBank, d.refreshActiveItemDisplayTab, d.setStatusMessage
+    local uiState, scanInventory, isBankWindowOpen, scanBank, refreshActiveItemDisplayTab, setStatusMessage, buildAugmentIndex, deferredScanNeeded =
+        d.uiState, d.scanInventory, d.isBankWindowOpen, d.scanBank, d.refreshActiveItemDisplayTab, d.setStatusMessage, d.buildAugmentIndex, d.deferredScanNeeded
     if queueType == "optimize" then
         if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
             local oq = uiState.optimizeQueue
@@ -41,8 +41,10 @@ local function resolveAugmentQueueStep(queueType)
         else
             local hadOptimize = (uiState.optimizeQueue ~= nil)
             if uiState.optimizeQueue then uiState.optimizeQueue = nil end
-            scanInventory()
-            if isBankWindowOpen() then scanBank() end
+            scanInventory(true)
+            if isBankWindowOpen() then scanBank(true) end
+            if buildAugmentIndex then buildAugmentIndex() end
+            if deferredScanNeeded then deferredScanNeeded.inventory = false; deferredScanNeeded.bank = false end
             refreshActiveItemDisplayTab()
             if hadOptimize and setStatusMessage then setStatusMessage("Optimize complete.") end
         end
@@ -55,8 +57,10 @@ local function resolveAugmentQueueStep(queueType)
         else
             local hadRemoveAll = (uiState.removeAllQueue ~= nil)
             if uiState.removeAllQueue then uiState.removeAllQueue = nil end
-            scanInventory()
-            if isBankWindowOpen() then scanBank() end
+            scanInventory(true)
+            if isBankWindowOpen() then scanBank(true) end
+            if buildAugmentIndex then buildAugmentIndex() end
+            if deferredScanNeeded then deferredScanNeeded.inventory = false; deferredScanNeeded.bank = false end
             refreshActiveItemDisplayTab()
             if hadRemoveAll and setStatusMessage then setStatusMessage("Remove all done.") end
         end
@@ -111,37 +115,6 @@ local function phase1b_activationGuard(now)
     local delayMs = (constants.TIMING and constants.TIMING.DEFERRED_SCAN_DELAY_MS) or 120
     uiState.deferredInventoryScanAt = now + delayMs
     if setStatusMessage then setStatusMessage("Put in bags (click-through protection)") end
-end
-
--- Guild hall reroll refresh: state for zone/bank edge detection (local to main_loop)
-local lastZoneShortName = nil
-local lastBankOpen = false
-local GUILD_HALL_ZONE = "guildhall"
-
--- Phase 1c: In guild hall — on zone enter or bank open, request !auglist and !mythicallist to refresh reroll lists.
-local function phase1c_guildHallRerollRefresh(now)
-    local rerollService, isBankWindowOpen = d.rerollService, d.isBankWindowOpen
-    if not rerollService or not rerollService.requestAugList or not rerollService.requestMythicalList then return end
-    local Zone = mq.TLO and mq.TLO.Zone
-    if not Zone or not Zone.ShortName then return end
-    local sn = Zone.ShortName()
-    if not sn or sn == "" then return end  -- nil or empty during zone transition
-    local inGuildHall = (sn == GUILD_HALL_ZONE)
-    local bankOpen = isBankWindowOpen and isBankWindowOpen() or false
-    local fired = false
-    -- Trigger 1: just entered guild hall (zone changed to guildhall)
-    if inGuildHall and lastZoneShortName ~= GUILD_HALL_ZONE then
-        rerollService.requestAugList()
-        rerollService.requestMythicalList()
-        fired = true
-    end
-    -- Trigger 2: bank just opened while in guild hall (skip if we already fired for zone enter this frame)
-    if not fired and inGuildHall and bankOpen and not lastBankOpen then
-        rerollService.requestAugList()
-        rerollService.requestMythicalList()
-    end
-    lastZoneShortName = sn
-    lastBankOpen = bankOpen
 end
 
 -- Phase 2: Periodic persist (inventory/bank so data survives game close/crash)
@@ -1081,20 +1054,64 @@ local REROLL_ADD_PICKUP_TIMEOUT_MS = 1200
 local function phase8b_pendingRerollAdd(now)
     local uiState, hasItemOnCursor, removeItemFromCursor, setStatusMessage, invalidateSellConfigCache, invalidateLootConfigCache, rerollService, computeAndAttachSellStatus, inventoryItems, bankItems =
         d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems, d.bankItems
+    local rerollState = rerollService and rerollService.getState and rerollService.getState() or {}
+    -- Sync pending: start next item when cursor is free and no add in flight.
+    if not uiState.pendingRerollAdd and rerollState.pendingRerollSync and hasItemOnCursor and not hasItemOnCursor() then
+        local sync = rerollState.pendingRerollSync
+        local idx = sync.nextIndex
+        local entry = sync.entries and sync.entries[idx]
+        if entry and inventoryItems then
+            local bag, slot, src = nil, nil, "inv"
+            for _, inv in ipairs(inventoryItems) do
+                if (inv.id or inv.ID) == entry.id then bag, slot = inv.bag, inv.slot; break end
+            end
+            if bag and slot then
+                uiState.pendingRerollAdd = {
+                    list = sync.list, bag = bag, slot = slot, source = src,
+                    itemId = entry.id, itemName = entry.name or "", step = "pickup",
+                    syncState = sync,
+                }
+                if d.pickupFromSlot then d.pickupFromSlot(bag, slot, src) end
+                if setStatusMessage then setStatusMessage(string.format("Syncing pending %d/%d...", idx, #sync.entries)) end
+            else
+                if setStatusMessage then setStatusMessage("Item not in inventory: " .. (entry.name or tostring(entry.id)) .. "; left in pending.") end
+                rerollState.pendingRerollSync = nil
+            end
+        else
+            rerollState.pendingRerollSync = nil
+        end
+    end
     local pending = uiState.pendingRerollAdd
     if not pending or not rerollService then return end
     local lp = d.uiState.lastPickup
     local function finish(success)
         rerollService.clearPendingAddAck()
         if removeItemFromCursor then removeItemFromCursor() end
+        local syncState = pending.syncState
+        if syncState and success then
+            rerollService.removeFromPending(pending.list, pending.itemId)
+            rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+            syncState.nextIndex = (syncState.nextIndex or 0) + 1
+            if syncState.nextIndex > #(syncState.entries or {}) then
+                rerollState.pendingRerollSync = nil
+                if setStatusMessage then setStatusMessage("Sync complete.") end
+            else
+                if setStatusMessage then setStatusMessage(string.format("Synced %d/%d.", syncState.nextIndex, #syncState.entries)) end
+            end
+        elseif syncState and not success then
+            if setStatusMessage then setStatusMessage("Sync failed for item; left in pending.") end
+            rerollState.pendingRerollSync = nil
+        end
         uiState.pendingRerollAdd = nil
         if invalidateSellConfigCache then invalidateSellConfigCache() end
         if invalidateLootConfigCache then invalidateLootConfigCache() end
         if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
         if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-        local q = uiState.cursorActionQueue or {}
-        local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
-        if setStatusMessage then setStatusMessage((success and "Added to list." or "Add failed or timed out; list reverted.") .. queueMsg) end
+        if not syncState then
+            local q = uiState.cursorActionQueue or {}
+            local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
+            if setStatusMessage then setStatusMessage((success and "Added to list." or "Add failed or timed out; list reverted.") .. queueMsg) end
+        end
     end
     if pending.step == "pickup" then
         if not pending.pickupStartedAt then pending.pickupStartedAt = now end
@@ -1103,8 +1120,9 @@ local function phase8b_pendingRerollAdd(now)
         local lb, ls = tonumber(lp and lp.bag) or (lp and lp.bag), tonumber(lp and lp.slot) or (lp and lp.slot)
         local pb, ps = tonumber(pending.bag) or pending.bag, tonumber(pending.slot) or pending.slot
         if hasCursor and lp and lb == pb and ls == ps and (lp.source or "") == (pending.source or "") then
-            -- Optimistic: update cache immediately so UI shows new state without waiting for server
-            rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+            if not pending.syncState then
+                rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+            end
             local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
             mq.cmd("/say " .. cmd)
             pending.step = "sent"
@@ -1117,7 +1135,7 @@ local function phase8b_pendingRerollAdd(now)
     end
     if pending.step == "sent" then
         if pending.sentAt and (now - pending.sentAt) > REROLL_ADD_ACK_TIMEOUT_MS then
-            if rerollService.removeEntryFromCache then rerollService.removeEntryFromCache(pending.list, pending.itemId) end
+            if not pending.syncState and rerollService.removeEntryFromCache then rerollService.removeEntryFromCache(pending.list, pending.itemId) end
             finish(false)
         end
     end
@@ -1190,7 +1208,6 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
-    phase1c_guildHallRerollRefresh(now)
     phase0_cursorActionQueue(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
@@ -1204,6 +1221,7 @@ function M.tick(now)
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     phase8b_pendingRerollAdd(now)
+    if d.rerollService and d.rerollService.checkListRequestTimeout then d.rerollService.checkListRequestTimeout(now) end
     phase8c_pendingAugRollComplete(now)
     phase9_layoutSaveCacheCleanup(now)
     phase10_loopDelay()

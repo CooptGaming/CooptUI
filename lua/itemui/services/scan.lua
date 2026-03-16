@@ -94,8 +94,8 @@ local function updateFingerprintsForBags(bagList)
     end
 end
 
--- Inventory scan
-function M.scanInventory()
+-- Inventory scan. Optional skipAugmentIndex: when true, do not call buildAugmentIndex (caller will build once after scanBank).
+function M.scanInventory(skipAugmentIndex)
     local t0 = mq.gettime()
     env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being rebuilt
     local inventoryItems = env.inventoryItems
@@ -140,7 +140,7 @@ function M.scanInventory()
             end
             scanState.lastInventoryFingerprint = buildInventoryFingerprint()
             if env.invalidateTooltipCache then env.invalidateTooltipCache() end
-            if env.buildAugmentIndex then env.buildAugmentIndex() end
+            if not skipAugmentIndex and env.buildAugmentIndex then env.buildAugmentIndex() end
             return
         end
     end
@@ -184,7 +184,7 @@ function M.scanInventory()
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
-    if env.buildAugmentIndex then env.buildAugmentIndex() end
+    if not skipAugmentIndex and env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 -- Incremental scan state (internal to this module)
@@ -314,6 +314,7 @@ local function targetedRescanBags(changedBags)
     end
     -- Use cached fingerprints (getChangedBags already updated per-bag fingerprints in-place)
     env.scanState.lastInventoryFingerprint = buildInventoryFingerprintFromCache()
+    if env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 --- Rescan only the given inventory bags (1-based pack numbers). Updates fingerprints for those bags then runs targetedRescanBags.
@@ -324,8 +325,8 @@ function M.rescanInventoryBags(bagList)
     targetedRescanBags(bagList)
 end
 
--- Bank scan
-function M.scanBank()
+-- Bank scan. Optional skipAugmentIndex: when true, do not call buildAugmentIndex (caller will build once after scans).
+function M.scanBank(skipAugmentIndex)
     env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being rebuilt
     local bankItems = env.bankItems
     local bankCache = env.bankCache
@@ -357,7 +358,7 @@ function M.scanBank()
                 end
             end
             if env.invalidateTooltipCache then env.invalidateTooltipCache() end
-            if env.buildAugmentIndex then env.buildAugmentIndex() end
+            if not skipAugmentIndex and env.buildAugmentIndex then env.buildAugmentIndex() end
             return
         end
     end
@@ -403,7 +404,7 @@ function M.scanBank()
         end
     end
     if env.invalidateTooltipCache then env.invalidateTooltipCache() end
-    if env.buildAugmentIndex then env.buildAugmentIndex() end
+    if not skipAugmentIndex and env.buildAugmentIndex then env.buildAugmentIndex() end
 end
 
 function M.ensureBankCacheFromStorage()

@@ -213,7 +213,7 @@ function AugmentUtilityView.render(ctx)
         state.augmentUtilityOnlyShowUsable = (cb2 ~= nil) and cb2 or cb1
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Filter list to augments your current character can use (class, race, deity, level)")
+            ImGui.Text("List is always filtered to augments you can use (class, race, deity, level). This option is retained for UI consistency.")
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
