@@ -7,22 +7,13 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
 local deps  -- set by init()
 
 -- Optional C++ plugin: when loaded, use coopui.cursor for cursor state (cached per-frame).
-local coopuiPluginCache = nil
-local function tryCoopUIPlugin()
-    if coopuiPluginCache == nil then
-        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-        if not ok or not mod or type(mod) ~= "table" then
-            ok, mod = pcall(require, "plugin.CoopUIHelper")
-        end
-        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
-    end
-    return (coopuiPluginCache and coopuiPluginCache) or nil
-end
+local function tryCoopUIPlugin() return coopuiPlugin.getPlugin() end
 
 -- Per 4.2 state ownership: destroy, move, quantity picker, cursor/pickup
 -- sellState: nil when idle; else { phase, item = {name, bag, slot}, enteredAt, pollCount? } for non-blocking sell (task 1.3)
@@ -167,7 +158,7 @@ function M.processSellQueue(now)
                 M.removeItemFromInventoryBySlot(bagNum, slotNum)
                 M.removeItemFromSellItemsBySlot(bagNum, slotNum)
                 state.sellState = nil
-                deps.setStatusMessage(string.format("Sold: %s", itemName))
+                deps.setStatusMessage(string.format("Sold: %s", itemName or "Unknown"))
                 return
             end
             ss.pollCount = (ss.pollCount or 0) + 1
@@ -229,7 +220,8 @@ end
 
 function M.removeLootItemBySlot(slot)
     for i = #deps.lootItems, 1, -1 do
-        if deps.lootItems[i].slot == slot then
+        local item = deps.lootItems[i]
+        if item and item.slot == slot then
             table.remove(deps.lootItems, i)
             return true
         end

@@ -295,6 +295,24 @@ void registerLua(sol::state_view L, sol::table& table) {
   table.set_function("hasInventoryChanged", []() -> bool {
     return scanners::InventoryScanner::Instance().HasChanged();
   });
+
+  // Version counters: Lua polls these to detect cache staleness without re-scanning.
+  // Incremented by C++ event hooks (OnPulse item changes, zone transitions, etc.).
+  table.set_function("getInventoryVersion", []() -> uint32_t {
+    return core::CacheManager::Instance().GetInventoryVersion();
+  });
+
+  table.set_function("getBankVersion", []() -> uint32_t {
+    return core::CacheManager::Instance().GetBankVersion();
+  });
+
+  table.set_function("getLootVersion", []() -> uint32_t {
+    return core::CacheManager::Instance().GetLootVersion();
+  });
+
+  table.set_function("getSellVersion", []() -> uint32_t {
+    return core::CacheManager::Instance().GetSellVersion();
+  });
 }
 
 }  // namespace items

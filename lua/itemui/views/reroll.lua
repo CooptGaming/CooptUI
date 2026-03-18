@@ -62,14 +62,12 @@ local function renderTabContent(ctx, track, rerollService)
         counterText = string.format("%d / %d (%d in bank)", combinedCount, ITEMS_REQUIRED, countInBank)
     end
     if combinedCount >= ITEMS_REQUIRED then
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
+        theme.TextSuccess(counterText)
     elseif combinedCount >= (ITEMS_REQUIRED - 2) then
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning))
+        theme.TextWarning(counterText)
     else
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
+        theme.TextMuted(counterText)
     end
-    ImGui.Text(counterText)
-    ImGui.PopStyleColor(1)
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
         if bankConnected and countInBank > 0 then
@@ -393,18 +391,12 @@ local function renderTabContent(ctx, track, rerollService)
 
             ImGui.TableNextColumn()
             if inInv then
-                ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
-                ImGui.Text("On list, in inv")
-                ImGui.PopStyleColor(1)
+                theme.TextSuccess("On list, in inv")
             elseif inBank then
                 if bankConnected then
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
-                    ImGui.Text("On list, in bank")
-                    ImGui.PopStyleColor(1)
+                    theme.TextSuccess("On list, in bank")
                 else
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
-                    ImGui.Text("On list, in bank")
-                    ImGui.PopStyleColor(1)
+                    theme.TextMuted("On list, in bank")
                 end
             else
                 theme.TextMuted("List only")
@@ -412,9 +404,7 @@ local function renderTabContent(ctx, track, rerollService)
 
             ImGui.TableNextColumn()
             if inInv then
-                ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
-                ImGui.Text("Yes")
-                ImGui.PopStyleColor(1)
+                theme.TextSuccess("Yes")
             else
                 theme.TextMuted("No")
             end
@@ -465,12 +455,12 @@ local function renderTabContent(ctx, track, rerollService)
                 local dispName = it.name or ("ID " .. tostring(id))
                 if (it.stackSize or 1) > 1 then dispName = dispName .. string.format(" (x%d)", it.stackSize or 1) end
                 if onList then
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
+                    theme.TextSuccess(dispName)
                 elseif onPending then
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning or theme.Colors.Muted))
+                    theme.TextWarning(dispName)
+                else
+                    ImGui.Text(dispName)
                 end
-                ImGui.Text(dispName)
-                if onList or onPending then ImGui.PopStyleColor(1) end
                 if ImGui.IsItemHovered() and ctx.getItemStatsForTooltip then
                     local showItem = ctx.getItemStatsForTooltip(it, "inv")
                     if showItem then
@@ -488,13 +478,9 @@ local function renderTabContent(ctx, track, rerollService)
                 ImGui.Text(tostring(id or "—"))
                 ImGui.TableNextColumn()
                 if onList then
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
-                    ImGui.Text("Yes")
-                    ImGui.PopStyleColor(1)
+                    theme.TextSuccess("Yes")
                 elseif onPending then
-                    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning or theme.Colors.Muted))
-                    ImGui.Text("Pending")
-                    ImGui.PopStyleColor(1)
+                    theme.TextWarning("Pending")
                 else
                     theme.TextMuted("No")
                 end

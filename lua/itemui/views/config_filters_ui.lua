@@ -272,9 +272,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
 
     if activeSubTab == 1 then
         local SELL_FILTER_TARGETS = targets.getSELL_FILTER_TARGETS()
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-        ImGui.TextWrapped("Always sell unless a qualification is met. Add items to Keep (never sell), Always sell, or Never sell by type.")
-        ImGui.PopStyleColor()
+        theme.TextWrappedHeaderAlt("Always sell unless a qualification is met. Add items to Keep (never sell), Always sell, or Never sell by type.")
         ImGui.Spacing()
 
         renderFilterSection(ctx, "sell", SELL_FILTER_TARGETS, filterState.sellFilterTargetId, filterState.sellFilterTypeMode, filterState.sellFilterInputValue, filterState.sellFilterEditTarget, filterState.sellFilterListShow,
@@ -367,9 +365,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         end
     elseif activeSubTab == 2 then
         local v = targets.getVALUABLE_FILTER_TARGET()
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-        ImGui.TextWrapped("Valuable items are never sold and always looted. Shared between sell.mac and loot.mac.")
-        ImGui.PopStyleColor()
+        theme.TextWrappedHeaderAlt("Valuable items are never sold and always looted. Shared between sell.mac and loot.mac.")
         ImGui.Spacing()
 
         local typeNames = {"Full name", "Keyword", "Item type"}
@@ -503,9 +499,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         end
     elseif filterState.filterSubTab == 3 then
         local LOOT_FILTER_TARGETS = targets.getLOOT_FILTER_TARGETS()
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.HeaderAlt))
-        ImGui.TextWrapped("Never loot unless a qualification is met. Value thresholds are in General > Loot. Add items to Always loot or Skip (never loot).")
-        ImGui.PopStyleColor()
+        theme.TextWrappedHeaderAlt("Never loot unless a qualification is met. Value thresholds are in General > Loot. Add items to Always loot or Skip (never loot).")
         ImGui.Spacing()
 
         renderFilterSection(ctx, "loot", LOOT_FILTER_TARGETS, filterState.lootFilterTargetId, filterState.lootFilterTypeMode, filterState.lootFilterInputValue, filterState.lootFilterEditTarget, filterState.lootFilterListShow,

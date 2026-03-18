@@ -6,23 +6,13 @@
 --]]
 
 local mq = require('mq')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
 local env
 
 -- Optional C++ plugin: when loaded, scanInventory/scanBank use native C++ scan.
--- Try MQ2CoOptUI first (current plugin name), then legacy CoopUIHelper for backward compat.
-local coopuiPluginCache = nil
-local function tryCoopUIPlugin()
-    if coopuiPluginCache == nil then
-        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-        if not ok or not mod or type(mod) ~= "table" then
-            ok, mod = pcall(require, "plugin.CoopUIHelper")
-        end
-        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
-    end
-    return (coopuiPluginCache and coopuiPluginCache) or nil
-end
+local function tryCoopUIPlugin() return coopuiPlugin.getPlugin() end
 
 function M.init(e)
     env = e
@@ -518,12 +508,36 @@ end
 
 function M.maybeScanInventory(invOpen)
     local inventoryItems = env.inventoryItems
+    local scanState = env.scanState
+
+    -- Plugin fast path: poll version counter — skip fingerprint scan if cache is still fresh.
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.getInventoryVersion then
+        local ok, ver = pcall(coopui.getInventoryVersion)
+        if ok and ver ~= nil then
+            -- Version counter is authoritative: if unchanged, nothing has moved — skip regardless
+            -- of inventoryBagsDirty (which gets set every tick while loot window is open and would
+            -- otherwise force a full scan even when inventory hasn't actually changed).
+            if #inventoryItems > 0 and scanState.lastKnownInvVersion == ver then
+                scanState.inventoryBagsDirty = false
+                scanState.lastScanState.invOpen = invOpen
+                return
+            end
+            -- Version changed or first run: full scan then record version.
+            M.scanInventory()
+            scanState.lastKnownInvVersion = ver
+            scanState.inventoryBagsDirty = false
+            scanState.lastScanState.invOpen = invOpen
+            return
+        end
+    end
+
+    -- TLO fallback: fingerprint-based bag change detection.
     if #inventoryItems == 0 then
         M.scanInventory()
-        env.scanState.lastScanState.invOpen = invOpen
+        scanState.lastScanState.invOpen = invOpen
         return
     end
-    local scanState = env.scanState
     local throttleMs = env.C and env.C.GET_CHANGED_BAGS_THROTTLE_MS or 600
     local now = mq.gettime()
     local skipFingerprint = false
@@ -546,7 +560,7 @@ function M.maybeScanInventory(invOpen)
             targetedRescanBags(changedBags)
         end
     end
-    env.scanState.lastScanState.invOpen = invOpen
+    scanState.lastScanState.invOpen = invOpen
 end
 
 function M.maybeScanBank(bankOpen)
@@ -554,14 +568,33 @@ function M.maybeScanBank(bankOpen)
         env.scanState.lastScanState.bankOpen = false
         return
     end
+    local scanState = env.scanState
+
+    -- Plugin fast path: version counter check — only rescan when bank data actually changed.
+    local coopui = tryCoopUIPlugin()
+    if coopui and coopui.getBankVersion then
+        local ok, ver = pcall(coopui.getBankVersion)
+        if ok and ver ~= nil then
+            if #env.bankItems > 0 and scanState.lastKnownBankVersion == ver then
+                scanState.lastScanState.bankOpen = bankOpen
+                return
+            end
+            M.scanBank()
+            scanState.lastKnownBankVersion = ver
+            scanState.lastScanState.bankOpen = bankOpen
+            return
+        end
+    end
+
+    -- TLO fallback: time-based cooldown.
     local now = mq.gettime()
     local cooldown = (env.C and env.C.BANK_RESCAN_COOLDOWN_MS) or 10000
-    local timeSinceLastScan = now - (env.scanState.lastScanTimeBank or 0)
+    local timeSinceLastScan = now - (scanState.lastScanTimeBank or 0)
     local hasFreshData = #env.bankItems > 0 and timeSinceLastScan < cooldown
     if not hasFreshData then
         M.scanBank()
     end
-    env.scanState.lastScanState.bankOpen = bankOpen
+    scanState.lastScanState.bankOpen = bankOpen
 end
 
 function M.maybeScanSellItems(merchOpen)

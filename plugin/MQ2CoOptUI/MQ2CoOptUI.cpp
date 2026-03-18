@@ -637,6 +637,12 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   mod["scanLootItems"] = loot_table["scanLootItems"];
   mod["scanSellItems"] = items_table["scanSellItems"];
 
+  // Version counter aliases: maybeScan* polls these to skip rescans when cache is fresh.
+  mod["getInventoryVersion"] = items_table["getInventoryVersion"];
+  mod["getBankVersion"] = items_table["getBankVersion"];
+  mod["getLootVersion"] = items_table["getLootVersion"];
+  mod["getSellVersion"] = items_table["getSellVersion"];
+
   outModule = sol::object(mod);
   return true;
 }

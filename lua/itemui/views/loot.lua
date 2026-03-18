@@ -34,7 +34,10 @@ function LootView.render(ctx)
     ctx.renderRefreshButton(ctx, "Refresh##Loot", "Rescan corpse items", function() ctx.scanLootItems() end, { messageAfter = "Loot refreshed" })
     ImGui.SameLine()
     if ImGui.Button("Done", ImVec2(70, 0)) then
-        mq.cmd('/notify LootWnd DoneButton leftmouseup')
+        local lootWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("LootWnd")
+        if lootWnd and lootWnd.Open and lootWnd.Open() then
+            mq.cmd('/notify LootWnd DoneButton leftmouseup')
+        end
         ctx.closeItemUI()
         ctx.uiState.configWindowOpen = false
         ctx.setStatusMessage("Loot closed")

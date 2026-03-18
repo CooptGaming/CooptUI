@@ -22,12 +22,12 @@ function EquipmentView.getState()
     return state
 end
 
-local EQUIPMENT_WINDOW_WIDTH = 220
-local EQUIPMENT_WINDOW_HEIGHT = 380
+local EQUIPMENT_WINDOW_WIDTH = constants.UI.EQUIPMENT_PANEL_WIDTH
+local EQUIPMENT_WINDOW_HEIGHT = constants.UI.EQUIPMENT_PANEL_HEIGHT
 local EQUIPMENT_SLOT_SIZE = 40
-local SLOT_SPACING = 4
-local ROW_GAP_OFFSET = -2  -- pull next row up (px) for tighter vertical packing
-local SLOT_FRAME_PADDING = 2  -- inner padding so icon sits inside the slot frame
+local SLOT_SPACING = constants.UI.SLOT_SPACING
+local ROW_GAP_OFFSET = constants.UI.ROW_GAP_OFFSET
+local SLOT_FRAME_PADDING = constants.UI.SLOT_FRAME_PADDING
 
 -- Paper-doll order from EQUI_Inventory.xml (Y then X): matches in-game Inventory tab layout.
 -- Row 1: Ear, Head, Face, Ear (Y=12)
@@ -193,10 +193,11 @@ function EquipmentView.render(ctx)
                             if popupBg then ImGui.PushStyleColor(ImGuiCol.ChildBg, popupBg); didPushTooltipBg = true end
                         end
                         if item and item.name then
+                            -- Use pre-warmed cache item; getItemStatsForTooltip rebuilds with fresh TLO + stat pre-warm
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = slotIndex, source = "equipped" }, "equipped")) or item
                             local opts = { source = "equipped", bag = 0, slot = slotIndex }
-                            local ok, effects, tw, th = pcall(ItemTooltip.prepareTooltipContent, showItem, ctx, opts)
-                            if ok and effects then opts.effects = effects end
+                            local effects, tw, th = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
+                            opts.effects = effects
                             ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH, th or constants.UI.TOOLTIP_MIN_HEIGHT)
                             ImGui.Text("Stats")
                             ImGui.Separator()

@@ -11,21 +11,12 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local REROLL = constants.REROLL or {}
 
 -- Optional C++ plugin: when loaded, use coopui.cursor for cursor data.
-local coopuiPluginCache = nil
-local function tryCoopUIPlugin()
-    if coopuiPluginCache == nil then
-        local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-        if not ok or not mod or type(mod) ~= "table" then
-            ok, mod = pcall(require, "plugin.CoopUIHelper")
-        end
-        coopuiPluginCache = (ok and mod and type(mod) == "table") and mod or false
-    end
-    return (coopuiPluginCache and coopuiPluginCache) or nil
-end
+local function tryCoopUIPlugin() return coopuiPlugin.getPlugin() end
 
 local function getCursorId()
     local coop = tryCoopUIPlugin()

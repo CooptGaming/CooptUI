@@ -107,6 +107,30 @@ local function TextHeader(text)
     ImGui.PopStyleColor(1)
 end
 
+--- Draw text with HeaderAlt color (used for section description/subtitle text).
+local function TextHeaderAlt(text)
+    ensureImGui()
+    ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.HeaderAlt))
+    ImGui.Text(tostring(text))
+    ImGui.PopStyleColor(1)
+end
+
+--- Draw wrapped text with HeaderAlt color (for multi-line description blocks).
+local function TextWrappedHeaderAlt(text)
+    ensureImGui()
+    ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.HeaderAlt))
+    ImGui.TextWrapped(tostring(text))
+    ImGui.PopStyleColor(1)
+end
+
+--- Draw text with Error color (red — used for destructive labels, missing state).
+local function TextError(text)
+    ensureImGui()
+    ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Error))
+    ImGui.Text(tostring(text))
+    ImGui.PopStyleColor(1)
+end
+
 --- Push button colors for Delete (red). Call PopButtonColors() after drawing the button.
 local function PushDeleteButton()
     ensureImGui()
@@ -184,6 +208,25 @@ local function PopProgressBarColors()
     ImGui.PopStyleColor(1)
 end
 
+--- Render a standard section break: Spacing + Separator + Spacing.
+--- Replaces the common triple idiom used ~188 times across views.
+local function SectionBreak()
+    ensureImGui()
+    ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+end
+
+--- Render content indented by INDENT px (from constants.UI.INDENT).
+--- fn() is called between Indent/Unindent.
+local INDENT_PX = 10  -- mirrors constants.UI.INDENT; avoids circular require
+local function IndentBlock(fn)
+    ensureImGui()
+    ImGui.Indent(INDENT_PX)
+    fn()
+    ImGui.Unindent(INDENT_PX)
+end
+
 --- Draw a themed progress bar (push colors, draw, pop). Single path for Sell/Loot UI (Phase 5).
 --- fraction: 0..1, size: ImVec2, overlay: optional string (e.g. "15 / 20").
 local function RenderProgressBar(fraction, size, overlay)
@@ -201,6 +244,9 @@ return {
     TextWarning = TextWarning,
     TextSuccess = TextSuccess,
     TextHeader = TextHeader,
+    TextHeaderAlt = TextHeaderAlt,
+    TextWrappedHeaderAlt = TextWrappedHeaderAlt,
+    TextError = TextError,
     PushDeleteButton = PushDeleteButton,
     PushKeepButton = PushKeepButton,
     PushJunkButton = PushJunkButton,
@@ -210,4 +256,6 @@ return {
     PushProgressBarColors = PushProgressBarColors,
     PopProgressBarColors = PopProgressBarColors,
     RenderProgressBar = RenderProgressBar,
+    SectionBreak = SectionBreak,
+    IndentBlock = IndentBlock,
 }

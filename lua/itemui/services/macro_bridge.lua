@@ -40,6 +40,7 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local item_name = require('itemui.utils.item_name')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local IPC_PROTOCOL_VERSION = (constants.TIMING and constants.TIMING.IPC_PROTOCOL_VERSION) or 1
 
@@ -117,13 +118,13 @@ local function getSellLogPath()
     return nil
 end
 
--- Initialize the service
+-- Initialize the service. Clears subscribers to prevent accumulation on script reload.
 function MacroBridge.init(config)
     MacroBridge.config.sellLogPath = config.sellLogPath
     MacroBridge.config.getLootConfigFile = config.getLootConfigFile
     MacroBridge.config.pollInterval = config.pollInterval or 500
     MacroBridge.config.debug = config.debug or false
-    
+    MacroBridge.clearSubscribers()
     log("Initialized with pollInterval=" .. MacroBridge.config.pollInterval .. "ms")
 end
 
@@ -142,17 +143,41 @@ function MacroBridge.subscribe(event, callback)
     log("Subscribed to event: " .. event)
 end
 
--- Emit event to all subscribers
+-- Unsubscribe a specific callback from an event.
+function MacroBridge.unsubscribe(event, callback)
+    local list = MacroBridge.subscribers[event]
+    if not list then return end
+    for i = #list, 1, -1 do
+        if list[i] == callback then
+            table.remove(list, i)
+        end
+    end
+end
+
+-- Clear all subscribers (called on init to prevent accumulation on script reload).
+function MacroBridge.clearSubscribers()
+    MacroBridge.subscribers = {}
+end
+
+-- Emit event to all subscribers. Erroring callbacks are removed from the list.
 local function emit(event, data)
     log("Emit event: " .. event)
-    if MacroBridge.subscribers[event] then
-        for _, callback in ipairs(MacroBridge.subscribers[event]) do
-            local ok, err = pcall(callback, data)
-            if not ok then
-                print(string.format("[MacroBridge] Error in %s callback: %s", event, tostring(err)))
-                local diag = require('itemui.core.diagnostics')
-                diag.recordError("MacroBridge", "Callback error: " .. tostring(event), err)
-            end
+    local list = MacroBridge.subscribers[event]
+    if not list then return end
+    local toRemove = nil
+    for i, callback in ipairs(list) do
+        local ok, err = pcall(callback, data)
+        if not ok then
+            print(string.format("[MacroBridge] Error in %s callback: %s", event, tostring(err)))
+            local diag = require('itemui.core.diagnostics')
+            diag.recordError("MacroBridge", "Callback error: " .. tostring(event), err)
+            if not toRemove then toRemove = {} end
+            toRemove[#toRemove + 1] = i
+        end
+    end
+    if toRemove then
+        for i = #toRemove, 1, -1 do
+            table.remove(list, toRemove[i])
         end
     end
 end
@@ -436,31 +461,18 @@ function MacroBridge.getLootSession()
     }
 end
 
--- IPC event streaming (Phase 9): plugin module accessor with one-shot detection
-local coopui_ipc = nil
-local ipc_checked = false
-local coopui_ini = nil
-local ini_checked = false
+-- IPC event streaming (Phase 9): delegates to shared plugin loader.
+local function getIPC() return coopuiPlugin.getIPC() end
 
-local function getIPC()
-    if ipc_checked then return coopui_ipc end
-    ipc_checked = true
-    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-    if ok and mod and mod.ipc and mod.ipc.receiveAll then
-        coopui_ipc = mod.ipc
-    end
-    return coopui_ipc
+--- Return true when the CoOptUI plugin IPC channel is loaded and available.
+--- Used by phase5_lootMacro to skip INI-based progress polling when IPC is driving the bar.
+function MacroBridge.isIPCAvailable()
+    return getIPC() ~= nil
 end
 
 --- Return plugin ini table (readSection, read) when MQ2CoOptUI is loaded; nil otherwise. Used for bulk INI reads to avoid per-key TLO cost.
 function MacroBridge.getPluginIni()
-    if ini_checked then return coopui_ini end
-    ini_checked = true
-    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-    if ok and mod and mod.ini and mod.ini.readSection then
-        coopui_ini = mod.ini
-    end
-    return coopui_ini
+    return coopuiPlugin.getINI()
 end
 
 -- Drain high-frequency IPC channels at frame rate (called every tick from main_loop)
@@ -479,6 +491,10 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         uiState.lootRunTributeValue = 0
         uiState.lootRunBestItemName = ""
         uiState.lootRunBestItemValue = 0
+        uiState.lootProgressTarget = 0
+        uiState.lootRunCorpsesLooted = 0
+        uiState.lootRunTotalCorpses = 0
+        uiState.lootRunCurrentCorpse = ""
     end
 
     local realTime = (uiState.enableRealTimeLoot == true)
@@ -495,7 +511,8 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
                 local tribute = tonumber(tribStr) or 0
                 local statusText, willSell = "—", false
                 if getSellStatusForItem then
-                    statusText, willSell = getSellStatusForItem({ name = name })
+                    -- Pass value/tribute so sell rules (minSellValue, HighValue) evaluate correctly.
+                    statusText, willSell = getSellStatusForItem({ name = name, value = value, tribute = tribute })
                     if statusText == "" then statusText = "—" end
                 end
                 table.insert(uiState.lootRunLootedList, name)
@@ -544,9 +561,39 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         local last = progress[#progress]
         local looted, total, corpse = last:match("^([^|]+)|([^|]+)|(.*)$")
         if looted then
-            uiState.lootRunCorpsesLooted = tonumber(looted) or 0
+            -- Store the authoritative count as the target; the displayed value is advanced
+            -- toward it by at most +1 per tick (below) so the bar increments one corpse at a
+            -- time instead of jumping when multiple messages queue up between drains.
+            uiState.lootProgressTarget = tonumber(looted) or 0
             uiState.lootRunTotalCorpses = tonumber(total) or 0
             uiState.lootRunCurrentCorpse = corpse or ""
+        end
+    end
+    -- Advance displayed progress toward target one step per tick.
+    local lpt = uiState.lootProgressTarget or 0
+    local lpc = uiState.lootRunCorpsesLooted or 0
+    if lpc < lpt then uiState.lootRunCorpsesLooted = lpc + 1 end
+
+    -- sell_start: reset per-run sold list (mirrors loot_start / lootRunLootedItems).
+    local sellStarts = ipc.receiveAll("sell_start")
+    if sellStarts and #sellStarts > 0 then
+        uiState.sellRunSoldItems = {}
+    end
+
+    -- Drain sell_item: real-time per-item sell results (mirrors loot_item pattern).
+    -- sell.mac sends "ItemName|ItemValue|StackSize" on each successful sale.
+    local soldItems = ipc.receiveAll("sell_item")
+    if soldItems and #soldItems > 0 then
+        if not uiState.sellRunSoldItems then uiState.sellRunSoldItems = {} end
+        for _, msg in ipairs(soldItems) do
+            local name, valStr, stackStr = msg:match("^([^|]+)|([^|]+)|(.+)$")
+            if name and name ~= "" then
+                table.insert(uiState.sellRunSoldItems, {
+                    name = name,
+                    value = tonumber(valStr) or 0,
+                    stackSize = tonumber(stackStr) or 1,
+                })
+            end
         end
     end
 

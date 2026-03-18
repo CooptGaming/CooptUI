@@ -277,7 +277,7 @@ function BankView.render(ctx)
                 ImGui.PushID(rid)
                 if rawget(item, "_statsPending") then
                     if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
-                    for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...") end
+                    for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ctx.theme.TextMuted("...") end
                     ImGui.PopID()
                     goto bank_continue
                 end

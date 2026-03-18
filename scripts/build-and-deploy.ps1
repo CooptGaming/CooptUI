@@ -142,48 +142,54 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
         -DMQ_BUILD_LAUNCHER=ON `
         -DMQ_REGENERATE_SOLUTION=OFF
 
-    # Required: patch crashpad installed config (registry port has no duplicate-target guard), then reconfigure.
+    # Apply all post-configure patches, then re-run configure once instead of once per patch.
+    # On a fresh build the crashpad patches are always needed; $needReconfigure covers the
+    # gotchas Fix 19 too since both are "fresh build only" changes.
+    $needReconfigure = $false
     $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
+
+    # Patch 1: crashpad duplicate target guard (registry port missing if(NOT TARGET) guard)
     if (Test-Path $crashpadConfig) {
         $content = Get-Content $crashpadConfig -Raw
         if ($content -match "add_library\(crashpad INTERFACE\)" -and $content -notmatch "if\s*\(\s*NOT\s+TARGET\s+crashpad\s*\)") {
             $content = $content -replace "add_library\(crashpad INTERFACE\)", "if(NOT TARGET crashpad)`nadd_library(crashpad INTERFACE)"
             $content = $content.TrimEnd() + "`nendif()`n"
             Set-Content $crashpadConfig $content -NoNewline
-            Write-Host "  Patched crashpad config (duplicate target guard), re-running configure..."
-            & $cmakeExe -B $MQBuildDir -S $MQClone `
-                -G $Generator -A Win32 `
-                -DVCPKG_TARGET_TRIPLET=x86-windows-static `
-                -DVCPKG_BUILD_TYPE=release `
-                -DMQ_BUILD_CUSTOM_PLUGINS=ON `
-                -DMQ_BUILD_LAUNCHER=ON `
-                -DMQ_REGENERATE_SOLUTION=OFF
+            Write-Host "  Patched crashpad config (duplicate target guard)"
+            $needReconfigure = $true
         }
     }
-    if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
 
-    # Re-run gotchas with build dir so Fix 19/19c can patch MQ2Mono (Mono include path) in generated CMakeLists/vcxproj for full build
-    if (Test-Path $gotchasScript) {
-        & $gotchasScript -MQClone $MQClone -MQBuildDir $MQBuildDir
-    }
-
-    # Force crashpad to use release libs only (avoid MTd/__malloc_dbg link errors when building Release)
-    $crashpadConfig = Join-Path $MQBuildDir "vcpkg_installed\x86-windows-static\share\crashpad\crashpadConfig.cmake"
+    # Patch 2: crashpad release libs only (re-read in case patch 1 modified the file)
     if (($Configuration -eq "Release") -and (Test-Path $crashpadConfig)) {
         $content = Get-Content $crashpadConfig -Raw
         if ($content -match "find_library\(_LIB \$\{LIB_NAME\}\)" -and $content -notmatch "PATHS.*_IMPORT_PREFIX.*/lib") {
             $content = $content -replace 'find_library\(_LIB \$\{LIB_NAME\}\)', 'find_library(_LIB ${LIB_NAME} PATHS "${_IMPORT_PREFIX}/lib" NO_DEFAULT_PATH)'
             Set-Content $crashpadConfig $content -NoNewline
-            Write-Host "  Patched crashpad to use release libs only, re-running configure..."
-            & $cmakeExe -B $MQBuildDir -S $MQClone `
-                -G $Generator -A Win32 `
-                -DVCPKG_TARGET_TRIPLET=x86-windows-static `
-                -DVCPKG_BUILD_TYPE=release `
-                -DMQ_BUILD_CUSTOM_PLUGINS=ON `
-                -DMQ_BUILD_LAUNCHER=ON `
-                -DMQ_REGENERATE_SOLUTION=OFF
+            Write-Host "  Patched crashpad to use release libs only"
+            $needReconfigure = $true
         }
     }
+
+    # Gotchas with build dir (Fix 19/19c - patches generated MQ2Mono CMakeLists/vcxproj).
+    # On a fresh build $needReconfigure is already true from the crashpad patches above,
+    # so Fix 19 changes are picked up in the same single re-configure pass below.
+    if (Test-Path $gotchasScript) {
+        & $gotchasScript -MQClone $MQClone -MQBuildDir $MQBuildDir
+    }
+
+    # Single re-configure picks up all patches at once (previously 2 extra passes).
+    if ($needReconfigure) {
+        Write-Host "  Re-configuring to apply all patches (single pass)..."
+        & $cmakeExe -B $MQBuildDir -S $MQClone `
+            -G $Generator -A Win32 `
+            -DVCPKG_TARGET_TRIPLET=x86-windows-static `
+            -DVCPKG_BUILD_TYPE=release `
+            -DMQ_BUILD_CUSTOM_PLUGINS=ON `
+            -DMQ_BUILD_LAUNCHER=ON `
+            -DMQ_REGENERATE_SOLUTION=OFF
+    }
+    if ($LASTEXITCODE -ne 0) { Write-Error "CMake configure failed" }
 
     # Build
     # When using prebuilt MQ core we only need MQ2CoOptUI from build; building everything would
@@ -192,7 +198,7 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
         Write-Host "  Building MQ2CoOptUI only ($Configuration)..."
         # /p:ContinueOnError=true lets MQ2Main.vcxproj fail (pre-existing crashpad linker issue)
         # while still building MQ2CoOptUI, which has no link dependency on MQ2Main.
-        & $cmakeExe --build $MQBuildDir --config $Configuration --target MQ2CoOptUI -- /p:ContinueOnError=true
+        & $cmakeExe --build $MQBuildDir --config $Configuration --target MQ2CoOptUI --parallel -- /p:ContinueOnError=true
         # Validate by checking the DLL on disk rather than the composite exit code.
         $pluginDllPath = Join-Path $MQBinDir "plugins\MQ2CoOptUI.dll"
         if (-not (Test-Path $pluginDllPath)) {
@@ -200,7 +206,7 @@ if (-not $SkipBuild -and -not $SkipMQBuild) {
         }
     } else {
         Write-Host "  Building ($Configuration)..."
-        & $cmakeExe --build $MQBuildDir --config $Configuration
+        & $cmakeExe --build $MQBuildDir --config $Configuration --parallel
         if ($LASTEXITCODE -ne 0) { Write-Error "CMake build failed" }
     }
 
@@ -241,7 +247,7 @@ if (-not $SkipBuild -and -not $SkipE3Next -and -not $PluginOnly) {
                 } else {
                     Write-Warning "nuget.exe not found at $nugetExe - NuGet restore skipped. Download from https://www.nuget.org/downloads"
                 }
-                & $msbuild $slnFiles.FullName /p:Configuration=$Configuration /p:Platform="Any CPU" /restore /v:minimal
+                & $msbuild $slnFiles.FullName /p:Configuration=$Configuration /p:Platform="Any CPU" /v:minimal
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warning "E3Next build failed. You may need .NET Framework 4.8 Developer Pack."
                     Write-Warning "Download: https://dotnet.microsoft.com/download/dotnet-framework/net48"
@@ -786,7 +792,7 @@ if ($CreateZip) {
         $fileStream = $null
         foreach ($f in $files) {
             $entryName = $f.FullName.Substring($deployRoot.Length + 1).Replace('\', '/')
-            $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+            $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Fastest)
             $entry.LastWriteTime = $zipSafeTime
             $stream = $entry.Open()
             try {
