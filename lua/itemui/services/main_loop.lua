@@ -121,6 +121,13 @@ end
 local function phase2_periodicPersist(now)
     local C, scanState, storage, computeAndAttachSellStatus, isBankWindowOpen = d.C, d.scanState, d.storage, d.computeAndAttachSellStatus, d.isBankWindowOpen
     local inventoryItems, sellItems, bankItems, bankCache = d.inventoryItems, d.sellItems, d.bankItems, d.bankCache
+    -- Skip I/O while loot macro is running to avoid per-corpse save lag.
+    local lootMacState = d.lootMacState
+    if lootMacState and lootMacState.lastRunning then return end
+    -- After loot ends, hold off for LOOT_PERSIST_COOLDOWN_MS so the post-loot inventory
+    -- scan and sell-status attachment can complete before we hit disk again.
+    local lootFinishedAt = lootMacState and lootMacState.finishedAt or 0
+    if lootFinishedAt > 0 and (now - lootFinishedAt) < C.LOOT_PERSIST_COOLDOWN_MS then return end
     if (now - scanState.lastPersistSaveTime) >= C.PERSIST_SAVE_INTERVAL_MS then
         local charName = (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) or ""
         if charName ~= "" then
@@ -347,7 +354,11 @@ local function phase5_lootMacro(now)
     local pollInterval = lootMacRunning and lootLoopRefs.pollMs or (lootLoopRefs.pollMsIdle or 1000)
     if (lootMacRunning or uiState.lootUIOpen) and (now - lootLoopRefs.pollAt) >= pollInterval then
         lootLoopRefs.pollAt = now
-        if macroBridge and macroBridge.pollLootProgress then
+        -- Only use INI-based progress poll when IPC is not active. When IPC is available,
+        -- drainIPCFast (runs after phase5) manages lootRunCorpsesLooted with one-step
+        -- smoothing. Overriding here would break the smooth increment or cause jumps.
+        local useIPCProgress = macroBridge and macroBridge.isIPCAvailable and macroBridge.isIPCAvailable()
+        if not useIPCProgress and macroBridge and macroBridge.pollLootProgress then
             local corpses, total, current = macroBridge.pollLootProgress()
             uiState.lootRunCorpsesLooted = corpses
             uiState.lootRunTotalCorpses = total
@@ -406,49 +417,46 @@ local function phase6_deferredHistorySaves(now)
     end
 end
 
--- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
-local function phase7_sellQueueQuantityDestroyMoveAugment(now)
-    local uiState, processSellQueue, itemOps, augmentOps, hasItemOnCursor, setStatusMessage, sellBatch = d.uiState, d.processSellQueue, d.itemOps, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage, d.sellBatch
-    if not uiState then return end
-    processSellQueue(now)
-    if sellBatch and sellBatch.advance then sellBatch.advance(now) end
-    -- Task 6.5: quantity picker state machine (no mq.delay); 2000ms timeout per Risk R5
-    if uiState.pendingQuantityAction then
-        local action = uiState.pendingQuantityAction
-        local phase = action.phase or "pickup"
-        local timeoutMs = (constants.TIMING and constants.TIMING.QUANTITY_PICKER_TIMEOUT_MS) or 2000
-
-        if phase == "pickup" then
-            uiState.lastPickup.bag = action.pickup.bag
-            uiState.lastPickup.slot = action.pickup.slot
-            uiState.lastPickup.source = action.pickup.source
-            if action.pickup.source == "bank" then
-                mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-            else
-                mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
-            end
-            action.phase = "wait_qty_wnd"
-            action.startedAt = now
+-- p7 helper: quantity picker state machine (no mq.delay). Risk R5: 2000ms timeout.
+local function handleQuantityAction(now)
+    local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    if not uiState or not uiState.pendingQuantityAction then return end
+    local action = uiState.pendingQuantityAction
+    local phase = action.phase or "pickup"
+    local timeoutMs = (constants.TIMING and constants.TIMING.QUANTITY_PICKER_TIMEOUT_MS) or 2000
+    if phase == "pickup" then
+        uiState.lastPickup.bag = action.pickup.bag
+        uiState.lastPickup.slot = action.pickup.slot
+        uiState.lastPickup.source = action.pickup.source
+        if action.pickup.source == "bank" then
+            mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+        else
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.pickup.bag, action.pickup.slot)
+        end
+        action.phase = "wait_qty_wnd"
+        action.startedAt = now
+        return
+    end
+    if phase == "wait_qty_wnd" then
+        if (now - (action.startedAt or 0)) >= timeoutMs then
+            setStatusMessage("Quantity picker timed out.")
+            uiState.pendingQuantityAction = nil
             return
         end
-
-        if phase == "wait_qty_wnd" then
-            if (now - (action.startedAt or 0)) >= timeoutMs then
-                setStatusMessage("Quantity picker timed out.")
-                uiState.pendingQuantityAction = nil
-                return
-            end
-            local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            if w and w.Open and w.Open() then
-                mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
-                mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-                uiState.pendingQuantityAction = nil
-            end
+        local w = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+        if w and w.Open and w.Open() then
+            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', action.qty or 1))
+            mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
+            uiState.pendingQuantityAction = nil
         end
     end
-    -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
-    -- After each right-click: update in-memory lists (reduceStackOrRemoveBySlot / reduceStackOrRemoveBySlotBank) so UI shows real-time decrement.
-    -- On completion or halt: persist with same pattern as performDestroyItem (saveInventory/writeSellCache for inv, saveBank for bank).
+end
+
+-- p7 helper: script item (Alt Currency) sequential right-click consumption FSM.
+local function handleScriptConsume(now)
+    local uiState, itemOps, setStatusMessage = d.uiState, d.itemOps, d.setStatusMessage
+    if not uiState then return end
+    -- dequeue next if idle
     if not uiState.pendingScriptConsume then
         local q = uiState.pendingScriptConsumeQueue or {}
         if #q > 0 then
@@ -456,106 +464,248 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
             uiState.pendingScriptConsumeQueue = q
         end
     end
-    if uiState.pendingScriptConsume then
-        local ps = uiState.pendingScriptConsume
-        local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
-        local confirmTimeoutMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS) or 2000
-        local verified = ps.verifiedFromChat or 0
-
-        -- After each click we wait for "[timestamp] You gained 1 alternate currency." (or timeout) before sending the next
-        if ps.waitingForConfirm then
-            local gotConfirm = verified >= ps.consumedSoFar
-            local timedOut = (ps.confirmUntil and now >= ps.confirmUntil)
-            if gotConfirm or timedOut then
-                ps.waitingForConfirm = nil
-                ps.confirmUntil = nil
-                if ps.consumedSoFar >= ps.totalToConsume then
-                    local src = ps.source
-                    uiState.pendingScriptConsume = nil
-                    local q = uiState.pendingScriptConsumeQueue or {}
-                    if #q > 0 then
-                        uiState.pendingScriptConsume = table.remove(q, 1)
-                        uiState.pendingScriptConsumeQueue = q
-                    end
-                    if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency.", ps.consumedSoFar)) end
-                    if d.storage then
-                        if src == "inv" then
-                            if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
-                            if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
-                        elseif src == "bank" and d.bankItems then
-                            d.storage.saveBank(d.bankItems)
-                        end
-                    end
-                else
-                    ps.nextClickAt = now + delayMs
-                    if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", ps.consumedSoFar, ps.totalToConsume)) end
-                end
+    if not uiState.pendingScriptConsume then return end
+    local ps = uiState.pendingScriptConsume
+    local delayMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_DELAY_MS) or 300
+    local confirmTimeoutMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS) or 2000
+    local verified = ps.verifiedFromChat or 0
+    local function finishConsume(src, n, msg)
+        uiState.pendingScriptConsume = nil
+        local q = uiState.pendingScriptConsumeQueue or {}
+        if #q > 0 then
+            uiState.pendingScriptConsume = table.remove(q, 1)
+            uiState.pendingScriptConsumeQueue = q
+        end
+        if setStatusMessage then setStatusMessage(msg) end
+        if d.storage then
+            if src == "inv" then
+                if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
+                if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
+            elseif src == "bank" and d.bankItems then
+                d.storage.saveBank(d.bankItems)
             end
-        else
-            local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
-            if shouldFire then
-                local Me = mq.TLO and mq.TLO.Me
-                local stack = 0
+        end
+    end
+    if ps.waitingForConfirm then
+        local gotConfirm = verified >= ps.consumedSoFar
+        local timedOut = (ps.confirmUntil and now >= ps.confirmUntil)
+        if gotConfirm or timedOut then
+            ps.waitingForConfirm = nil
+            ps.confirmUntil = nil
+            if ps.consumedSoFar >= ps.totalToConsume then
+                finishConsume(ps.source, ps.consumedSoFar, string.format("Added %d to Alt Currency.", ps.consumedSoFar))
+            else
+                ps.nextClickAt = now + delayMs
+                if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", ps.consumedSoFar, ps.totalToConsume)) end
+            end
+        end
+    else
+        local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
+        if shouldFire then
+            local Me = mq.TLO and mq.TLO.Me
+            local stack = 0
+            if ps.source == "bank" then
+                local bn = Me and Me.Bank and Me.Bank(ps.bag)
+                local it = bn and bn.Item and bn.Item(ps.slot)
+                stack = (it and it.Stack and it.Stack()) or 0
+            else
+                local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
+                local it = pack and pack.Item and pack.Item(ps.slot)
+                stack = (it and it.Stack and it.Stack()) or 0
+            end
+            if stack < 1 then
+                finishConsume(ps.source, ps.consumedSoFar, string.format("Added %d to Alt Currency; item moved or depleted.", ps.consumedSoFar))
+            else
                 if ps.source == "bank" then
-                    local bn = Me and Me.Bank and Me.Bank(ps.bag)
-                    local it = bn and bn.Item and bn.Item(ps.slot)
-                    stack = (it and it.Stack and it.Stack()) or 0
+                    mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
                 else
-                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
-                    local it = pack and pack.Item and pack.Item(ps.slot)
-                    stack = (it and it.Stack and it.Stack()) or 0
+                    mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
                 end
-                if stack < 1 then
-                    local n = ps.consumedSoFar
-                    local src = ps.source
-                    uiState.pendingScriptConsume = nil
-                    local q = uiState.pendingScriptConsumeQueue or {}
-                    if #q > 0 then
-                        uiState.pendingScriptConsume = table.remove(q, 1)
-                        uiState.pendingScriptConsumeQueue = q
-                    end
-                    if setStatusMessage then setStatusMessage(string.format("Added %d to Alt Currency; item moved or depleted.", n)) end
-                    if d.storage then
-                        if src == "inv" then
-                            if d.inventoryItems then d.storage.saveInventory(d.inventoryItems) end
-                            if d.storage.writeSellCache and d.sellItems then d.storage.writeSellCache(d.sellItems) end
-                        elseif src == "bank" and d.bankItems then
-                            d.storage.saveBank(d.bankItems)
-                        end
-                    end
+                ps.consumedSoFar = ps.consumedSoFar + 1
+                if ps.source == "bank" then
+                    itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
                 else
-                    if ps.source == "bank" then
-                        mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
-                    else
-                        mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
-                    end
-                    ps.consumedSoFar = ps.consumedSoFar + 1
-                    if ps.source == "bank" then
-                        itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
-                    else
-                        itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
-                    end
-                    if ps.consumedSoFar >= ps.totalToConsume then
-                        -- Wait for last chat confirm (or timeout) then we'll clear in the waitingForConfirm branch
-                        ps.waitingForConfirm = true
-                        ps.confirmUntil = now + confirmTimeoutMs
-                        if setStatusMessage then setStatusMessage(string.format("Verifying %d / %d...", ps.consumedSoFar, ps.totalToConsume)) end
-                    else
-                        -- Wait for this click's chat message before sending next
-                        ps.waitingForConfirm = true
-                        ps.confirmUntil = now + confirmTimeoutMs
-                        if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d (waiting for confirm)...", ps.consumedSoFar, ps.totalToConsume)) end
-                    end
+                    itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
+                end
+                ps.waitingForConfirm = true
+                ps.confirmUntil = now + confirmTimeoutMs
+                if ps.consumedSoFar >= ps.totalToConsume then
+                    if setStatusMessage then setStatusMessage(string.format("Verifying %d / %d...", ps.consumedSoFar, ps.totalToConsume)) end
+                else
+                    if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d (waiting for confirm)...", ps.consumedSoFar, ps.totalToConsume)) end
                 end
             end
         end
     end
+end
+
+-- p8 helper: augment insert/remove confirmation dialog FSM timeouts.
+local function handleAugmentConfirmationTimeouts(now)
+    local uiState, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
+    if not uiState then return end
+    local T = constants.TIMING
+    local AUGMENT_CURSOR_CLEAR_TIMEOUT_MS    = T.AUGMENT_CURSOR_CLEAR_TIMEOUT_MS
+    local AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = T.AUGMENT_CURSOR_POPULATED_TIMEOUT_MS
+    local AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS = T.AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS
+    local AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = T.AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS
+    local itemDisplayOpen = augmentOps.isItemDisplayWindowOpen and augmentOps.isItemDisplayWindowOpen()
+    if uiState.waitingForInsertCursorClear and not itemDisplayOpen then
+        uiState.waitingForInsertCursorClear = false
+        uiState.insertCursorClearTimeoutAt = nil
+        uiState.insertConfirmationSetAt = nil
+    end
+    if uiState.waitingForRemoveCursorPopulated and not itemDisplayOpen then
+        uiState.waitingForRemoveCursorPopulated = false
+        uiState.removeCursorPopulatedTimeoutAt = nil
+        uiState.removeConfirmationSetAt = nil
+    end
+    local confirmDialogOpen = false
+    do
+        local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
+        confirmDialogOpen = confirmWnd and confirmWnd.Open and confirmWnd.Open()
+    end
+    if uiState.waitingForRemoveConfirmation and confirmDialogOpen then
+        mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+        uiState.waitingForRemoveConfirmation = false
+        uiState.removeConfirmationSetAt = nil
+        uiState.waitingForRemoveCursorPopulated = true
+        uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
+    end
+    if uiState.waitingForInsertConfirmation and confirmDialogOpen then
+        mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+        uiState.waitingForInsertConfirmation = false
+        uiState.insertConfirmationSetAt = nil
+        uiState.waitingForInsertCursorClear = true
+        uiState.insertCursorClearTimeoutAt = mq.gettime()
+    end
+    if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
+        if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+        if hasItemOnCursor() then
+            setStatusMessage("Insert may have failed; check cursor.")
+        else
+            resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
+        end
+        uiState.waitingForInsertConfirmation = false
+        uiState.insertConfirmationSetAt = nil
+    end
+    if uiState.waitingForRemoveConfirmation and not confirmDialogOpen and uiState.removeConfirmationSetAt and (now - uiState.removeConfirmationSetAt) > AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS then
+        if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+        if hasItemOnCursor() then mq.cmd('/autoinv') end
+        uiState.waitingForRemoveConfirmation = false
+        uiState.removeConfirmationSetAt = nil
+        uiState.waitingForRemoveCursorPopulated = false
+        uiState.removeCursorPopulatedTimeoutAt = nil
+    end
+    if uiState.waitingForInsertCursorClear then
+        if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            setStatusMessage("Insert timed out; check cursor.")
+            uiState.waitingForInsertCursorClear = false
+            uiState.insertCursorClearTimeoutAt = nil
+            uiState.insertConfirmationSetAt = nil
+            resolveAugmentQueueStep("optimize")
+        elseif not hasItemOnCursor() then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            uiState.waitingForInsertCursorClear = false
+            uiState.insertCursorClearTimeoutAt = nil
+            uiState.insertConfirmationSetAt = nil
+            resolveAugmentQueueStep("optimize")
+            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
+                setStatusMessage("Insert complete.")
+            end
+        end
+    end
+    if uiState.waitingForRemoveCursorPopulated then
+        if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > AUGMENT_CURSOR_POPULATED_TIMEOUT_MS) then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            setStatusMessage("Remove timed out; check cursor.")
+            uiState.waitingForRemoveCursorPopulated = false
+            uiState.removeCursorPopulatedTimeoutAt = nil
+            uiState.removeConfirmationSetAt = nil
+            resolveAugmentQueueStep("removeAll")
+        elseif hasItemOnCursor() then
+            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
+            mq.cmd('/autoinv')
+            uiState.waitingForRemoveCursorPopulated = false
+            uiState.removeCursorPopulatedTimeoutAt = nil
+            uiState.removeConfirmationSetAt = nil
+            resolveAugmentQueueStep("removeAll")
+        end
+    end
+end
+
+-- p7 helper: sell queue processing (macro bridge sell queue and batch sell advance).
+local function handleManualSellQueue(now)
+    local processSellQueue, sellBatch = d.processSellQueue, d.sellBatch
+    processSellQueue(now)
+    if sellBatch and sellBatch.advance then sellBatch.advance(now) end
+end
+
+-- p7 helper: all quantity-related state (picker FSM, script consume, pending pickup watchdog).
+local function handleQuantityPicker(now)
+    local uiState, hasItemOnCursor, setStatusMessage = d.uiState, d.hasItemOnCursor, d.setStatusMessage
+    -- Task 6.5: quantity picker state machine (no mq.delay); 2000ms timeout per Risk R5
+    handleQuantityAction(now)
+    -- Script items (Alt Currency): sequential right-click consumption; one use per tick, delay between each.
+    -- After each right-click: update in-memory lists so UI shows real-time decrement.
+    -- On completion or halt: persist (saveInventory/writeSellCache for inv, saveBank for bank).
+    handleScriptConsume(now)
+    local pq = uiState.pendingQuantityPickup
+    if pq and type(pq) == "table" then
+        local nowQ = mq.gettime()
+        if uiState.pendingQuantityPickupTimeoutAt and nowQ >= uiState.pendingQuantityPickupTimeoutAt then
+            uiState.pendingQuantityPickup = nil
+            uiState.pendingQuantityPickupTimeoutAt = nil
+            uiState.quantityPickerValue = ""
+            setStatusMessage("Quantity picker cancelled")
+        else
+            local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
+            local qtyWndOpen = qtyWnd and qtyWnd.Open and qtyWnd.Open() or false
+            local hasCursor = hasItemOnCursor()
+            if not qtyWndOpen and not hasCursor then
+                local itemExists = false
+                local Me = mq.TLO and mq.TLO.Me
+                if pq.source == "bank" then
+                    local bn = Me and Me.Bank and Me.Bank(pq.bag)
+                    local sz = bn and bn.Container and bn.Container()
+                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(pq.slot)) or bn
+                    itemExists = it and it.ID and it.ID() and it.ID() > 0
+                else
+                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. pq.bag)
+                    local it = pack and pack.Item and pack.Item(pq.slot)
+                    itemExists = it and it.ID and it.ID() and it.ID() > 0
+                end
+                if not itemExists then
+                    uiState.pendingQuantityPickup = nil
+                    uiState.pendingQuantityPickupTimeoutAt = nil
+                    uiState.quantityPickerValue = ""
+                end
+            elseif hasCursor then
+                uiState.pendingQuantityPickup = nil
+                uiState.pendingQuantityPickupTimeoutAt = nil
+                uiState.quantityPickerValue = ""
+            end
+        end
+    end
+end
+
+-- p7 helper: destroy item state machine.
+local function handleDestroyQueue(now)
+    local uiState, itemOps = d.uiState, d.itemOps
     if uiState.pendingDestroyAction then
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
         uiState.quantityPickerValue = ""
         itemOps.advanceDestroyStateMachine(now)
     end
+end
+
+-- p7 helper: move action, reroll bank-to-bag moves, and augment queue (remove/insert).
+local function handleMoveAction(now)
+    local uiState, itemOps, augmentOps, hasItemOnCursor = d.uiState, d.itemOps, d.augmentOps, d.hasItemOnCursor
     if uiState.pendingMoveAction then
         uiState.pendingQuantityPickup = nil
         uiState.pendingQuantityPickupTimeoutAt = nil
@@ -632,69 +782,23 @@ local function phase7_sellQueueQuantityDestroyMoveAugment(now)
         getItemDisplayState().itemDisplayAugmentSlotActive = nil
         augmentOps.advanceInsert(now)
     end
-    local pq = uiState.pendingQuantityPickup
-    if pq and type(pq) == "table" then
-        local nowQ = mq.gettime()
-        if uiState.pendingQuantityPickupTimeoutAt and nowQ >= uiState.pendingQuantityPickupTimeoutAt then
-            uiState.pendingQuantityPickup = nil
-            uiState.pendingQuantityPickupTimeoutAt = nil
-            uiState.quantityPickerValue = ""
-            setStatusMessage("Quantity picker cancelled")
-        else
-            local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-            local qtyWndOpen = qtyWnd and qtyWnd.Open and qtyWnd.Open() or false
-            local hasCursor = hasItemOnCursor()
-            if not qtyWndOpen and not hasCursor then
-                local itemExists = false
-                local Me = mq.TLO and mq.TLO.Me
-                if pq.source == "bank" then
-                    local bn = Me and Me.Bank and Me.Bank(pq.bag)
-                    local sz = bn and bn.Container and bn.Container()
-                    local it = (bn and sz and sz > 0) and (bn.Item and bn.Item(pq.slot)) or bn
-                    itemExists = it and it.ID and it.ID() and it.ID() > 0
-                else
-                    local pack = Me and Me.Inventory and Me.Inventory("pack" .. pq.bag)
-                    local it = pack and pack.Item and pack.Item(pq.slot)
-                    itemExists = it and it.ID and it.ID() and it.ID() > 0
-                end
-                if not itemExists then
-                    uiState.pendingQuantityPickup = nil
-                    uiState.pendingQuantityPickupTimeoutAt = nil
-                    uiState.quantityPickerValue = ""
-                end
-            elseif hasCursor then
-                uiState.pendingQuantityPickup = nil
-                uiState.pendingQuantityPickupTimeoutAt = nil
-                uiState.quantityPickerValue = ""
-            end
-        end
-    end
 end
 
--- Phase 8: Window state, deferred scans, auto-show/hide, stats tab priming, loot/sell pending scan (P0-01), augment timeouts
-local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
-    local uiState, scanState, deferredScanNeeded, perfCache, C = d.uiState, d.scanState, d.deferredScanNeeded, d.perfCache, d.C
-    local inventoryItems, sellItems, bankItems, bankCache = d.inventoryItems, d.sellItems, d.bankItems, d.bankCache
-    local sellMacState, lootMacState = d.sellMacState, d.lootMacState
-    local isBankWindowOpen, isMerchantWindowOpen, isLootWindowOpen = d.isBankWindowOpen, d.isMerchantWindowOpen, d.isLootWindowOpen
-    local maybeScanInventory, maybeScanBank, maybeScanSellItems = d.maybeScanInventory, d.maybeScanBank, d.maybeScanSellItems
-    local computeAndAttachSellStatus, sellStatusService, scanInventory, scanSellItems = d.computeAndAttachSellStatus, d.sellStatusService, d.scanInventory, d.scanSellItems
-    local rescanInventoryBags = d.rescanInventoryBags
-    local invalidateSortCache, flushLayoutSave, loadLayoutConfig, recordCompanionWindowOpened = d.invalidateSortCache, d.flushLayoutSave, d.loadLayoutConfig, d.recordCompanionWindowOpened
-    local storage, augmentOps, hasItemOnCursor, setStatusMessage = d.storage, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
-    local saveLayoutToFileImmediate = d.saveLayoutToFileImmediate
-    local STATS_TAB_PRIME_MS = d.STATS_TAB_PRIME_MS
-    local getLastInventoryWindowState, setLastInventoryWindowState = d.getLastInventoryWindowState, d.setLastInventoryWindowState
-    local getLastBankWindowState, setLastBankWindowState = d.getLastBankWindowState, d.setLastBankWindowState
-    local getLastMerchantState, setLastMerchantState = d.getLastMerchantState, d.setLastMerchantState
-    local getLastLootWindowState, setLastLootWindowState = d.getLastLootWindowState, d.setLastLootWindowState
-    local getShouldDraw, setShouldDraw = d.getShouldDraw, d.setShouldDraw
-    local getOpen, setOpen = d.getOpen, d.setOpen
-    local getStatsTabPrimeState, setStatsTabPrimeState = d.getStatsTabPrimeState, d.setStatsTabPrimeState
-    local getStatsTabPrimeAt, setStatsTabPrimeAt = d.getStatsTabPrimeAt, d.setStatsTabPrimeAt
-    local getStatsTabPrimedThisSession, setStatsTabPrimedThisSession = d.getStatsTabPrimedThisSession, d.setStatsTabPrimedThisSession
-    local clearLootItems = d.clearLootItems
+-- Phase 7: Sell queue + quantity picker + destroy + move + augment queue start (remove all/optimize pop + execute)
+local function phase7_sellQueueQuantityDestroyMoveAugment(now)
+    if not d.uiState then return end
+    handleManualSellQueue(now)
+    handleQuantityPicker(now)
+    handleDestroyQueue(now)
+    handleMoveAction(now)
+end
 
+-- p8 helper: Capture window open/close state, set derived dirty flags. Returns ws table for this tick.
+-- Does NOT commit last-state (that is done at the end of handleAutoShowHide).
+local function trackWindowStateChanges(now)
+    local uiState, scanState = d.uiState, d.scanState
+    local isBankWindowOpen, isMerchantWindowOpen, isLootWindowOpen = d.isBankWindowOpen, d.isMerchantWindowOpen, d.isLootWindowOpen
+    local bankCache, computeAndAttachSellStatus = d.bankCache, d.computeAndAttachSellStatus
     -- Decrement force-apply layout frames after revert (so positions/sizes re-apply from layoutConfig)
     if uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0 then
         uiState.layoutRevertedApplyFrames = uiState.layoutRevertedApplyFrames - 1
@@ -704,23 +808,46 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     local bankOpen = isBankWindowOpen()
     local merchOpen = isMerchantWindowOpen()
     local lootOpen = isLootWindowOpen()
-    local lastBankWindowState = getLastBankWindowState()
-    local lastLootWindowState = getLastLootWindowState()
+    local lastBankWindowState = d.getLastBankWindowState()
+    local lastLootWindowState = d.getLastLootWindowState()
+    local lastInventoryWindowState = d.getLastInventoryWindowState()
+    local lastMerchantState = d.getLastMerchantState()
     local bankJustOpened = bankOpen and not lastBankWindowState
     local lootJustClosed = lastLootWindowState and not lootOpen
+    local invJustOpened = invOpen and not lastInventoryWindowState
+    local shouldDraw = d.getShouldDraw()
     if lootOpen or lootJustClosed then scanState.inventoryBagsDirty = true end
     -- When bank just opened, apply sell status (incl. RerollList) to bankCache so initial display matches reroll list before deferred scan runs.
     if bankJustOpened and bankCache and #bankCache > 0 and computeAndAttachSellStatus then
         computeAndAttachSellStatus(bankCache)
     end
-    local shouldDraw = getShouldDraw()
-    local shouldDrawBefore = shouldDraw
-    local lastInventoryWindowState = getLastInventoryWindowState()
-    local lastMerchantState = getLastMerchantState()
+    return {
+        invOpen               = invOpen,
+        bankOpen              = bankOpen,
+        merchOpen             = merchOpen,
+        lootOpen              = lootOpen,
+        bankJustOpened        = bankJustOpened,
+        lootJustClosed        = lootJustClosed,
+        invJustOpened         = invJustOpened,
+        lastInventoryWindowState = lastInventoryWindowState,
+        lastBankWindowState   = lastBankWindowState,
+        lastMerchantState     = lastMerchantState,
+        lastLootWindowState   = lastLootWindowState,
+        shouldDraw            = shouldDraw,
+        shouldDrawBefore      = shouldDraw,
+    }
+end
 
-    if deferredScanNeeded.inventory then maybeScanInventory(invOpen); deferredScanNeeded.inventory = false end
-    if deferredScanNeeded.bank then maybeScanBank(bankOpen); deferredScanNeeded.bank = false end
-    if deferredScanNeeded.sell then maybeScanSellItems(merchOpen); deferredScanNeeded.sell = false end
+-- p8 helper: Execute pending deferred scans (deferredScanNeeded flags, stat rescan, sell config refresh).
+local function runDeferredScans(now, ws)
+    local deferredScanNeeded, perfCache, uiState, scanState = d.deferredScanNeeded, d.perfCache, d.uiState, d.scanState
+    local maybeScanInventory, maybeScanBank, maybeScanSellItems = d.maybeScanInventory, d.maybeScanBank, d.maybeScanSellItems
+    local rescanInventoryBags = d.rescanInventoryBags
+    local inventoryItems, sellItems, bankItems = d.inventoryItems, d.sellItems, d.bankItems
+    local computeAndAttachSellStatus, sellStatusService = d.computeAndAttachSellStatus, d.sellStatusService
+    if deferredScanNeeded.inventory then maybeScanInventory(ws.invOpen); deferredScanNeeded.inventory = false end
+    if deferredScanNeeded.bank then maybeScanBank(ws.bankOpen); deferredScanNeeded.bank = false end
+    if deferredScanNeeded.sell then maybeScanSellItems(ws.merchOpen); deferredScanNeeded.sell = false end
     -- MASTER_PLAN 2.6: targeted rescan for bags that had _statsPending (e.g. ID was 0 during batch)
     if uiState.pendingStatRescanBags and next(uiState.pendingStatRescanBags) and rescanInventoryBags then
         local bags = {}
@@ -738,8 +865,40 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         end
         perfCache.sellConfigPendingRefresh = false
     end
+end
 
-    local invJustOpened = invOpen and not lastInventoryWindowState
+-- p8 helper: Auto-show/hide UI on window transitions, handle pending scans, loot events, commit last-state.
+local function handleAutoShowHide(now, ws)
+    local uiState, scanState, C = d.uiState, d.scanState, d.C
+    local inventoryItems, sellItems, bankItems, bankCache = d.inventoryItems, d.sellItems, d.bankItems, d.bankCache
+    local sellMacState, lootMacState = d.sellMacState, d.lootMacState
+    local isBankWindowOpen, isMerchantWindowOpen, isLootWindowOpen = d.isBankWindowOpen, d.isMerchantWindowOpen, d.isLootWindowOpen
+    local maybeScanBank, scanInventory, scanSellItems = d.maybeScanBank, d.scanInventory, d.scanSellItems
+    local computeAndAttachSellStatus = d.computeAndAttachSellStatus
+    local deferredScanNeeded = d.deferredScanNeeded
+    local invalidateSortCache, flushLayoutSave, loadLayoutConfig, recordCompanionWindowOpened = d.invalidateSortCache, d.flushLayoutSave, d.loadLayoutConfig, d.recordCompanionWindowOpened
+    local storage = d.storage
+    local STATS_TAB_PRIME_MS = d.STATS_TAB_PRIME_MS
+    local getStatsTabPrimeState, setStatsTabPrimeState = d.getStatsTabPrimeState, d.setStatsTabPrimeState
+    local getStatsTabPrimeAt, setStatsTabPrimeAt = d.getStatsTabPrimeAt, d.setStatsTabPrimeAt
+    local getStatsTabPrimedThisSession, setStatsTabPrimedThisSession = d.getStatsTabPrimedThisSession, d.setStatsTabPrimedThisSession
+    local setShouldDraw, setOpen = d.setShouldDraw, d.setOpen
+    local clearLootItems = d.clearLootItems
+    -- Unpack window state from ws (computed once per tick by trackWindowStateChanges)
+    local invOpen               = ws.invOpen
+    local bankOpen              = ws.bankOpen
+    local merchOpen             = ws.merchOpen
+    local lootOpen              = ws.lootOpen
+    local bankJustOpened        = ws.bankJustOpened
+    local lootJustClosed        = ws.lootJustClosed
+    local invJustOpened         = ws.invJustOpened
+    local lastInventoryWindowState = ws.lastInventoryWindowState
+    local lastBankWindowState   = ws.lastBankWindowState
+    local lastMerchantState     = ws.lastMerchantState
+    local lastLootWindowState   = ws.lastLootWindowState
+    local shouldDraw            = ws.shouldDraw
+    local shouldDrawBefore      = ws.shouldDrawBefore
+
     local statsTabPrimedThisSession = getStatsTabPrimedThisSession()
     if invJustOpened and invOpen and not statsTabPrimedThisSession then
         mq.cmd('/notify InventoryWindow IW_Subwindows tabselect 2')
@@ -853,7 +1012,12 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
         uiState.configWindowOpen = false
         if invOpen then mq.cmd('/keypress inventory') end
     end
-    if lastInventoryWindowState and not invOpen then
+    -- Inventory just closed: save state and hide companion.
+    -- Guard: skip when loot macro is active or recently finished (prevents spurious saves
+    -- triggered by the macro or its cleanup closing the inventory window at loot end).
+    local lootFinishedAt = lootMacState and lootMacState.finishedAt or 0
+    local lootRecentlyFinished = lootFinishedAt > 0 and (now - lootFinishedAt) < C.LOOT_PERSIST_COOLDOWN_MS
+    if lastInventoryWindowState and not invOpen and not lootMacRunning and not lootRecentlyFinished then
         uiState.userClosedViaKeybind = false
         mq.cmd('/keypress CLOSE_INV_BAGS')
         storage.ensureCharFolderExists()
@@ -906,108 +1070,24 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
             mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
         end
     end
-
-    local T = constants.TIMING
-    local AUGMENT_CURSOR_CLEAR_TIMEOUT_MS = T.AUGMENT_CURSOR_CLEAR_TIMEOUT_MS
-    local AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = T.AUGMENT_CURSOR_POPULATED_TIMEOUT_MS
-    local AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS = T.AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS
-    local AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = T.AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS
-    local itemDisplayOpen = augmentOps.isItemDisplayWindowOpen and augmentOps.isItemDisplayWindowOpen()
-    if uiState.waitingForInsertCursorClear and not itemDisplayOpen then
-        uiState.waitingForInsertCursorClear = false
-        uiState.insertCursorClearTimeoutAt = nil
-        uiState.insertConfirmationSetAt = nil
-    end
-    if uiState.waitingForRemoveCursorPopulated and not itemDisplayOpen then
-        uiState.waitingForRemoveCursorPopulated = false
-        uiState.removeCursorPopulatedTimeoutAt = nil
-        uiState.removeConfirmationSetAt = nil
-    end
-    local confirmDialogOpen = false
-    do
-        local confirmWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox")
-        confirmDialogOpen = confirmWnd and confirmWnd.Open and confirmWnd.Open()
-    end
-    if uiState.waitingForRemoveConfirmation and confirmDialogOpen then
-        mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-        uiState.waitingForRemoveConfirmation = false
-        uiState.removeConfirmationSetAt = nil
-        uiState.waitingForRemoveCursorPopulated = true
-        uiState.removeCursorPopulatedTimeoutAt = mq.gettime()
-    end
-    if uiState.waitingForInsertConfirmation and confirmDialogOpen then
-        mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-        uiState.waitingForInsertConfirmation = false
-        uiState.insertConfirmationSetAt = nil
-        uiState.waitingForInsertCursorClear = true
-        uiState.insertCursorClearTimeoutAt = mq.gettime()
-    end
-    if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
-        if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-        if hasItemOnCursor() then
-            setStatusMessage("Insert may have failed; check cursor.")
-        else
-            -- No confirm dialog appeared, but cursor cleared: treat as completed insert.
-            resolveAugmentQueueStep("optimize")
-            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
-                setStatusMessage("Insert complete.")
-            end
-        end
-        uiState.waitingForInsertConfirmation = false
-        uiState.insertConfirmationSetAt = nil
-    end
-    if uiState.waitingForRemoveConfirmation and not confirmDialogOpen and uiState.removeConfirmationSetAt and (now - uiState.removeConfirmationSetAt) > AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS then
-        if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-        if hasItemOnCursor() then mq.cmd('/autoinv') end
-        uiState.waitingForRemoveConfirmation = false
-        uiState.removeConfirmationSetAt = nil
-        uiState.waitingForRemoveCursorPopulated = false
-        uiState.removeCursorPopulatedTimeoutAt = nil
-    end
-    if uiState.waitingForInsertCursorClear then
-        if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            setStatusMessage("Insert timed out; check cursor.")
-            uiState.waitingForInsertCursorClear = false
-            uiState.insertCursorClearTimeoutAt = nil
-            uiState.insertConfirmationSetAt = nil
-            resolveAugmentQueueStep("optimize")
-        elseif not hasItemOnCursor() then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            uiState.waitingForInsertCursorClear = false
-            uiState.insertCursorClearTimeoutAt = nil
-            uiState.insertConfirmationSetAt = nil
-            resolveAugmentQueueStep("optimize")
-            if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
-                setStatusMessage("Insert complete.")
-            end
-        end
-    end
-    if uiState.waitingForRemoveCursorPopulated then
-        if (uiState.removeCursorPopulatedTimeoutAt and (now - uiState.removeCursorPopulatedTimeoutAt) > AUGMENT_CURSOR_POPULATED_TIMEOUT_MS) then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            setStatusMessage("Remove timed out; check cursor.")
-            uiState.waitingForRemoveCursorPopulated = false
-            uiState.removeCursorPopulatedTimeoutAt = nil
-            uiState.removeConfirmationSetAt = nil
-            resolveAugmentQueueStep("removeAll")
-        elseif hasItemOnCursor() then
-            if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            mq.cmd('/autoinv')
-            uiState.waitingForRemoveCursorPopulated = false
-            uiState.removeCursorPopulatedTimeoutAt = nil
-            uiState.removeConfirmationSetAt = nil
-            resolveAugmentQueueStep("removeAll")
-        end
-    end
     if lastLootWindowState and not lootOpenNow then
         scanState.lastScanState.lootOpen = false
         if clearLootItems then clearLootItems() end
     end
-    setLastInventoryWindowState(invOpen)
-    setLastBankWindowState(bankOpen)
-    setLastMerchantState(merchOpen)
-    setLastLootWindowState(lootOpenNow)
+    -- Commit last-state for next tick's open/close edge detection.
+    d.setLastInventoryWindowState(invOpen)
+    d.setLastBankWindowState(bankOpen)
+    d.setLastMerchantState(merchOpen)
+    d.setLastLootWindowState(lootOpenNow)
+end
+
+-- Phase 8: Window state, deferred scans, auto-show/hide, stats tab priming, loot/sell pending scan (P0-01), augment timeouts
+local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
+    local ws = trackWindowStateChanges(now)
+    runDeferredScans(now, ws)
+    handleAutoShowHide(now, ws)
+    -- Augment insert/remove confirmation dialog FSM timeouts.
+    handleAugmentConfirmationTimeouts(now)
 end
 
 -- Phase 0: Unified cursor-action queue drain. Runs every tick before phase7/phase8b.

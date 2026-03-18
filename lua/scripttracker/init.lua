@@ -264,7 +264,7 @@ local function handleCommand(...)
         scanScripts()
         print("\ag[ScriptTracker]\ax Scripts refreshed")
     elseif cmd == "help" then
-        print("\ag[ScriptTracker]\ax Commands: /scripttracker [toggle|show|hide|refresh|help]")
+        print("\ag[ScriptTracker]\ax Commands: /st [toggle|show|hide|refresh|help]")
         print("\ag[ScriptTracker]\ax Use PIN checkbox to prevent window from closing")
     else
         print(string.format("\ar[ScriptTracker]\ax Unknown command: %s", cmd))
@@ -273,9 +273,9 @@ end
 
 local function main()
     print(string.format("\ag[ScriptTracker]\ax AA Script Tracker v%s loaded", VERSION))
-    print("\ag[ScriptTracker]\ax Type /scripttracker to toggle. Tracks Lost, Planar & Rebirthed scripts.")
+    print("\ag[ScriptTracker]\ax Type /st to toggle. Tracks Lost, Planar & Rebirthed scripts.")
 
-    mq.bind('/scripttracker', handleCommand)
+    mq.bind('/st', handleCommand)
     mq.imgui.init('ScriptTracker', renderUI)
 
     -- Trigger: refresh when game reports item added to inventory (loot, trade, etc.)
@@ -298,7 +298,7 @@ local function main()
     end
 
     mq.imgui.destroy('ScriptTracker')
-    mq.unbind('/scripttracker')
+    mq.unbind('/st')
 end
 
 main()

@@ -216,6 +216,8 @@ Sub Main
     | IPC Protocol Version=1 for CoOpt UI macro bridge (readers fall back if Version > supported)
     /ini "${logPath}/sell_progress.ini" Protocol Version 1
     /ini "${logPath}/sell_failed.ini" Protocol Version 1
+    | Signal UI to reset per-run sold-items list
+    /if (${pluginLoaded}) /squelch /cooptui ipc send sell_start "1"
     | Check if ItemUI pre-populated total (from sell view) - skip count pass if so
     /declare preTotal int local ${Ini[${logPath}/sell_progress.ini,Progress,total,0]}
     /if (${preTotal} > 0) {
@@ -680,6 +682,7 @@ sub ProcessSellItem(int bag, int slot, string reason)
             /call LogFailedItem "${itemName}"
         } else {
             /varcalc soldCount ${soldCount}+1
+            /if (${pluginLoaded}) /squelch /cooptui ipc send sell_item "${itemName}|${itemValue}|${stackCount}"
         }
         /call WriteProgress
     } else {

@@ -333,7 +333,7 @@ function M.render()
     ImGui.Separator()
     ImGui.TextColored(tv(C.SectionHead), "Scripts:")
     ImGui.SameLine()
-    if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/scripttracker show') end
+    if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/st show') end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
     local scriptData = getScriptCountsFromInventory(deps.inventoryItems)
     ImGui.SetWindowFontScale(0.85)

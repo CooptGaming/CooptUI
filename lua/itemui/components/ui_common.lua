@@ -320,7 +320,7 @@ function M.renderItemContextMenu(ctx, item, opts)
     if canDestroy and ctx.setPendingDestroy and ctx.requestDestroyItem then
         ImGui.Separator()
         ImGui.Dummy(ImVec2(0, 6))
-        ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors.Error))
+        ctx.theme.PushDeleteButton()
         if ImGui.MenuItem("Delete") then
             local stackSize = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
             if ctx.getSkipConfirmDelete and ctx.getSkipConfirmDelete() then
@@ -329,7 +329,7 @@ function M.renderItemContextMenu(ctx, item, opts)
                 ctx.setPendingDestroy({ bag = item.bag, slot = item.slot, name = item.name or "", stackSize = stackSize })
             end
         end
-        ImGui.PopStyleColor()
+        ctx.theme.PopButtonColors()
     end
 
     ImGui.EndPopup()

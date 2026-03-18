@@ -235,7 +235,7 @@ if ($SkipE3Next) {
     Write-Host "  E3Next already present at $E3NextDir"
 } else {
     Write-Host "  Cloning E3Next from $E3NextRepo ..."
-    git clone $E3NextRepo $E3NextDir
+    git clone --depth 1 $E3NextRepo $E3NextDir
     if ($LASTEXITCODE -ne 0) { Write-Warning "git clone failed for E3Next (non-fatal)" }
 }
 

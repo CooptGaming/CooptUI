@@ -120,15 +120,15 @@ function SellView.render(ctx, simulateSellView)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Total value of items that will be sold"); ImGui.EndTooltip() end
     -- C2: Trust indicator
     if keepInSellQueue > 0 then
-        ImGui.TextColored(ImVec4(1, 0.3, 0.3, 1), string.format("!! %d keep-list items still in sell queue -- review before selling", keepInSellQueue))
+        ctx.theme.TextError(string.format("!! %d keep-list items still in sell queue -- review before selling", keepInSellQueue))
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Items marked Keep are still set to Sell. This may indicate a filter conflict."); ImGui.EndTooltip() end
     else
-        ImGui.TextColored(ImVec4(0.3, 0.9, 0.3, 1), "All keep-list items protected")
+        ctx.theme.TextSuccess("All keep-list items protected")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("No items with inKeep=true have willSell=true"); ImGui.EndTooltip() end
     end
     -- C3: Augment safety banner
     if augmentSellCount > 0 then
-        ImGui.TextColored(ImVec4(1, 0.85, 0.2, 1), string.format("! %d augment(s) will be sold -- review carefully", augmentSellCount))
+        ctx.theme.TextWarning(string.format("! %d augment(s) will be sold -- review carefully", augmentSellCount))
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Augmentation-type items are in the sell queue. Consider adding them to Never Sell or Protected Types."); ImGui.EndTooltip() end
     end
     ImGui.Separator()
@@ -260,12 +260,12 @@ function SellView.render(ctx, simulateSellView)
                 ImGui.PushID(rid)
                 if rawget(item, "_statsPending") then
                     if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
-                    ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
                     ImGui.PopID()
                     goto continue
                 end

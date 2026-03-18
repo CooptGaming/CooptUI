@@ -657,14 +657,7 @@ function M.render(refs)
         elseif uiState.setupMode and uiState.setupStep == 12 then
             renderSetupStep0Content(refs)
             ImGui.Spacing()
-            do
-                local t = refs.theme
-                if t and t.ToVec4 and t.Colors and t.Colors.Muted then
-                    ImGui.TextColored(t:ToVec4(t.Colors.Muted), "Additional settings can be found in the Settings window.")
-                else
-                    ImGui.TextColored(ImVec4(0.6, 0.6, 0.6, 1), "Additional settings can be found in the Settings window.")
-                end
-            end
+            refs.theme.TextMuted("Additional settings can be found in the Settings window.")
         elseif uiState.setupMode and uiState.setupStep == 13 then
             tutorial.renderDescriptionOverlay(13, refs)
         else
@@ -842,11 +835,11 @@ function M.render(refs)
             end
         end
         if sellMacState.failedCount and sellMacState.failedCount > 0 and mq.gettime() < (sellMacState.showFailedUntil or 0) then
-            ImGui.TextColored(ImVec4(1, 0.6, 0.2, 1), string.format("Failed to sell (%d):", sellMacState.failedCount))
+            refs.theme.TextWarning(string.format("Failed to sell (%d):", sellMacState.failedCount))
             ImGui.SameLine()
             local failedList = table.concat(sellMacState.failedItems or {}, ", ")
             if #failedList > constants.UI.FAILED_LIST_TRUNCATE_LEN then failedList = failedList:sub(1, constants.UI.FAILED_LIST_DISPLAY_MAX) .. "..." end
-            ImGui.TextColored(ImVec4(1, 0.7, 0.3, 1), failedList)
+            refs.theme.TextWarning(failedList)
             ImGui.SameLine()
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "— Rerun /macro sell confirm to retry.")
         end

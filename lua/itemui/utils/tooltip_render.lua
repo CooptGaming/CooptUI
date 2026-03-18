@@ -3,6 +3,22 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local M = {}
 
+-- All numeric fields from STAT_TLO_MAP that augments can contribute to.
+-- String-only fields (baneDMGType, dmgBonusType) are excluded.
+local STAT_MERGE_FIELDS = {
+    "ac", "hp", "mana", "endurance",
+    "str", "sta", "agi", "dex", "int", "wis", "cha",
+    "attack", "accuracy", "avoidance", "shielding", "haste",
+    "damage", "itemDelay", "dmgBonus",
+    "spellDamage", "strikeThrough", "damageShield", "combatEffects",
+    "dotShielding", "hpRegen", "manaRegen", "enduranceRegen",
+    "spellShield", "damageShieldMitigation", "stunResist", "clairvoyance", "healAmount",
+    "heroicSTR", "heroicSTA", "heroicAGI", "heroicDEX", "heroicINT", "heroicWIS", "heroicCHA",
+    "svMagic", "svFire", "svCold", "svPoison", "svDisease", "svCorruption",
+    "heroicSvMagic", "heroicSvFire", "heroicSvCold", "heroicSvDisease", "heroicSvPoison", "heroicSvCorruption",
+    "luck", "purity", "baneDMG", "skillModValue", "skillModMax",
+}
+
 function M.renderItemDisplayContent(item, ctx, opts, api)
     if not item then return end
     opts = opts or {}
@@ -35,6 +51,27 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         if ok and sockIt then it = sockIt end
     end
     local itValid = it and it.ID and it.ID() ~= 0
+    -- Build augStats: sum all numeric stats contributed by filled standard aug slots.
+    -- Matches in-game "Augmented" item display: shows base + all aug contributions combined.
+    -- Only for the parent item (not when showing an aug's own tooltip via socketIndex).
+    local augStats = {}
+    if not opts.socketIndex and parentIt and bag ~= nil and slot ~= nil and source and (item.augSlots or 0) > 0 then
+        for socketIndex = 1, item.augSlots do
+            local augItem = api.getSocketItemStats(parentIt, bag, slot, source, socketIndex)
+            if augItem then
+                for _, field in ipairs(STAT_MERGE_FIELDS) do
+                    local v = tonumber(augItem[field])
+                    if v and v ~= 0 then
+                        augStats[field] = (augStats[field] or 0) + v
+                    end
+                end
+            end
+        end
+    end
+    -- Helper: combined stat value (item base + all aug contributions)
+    local function sv(field)
+        return (tonumber(item[field]) or 0) + (augStats[field] or 0)
+    end
     -- Link color for augment/ornament names (hover shows socketed item tooltip).
     local linkColor = ImVec4(0.4, 0.7, 1.0, 1.0)
     local effects = {}
@@ -199,22 +236,22 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
     if item.charges and item.charges ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Charges:", (item.charges == -1) and "Unlimited" or tostring(item.charges)) end
     if item.skillModValue and item.skillModValue ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Skill Mod:", (item.skillModMax and item.skillModMax ~= 0) and (tostring(item.skillModValue) .. "/" .. tostring(item.skillModMax)) or tostring(item.skillModValue)) end
     if item.baneDMG and item.baneDMG ~= 0 then leftCol[#leftCol + 1] = string.format(L1, "Bane:", tostring(item.baneDMG) .. (item.baneDMGType and item.baneDMGType ~= "" and (" " .. item.baneDMGType) or "")) end
-    if item.ac and item.ac ~= 0 then midCol[#midCol + 1] = string.format(L2, "AC:", tostring(item.ac)) end
-    if item.hp and item.hp ~= 0 then midCol[#midCol + 1] = string.format(L2, "HP:", tostring(item.hp)) end
-    if item.mana and item.mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(item.mana)) end
-    if item.endurance and item.endurance ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(item.endurance)) end
-    if item.haste and item.haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(item.haste) .. "%") end
-    if item.purity and item.purity ~= 0 then midCol[#midCol + 1] = string.format(L2, "Purity:", tostring(item.purity)) end
+    local sv_ac = sv("ac"); if sv_ac ~= 0 then midCol[#midCol + 1] = string.format(L2, "AC:", tostring(sv_ac)) end
+    local sv_hp = sv("hp"); if sv_hp ~= 0 then midCol[#midCol + 1] = string.format(L2, "HP:", tostring(sv_hp)) end
+    local sv_mana = sv("mana"); if sv_mana ~= 0 then midCol[#midCol + 1] = string.format(L2, "Mana:", tostring(sv_mana)) end
+    local sv_end = sv("endurance"); if sv_end ~= 0 then midCol[#midCol + 1] = string.format(L2, "End:", tostring(sv_end)) end
+    local sv_haste = sv("haste"); if sv_haste ~= 0 then midCol[#midCol + 1] = string.format(L2, "Haste:", tostring(sv_haste) .. "%") end
+    local sv_purity = sv("purity"); if sv_purity ~= 0 then midCol[#midCol + 1] = string.format(L2, "Purity:", tostring(sv_purity)) end
     -- Weapon block: always show Base Dmg, Delay, Dmg Bon when item has weapon stats (match in-game Item Display)
     local isWeapon = (item.damage and item.damage ~= 0) or (item.itemDelay and item.itemDelay ~= 0) or (item.type and item.type ~= "" and (item.type:lower():find("piercing") or item.type:lower():find("slashing") or item.type:lower():find("1h") or item.type:lower():find("2h") or item.type:lower():find("ranged")))
     if isWeapon then
-        rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage or 0))
-        rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay or 0))
-        rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus or 0) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or ""))
+        rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(sv("damage")))
+        rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(sv("itemDelay")))
+        rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(sv("dmgBonus")) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or ""))
     else
-        if item.damage and item.damage ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(item.damage)) end
-        if item.itemDelay and item.itemDelay ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(item.itemDelay)) end
-        if item.dmgBonus and item.dmgBonus ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(item.dmgBonus) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or "")) end
+        local sv_dmg = sv("damage"); if sv_dmg ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Base Dmg:", tostring(sv_dmg)) end
+        local sv_dly = sv("itemDelay"); if sv_dly ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Delay:", tostring(sv_dly)) end
+        local sv_dbon = sv("dmgBonus"); if sv_dbon ~= 0 then rightCol[#rightCol + 1] = string.format(L3, "Dmg Bon:", tostring(sv_dbon) .. (item.dmgBonusType and item.dmgBonusType ~= "" and item.dmgBonusType ~= "None" and (" " .. item.dmgBonusType) or "")) end
     end
     local hasItemInfo = #leftCol > 0 or #midCol > 0 or #rightCol > 0
     if hasItemInfo then
@@ -256,13 +293,13 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1.0), "Loading...")
     else
     local attrs = {
-        api.attrLine(item.str, item.heroicSTR, "Strength"),
-        api.attrLine(item.sta, item.heroicSTA, "Stamina"),
-        api.attrLine(item.int, item.heroicINT, "Intelligence"),
-        api.attrLine(item.wis, item.heroicWIS, "Wisdom"),
-        api.attrLine(item.agi, item.heroicAGI, "Agility"),
-        api.attrLine(item.dex, item.heroicDEX, "Dexterity"),
-        api.attrLine(item.cha, item.heroicCHA, "Charisma"),
+        api.attrLine(sv("str"), sv("heroicSTR"), "Strength"),
+        api.attrLine(sv("sta"), sv("heroicSTA"), "Stamina"),
+        api.attrLine(sv("int"), sv("heroicINT"), "Intelligence"),
+        api.attrLine(sv("wis"), sv("heroicWIS"), "Wisdom"),
+        api.attrLine(sv("agi"), sv("heroicAGI"), "Agility"),
+        api.attrLine(sv("dex"), sv("heroicDEX"), "Dexterity"),
+        api.attrLine(sv("cha"), sv("heroicCHA"), "Charisma"),
     }
     local function resistLine(b, h, label)
         b, h = b or 0, h or 0
@@ -271,41 +308,44 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         return string.format("%s: %d", label, b)
     end
     local resists = {
-        resistLine(item.svMagic, item.heroicSvMagic, "Magic"),
-        resistLine(item.svFire, item.heroicSvFire, "Fire"),
-        resistLine(item.svCold, item.heroicSvCold, "Cold"),
-        resistLine(item.svDisease, item.heroicSvDisease, "Disease"),
-        resistLine(item.svPoison, item.heroicSvPoison, "Poison"),
-        resistLine(item.svCorruption, item.heroicSvCorruption, "Corruption"),
+        resistLine(sv("svMagic"), sv("heroicSvMagic"), "Magic"),
+        resistLine(sv("svFire"), sv("heroicSvFire"), "Fire"),
+        resistLine(sv("svCold"), sv("heroicSvCold"), "Cold"),
+        resistLine(sv("svDisease"), sv("heroicSvDisease"), "Disease"),
+        resistLine(sv("svPoison"), sv("heroicSvPoison"), "Poison"),
+        resistLine(sv("svCorruption"), sv("heroicSvCorruption"), "Corruption"),
     }
     local function cl(val, label) if (tonumber(val) or 0) ~= 0 then return string.format("%s: %d", label, tonumber(val) or val or 0) end return nil end
-    -- Prefer raw table values for augment stats (batch stores here; ensure we read same table)
+    -- Prefer raw table values for shielding/damageShield/hpRegen (batch stores here); then add aug contributions.
     local sh = rawget(item, "shielding")
     local ds = rawget(item, "damageShield")
     local hr = rawget(item, "hpRegen")
     if sh == nil then sh = item.shielding end
     if ds == nil then ds = item.damageShield end
     if hr == nil then hr = item.hpRegen end
+    sh = (tonumber(sh) or 0) + (augStats.shielding or 0)
+    ds = (tonumber(ds) or 0) + (augStats.damageShield or 0)
+    hr = (tonumber(hr) or 0) + (augStats.hpRegen or 0)
     -- Order combat stats to match in-game Item Display right column, then remaining
     local combat = {
-        cl(item.attack, "Attack"),
+        cl(sv("attack"), "Attack"),
         cl(hr, "HP Regen"),
-        cl(item.manaRegen, "Mana Regen"),
-        cl(item.enduranceRegen, "End Regen"),
-        cl(item.combatEffects, "Combat Eff"),
+        cl(sv("manaRegen"), "Mana Regen"),
+        cl(sv("enduranceRegen"), "End Regen"),
+        cl(sv("combatEffects"), "Combat Eff"),
         cl(ds, "Dmg Shield"),
-        cl(item.damageShieldMitigation, "Dmg Shld Mit"),
-        cl(item.accuracy, "Accuracy"),
-        cl(item.strikeThrough, "Strike Thr"),
-        cl(item.healAmount, "Heal Amount"),
-        cl(item.spellDamage, "Spell Dmg"),
-        cl(item.spellShield, "Spell Shield"),
+        cl(sv("damageShieldMitigation"), "Dmg Shld Mit"),
+        cl(sv("accuracy"), "Accuracy"),
+        cl(sv("strikeThrough"), "Strike Thr"),
+        cl(sv("healAmount"), "Heal Amount"),
+        cl(sv("spellDamage"), "Spell Dmg"),
+        cl(sv("spellShield"), "Spell Shield"),
         cl(sh, "Shielding"),
-        cl(item.dotShielding, "DoT Shield"),
-        cl(item.avoidance, "Avoidance"),
-        cl(item.stunResist, "Stun Resist"),
-        cl(item.clairvoyance, "Clairvoyance"),
-        cl(item.luck, "Luck"),
+        cl(sv("dotShielding"), "DoT Shield"),
+        cl(sv("avoidance"), "Avoidance"),
+        cl(sv("stunResist"), "Stun Resist"),
+        cl(sv("clairvoyance"), "Clairvoyance"),
+        cl(sv("luck"), "Luck"),
     }
     local hasAnyStat = false
     for _, v in ipairs(attrs) do if v then hasAnyStat = true break end end

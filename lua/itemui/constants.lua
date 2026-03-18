@@ -24,6 +24,10 @@ M.TIMING = {
 
     -- Macro finish / scan
     LOOT_PENDING_SCAN_DELAY_MS = 2500,
+    -- Cooldown after loot ends before periodic persist resumes (ms). Prevents save from
+    -- firing immediately after loot finishes — lets the post-loot scan + sell-status
+    -- computation complete first so the save doesn't stutter on top of the scan.
+    LOOT_PERSIST_COOLDOWN_MS = 8000,
     SELL_PENDING_SCAN_DELAY_MS = 500,
     REROLL_PENDING_SCAN_DELAY_MS = 500,
     SELL_FAILED_DISPLAY_MS = 15000,
@@ -131,6 +135,11 @@ M.UI = {
     AA_COL_CURMAX_WIDTH = 60,
     AA_COL_COST_WIDTH = 45,
     AA_COL_CATEGORY_WIDTH = 120,
+    -- Layout spacing (used by equipment view and indent blocks)
+    SLOT_SPACING = 4,
+    SLOT_FRAME_PADDING = 2,
+    ROW_GAP_OFFSET = -2,
+    INDENT = 10,
     -- Truncation
     ITEM_NAME_DISPLAY_MAX = 40,
     ITEM_NAME_TRUNCATE_LEN = 37,
@@ -148,7 +157,7 @@ M.LIMITS = {
     LOOT_HISTORY_MAX = 100,
     ITEM_DISPLAY_RECENT_MAX = 10,
     SEARCH_HISTORY_MAX = 5,
-    LOOT_SELL_STATUS_CAP = 30,
+    LOOT_SELL_STATUS_CAP = 500,
     MAX_AA_INDEX = 2000,
 }
 
@@ -226,6 +235,7 @@ function M.buildC(version)
         TIMER_READY_CACHE_TTL_MS = T.TIMER_READY_CACHE_TTL_MS,
         LAYOUT_SAVE_DEBOUNCE_MS = T.LAYOUT_SAVE_DEBOUNCE_MS,
         LOOT_PENDING_SCAN_DELAY_MS = T.LOOT_PENDING_SCAN_DELAY_MS,
+        LOOT_PERSIST_COOLDOWN_MS = T.LOOT_PERSIST_COOLDOWN_MS,
         GET_CHANGED_BAGS_THROTTLE_MS = T.GET_CHANGED_BAGS_THROTTLE_MS,
         SELL_FAILED_DISPLAY_MS = T.SELL_FAILED_DISPLAY_MS,
         SELL_PENDING_SCAN_DELAY_MS = T.SELL_PENDING_SCAN_DELAY_MS,

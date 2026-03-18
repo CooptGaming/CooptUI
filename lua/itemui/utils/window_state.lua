@@ -6,17 +6,12 @@
 --]]
 
 local mq = require('mq')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
 
 -- Cache plugin window table when available (nil or table with isWindowOpen).
-local function getPluginWindow()
-    if M._pluginWindow ~= nil then return M._pluginWindow end
-    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-    local w = (ok and mod and type(mod) == "table" and mod.window and type(mod.window.isWindowOpen) == "function") and mod.window or nil
-    M._pluginWindow = w
-    return w
-end
+local function getPluginWindow() return coopuiPlugin.getWindow() end
 
 local function isWindowOpen(name)
     local plugin = getPluginWindow()

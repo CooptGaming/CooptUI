@@ -26,6 +26,8 @@
 --]]
 
 local ImGui = require('ImGui')
+local theme = require('itemui.utils.theme')
+local constants = require('itemui.constants')
 
 local Filters = {
     _collapsed = {},  -- { view = boolean }
@@ -76,7 +78,7 @@ function Filters.render(options)
     if ImGui.CollapsingHeader(headerText, collapsed and 0 or ImGuiTreeNodeFlags.DefaultOpen) then
         Filters._collapsed[view] = false
         
-        ImGui.Indent(10)
+        ImGui.Indent(constants.UI.INDENT)
         
         -- Value range
         ImGui.Text("Value Range (pp):")
@@ -293,7 +295,7 @@ function Filters.render(options)
             changed = true
         end
         
-        ImGui.Unindent(10)
+        ImGui.Unindent(constants.UI.INDENT)
     else
         Filters._collapsed[view] = true
     end
@@ -332,7 +334,7 @@ function Filters.renderSummary(filter)
     end
     
     if #parts > 0 then
-        ImGui.TextColored(ImVec4(0.5, 0.85, 0.95, 1), "Active: " .. table.concat(parts, " | "))
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Info), "Active: " .. table.concat(parts, " | "))
     end
 end
 

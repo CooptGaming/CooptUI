@@ -8,6 +8,7 @@
 
 local mq = require('mq')
 local item_name = require('itemui.utils.item_name')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
 local deps
@@ -18,10 +19,7 @@ local EVENT_NAME = "ItemUILootItem"
 local LINE_PATTERN = "#*#[ItemUI Loot] #*#"
 
 local function isPluginIpcAvailable()
-    local ok, mod = pcall(require, "plugin.MQ2CoOptUI")
-    if not ok or type(mod) ~= "table" then return false end
-    local ipc = mod.ipc
-    return type(ipc) == "table" and type(ipc.receiveAll) == "function"
+    return coopuiPlugin.getIPC() ~= nil
 end
 
 local function onLootItemLine(line)

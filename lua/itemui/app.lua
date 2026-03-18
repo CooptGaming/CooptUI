@@ -515,7 +515,15 @@ local function refreshEquipmentCache()
         if not ok or not id or id == 0 then
             equipmentCache[slotIndex + 1] = nil
         else
-            equipmentCache[slotIndex + 1] = buildItemFromMQ(it, 0, slotIndex, "equipped")
+            local eqItem = buildItemFromMQ(it, 0, slotIndex, "equipped")
+            -- Pre-warm lazy fields while TLO is in scope so tooltip hover never re-fetches
+            if eqItem then
+                local _ = eqItem.ac           -- triggers full STAT_FIELDS batch load
+                _ = eqItem.requiredLevel      -- triggers full DESCRIPTIVE_FIELDS batch load
+                _ = eqItem.wornSlots          -- triggers wornSlots string build
+                _ = eqItem.augSlots           -- triggers augSlots count
+            end
+            equipmentCache[slotIndex + 1] = eqItem
         end
     end
 end
@@ -700,7 +708,18 @@ local function getItemStatsForTooltipRef(item, source)
     local bag = (item.bag ~= nil) and item.bag or 0
     local it = itemHelpers.getItemTLO(bag, item.slot, source or "inv")
     if not it or not it.ID or it.ID() == 0 then return item end
-    return itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
+    local built = itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
+    -- For equipped items: eagerly load all lazy fields while the TLO is in scope.
+    -- Equipment slot TLO is less reliable at tooltip render time (frame-level timing);
+    -- pre-warming ensures stats, wornSlots, and descriptive fields are in the table as
+    -- plain values so the tooltip never shows "Loading..." for a fully-equipped item.
+    if built and (source == "equipped") then
+        local _ = built.ac           -- triggers full STAT_FIELDS batch load
+        _ = built.requiredLevel      -- triggers full DESCRIPTIVE_FIELDS batch load
+        _ = built.wornSlots          -- triggers wornSlots string build
+        _ = built.augSlots           -- triggers augSlots count
+    end
+    return built
 end
 --- Phase 0: refresh active Item Display tab's item from TLO (call after scan when augment insert/remove completes).
 local function refreshActiveItemDisplayTab()
@@ -1219,7 +1238,15 @@ local function main()
         getLootConfigFile = config.getLootConfigFile,
         pollInterval = 500,
     })
-    while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do mq.delay(1000) end
+    local waitIter = 0
+    while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do
+        mq.delay(1000)
+        waitIter = waitIter + 1
+        if waitIter >= 30 then
+            print("[CoOpt UI] Timed out waiting for character TLO after 30s — proceeding anyway.")
+            break
+        end
+    end
     storage.init({ profileEnabled = C.PROFILE_ENABLED, profileThresholdMs = C.PROFILE_THRESHOLD_MS })
     local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
     if charName ~= "" then storage.ensureCharFolderExists() end
