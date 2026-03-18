@@ -54,7 +54,11 @@ local function onLootItemLine(line)
         uiState.lootHistory = hist
     end
     table.insert(hist, { name = name, value = value, statusText = statusText, willSell = willSell })
-    while #hist > LOOT_HISTORY_MAX do table.remove(hist, 1) end
+    local over = #hist - LOOT_HISTORY_MAX
+    if over > 0 then
+        table.move(hist, over + 1, #hist, 1)
+        for i = #hist - over + 1, #hist do hist[i] = nil end
+    end
 end
 
 function M.init(d)

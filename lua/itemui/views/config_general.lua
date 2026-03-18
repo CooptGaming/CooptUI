@@ -387,7 +387,17 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         lootFlag("Enable pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "Loot Companion will open and pause so you can choose Take or Pass (5 min).")
         lootFlag("Enable alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
-        lootFlag("Enable live loot feed", "enableLiveLootFeed", "When on, CoOpt UI Loot tab updates in real time as items are looted (one echo per item). When off, macro is slightly faster and Current/History load when the macro completes.")
+        do
+            local v = ImGui.Checkbox("Enable live loot feed", configLootFlags.enableLiveLootFeed)
+            if v ~= configLootFlags.enableLiveLootFeed then
+                configLootFlags.enableLiveLootFeed = v
+                config.writeLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", v and "TRUE" or "FALSE")
+                -- Sync the UI-side real-time flag so the loot tab actually updates live
+                uiState.enableRealTimeLoot = v
+                scheduleLayoutSave()
+            end
+            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When on, CoOpt UI Loot tab updates in real time as items are looted. When off, Current/History load when the macro completes."); ImGui.EndTooltip() end
+        end
         lootFlag("Quiet loot (suppress console echo)", "quietMode", "When on, the loot macro does not echo Evaluating, Skipping, LOOTING, Corpses Remaining, or startup banner. Reduces console spam and slight overhead.")
         ImGui.Spacing()
         ImGui.Text("Loot delay (ticks)")

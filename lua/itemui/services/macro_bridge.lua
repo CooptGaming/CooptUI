@@ -525,8 +525,11 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
                         name = name, value = value,
                         statusText = statusText, willSell = willSell
                     })
-                    while #uiState.lootHistory > LOOT_HISTORY_MAX do
-                        table.remove(uiState.lootHistory, 1)
+                    local lhist = uiState.lootHistory
+                    local lover = #lhist - LOOT_HISTORY_MAX
+                    if lover > 0 then
+                        table.move(lhist, lover + 1, #lhist, 1)
+                        for i = #lhist - lover + 1, #lhist do lhist[i] = nil end
                     end
                 end
                 uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
@@ -549,8 +552,11 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
                 table.insert(uiState.skipHistory, {
                     name = name, reason = reason or ""
                 })
-                while #uiState.skipHistory > LOOT_HISTORY_MAX do
-                    table.remove(uiState.skipHistory, 1)
+                local shist = uiState.skipHistory
+                local sover = #shist - LOOT_HISTORY_MAX
+                if sover > 0 then
+                    table.move(shist, sover + 1, #shist, 1)
+                    for i = #shist - sover + 1, #shist do shist[i] = nil end
                 end
             end
         end

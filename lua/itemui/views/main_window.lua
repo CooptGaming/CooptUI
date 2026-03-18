@@ -94,10 +94,6 @@ local function renderInventoryContent(refs)
     local lootOpen = refs.isLootWindowOpen and refs.isLootWindowOpen()
     local uiState = refs.uiState
     local simulateSellView = (uiState.setupMode and (uiState.setupStep == 3 or uiState.setupStep == 4))
-    if false then
-        LootView.render(ctx)
-        return
-    end
     if merchOpen or simulateSellView then
         SellView.render(ctx, simulateSellView)
     else

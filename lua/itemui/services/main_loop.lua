@@ -263,28 +263,31 @@ local function phase5_lootMacro(now)
                     if n ~= "" then seen[n] = true end
                 end
                 uiState.lootRunLootedList = uiState.lootRunLootedList or {}
-                for i, row in ipairs(session.items or {}) do
+                for _, row in ipairs(session.items or {}) do
                     local name = item_name.normalizeItemName(row.name)
                     if name ~= "" then
                         if not seen[name] then
                             seen[name] = true
                             table.insert(uiState.lootRunLootedList, name)
-                            local statusText, willSell = "—", false
-                            if getSellStatusForItem and i <= lootLoopRefs.sellStatusCap then
-                                statusText, willSell = getSellStatusForItem({ name = name })
-                                if statusText == "" then statusText = "—" end
-                            end
-                            table.insert(existing, {
+                            local entry = {
                                 name = name,
                                 value = row.value or 0,
                                 tribute = row.tribute or 0,
-                                statusText = statusText,
-                                willSell = willSell
-                            })
+                                statusText = "—",
+                                willSell = false
+                            }
+                            table.insert(existing, entry)
+                            local histEntry = nil
                             if uiState.enableLootHistory then
                                 if not uiState.lootHistory then loadLootHistoryFromFile() end
                                 if not uiState.lootHistory then uiState.lootHistory = {} end
-                                table.insert(uiState.lootHistory, { name = name, value = row.value or 0, statusText = statusText, willSell = willSell })
+                                histEntry = { name = name, value = row.value or 0, statusText = "—", willSell = false }
+                                table.insert(uiState.lootHistory, histEntry)
+                            end
+                            -- Queue sell-status lookup so it drains across ticks (avoids per-session burst)
+                            if getSellStatusForItem then
+                                uiState.pendingLootSellStatus = uiState.pendingLootSellStatus or {}
+                                table.insert(uiState.pendingLootSellStatus, { entry = entry, histEntry = histEntry })
                             end
                         end
                     end
@@ -1276,6 +1279,27 @@ local function phase10_loopDelay()
     mq.doevents()
 end
 
+-- Phase 5b: Drain deferred loot sell-status (15/tick to avoid burst stutter)
+local SELL_STATUS_DRAIN_PER_TICK = 15
+local function phase5b_lootSellStatusDrain()
+    local pending = d.uiState and d.uiState.pendingLootSellStatus
+    if not pending or #pending == 0 then return end
+    local getSellStatus = d.getSellStatusForItem
+    if not getSellStatus then return end
+    local count = math.min(SELL_STATUS_DRAIN_PER_TICK, #pending)
+    for _ = 1, count do
+        local job = table.remove(pending, 1)
+        local st, ws = getSellStatus({ name = job.entry.name })
+        if st == "" then st = "—" end
+        job.entry.statusText = st
+        job.entry.willSell = ws
+        if job.histEntry then
+            job.histEntry.statusText = st
+            job.histEntry.willSell = ws
+        end
+    end
+end
+
 local M = {}
 
 function M.init(deps)
@@ -1297,6 +1321,7 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.drainIPCFast then
         d.macroBridge.drainIPCFast(d.uiState, d.getSellStatusForItem, d.LOOT_HISTORY_MAX)
     end
+    phase5b_lootSellStatusDrain()
     phase6_deferredHistorySaves(now)
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)

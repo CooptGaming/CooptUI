@@ -1266,6 +1266,12 @@ local function main()
         end
     end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
+    -- Sync enableRealTimeLoot with enableLiveLootFeed: if the macro feed is enabled but
+    -- the UI-side flag is off (default), enable it now so IPC items are actually shown.
+    if configLootFlags.enableLiveLootFeed and not uiState.enableRealTimeLoot then
+        uiState.enableRealTimeLoot = true
+        layoutUtils.scheduleLayoutSave()
+    end
     layoutUtils.applyItemUIToggleBind()  -- Apply keybind on startup only (not on every /inv)
     do
         local bindKey = layoutUtils.getItemUIToggleKeyDisplay and layoutUtils.getItemUIToggleKeyDisplay()
