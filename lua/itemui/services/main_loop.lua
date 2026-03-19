@@ -1128,10 +1128,12 @@ local function phase0_cursorActionQueue(now)
                 or "Adding to list...")
         end
     elseif next.type == "equip" then
+        local initialPhase = (next.offhandSlot and "pre_clear_pickup") or "pickup"
         uiState.pendingEquipAction = {
             bag = next.bag, slot = next.slot, targetSlot = next.targetSlot,
             name = next.name, attuneable = next.attuneable,
-            phase = "pickup", phaseEnteredAt = now
+            offhandSlot = next.offhandSlot,
+            phase = initialPhase, phaseEnteredAt = now
         }
         if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "…") end
     end
@@ -1287,10 +1289,17 @@ local function phase10_loopDelay()
     mq.doevents()
 end
 
--- Phase for equip action: pickup → place on slot → auto-accept attunement dialog → done
-local EQUIP_SETTLE_PICKUP_MS  = 350
-local EQUIP_PICKUP_TIMEOUT_MS = 3000
-local EQUIP_SETTLE_PLACE_MS   = 700
+-- Phase for equip action state machine:
+--   pre_clear_pickup → pre_clear_settle → pickup → settle_pickup → settle_place → wait_autoinv → done
+--   pre_clear phases only used for 2-hander (ea.offhandSlot set); they pick up and autoinv the offhand first.
+--   settle_place polls cursor each tick: accepts attunement dialog, detects cursor-clear success,
+--   or autoinventories a displaced item → wait_autoinv.
+local EQUIP_SETTLE_PICKUP_MS    = 350   -- wait after issuing pickup before checking cursor
+local EQUIP_PICKUP_TIMEOUT_MS   = 3000  -- give up if item never reaches cursor
+local EQUIP_PRE_CLEAR_SETTLE_MS = 350   -- wait after /itemnotify offhand before /autoinventory
+local EQUIP_MIN_SETTLE_PLACE_MS = 100   -- minimum dwell in settle_place before any action
+local EQUIP_PLACE_TIMEOUT_MS    = 5000  -- safety timeout for settle_place
+local EQUIP_AUTOINV_SETTLE_MS   = 250   -- wait after /autoinventory before declaring done
 local function phaseEquipAction(now)
     local uiState = d.uiState
     if not uiState then return end
@@ -1298,14 +1307,34 @@ local function phaseEquipAction(now)
     if not ea then return end
     local setStatus = d.setStatusMessage
 
+    -- PRE_CLEAR_PICKUP: pick up the offhand item so we can clear it before equipping a 2-hander
+    if ea.phase == "pre_clear_pickup" then
+        mq.cmdf('/itemnotify %s leftmouseup', ea.offhandSlot)
+        ea.phase = "pre_clear_settle"
+        ea.phaseEnteredAt = now
+        return
+    end
+
+    -- PRE_CLEAR_SETTLE: wait for the offhand to appear on cursor, then autoinventory it
+    if ea.phase == "pre_clear_settle" then
+        if (now - ea.phaseEnteredAt) < EQUIP_PRE_CLEAR_SETTLE_MS then return end
+        if d.hasItemOnCursor and d.hasItemOnCursor() then
+            mq.cmd('/autoinventory')
+        end
+        ea.phase = "pickup"
+        ea.phaseEnteredAt = now
+        return
+    end
+
+    -- PICKUP: pick up the item we want to equip (sets lastPickup guard)
     if ea.phase == "pickup" then
-        -- Issue the pickup command via pickupFromSlot (sets lastPickup guard + issues /itemnotify)
         if d.pickupFromSlot then d.pickupFromSlot(ea.bag, ea.slot, "inv") end
         ea.phase = "settle_pickup"
         ea.phaseEnteredAt = now
         return
     end
 
+    -- SETTLE_PICKUP: wait for item to appear on cursor; timeout aborts
     if ea.phase == "settle_pickup" then
         if (now - ea.phaseEnteredAt) < EQUIP_SETTLE_PICKUP_MS then return end
         if d.hasItemOnCursor and not d.hasItemOnCursor() then
@@ -1322,23 +1351,59 @@ local function phaseEquipAction(now)
         return
     end
 
+    -- SETTLE_PLACE: per-tick poll after placing item on slot.
+    --   • Accept attunement confirmation dialog if it appears.
+    --   • Cursor clear → equip succeeded, done.
+    --   • Cursor still has item after 400 ms → displaced item; autoinventory → wait_autoinv.
+    --   • Safety timeout at EQUIP_PLACE_TIMEOUT_MS.
     if ea.phase == "settle_place" then
-        -- Poll for attunement confirmation dialog and click Yes if present
-        local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogWnd") end)
-        if ok and dlg and dlg.Open and dlg.Open() then
-            local okBtn = pcall(function()
-                local btn = dlg.Child and dlg.Child("Yes_Button")
-                if btn and btn.Enabled and btn.Enabled() then btn.LeftMouseUp() end
-            end)
-            _ = okBtn  -- suppress unused warning
+        local elapsed = now - ea.phaseEnteredAt
+        -- Safety timeout
+        if elapsed > EQUIP_PLACE_TIMEOUT_MS then
+            if d.hasItemOnCursor and d.hasItemOnCursor() then mq.cmd('/autoinventory') end
+            if setStatus then setStatus("Equipped (timeout): " .. (ea.name or "")) end
+            uiState.pendingEquipAction = nil
+            if d.refreshEquipmentCache then d.refreshEquipmentCache() end
+            return
         end
-        if (now - ea.phaseEnteredAt) < EQUIP_SETTLE_PLACE_MS then return end
-        -- Put any displaced item back in bags (item was already in the slot)
-        if d.hasItemOnCursor and d.hasItemOnCursor() then mq.cmd('/autoinventory') end
+        -- Enforce minimum settle before doing anything
+        if elapsed < EQUIP_MIN_SETTLE_PLACE_MS then return end
+        -- Check for attunement confirmation dialog and accept it
+        local dlgOpen = false
+        do
+            local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogWnd") end)
+            dlgOpen = ok and dlg and dlg.Open and dlg.Open()
+        end
+        if dlgOpen then
+            mq.cmd('/notify ConfirmationDialogWnd Yes_Button leftmouseup')
+            -- Stay in settle_place; cursor will clear once the game processes the equip
+            return
+        end
+        -- Check cursor state
+        local hasCursor = d.hasItemOnCursor and d.hasItemOnCursor()
+        if not hasCursor then
+            -- Cursor is clear — equip succeeded
+            if setStatus then setStatus("Equipped: " .. (ea.name or "")) end
+            uiState.pendingEquipAction = nil
+            if d.refreshEquipmentCache then d.refreshEquipmentCache() end
+            return
+        end
+        -- Item still on cursor after sufficient dwell → displaced item; send to bags
+        if elapsed >= 400 then
+            mq.cmd('/autoinventory')
+            ea.phase = "wait_autoinv"
+            ea.phaseEnteredAt = now
+        end
+        return
+    end
+
+    -- WAIT_AUTOINV: short dwell after /autoinventory before declaring done
+    if ea.phase == "wait_autoinv" then
+        if (now - ea.phaseEnteredAt) < EQUIP_AUTOINV_SETTLE_MS then return end
         if setStatus then setStatus("Equipped: " .. (ea.name or "")) end
         uiState.pendingEquipAction = nil
-        -- Refresh equipment companion cache
         if d.refreshEquipmentCache then d.refreshEquipmentCache() end
+        return
     end
 end
 

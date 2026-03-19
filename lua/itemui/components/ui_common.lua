@@ -319,31 +319,47 @@ function M.renderItemContextMenu(ctx, item, opts)
     local canEquip = (source == "inv") and item.bag ~= nil and item.slot ~= nil
         and not isAugment and not isScriptItem and not isRerollBook
     if canEquip then
-        -- Determine best equipment slot via live TLO (only runs while menu is open, not per-frame)
-        local bestSlotName = nil
+        -- Equipment slot indices for weapon slots
+        local SLOT_MAINHAND, SLOT_OFFHAND = 13, 14
+        -- Determine best equipment slot via live TLO (runs only while menu is open, not per-frame)
+        local bestSlotName, offhandSlot = nil, nil
         local Me = mq.TLO and mq.TLO.Me
         local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
         local it = pack and pack.Item and pack.Item(item.slot)
         if it and it.WornSlots then
             local nSlots = it.WornSlots()
             if nSlots and nSlots > 0 and nSlots < 20 then
-                local eqCache = ctx.equipmentCache or {}
-                local firstValid = nil
+                -- Build deduplicated slot index list
+                local validSlots, slotSet = {}, {}
                 for i = 1, nSlots do
                     local s = it.WornSlot and it.WornSlot(i)
                     local idx = s and tonumber(tostring(s))
-                    if idx ~= nil then
-                        if not firstValid then firstValid = idx end
-                        if eqCache[idx + 1] == nil then
-                            -- Prefer an empty slot
-                            bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(idx) or nil
-                            break
-                        end
+                    if idx ~= nil and not slotSet[idx] then
+                        slotSet[idx] = true
+                        validSlots[#validSlots + 1] = idx
                     end
                 end
-                -- Fall back to first valid slot if no empty slot found
-                if not bestSlotName and firstValid ~= nil then
-                    bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(firstValid) or nil
+                -- 1H primary-first: sort so mainhand (13) is always checked before offhand (14)
+                table.sort(validSlots, function(a, b)
+                    if a == SLOT_MAINHAND then return true end
+                    if b == SLOT_MAINHAND then return false end
+                    return a < b
+                end)
+                -- 2-hander: fits mainhand but NOT offhand
+                local is2Hander = slotSet[SLOT_MAINHAND] and not slotSet[SLOT_OFFHAND]
+                local eqCache = ctx.equipmentCache or {}
+                -- Prefer an empty slot, then fall back to first valid
+                local bestIdx = nil
+                for _, idx in ipairs(validSlots) do
+                    if eqCache[idx + 1] == nil then bestIdx = idx; break end
+                end
+                if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
+                if bestIdx ~= nil then
+                    bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(bestIdx) or nil
+                end
+                -- 2-hander: if offhand is occupied, record it for pre-clear
+                if is2Hander and eqCache[SLOT_OFFHAND + 1] ~= nil then
+                    offhandSlot = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(SLOT_OFFHAND) or nil
                 end
             end
         end
@@ -352,7 +368,8 @@ function M.renderItemContextMenu(ctx, item, opts)
             if ImGui.MenuItem("Equip") then
                 local q = ctx.uiState.cursorActionQueue or {}
                 q[#q + 1] = { type = "equip", bag = item.bag, slot = item.slot, name = item.name,
-                               targetSlot = bestSlotName, attuneable = item.attuneable }
+                               targetSlot = bestSlotName, attuneable = item.attuneable,
+                               offhandSlot = offhandSlot }
                 ctx.uiState.cursorActionQueue = q
             end
         end
