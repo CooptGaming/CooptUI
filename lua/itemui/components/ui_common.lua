@@ -319,7 +319,7 @@ function M.renderItemContextMenu(ctx, item, opts)
     local canEquip = (source == "inv") and item.bag ~= nil and item.slot ~= nil
         and not isAugment and not isScriptItem and not isRerollBook
     if canEquip then
-        -- Equipment slot indices for weapon slots
+        -- Slot indices per SLOT_NAMES_ITEMNOTIFY in item_tlo.lua (0-22 map)
         local SLOT_MAINHAND, SLOT_OFFHAND = 13, 14
         -- Determine best equipment slot via live TLO (runs only while menu is open, not per-frame)
         local bestSlotName, offhandSlot = nil, nil
@@ -329,7 +329,7 @@ function M.renderItemContextMenu(ctx, item, opts)
         if it and it.WornSlots then
             local nSlots = it.WornSlots()
             if nSlots and nSlots > 0 and nSlots < 20 then
-                -- Build deduplicated slot index list
+                -- Build deduplicated slot index list (weapons, fingers, ears, wrists, etc.)
                 local validSlots, slotSet = {}, {}
                 for i = 1, nSlots do
                     local s = it.WornSlot and it.WornSlot(i)
@@ -339,16 +339,19 @@ function M.renderItemContextMenu(ctx, item, opts)
                         validSlots[#validSlots + 1] = idx
                     end
                 end
-                -- 1H primary-first: sort so mainhand (13) is always checked before offhand (14)
+                -- For weapons: put mainhand before offhand so a 1H fills primary first.
+                -- Paired non-weapon slots (finger/ear/wrist) keep their natural order.
                 table.sort(validSlots, function(a, b)
                     if a == SLOT_MAINHAND then return true end
                     if b == SLOT_MAINHAND then return false end
                     return a < b
                 end)
-                -- 2-hander: fits mainhand but NOT offhand
-                local is2Hander = slotSet[SLOT_MAINHAND] and not slotSet[SLOT_OFFHAND]
+                -- Primary-only: item fits mainhand but NOT offhand (2-handers, bows, some specials).
+                -- Always set offhandSlot so the state machine pre-clears it before equipping.
+                -- The machine is safe when offhand is already empty (cursor stays clear, no autoinv).
+                local isPrimaryOnly = slotSet[SLOT_MAINHAND] and not slotSet[SLOT_OFFHAND]
                 local eqCache = ctx.equipmentCache or {}
-                -- Prefer an empty slot, then fall back to first valid
+                -- Prefer an empty slot (covers finger/ear/wrist pairs); fall back to first valid.
                 local bestIdx = nil
                 for _, idx in ipairs(validSlots) do
                     if eqCache[idx + 1] == nil then bestIdx = idx; break end
@@ -357,8 +360,8 @@ function M.renderItemContextMenu(ctx, item, opts)
                 if bestIdx ~= nil then
                     bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(bestIdx) or nil
                 end
-                -- 2-hander: if offhand is occupied, record it for pre-clear
-                if is2Hander and eqCache[SLOT_OFFHAND + 1] ~= nil then
+                -- Always request offhand pre-clear for primary-only items regardless of cache state.
+                if isPrimaryOnly then
                     offhandSlot = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(SLOT_OFFHAND) or nil
                 end
             end
