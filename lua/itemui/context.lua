@@ -1,8 +1,8 @@
 --[[
     ItemUI Context
-    Single registry + buildViewContext/extendContext for view modules.
+    Single registry + cached proxy for view modules.
     Keeps build() under Lua's 60 upvalue limit by closing only over refs.
-    Usage: context.init(refs) once from init.lua, then context.build(), context.extend(ctx).
+    Usage: context.init(refs) once from app.lua, then context.build() each frame.
 --]]
 
 local M = {}
@@ -19,10 +19,6 @@ function M.build()
         proxy = setmetatable({}, { __index = refs })
     end
     return proxy
-end
-
-function M.extend(ctx)
-    return ctx
 end
 
 return M
