@@ -88,11 +88,12 @@ local function isCursorFromKnownSource(uiState)
     if uiState.pendingQuantityAction then return true end
     if uiState.pendingQuantityPickup then return true end
     if uiState.pendingAugRollComplete then return true end
+    if uiState.pendingEquipAction then return true end
     if uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated then return true end
     local q = uiState.cursorActionQueue
     if q and #q > 0 and q[1] then
         local t = q[1].type
-        if t == "reroll_add" or t == "destroy" then return true end
+        if t == "reroll_add" or t == "destroy" or t == "equip" then return true end
     end
     return false
 end
@@ -1126,6 +1127,13 @@ local function phase0_cursorActionQueue(now)
                 and string.format("Adding to list... (%d queued)", remaining)
                 or "Adding to list...")
         end
+    elseif next.type == "equip" then
+        uiState.pendingEquipAction = {
+            bag = next.bag, slot = next.slot, targetSlot = next.targetSlot,
+            name = next.name, attuneable = next.attuneable,
+            phase = "pickup", phaseEnteredAt = now
+        }
+        if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "…") end
     end
 end
 
@@ -1279,6 +1287,61 @@ local function phase10_loopDelay()
     mq.doevents()
 end
 
+-- Phase for equip action: pickup → place on slot → auto-accept attunement dialog → done
+local EQUIP_SETTLE_PICKUP_MS  = 350
+local EQUIP_PICKUP_TIMEOUT_MS = 3000
+local EQUIP_SETTLE_PLACE_MS   = 700
+local function phaseEquipAction(now)
+    local uiState = d.uiState
+    if not uiState then return end
+    local ea = uiState.pendingEquipAction
+    if not ea then return end
+    local setStatus = d.setStatusMessage
+
+    if ea.phase == "pickup" then
+        -- Issue the pickup command via pickupFromSlot (sets lastPickup guard + issues /itemnotify)
+        if d.pickupFromSlot then d.pickupFromSlot(ea.bag, ea.slot, "inv") end
+        ea.phase = "settle_pickup"
+        ea.phaseEnteredAt = now
+        return
+    end
+
+    if ea.phase == "settle_pickup" then
+        if (now - ea.phaseEnteredAt) < EQUIP_SETTLE_PICKUP_MS then return end
+        if d.hasItemOnCursor and not d.hasItemOnCursor() then
+            if (now - ea.phaseEnteredAt) > EQUIP_PICKUP_TIMEOUT_MS then
+                if setStatus then setStatus("Equip failed: could not pick up '" .. (ea.name or "") .. "'.") end
+                uiState.pendingEquipAction = nil
+            end
+            return
+        end
+        -- Item on cursor — place it on the target equipment slot
+        mq.cmdf('/itemnotify %s leftmouseup', ea.targetSlot)
+        ea.phase = "settle_place"
+        ea.phaseEnteredAt = now
+        return
+    end
+
+    if ea.phase == "settle_place" then
+        -- Poll for attunement confirmation dialog and click Yes if present
+        local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogWnd") end)
+        if ok and dlg and dlg.Open and dlg.Open() then
+            local okBtn = pcall(function()
+                local btn = dlg.Child and dlg.Child("Yes_Button")
+                if btn and btn.Enabled and btn.Enabled() then btn.LeftMouseUp() end
+            end)
+            _ = okBtn  -- suppress unused warning
+        end
+        if (now - ea.phaseEnteredAt) < EQUIP_SETTLE_PLACE_MS then return end
+        -- Put any displaced item back in bags (item was already in the slot)
+        if d.hasItemOnCursor and d.hasItemOnCursor() then mq.cmd('/autoinventory') end
+        if setStatus then setStatus("Equipped: " .. (ea.name or "")) end
+        uiState.pendingEquipAction = nil
+        -- Refresh equipment companion cache
+        if d.refreshEquipmentCache then d.refreshEquipmentCache() end
+    end
+end
+
 -- Phase 5b: Drain deferred loot sell-status (15/tick to avoid burst stutter)
 local SELL_STATUS_DRAIN_PER_TICK = 15
 local function phase5b_lootSellStatusDrain()
@@ -1317,6 +1380,7 @@ function M.tick(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
     phase5_lootMacro(now)
+    phaseEquipAction(now)
     -- Drain IPC after phase 5 so run-start clear in phase 5 doesn't wipe items we just drained
     if d.macroBridge and d.macroBridge.drainIPCFast then
         d.macroBridge.drainIPCFast(d.uiState, d.getSellStatusForItem, d.LOOT_HISTORY_MAX)

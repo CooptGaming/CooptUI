@@ -315,6 +315,49 @@ function M.renderItemContextMenu(ctx, item, opts)
         if ImGui.MenuItem("Remove from list") then opts.onRemoveFromRerollList(opts.rerollEntryId) end
     end
 
+    -- Equip (inventory items only; not augments, scripts, or reroll books)
+    local canEquip = (source == "inv") and item.bag ~= nil and item.slot ~= nil
+        and not isAugment and not isScriptItem and not isRerollBook
+    if canEquip then
+        -- Determine best equipment slot via live TLO (only runs while menu is open, not per-frame)
+        local bestSlotName = nil
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+        local it = pack and pack.Item and pack.Item(item.slot)
+        if it and it.WornSlots then
+            local nSlots = it.WornSlots()
+            if nSlots and nSlots > 0 and nSlots < 20 then
+                local eqCache = ctx.equipmentCache or {}
+                local firstValid = nil
+                for i = 1, nSlots do
+                    local s = it.WornSlot and it.WornSlot(i)
+                    local idx = s and tonumber(tostring(s))
+                    if idx ~= nil then
+                        if not firstValid then firstValid = idx end
+                        if eqCache[idx + 1] == nil then
+                            -- Prefer an empty slot
+                            bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(idx) or nil
+                            break
+                        end
+                    end
+                end
+                -- Fall back to first valid slot if no empty slot found
+                if not bestSlotName and firstValid ~= nil then
+                    bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(firstValid) or nil
+                end
+            end
+        end
+        if bestSlotName then
+            ImGui.Separator()
+            if ImGui.MenuItem("Equip") then
+                local q = ctx.uiState.cursorActionQueue or {}
+                q[#q + 1] = { type = "equip", bag = item.bag, slot = item.slot, name = item.name,
+                               targetSlot = bestSlotName, attuneable = item.attuneable }
+                ctx.uiState.cursorActionQueue = q
+            end
+        end
+    end
+
     -- Destroy
     local canDestroy = (source == "inv" or source == "bank" or source == "sell" or source == "augments" or source == "reroll") and item.bag ~= nil and item.slot ~= nil
     if canDestroy and ctx.setPendingDestroy and ctx.requestDestroyItem then
