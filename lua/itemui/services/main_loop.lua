@@ -1128,11 +1128,13 @@ local function phase0_cursorActionQueue(now)
                 or "Adding to list...")
         end
     elseif next.type == "equip" then
-        local initialPhase = (next.offhandSlot and "pre_clear_pickup") or "pickup"
+        local preClear = next.preClearSlots or {}
+        local initialPhase = (#preClear > 0) and "pre_clear_pickup" or "pickup"
         uiState.pendingEquipAction = {
             bag = next.bag, slot = next.slot, targetSlot = next.targetSlot,
             name = next.name, attuneable = next.attuneable,
-            offhandSlot = next.offhandSlot,
+            preClearSlots = preClear,
+            preClearIdx   = 1,
             phase = initialPhase, phaseEnteredAt = now
         }
         if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "…") end
@@ -1290,13 +1292,14 @@ local function phase10_loopDelay()
 end
 
 -- Phase for equip action state machine:
---   pre_clear_pickup → pre_clear_settle → pickup → settle_pickup → settle_place → wait_autoinv → done
---   pre_clear phases only used for 2-hander (ea.offhandSlot set); they pick up and autoinv the offhand first.
+--   [pre_clear_pickup → pre_clear_settle] × N slots → pickup → settle_pickup → settle_place → wait_autoinv → done
+--   pre_clear phases iterate ea.preClearSlots (e.g. {"offhand","mainhand"} for primary-only items).
+--   Each slot: pick up via /itemnotify, wait for cursor, /autoinventory if needed, advance to next.
 --   settle_place polls cursor each tick: accepts attunement dialog, detects cursor-clear success,
 --   or autoinventories a displaced item → wait_autoinv.
 local EQUIP_SETTLE_PICKUP_MS    = 350   -- wait after issuing pickup before checking cursor
 local EQUIP_PICKUP_TIMEOUT_MS   = 3000  -- give up if item never reaches cursor
-local EQUIP_PRE_CLEAR_SETTLE_MS = 350   -- wait after /itemnotify offhand before /autoinventory
+local EQUIP_PRE_CLEAR_SETTLE_MS = 350   -- wait after /itemnotify <slot> before checking cursor
 local EQUIP_MIN_SETTLE_PLACE_MS = 100   -- minimum dwell in settle_place before any action
 local EQUIP_PLACE_TIMEOUT_MS    = 5000  -- safety timeout for settle_place
 local EQUIP_AUTOINV_SETTLE_MS   = 250   -- wait after /autoinventory before declaring done
@@ -1307,21 +1310,44 @@ local function phaseEquipAction(now)
     if not ea then return end
     local setStatus = d.setStatusMessage
 
-    -- PRE_CLEAR_PICKUP: pick up the offhand item so we can clear it before equipping a 2-hander
+    -- PRE_CLEAR_PICKUP: pick up the current slot in the pre-clear list.
+    -- Safe when slot is empty — cursor stays clear, autoinventory is skipped in settle.
     if ea.phase == "pre_clear_pickup" then
-        mq.cmdf('/itemnotify %s leftmouseup', ea.offhandSlot)
+        local slotName = (ea.preClearSlots or {})[ea.preClearIdx or 1]
+        if slotName then
+            mq.cmdf('/itemnotify %s leftmouseup', slotName)
+        end
         ea.phase = "pre_clear_settle"
         ea.phaseEnteredAt = now
+        ea.preClearSentAutoinv = nil
+        ea.preClearAutoinvAt   = nil
         return
     end
 
-    -- PRE_CLEAR_SETTLE: wait for the offhand to appear on cursor, then autoinventory it
+    -- PRE_CLEAR_SETTLE: wait for item on cursor, autoinventory it, wait for autoinv to settle,
+    -- then advance to the next slot in the list (or to the pickup phase when all done).
     if ea.phase == "pre_clear_settle" then
         if (now - ea.phaseEnteredAt) < EQUIP_PRE_CLEAR_SETTLE_MS then return end
         if d.hasItemOnCursor and d.hasItemOnCursor() then
-            mq.cmd('/autoinventory')
+            if not ea.preClearSentAutoinv then
+                mq.cmd('/autoinventory')
+                ea.preClearSentAutoinv = true
+                ea.preClearAutoinvAt   = now
+                return
+            elseif (now - (ea.preClearAutoinvAt or 0)) < EQUIP_AUTOINV_SETTLE_MS then
+                return  -- wait for /autoinventory to land
+            end
         end
-        ea.phase = "pickup"
+        -- Cursor clear (slot was empty, or autoinv has settled); advance
+        ea.preClearSentAutoinv = nil
+        ea.preClearAutoinvAt   = nil
+        ea.preClearIdx = (ea.preClearIdx or 1) + 1
+        local slots = ea.preClearSlots or {}
+        if ea.preClearIdx <= #slots then
+            ea.phase = "pre_clear_pickup"   -- more slots to clear
+        else
+            ea.phase = "pickup"             -- all clear, pick up the item to equip
+        end
         ea.phaseEnteredAt = now
         return
     end

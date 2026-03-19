@@ -322,7 +322,7 @@ function M.renderItemContextMenu(ctx, item, opts)
         -- Slot indices per SLOT_NAMES_ITEMNOTIFY in item_tlo.lua (0-22 map)
         local SLOT_MAINHAND, SLOT_OFFHAND = 13, 14
         -- Determine best equipment slot via live TLO (runs only while menu is open, not per-frame)
-        local bestSlotName, offhandSlot = nil, nil
+        local bestSlotName, preClearSlots = nil, nil
         local Me = mq.TLO and mq.TLO.Me
         local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
         local it = pack and pack.Item and pack.Item(item.slot)
@@ -347,8 +347,6 @@ function M.renderItemContextMenu(ctx, item, opts)
                     return a < b
                 end)
                 -- Primary-only: item fits mainhand but NOT offhand (2-handers, bows, some specials).
-                -- Always set offhandSlot so the state machine pre-clears it before equipping.
-                -- The machine is safe when offhand is already empty (cursor stays clear, no autoinv).
                 local isPrimaryOnly = slotSet[SLOT_MAINHAND] and not slotSet[SLOT_OFFHAND]
                 local eqCache = ctx.equipmentCache or {}
                 -- Prefer an empty slot (covers finger/ear/wrist pairs); fall back to first valid.
@@ -360,9 +358,18 @@ function M.renderItemContextMenu(ctx, item, opts)
                 if bestIdx ~= nil then
                     bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(bestIdx) or nil
                 end
-                -- Always request offhand pre-clear for primary-only items regardless of cache state.
+                -- Primary-only: pre-clear BOTH offhand and mainhand before equipping.
+                -- Order: offhand first, then mainhand. The state machine handles empty slots
+                -- safely (cursor stays clear, /autoinventory is skipped for that slot).
                 if isPrimaryOnly then
-                    offhandSlot = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(SLOT_OFFHAND) or nil
+                    local getSlotName = ctx.getEquipmentSlotNameForItemNotify
+                    if getSlotName then
+                        preClearSlots = {}
+                        local ohName = getSlotName(SLOT_OFFHAND)
+                        local mhName = getSlotName(SLOT_MAINHAND)
+                        if ohName then preClearSlots[#preClearSlots + 1] = ohName end
+                        if mhName then preClearSlots[#preClearSlots + 1] = mhName end
+                    end
                 end
             end
         end
@@ -372,7 +379,7 @@ function M.renderItemContextMenu(ctx, item, opts)
                 local q = ctx.uiState.cursorActionQueue or {}
                 q[#q + 1] = { type = "equip", bag = item.bag, slot = item.slot, name = item.name,
                                targetSlot = bestSlotName, attuneable = item.attuneable,
-                               offhandSlot = offhandSlot }
+                               preClearSlots = preClearSlots }
                 ctx.uiState.cursorActionQueue = q
             end
         end
