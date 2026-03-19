@@ -26,6 +26,8 @@ Sub Main
 /declare arg1 string local ${Param0}
 /declare configPath string outer ${MacroQuest.Path}/Macros/loot_config
 /declare sharedConfigPath string outer ${MacroQuest.Path}/Macros/shared_config
+/declare layoutFile string outer ${MacroQuest.Path}/Macros/sell_config/itemui_layout.ini
+/declare lootVerbose bool outer FALSE
 
 | Check for command arguments
 /if (${arg1.Equal[help]}) /varset doHelp TRUE
@@ -134,7 +136,7 @@ Sub Main
 /declare pauseAlertItemName string outer
 /declare pauseAlertCorpseName string outer
 /declare mythicalDecisionResult string outer
-/declare quietMode bool outer FALSE
+| quietMode removed: use Debug:Loot channel in itemui_layout.ini (Advanced > Debug channels)
 /declare enableLiveLootFeed bool outer FALSE
 
 | Epic Items (when alwaysLootEpic - chunked to avoid buffer overflow, do NOT merge)
@@ -334,7 +336,7 @@ Sub Main
     /squelch /cooptui ipc send loot_start "${totalCorpses}"
     /echo [Loot] IPC streaming ON (CoOptUI plugin)
 }
-/if (!${quietMode}) {
+/if (${lootVerbose}) {
     /echo ==========================================
     /echo Loot Macro v4.0 Started
     /echo ==========================================
@@ -377,7 +379,7 @@ Sub Main
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     } else {
         /tar npccorpse${If[${Alert}, noalert ${Alert},]}
-        /if (!${quietMode}) /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
+        /if (${lootVerbose}) /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     }
     
@@ -386,7 +388,7 @@ Sub Main
     
     | --- Verify we're close enough to loot ---
     /if (${Target.Distance} > 20) {
-        /if (!${quietMode}) /echo Warning: Too far from corpse (${Target.Distance} units) - skipping
+        /if (${lootVerbose}) /echo Warning: Too far from corpse (${Target.Distance} units) - skipping
         /goto :mainlootloop
     }
     
@@ -455,7 +457,7 @@ Sub Main
                 /doevents
                 /if (${loreDupDetected}) {
                     /varset loreDupDetected FALSE
-                    /if (!${quietMode}) /echo Lore duplicate detected from game message - added "${lootName}" to cache
+                    /if (${lootVerbose}) /echo Lore duplicate detected from game message - added "${lootName}" to cache
                     /goto :Pass2Done
                 }
             }
@@ -580,19 +582,19 @@ sub EvaluateItem(int slot)
         /if (${loreItemCache.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
-            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /if (${lootVerbose}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
         /if (${loreItemCache2.Length} > 0 && ${loreItemCache2.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
-            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /if (${lootVerbose}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
         /if (${loreItemCache3.Length} > 0 && ${loreItemCache3.Find[${cacheKey}]}) {
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
-            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
+            /if (${lootVerbose}) /echo Skipping LORE DUPLICATE: ${lootName} (cached)
             /return
         }
         
@@ -624,12 +626,12 @@ sub EvaluateItem(int slot)
             }
             /call LogSkippedItem "${lootName}" "Lore duplicate"
             /call AddToSkippedSessionCache
-            /if (!${quietMode}) /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
+            /if (${lootVerbose}) /echo Skipping LORE DUPLICATE: ${lootName} (already owned - ID: ${foundItemID}, cached)
             /return
         }
     }
 
-    /if (!${quietMode}) /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
+    /if (${lootVerbose}) /echo Evaluating: ${lootName} (Value: ${itemValue}, Type: ${lootType}, Lore: ${isLore})
     
     | =========================================== |
     | MYTHICAL NODROP/NOTRADE PAUSE (optional)   |
@@ -657,7 +659,7 @@ sub EvaluateItem(int slot)
             /beep
             /delay ${lootDelayTicks}
             /beep
-            /if (!${quietMode}) /echo Paused: Mythical NoDrop/NoTrade — choose Loot or Skip in the Loot UI.
+            /if (${lootVerbose}) /echo Paused: Mythical NoDrop/NoTrade — choose Loot or Skip in the Loot UI.
             /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
                 /declare linkText string local
                 /squelch /varset linkText ${Corpse.Item[${slot}].ItemLink[CLICKABLE]}
@@ -670,7 +672,7 @@ sub EvaluateItem(int slot)
             }
             /call WaitForMythicalDecision
             /if (${mythicalDecisionResult.Equal[loot]}) {
-                /if (!${quietMode}) /echo Looting Mythical (you chose Loot): ${pauseAlertItemName}
+                /if (${lootVerbose}) /echo Looting Mythical (you chose Loot): ${pauseAlertItemName}
                 /call AddSlotToLootList ${slot}
             }
             | Clear INI so UI hides the alert card
@@ -708,7 +710,7 @@ sub EvaluateItem(int slot)
     }
     /goto :AfterEpicCheck
 :LootEpicItem
-    /if (!${quietMode}) /echo LOOTING (Epic quest item): ${lootName}
+    /if (${lootVerbose}) /echo LOOTING (Epic quest item): ${lootName}
     /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item" ${itemTribute}
     /if (${decideOnly}) {
         /call AddSlotToLootList ${slot}
@@ -726,7 +728,7 @@ sub EvaluateItem(int slot)
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip exact"
         /call AddToSkippedSessionCache
-        /if (!${quietMode}) /echo SKIPPING (skip exact): ${lootName}
+        /if (${lootVerbose}) /echo SKIPPING (skip exact): ${lootName}
         /return
     }
     
@@ -734,7 +736,7 @@ sub EvaluateItem(int slot)
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip keyword"
         /call AddToSkippedSessionCache
-        /if (!${quietMode}) /echo SKIPPING (skip keyword): ${lootName}
+        /if (${lootVerbose}) /echo SKIPPING (skip keyword): ${lootName}
         /return
     }
     
@@ -742,7 +744,7 @@ sub EvaluateItem(int slot)
     /if (${skipItem}) {
         /call LogSkippedItem "${lootName}" "Skip type"
         /call AddToSkippedSessionCache
-        /if (!${quietMode}) /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
+        /if (${lootVerbose}) /echo SKIPPING (skip type): ${lootName} (Type: ${lootType})
         /return
     }
     
@@ -750,7 +752,7 @@ sub EvaluateItem(int slot)
     | PRIORITY 2: TRIBUTE OVERRIDE                |
     | =========================================== |
     /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
-        /if (!${quietMode}) /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
+        /if (${lootVerbose}) /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
         /call LogItem "loot" "${lootName}" ${itemValue} "tribute override" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -765,7 +767,7 @@ sub EvaluateItem(int slot)
     | =========================================== |
     /if (${alwaysLootExact.Length} > 0) /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE
     /if (${shouldLoot}) {
-        /if (!${quietMode}) /echo LOOTING (always loot exact): ${lootName}
+        /if (${lootVerbose}) /echo LOOTING (always loot exact): ${lootName}
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -780,7 +782,7 @@ sub EvaluateItem(int slot)
     | =========================================== |
     /if (${alwaysLootContains.Length} > 0) /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE
     /if (${shouldLoot}) {
-        /if (!${quietMode}) /echo LOOTING (always loot keyword): ${lootName}
+        /if (${lootVerbose}) /echo LOOTING (always loot keyword): ${lootName}
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -795,7 +797,7 @@ sub EvaluateItem(int slot)
     | =========================================== |
     /if (${alwaysLootTypes.Length} > 0) /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE
     /if (${shouldLoot}) {
-        /if (!${quietMode}) /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
+        /if (${lootVerbose}) /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
         /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -836,7 +838,7 @@ sub EvaluateItem(int slot)
     
     | --- Loot if any condition passed ---
     /if (${shouldLoot}) {
-        /if (!${quietMode}) /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
+        /if (${lootVerbose}) /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
         /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
@@ -846,7 +848,7 @@ sub EvaluateItem(int slot)
     } else {
         /call LogSkippedItem "${lootName}" "No criteria met"
         /call AddToSkippedSessionCache
-        /if (!${quietMode}) /echo Skipping (no criteria met): ${lootName}
+        /if (${lootVerbose}) /echo Skipping (no criteria met): ${lootName}
     }
     
 /return
@@ -1112,7 +1114,7 @@ sub LootItemWithSound(int slot)
     | --- Check for special items and play sound effect ---
     /if (${lootName.Find[Legendary]} || ${lootName.Find[Mythical]} || ${lootName.Find[Script]}) {
         /beep
-        /if (!${quietMode}) /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
+        /if (${lootVerbose}) /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
     }
 
     | --- Now loot the item ---
@@ -1511,11 +1513,9 @@ sub LoadConfig(bool verbose)
     } else {
         /varset testMythicalPauseItem
     }
-    /if (${Ini[${flagsFile},Settings,quietMode].Length}) {
-        /varset quietMode ${Ini[${flagsFile},Settings,quietMode]}
-    } else {
-        /varset quietMode FALSE
-    }
+    | lootVerbose: mirrors Debug:Loot channel in itemui_layout.ini (Advanced > Debug channels in CoOpt UI)
+    /varset lootVerbose FALSE
+    /if (${Ini[${layoutFile},Debug,Loot].Equal[1]}) /varset lootVerbose TRUE
     /if (${Ini[${flagsFile},Settings,enableLiveLootFeed].Length}) {
         /varset enableLiveLootFeed ${Ini[${flagsFile},Settings,enableLiveLootFeed]}
     } else {
@@ -1648,7 +1648,7 @@ sub LoadConfig(bool verbose)
     /varset alwaysLootEpic ${Bool[${alwaysLootEpic}]}
     /varset enableSorting ${Bool[${enableSorting}]}
     /varset enableWeightSort ${Bool[${enableWeightSort}]}
-    /varset quietMode ${Bool[${quietMode}]}
+    /varset lootVerbose ${Bool[${lootVerbose}]}
 
     /if (${verbose}) {
         /echo Configuration loaded!
@@ -1970,8 +1970,8 @@ sub LogItem(string action, string itemName, int itemValue, string reason, int tr
     /if (${enableLiveLootFeed} && !${pluginLoaded}) /echo [ItemUI Loot] ${itemName}|${itemValue}|${tribute}
     /if (${pluginLoaded}) /squelch /cooptui ipc send loot_item "${itemName}|${itemValue}|${tribute}"
 
-    | When quietMode: skip file I/O (run receipt already updated for CoOpt UI)
-    /if (${quietMode}) /return
+    | When lootVerbose is off: skip file I/O (run receipt already updated for CoOpt UI)
+    /if (!${lootVerbose}) /return
     
     | Ensure the item_management directory exists
     | Try to create a temporary file in the directory to force directory creation

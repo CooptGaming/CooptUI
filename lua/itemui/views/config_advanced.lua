@@ -26,6 +26,7 @@ function ConfigAdvanced.render(ctx)
     if ImGui.CollapsingHeader("Debug channels", ImGuiTreeNodeFlags.DefaultOpen) then
         renderBreadcrumb("Advanced", "Debug channels")
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Enable debug channels to see runtime messages in the console and in logs/coopui_debug.log (rotates at 1MB). Default: all off.")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Note: 'Debug: Loot' also controls loot macro console echo (Evaluating, LOOTING, SKIPPING, etc.).")
         ImGui.Spacing()
         for _, name in ipairs(debugModule.knownChannels or {}) do
             local enabled = debugModule.isChannelEnabled(name)

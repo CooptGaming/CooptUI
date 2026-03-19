@@ -398,7 +398,7 @@ function ConfigGeneral.render(ctx)
             end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When on, CoOpt UI Loot tab updates in real time as items are looted. When off, Current/History load when the macro completes."); ImGui.EndTooltip() end
         end
-        lootFlag("Quiet loot (suppress console echo)", "quietMode", "When on, the loot macro does not echo Evaluating, Skipping, LOOTING, Corpses Remaining, or startup banner. Reduces console spam and slight overhead.")
+        -- Loot console verbosity: controlled via Settings > Advanced > Debug channels > "Debug: Loot"
         ImGui.Spacing()
         ImGui.Text("Loot delay (ticks)")
         local ticks = tonumber(configLootFlags.lootDelayTicks)
