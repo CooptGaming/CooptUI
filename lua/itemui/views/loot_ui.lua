@@ -307,6 +307,25 @@ function LootUIView.render(ctx)
                     end
                     ImGui.SameLine()
                 end
+                -- Reroll: visible after item was taken so user can queue it for mythical reroll
+                if decision == "taken" then
+                    local itemName = alert.itemName
+                    if ImGui.Button("Reroll##MythicalAlert") then
+                        local found = nil
+                        if itemName and itemName ~= "" and ctx.inventoryItems then
+                            for _, inv in ipairs(ctx.inventoryItems) do
+                                if inv.name == itemName then found = inv; break end
+                            end
+                        end
+                        if found then
+                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", found) end
+                        else
+                            if ctx.setStatusMessage then ctx.setStatusMessage("Item not found in inventory: " .. (itemName or "")) end
+                        end
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add to Mythical Reroll list."); ImGui.EndTooltip() end
+                    ImGui.SameLine()
+                end
                 if ImGui.Button("Dismiss##MythicalAlert") then
                     if ctx.clearLootUIMythicalAlert then ctx.clearLootUIMythicalAlert() end
                 end
