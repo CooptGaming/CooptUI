@@ -304,7 +304,6 @@ registry.register({
     end,
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         ItemDisplayView.render(ctx)
     end,
 })

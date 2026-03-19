@@ -580,7 +580,6 @@ registry.register({
     onTick      = nil,
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         RerollView.render(ctx)
     end,
 })

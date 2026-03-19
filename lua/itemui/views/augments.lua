@@ -332,7 +332,6 @@ registry.register({
     enableKey   = "ShowAugmentsWindow",
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         AugmentsView.render(ctx)
     end,
 })

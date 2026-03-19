@@ -390,7 +390,6 @@ registry.register({
     enableKey   = "ShowBankWindow",
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         BankView.render(ctx)
     end,
 })

@@ -29,9 +29,6 @@ local function buildViewContext()
     return context.build()
 end
 
-local function extendContext(ctx)
-    return context.extend(ctx)
-end
 
 local function renderSetupStep0Content(refs)
     local theme = refs.theme
@@ -88,7 +85,7 @@ local function renderSetupStep0Content(refs)
 end
 
 local function renderInventoryContent(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
     local bankOpen = refs.isBankWindowOpen and refs.isBankWindowOpen()
     local lootOpen = refs.isLootWindowOpen and refs.isLootWindowOpen()
@@ -102,27 +99,27 @@ local function renderInventoryContent(refs)
 end
 
 local function renderBankWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     BankView.render(ctx)
 end
 
 local function renderEquipmentWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     EquipmentView.render(ctx)
 end
 
 local function renderAugmentsWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     AugmentsView.render(ctx)
 end
 
 local function renderItemDisplayWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     ItemDisplayView.render(ctx)
 end
 
 local function renderAugmentUtilityWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     AugmentUtilityView.render(ctx)
 end
 
@@ -137,7 +134,7 @@ local function renderAAWindow(refs)
 end
 
 local function renderLootWindow(refs)
-    local ctx = extendContext(buildViewContext())
+    local ctx = buildViewContext()
     local uiState = refs.uiState
     local config = refs.config
     ctx.runLootCurrent = function()

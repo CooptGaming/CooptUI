@@ -168,7 +168,6 @@ registry.register({
     enableKey = "ShowConfigWindow",
     render    = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         ConfigView.render(ctx)
     end,
 })
