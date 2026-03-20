@@ -11,7 +11,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = if ($PSScriptRoot) { Split-Path $PSScriptRoot -Parent } else { Get-Location }
-if (-not $Version) { $Version = "0.2.0-alpha" }
+if (-not $Version) {
+    # Read version from lua/coopui/version.lua (PACKAGE field) as canonical fallback
+    $versionLua = Join-Path $RepoRoot "lua\coopui\version.lua"
+    if (Test-Path $versionLua) {
+        $content = Get-Content $versionLua -Raw
+        if ($content -match 'PACKAGE\s*=\s*"([^"]+)"') { $Version = $Matches[1] }
+    }
+    if (-not $Version) { $Version = "0.0.0" }
+}
 if (-not $OutputDir) { $OutputDir = $RepoRoot }
 
 $ZipName = "CoOpt UI_v$Version.zip"
@@ -60,6 +68,14 @@ try {
     Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\EQUI.xml") -Destination $resDest -Force
     Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\MQUI_ItemColorAnimation.xml") -Destination $resDest -Force
     Copy-Item -Path (Join-Path $RepoRoot "resources\UIFiles\Default\ItemColorBG.tga") -Destination $resDest -Force
+
+    # config: MQ2CustomBinds.txt (CoOpt UI keybind definitions)
+    $cbSrc = Join-Path $RepoRoot "config\MQ2CustomBinds.txt"
+    if (Test-Path $cbSrc) {
+        $cfgDest = Join-Path $Staging "config"
+        New-Item -ItemType Directory -Path $cfgDest -Force | Out-Null
+        Copy-Item -Path $cbSrc -Destination $cfgDest -Force
+    }
 
     # Root: DEPLOY.md, optional CHANGELOG.md
     Copy-Item -Path (Join-Path $RepoRoot "DEPLOY.md") -Destination $Staging -Force

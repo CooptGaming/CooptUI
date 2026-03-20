@@ -626,6 +626,7 @@ function M.moveInvToBank(invBag, invSlot)
     if stackSize > 1 then
         state.pendingMoveAction = {
             source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
+            skipQtyWindow = true,
             mergeIntoExisting = mergeIntoExisting,
             row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container, icon = row.icon },
             phase = "start",
@@ -668,6 +669,7 @@ function M.moveBankToInv(bagIdx, slotIdx)
     if stackSize > 1 then
         state.pendingMoveAction = {
             source = "bank", bag = bagIdx, slot = slotIdx, destBag = ib, destSlot = is_, qty = stackSize,
+            skipQtyWindow = true,
             row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, icon = row.icon },
             phase = "start",
         }
@@ -728,7 +730,7 @@ function M.advanceMoveStateMachine(now)
         else
             mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.bag, action.slot)
         end
-        if qty > 1 then
+        if qty > 1 and not action.skipQtyWindow then
             action.phase = "wait_qty_window"
             action.enteredAt = now
         else
