@@ -25,15 +25,23 @@ jobs:
           $ver = "${{ github.ref_name }}" -replace '^v',''
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Generate manifests BEFORE building zip/patcher so hashes match the tagged code.
+      # This ensures the patcher always serves correct hashes for the release being built.
+      - name: Generate release manifests
+        run: |
+          python patcher/generate_manifest.py
+          python patcher/generate_default_config_manifest.py
+        shell: pwsh
+
       - name: Build release zip
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: .\scripts\build-release.ps1 -OutputDir $env:GITHUB_WORKSPACE
-
-      - name: Set up Python for patcher
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Build patcher exe
         run: |
@@ -44,12 +52,18 @@ jobs:
           Pop-Location
         shell: pwsh
 
-      - name: Verify patcher exe
+      - name: Verify build artifacts
         run: |
+          $zip = "CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip"
+          if (-not (Test-Path $zip)) {
+            Write-Error "Release ZIP not found: $zip"
+            exit 1
+          }
           if (-not (Test-Path "patcher/dist/CoOptUIPatcher.exe")) {
             Write-Error "CoOptUIPatcher.exe was not built at patcher/dist/CoOptUIPatcher.exe"
             exit 1
           }
+          Write-Host "Build artifacts verified: $zip and CoOptUIPatcher.exe"
         shell: pwsh
 
       - name: Create GitHub Release

@@ -82,6 +82,33 @@ def _collect_release_paths():
     return sorted(paths)
 
 
+def _read_changelog() -> list[str]:
+    """Read latest version's changelog entries from CHANGELOG.md."""
+    changelog_path = os.path.join(REPO_ROOT, "CHANGELOG.md")
+    if not os.path.isfile(changelog_path):
+        return []
+    with open(changelog_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    lines = content.split("\n")
+    entries = []
+    in_version = False
+    for line in lines:
+        stripped = line.strip()
+        # Version heading: ## [0.9.0-beta] or ## [1.0.0]
+        if stripped.startswith("## [") and "Unreleased" not in stripped:
+            if in_version:
+                break  # Finished the latest version section
+            in_version = True
+            continue
+        if in_version:
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                entries.append(stripped[2:].strip())
+            elif stripped.startswith("### "):
+                entries.append(stripped)
+    return entries
+
+
 def _sha256_file(file_path: str) -> str:
     with open(file_path, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
@@ -96,7 +123,7 @@ def main():
             h = _sha256_file(full)
             files.append({"path": path, "hash": h})
     version = _read_coopt_version()
-    manifest = {"version": version, "files": files}
+    manifest = {"version": version, "changelog": _read_changelog(), "files": files}
     out_path = os.path.join(REPO_ROOT, "release_manifest.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
