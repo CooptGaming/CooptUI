@@ -20,8 +20,6 @@ function ConfigGeneral.render(ctx)
     local config = ctx.config
     local theme = ctx.theme
     local scheduleLayoutSave = ctx.scheduleLayoutSave
-    local saveLayoutToFile = ctx.saveLayoutToFile
-    local loadLayoutConfig = ctx.loadLayoutConfig
     local invalidateSellConfigCache = ctx.invalidateSellConfigCache
     local invalidateLootConfigCache = ctx.invalidateLootConfigCache
 
@@ -63,17 +61,6 @@ function ConfigGeneral.render(ctx)
             ImGui.BeginTooltip()
             ImGui.Text("When enabled, the Loot UI window opens when you loot (manual or macro).")
             ImGui.Text("Uncheck to keep the Loot UI closed during looting.")
-            ImGui.EndTooltip()
-        end
-        local prevRealTime = (uiState.enableRealTimeLoot == true)
-        local realTime = ImGui.Checkbox("Enable real-time loot (Current tab updates each corpse)", prevRealTime)
-        if prevRealTime ~= realTime then
-            uiState.enableRealTimeLoot = realTime
-            scheduleLayoutSave()
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("When on, the Current tab updates as items are looted. When off, the progress bar advances per corpse and the Current tab fills when the run completes.")
             ImGui.EndTooltip()
         end
         local prevLootHist = (uiState.enableLootHistory == true)
@@ -327,7 +314,6 @@ function ConfigGeneral.render(ctx)
         sellFlag("Enable Quest protection", "protectQuest", "Never sell items with the Quest flag")
         sellFlag("Enable Collectible protection", "protectCollectible", "Never sell items with the Collectible flag")
         sellFlag("Enable Heirloom protection", "protectHeirloom", "Never sell items with the Heirloom flag")
-        sellFlag("Enable sell history log", "enableSellHistoryLog", "Append each sold item to Macros/logs/item_management/sell_history.log. Off by default to avoid I/O delays when opening sell or between items.")
         ImGui.Spacing()
         ImGui.Text("Value thresholds (copper)")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper"); ImGui.EndTooltip() end
@@ -387,17 +373,9 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         lootFlag("Enable pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "Loot Companion will open and pause so you can choose Take or Pass (5 min).")
         lootFlag("Enable alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
-        do
-            local v = ImGui.Checkbox("Enable live loot feed", configLootFlags.enableLiveLootFeed)
-            if v ~= configLootFlags.enableLiveLootFeed then
-                configLootFlags.enableLiveLootFeed = v
-                config.writeLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", v and "TRUE" or "FALSE")
-                -- Sync the UI-side real-time flag so the loot tab actually updates live
-                uiState.enableRealTimeLoot = v
-                scheduleLayoutSave()
-            end
-            if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("When on, CoOpt UI Loot tab updates in real time as items are looted. When off, Current/History load when the macro completes."); ImGui.EndTooltip() end
-        end
+        -- Live loot feed is always enabled (toggle removed — feature is non-optional)
+        configLootFlags.enableLiveLootFeed = true
+        uiState.enableRealTimeLoot = true
         -- Loot console verbosity: controlled via Settings > Advanced > Debug channels > "Debug: Loot"
         ImGui.Spacing()
         ImGui.Text("Loot delay (ticks)")
@@ -454,40 +432,6 @@ function ConfigGeneral.render(ctx)
         ImGui.SameLine(); ImGui.Text("Weight threshold (tenths)")
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), string.format("%.1f lbs", (tonumber(configLootSorting.minWeight) or 0) / 10))
-    end
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("Layout setup", ImGuiTreeNodeFlags.DefaultOpen) then
-        renderBreadcrumb("General", "Layout setup")
-        local setupWasOn = uiState.setupMode
-        if setupWasOn then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Warning)) end
-        if ImGui.Button("Initial Setup", ImVec2(120, 0)) then
-            uiState.setupMode = not uiState.setupMode
-            if uiState.setupMode then
-                uiState.setupStep = 0
-                if ctx.loadConfigCache then ctx.loadConfigCache() end
-                if loadLayoutConfig then loadLayoutConfig() end
-            else
-                uiState.setupStep = 0
-            end
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Save window sizes for Inventory, Sell, and Inv+Bank.")
-            ImGui.Text("Follow the on-screen steps to capture positions.")
-            ImGui.EndTooltip()
-        end
-        if setupWasOn then ImGui.PopStyleColor(1) end
-        ImGui.SameLine()
-        if ImGui.Button("Show welcome panel again", ImVec2(180, 0)) then
-            if ctx.resetOnboarding then ctx.resetOnboarding() end
-            registry.setWindowState("config", false, false)
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("Re-display the first-run welcome panel in the main window.")
-            ImGui.Text("Useful for testing or to see the default flow again.")
-            ImGui.EndTooltip()
-        end
     end
 end
 

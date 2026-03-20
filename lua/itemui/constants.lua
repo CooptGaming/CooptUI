@@ -23,12 +23,12 @@ M.TIMING = {
     GET_CHANGED_BAGS_THROTTLE_MS = 600,
 
     -- Macro finish / scan
-    LOOT_PENDING_SCAN_DELAY_MS = 2500,
+    LOOT_PENDING_SCAN_DELAY_MS = 1500,  -- Reduced from 2500; session merge is now chunked so scan can run sooner
     -- Cooldown after loot ends before periodic persist resumes (ms). Prevents save from
     -- firing immediately after loot finishes — lets the post-loot scan + sell-status
     -- computation complete first so the save doesn't stutter on top of the scan.
     LOOT_PERSIST_COOLDOWN_MS = 8000,
-    SELL_PENDING_SCAN_DELAY_MS = 500,
+    SELL_PENDING_SCAN_DELAY_MS = 250,  -- Reduced from 500; Lua batch already removes items from lists immediately
     REROLL_PENDING_SCAN_DELAY_MS = 500,
     SELL_FAILED_DISPLAY_MS = 15000,
     -- Bank rescan cooldown: skip re-scanning if bank was scanned within this window.
@@ -53,14 +53,14 @@ M.TIMING = {
     AA_IMPORT_DELAY_MS = 250,
 
     -- Augment operations
-    AUGMENT_CURSOR_CLEAR_TIMEOUT_MS = 5000,
-    AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = 5000,
+    AUGMENT_CURSOR_CLEAR_TIMEOUT_MS = 3500,    -- Reduced from 5000; faster error recovery on LAN
+    AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = 3500, -- Reduced from 5000; faster error recovery on LAN
     AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS = 4000,
     AUGMENT_REMOVE_NO_CONFIRM_FALLBACK_MS = 6000,
-    AUGMENT_REMOVE_OPEN_DELAY_MS = 250,      -- Reduced from 400; display opens fast on LAN/local EQEmu
-    AUGMENT_INSERT_DELAY_MS = 175,           -- Reduced from 250; pickup settles quickly on local server
-    AUGMENT_DISPLAY_OPEN_TIMEOUT_MS = 4000,  -- Risk R4: wait for Item Display to open
-    AUGMENT_SETTLE_AFTER_CLICK_MS = 150,     -- Reduced from 200; minimum settle per phase
+    AUGMENT_REMOVE_OPEN_DELAY_MS = 175,      -- Reduced from 250 (was 400); display opens fast on LAN/local EQEmu
+    AUGMENT_INSERT_DELAY_MS = 125,           -- Reduced from 175 (was 250); pickup settles quickly on local server
+    AUGMENT_DISPLAY_OPEN_TIMEOUT_MS = 3000,  -- Reduced from 4000; Risk R4: wait for Item Display to open
+    AUGMENT_SETTLE_AFTER_CLICK_MS = 100,     -- Reduced from 150 (was 200); minimum settle per phase
 
     -- Item Display locate highlight
     ITEM_DISPLAY_LOCATE_CLEAR_SEC = 3,
@@ -71,25 +71,26 @@ M.TIMING = {
     -- Loot
     LOOT_POLL_MS = 100,   -- poll progress more often so bar updates per corpse (was 500)
     LOOT_POLL_MS_IDLE = 1000,
-    LOOT_SESSION_READ_DELAY_MS = 150,  -- defer reading loot_session.ini after macro stop so macro can finish writing
-    LOOT_DEFER_MS = 2000,
+    LOOT_SESSION_READ_DELAY_MS = 80,   -- Reduced from 150; defer reading loot_session.ini after macro stop
+    LOOT_DEFER_MS = 1500,              -- Reduced from 2000; post-loot save cooldown
     LOOT_MYTHICAL_DECISION_SEC = 300,
 
     -- Quantity picker / item ops
     QUANTITY_PICKUP_TIMEOUT_MS = 60000,
     QUANTITY_PICKER_TIMEOUT_MS = 2000,  -- Risk R5: wait for QuantityWnd to open
-    ITEM_OPS_DELAY_MS = 200,
+    ITEM_OPS_DELAY_MS = 150,            -- Reduced from 200; proven safe at this level with sell batch
     -- Click-through protection: after detecting item on cursor we didn't initiate (e.g. focus click-through), block new pickups this long
     ACTIVATION_GUARD_MS = 450,
     -- Grace period after we clear lastPickup before treating "item on cursor" as unexpected (allows game to process drop)
     UNEXPECTED_CURSOR_GRACE_MS = 500,
     ITEM_OPS_DELAY_SHORT_MS = 50,
     ITEM_OPS_DELAY_MEDIUM_MS = 100,
-    ITEM_OPS_DELAY_INITIAL_MS = 120,
+    ITEM_OPS_DELAY_INITIAL_MS = 80,     -- Reduced from 120; initial action setup on LAN is fast
     -- Script items (Alt Currency): delay between each right-click use in sequence
-    SCRIPT_CONSUME_DELAY_MS = 150,
-    -- Script consume: after each click, wait this long for "[timestamp] You gained 1 alternate currency." before sending next (or give up and continue)
-    SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS = 2000,
+    SCRIPT_CONSUME_DELAY_MS = 80,
+    -- Script consume: after each click, wait this long for "[timestamp] You gained 1 alternate currency." before sending next (or give up and continue).
+    -- Short timeout is safe because the server processes the consume on right-click — chat is just confirmation.
+    SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS = 500,
 }
 
 -- ---------------------------------------------------------------------------
@@ -226,8 +227,8 @@ function M.buildC(version)
         MAX_INVENTORY_BAGS = L.MAX_INVENTORY_BAGS,
         LAYOUT_INI = M.LAYOUT_INI,
         LAYOUT_SECTION = M.LAYOUT_SECTION,
-        PROFILE_ENABLED = true,
-        PROFILE_THRESHOLD_MS = 30,
+        PROFILE_ENABLED = false,   -- controlled via Advanced → Performance Profiling toggle; not used at runtime (debug module reads INI directly)
+        PROFILE_THRESHOLD_MS = 30, -- legacy; kept for backward compat; runtime value comes from debugModule.getProfileThresholdMs()
         STATUS_MSG_SECS = T.STATUS_MSG_SECS,
         STATUS_MSG_MAX_LEN = L.STATUS_MSG_MAX_LEN,
         PERSIST_SAVE_INTERVAL_MS = T.PERSIST_SAVE_INTERVAL_MS,

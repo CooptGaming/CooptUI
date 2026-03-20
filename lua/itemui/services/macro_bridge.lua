@@ -41,6 +41,8 @@ local mq = require('mq')
 local constants = require('itemui.constants')
 local item_name = require('itemui.utils.item_name')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local dbg = require('itemui.core.debug').channel('MacroBridge')
+local soundService = require('itemui.services.sound')
 
 local IPC_PROTOCOL_VERSION = (constants.TIMING and constants.TIMING.IPC_PROTOCOL_VERSION) or 1
 
@@ -100,9 +102,7 @@ local MacroBridge = {
 
 -- Debug logging
 local function log(msg)
-    if MacroBridge.config.debug then
-        print(string.format("[MacroBridge] %s", msg))
-    end
+    dbg.log(msg)
 end
 
 -- Resolve sell log path at use-time when nil (so bridge works if init was called before MacroQuest.Path was set)
@@ -499,6 +499,16 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
 
     local realTime = (uiState.enableRealTimeLoot == true)
     local items = ipc.receiveAll("loot_item")
+    -- Play rare loot sound for every IPC item regardless of realTime UI setting
+    if items and #items > 0 then
+        for _, msg in ipairs(items) do
+            local rn = (msg:match("^([^|]+)") or "")
+            local nn = item_name.normalizeItemName(rn)
+            if nn ~= "" and (nn:find("Legendary") or nn:find("Script of") or nn:find("Mythical")) then
+                soundService.play("loot_rare")
+            end
+        end
+    end
     if items and #items > 0 and realTime then
         if not uiState.lootRunLootedItems then uiState.lootRunLootedItems = {} end
         if not uiState.lootRunLootedList then uiState.lootRunLootedList = {} end
@@ -509,28 +519,28 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
             if name ~= "" then
                 local value = tonumber(valStr) or 0
                 local tribute = tonumber(tribStr) or 0
-                local statusText, willSell = "—", false
-                if getSellStatusForItem then
-                    -- Pass value/tribute so sell rules (minSellValue, HighValue) evaluate correctly.
-                    statusText, willSell = getSellStatusForItem({ name = name, value = value, tribute = tribute })
-                    if statusText == "" then statusText = "—" end
-                end
-                table.insert(uiState.lootRunLootedList, name)
-                table.insert(uiState.lootRunLootedItems, {
+                local entry = {
                     name = name, value = value, tribute = tribute,
-                    statusText = statusText, willSell = willSell
-                })
+                    statusText = "—", willSell = false
+                }
+                table.insert(uiState.lootRunLootedList, name)
+                table.insert(uiState.lootRunLootedItems, entry)
+                local histEntry = nil
                 if uiState.enableLootHistory then
-                    table.insert(uiState.lootHistory, {
-                        name = name, value = value,
-                        statusText = statusText, willSell = willSell
-                    })
+                    histEntry = { name = name, value = value, statusText = "—", willSell = false }
+                    table.insert(uiState.lootHistory, histEntry)
                     local lhist = uiState.lootHistory
                     local lover = #lhist - LOOT_HISTORY_MAX
                     if lover > 0 then
                         table.move(lhist, lover + 1, #lhist, 1)
                         for i = #lhist - lover + 1, #lhist do lhist[i] = nil end
                     end
+                end
+                -- Defer sell-status via the same drain queue as the session path (avoids per-item
+                -- getSellStatusForItem() calls blocking the main thread when many items arrive at once).
+                if getSellStatusForItem then
+                    uiState.pendingLootSellStatus = uiState.pendingLootSellStatus or {}
+                    table.insert(uiState.pendingLootSellStatus, { entry = entry, histEntry = histEntry })
                 end
                 uiState.lootRunTotalValue = (uiState.lootRunTotalValue or 0) + value
                 uiState.lootRunTributeValue = (uiState.lootRunTributeValue or 0) + tribute

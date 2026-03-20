@@ -7,6 +7,8 @@
 
 local mq = require('mq')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local debugModule = require('itemui.core.debug')
+local dbg = debugModule.channel('Scan')
 
 local M = {}
 local env
@@ -125,7 +127,8 @@ function M.scanInventory(skipAugmentIndex)
                 env.computeAndAttachSellStatus(inventoryItems)
                 scanState.sellStatusAttachedAt = now
             end
-            if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+            dbg.log(string.format("scanInventory (plugin): %d items in %d ms", #inventoryItems, scanMs))
+            if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
                 print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (plugin) (%d items)", scanMs, #inventoryItems))
             end
             scanState.lastInventoryFingerprint = buildInventoryFingerprint()
@@ -169,7 +172,13 @@ function M.scanInventory(skipAugmentIndex)
         env.computeAndAttachSellStatus(inventoryItems)
         scanState.sellStatusAttachedAt = now
     end
-    if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+    -- Pre-warm lazy fields: touch wornSlots and augSlots now (scan-tick time) so right-click context
+    -- menus don't incur a TLO call at frame time.
+    for _, it in ipairs(inventoryItems) do
+        local _ = it.wornSlots
+        local __ = it.augSlots
+    end
+    if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
         print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (%d items)", scanMs, #inventoryItems))
     end
     scanState.lastInventoryFingerprint = buildInventoryFingerprint()
@@ -247,7 +256,7 @@ function M.processIncrementalScan()
             env.computeAndAttachSellStatus(inventoryItems)
             env.scanState.sellStatusAttachedAt = mq.gettime()
         end
-        if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+        if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
             print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms (%d items, %d bags/frame)",
                 scanMs, #inventoryItems, incrementalScanState.bagsPerFrame))
         end
@@ -294,7 +303,7 @@ local function targetedRescanBags(changedBags)
         end
     end
     local scanMs = mq.gettime() - t0
-    if env.C.PROFILE_ENABLED and scanMs >= env.C.PROFILE_THRESHOLD_MS then
+    if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
         print(string.format("\ag[CoOpt UI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
     end
     -- Fix 1: Attach sell status after targeted rescan so Status column never shows "—"

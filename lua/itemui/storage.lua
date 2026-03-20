@@ -9,6 +9,7 @@
 local config = require('itemui.config')
 local mq = require('mq')
 local file_safe = require('itemui.utils.file_safe')
+local debugModule = require('itemui.core.debug')
 
 local INVENTORY_FILE = "inventory.lua"
 local BANK_FILE = "bank.lua"
@@ -188,15 +189,9 @@ local function loadBank()
     return data.items, data.savedAt
 end
 
--- Profile: log when save exceeds threshold (set via storage.init from init.lua)
-local profileConfig = { enabled = false, thresholdMs = 30 }
-
-local function initStorage(opts)
-    if opts then
-        if opts.profileEnabled ~= nil then profileConfig.enabled = opts.profileEnabled end
-        if opts.profileThresholdMs ~= nil then profileConfig.thresholdMs = opts.profileThresholdMs end
-    end
-end
+-- Profile toggle is now controlled by debugModule.isProfileEnabled() / debugModule.getProfileThresholdMs()
+-- (Advanced → Performance Profiling in Settings). Stub kept for backward compat; callers may pass opts safely.
+local function initStorage(_opts) end
 
 -- Save inventory to char folder (nextAcquiredSeq optional, for persistent acquired order)
 local function saveInventory(items, nextAcquiredSeq)
@@ -207,7 +202,7 @@ local function saveInventory(items, nextAcquiredSeq)
     local content = buildInventoryContent(items, os.time(), nextAcquiredSeq)
     local ok = file_safe.safeWrite(path, content)
     local e = mq.gettime() - t0
-    if ok and profileConfig.enabled and e >= profileConfig.thresholdMs then
+    if ok and debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
         print(string.format("\ag[CoOpt UI Profile]\ax storage.saveInventory: %d ms (%d items)", e, #items))
     end
     return ok
@@ -321,9 +316,21 @@ end
 -- Keyed by character name. Cleared implicitly on script restart (module reload).
 local _folderConfirmed = {}
 
+-- Silent probe: try to write a marker file without logging errors.
+-- Returns true if the folder exists (write succeeded), false otherwise.
+local function silentProbeFolder(markerPath)
+    local ok, f = pcall(io.open, markerPath, "w")
+    if ok and f then
+        f:close()
+        pcall(os.remove, markerPath)
+        return true
+    end
+    return false
+end
+
 -- Ensure character folder exists (create Chars/CharName if missing).
 -- Uses a session cache so only the first call per character does any work.
--- On first call: probe with a marker-file write (pure Lua I/O, no subprocess).
+-- On first call: probe with a silent marker-file write (no error output).
 -- If probe fails (folder missing): spawn mkdir ONCE, then re-probe.
 -- All subsequent calls for the same character return immediately — zero I/O, zero subprocesses.
 local function ensureCharFolderExists()
@@ -333,10 +340,9 @@ local function ensureCharFolderExists()
     if _folderConfirmed[name] then return true end
     local folder = getCharFolder()
     if not folder then return false end
-    -- Probe: try writing a marker file. If it succeeds, the folder exists.
+    -- Probe: try writing a marker file silently. If it succeeds, the folder exists.
     local markerPath = config.getCharStoragePath(name, ".exists")
-    if file_safe.safeWrite(markerPath, "") then
-        pcall(os.remove, markerPath)
+    if silentProbeFolder(markerPath) then
         _folderConfirmed[name] = true
         return true
     end
@@ -351,9 +357,7 @@ local function ensureCharFolderExists()
         end
     end
     -- Re-probe after mkdir; cache regardless (if mkdir failed, saves will fail gracefully via safeWrite).
-    if file_safe.safeWrite(markerPath, "") then
-        pcall(os.remove, markerPath)
-    end
+    silentProbeFolder(markerPath)
     _folderConfirmed[name] = true
     return true
 end

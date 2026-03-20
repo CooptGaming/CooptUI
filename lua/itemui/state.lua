@@ -44,7 +44,7 @@ local uiState = {
     alignToContext = true,
     uiLocked = true,
     suppressWhenLootMac = false,
-    enableRealTimeLoot = false,
+    enableRealTimeLoot = true,
     enableLootHistory = false,
     enableSkipHistory = false,
     itemUIPositionX = nil, itemUIPositionY = nil,

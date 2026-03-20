@@ -7,6 +7,7 @@
 local mq = require('mq')
 local itemHelpers = require('itemui.utils.item_helpers')
 local constants = require('itemui.constants')
+local dbg = require('itemui.core.debug').channel('Augment')
 
 local M = {}
 local deps  -- set by init()
@@ -114,6 +115,8 @@ function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSl
         targetSource = targetSource,
         phase = "pickup",
     }
+    dbg.log(string.format("Insert augment: %s into %s slot %d",
+        augmentItem.name or "?", targetItem.name or "?", slotIndex or 0))
     return true
 end
 
@@ -235,6 +238,7 @@ function M.removeAugment(bag, slot, source, slotIndex)
         slotIndex = slotIndex,
         phase = "inspect",
     }
+    dbg.log(string.format("Remove augment: bag %d slot %d source %s augSlot %d", bag, slot, source or "?", slotIndex))
     return true
 end
 

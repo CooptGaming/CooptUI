@@ -51,27 +51,35 @@ local function getLogFilePath()
     return root .. "\\" .. LOG_SUBDIR:gsub("/", "\\") .. "\\" .. LOG_FILENAME
 end
 
-local function ensureLogDir()
-    local root = getMQRoot()
-    if not root then return false end
-    local dir = root .. "\\" .. LOG_SUBDIR:gsub("/", "\\")
-    local ok, err = pcall(function()
-        if not io then return end
-        -- Lua 5.1/5.2 may not have os.makedirs; use simple write of a marker then delete, or just write and let path fail
-        local f = io.open(dir .. "\\.mkdir", "w")
-        if f then
-            f:close()
-            os.remove(dir .. "\\.mkdir")
-        end
-    end)
-    return true  -- attempt write anyway; dir might exist
-end
-
 -- Buffered log lines; flushed from main loop so sell/other hot paths don't block on file I/O.
 local logLineBuffer = {}
 -- Buffered echo lines; /echo can block so we drain from main loop instead of calling from hot path.
 local echoLineBuffer = {}
 local ECHO_DRAIN_PER_TICK = 8
+
+-- Log directory: checked once per session, never spawns a subprocess.
+local _logDirReady = false
+
+local function ensureLogDirOnce()
+    if _logDirReady then return end
+    _logDirReady = true  -- set first so we never retry on failure
+    local root = getMQRoot()
+    if not root then return end
+    local dir = root .. "\\" .. LOG_SUBDIR:gsub("/", "\\")
+    -- Probe with a marker write (pure Lua I/O, no subprocess).
+    local marker = dir .. "\\.mkdir"
+    local f = io.open(marker, "w")
+    if f then
+        f:close()
+        pcall(os.remove, marker)
+        return  -- directory exists
+    end
+    -- Directory missing — create it once. This is the ONLY os.execute in the module
+    -- and it runs at most once per session (not per tick).
+    if os and os.execute then
+        pcall(os.execute, 'mkdir "' .. dir:gsub('"', '\\"') .. '" 2>nul')
+    end
+end
 
 local function rotateIfNeeded(path)
     if not path or not io or not io.open then return end
@@ -110,12 +118,9 @@ function M.flushLogFile()
     if #logLineBuffer == 0 then return end
     local path = getLogFilePath()
     if not path then logLineBuffer = {}; return end
+    ensureLogDirOnce()
     rotateIfNeeded(path)
     pcall(function()
-        local dir = path:match("^(.+)\\[^\\]+$")
-        if dir and os and os.execute then
-            os.execute('mkdir "' .. dir:gsub('"', '\\"') .. '" 2>nul')
-        end
         local f = io.open(path, "a")
         if f then
             for i = 1, #logLineBuffer do
@@ -161,9 +166,48 @@ function M.channel(name)
 end
 
 --- List of known channel names for Settings UI toggles.
-M.knownChannels = { "Sell", "Loot", "Augment", "MacroBridge", "Tutorial", "Registry", "Scan", "ItemOps" }
+M.knownChannels = { "Sell", "Loot", "Augment", "MacroBridge", "Layout", "Scan", "ItemOps" }
 
 M.isChannelEnabled = isChannelEnabled
 M.setChannelEnabled = setChannelEnabled
+
+-- ---------------------------------------------------------------------------
+-- Performance profiling toggle (INI-backed, same section as debug channels)
+-- Keys: ProfileEnabled (0/1), ProfileThresholdMs (integer)
+-- ---------------------------------------------------------------------------
+local PROFILE_ENABLED_KEY = "ProfileEnabled"
+local PROFILE_THRESHOLD_KEY = "ProfileThresholdMs"
+local _profileEnabledCache = nil
+local _profileThresholdCache = nil
+
+function M.isProfileEnabled()
+    if _profileEnabledCache ~= nil then return _profileEnabledCache end
+    local cfg = getConfig()
+    local v = cfg.readINIValue(LAYOUT_INI, DEBUG_SECTION, PROFILE_ENABLED_KEY, "0")
+    _profileEnabledCache = (v == "1" or v == "true" or v == "TRUE" or v == "yes")
+    return _profileEnabledCache
+end
+
+function M.setProfileEnabled(enabled)
+    local cfg = getConfig()
+    cfg.writeINIValue(LAYOUT_INI, DEBUG_SECTION, PROFILE_ENABLED_KEY, enabled and "1" or "0")
+    _profileEnabledCache = enabled
+end
+
+function M.getProfileThresholdMs()
+    if _profileThresholdCache ~= nil then return _profileThresholdCache end
+    local cfg = getConfig()
+    local v = cfg.readINIValue(LAYOUT_INI, DEBUG_SECTION, PROFILE_THRESHOLD_KEY, "30")
+    local n = tonumber(v) or 30
+    _profileThresholdCache = math.max(1, n)
+    return _profileThresholdCache
+end
+
+function M.setProfileThresholdMs(ms)
+    local cfg = getConfig()
+    ms = math.max(1, math.floor(tonumber(ms) or 30))
+    cfg.writeINIValue(LAYOUT_INI, DEBUG_SECTION, PROFILE_THRESHOLD_KEY, tostring(ms))
+    _profileThresholdCache = ms
+end
 
 return M

@@ -15,11 +15,11 @@ local deps
 -- Batch state held in module (nil when idle)
 local batchState = nil
 
--- wait_sold: time-based cap and settle (Task 7.4 fix — no 180-frame ~5s freeze)
--- Reduce settle to minimize per-item pause; 80ms is enough for slot to clear on typical clients.
-local WAIT_SOLD_SETTLE_MS = 80    -- minimum time in wait_sold before accepting completion (was 150; reduced to avoid freeze feel)
-local WAIT_SOLD_TIMEOUT_MS = 1500 -- max time in wait_sold before retry/fail (was 180 frames ~5.94s)
-local WAIT_SOLD_FRAME_CAP = 120   -- fallback frame cap (~4s at 33ms/frame) if time check were wrong
+-- wait_sold: aggressive polling with no minimum settle — slot clears instantly on LAN/local EQEmu.
+-- Safety timeout catches laggy connections; retry handles transient failures.
+local WAIT_SOLD_SETTLE_MS = 0     -- no minimum settle; check slot every frame for instant detection
+local WAIT_SOLD_TIMEOUT_MS = 800  -- reduced from 1500; on LAN, sell resolves in <100ms; 800ms is generous safety margin
+local WAIT_SOLD_FRAME_CAP = 60    -- reduced from 120 (~2s at 33ms/frame); proportional to timeout reduction
 
 -- Resolve sell log directory (same as macro_bridge)
 local function getSellLogPath()
@@ -152,14 +152,58 @@ function M.startBatch(itemsToSell)
     return true
 end
 
+-- Helper: record a sold item (bookkeeping + optional logging)
+local function recordSold(cur, batchState_)
+    local io_ = deps.itemOps
+    local bagNum, slotNum = cur.item.bag, cur.item.slot
+    local itemName = cur.item.name
+    if io_ and io_.removeItemFromInventoryBySlot then io_.removeItemFromInventoryBySlot(bagNum, slotNum) end
+    if io_ and io_.removeItemFromSellItemsBySlot then io_.removeItemFromSellItemsBySlot(bagNum, slotNum) end
+    if getSellHistoryLogEnabled() then logSellHistory(itemName, cur.item.totalValue, cur.item.sellReason) end
+    dbg.log(string.format("Sold: %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
+    batchState_.soldCount = batchState_.soldCount + 1
+end
+
+-- Helper: update sellMacState progress counters
+local function updateProgress(batchState_, sellMacState_, extraFailed)
+    if not sellMacState_ then return end
+    local processed = batchState_.soldCount + batchState_.failedCount + (extraFailed or 0)
+    sellMacState_.current = batchState_.soldCount
+    sellMacState_.remaining = batchState_.totalToSell - processed
+    if batchState_.totalToSell > 0 then
+        sellMacState_.smoothedFrac = processed / batchState_.totalToSell
+    end
+end
+
+-- Helper: fail current item and advance queue
+local function failCurrentItem(batchState_, sellMacState_)
+    local cur = batchState_.current
+    batchState_.failedCount = batchState_.failedCount + 1
+    batchState_.failedItems[#batchState_.failedItems + 1] = cur.item.name
+    batchState_.current = nil
+    batchState_.queueIndex = batchState_.queueIndex + 1
+    updateProgress(batchState_, sellMacState_)
+end
+
+-- Pipeline: pre-click next item so its label propagates while we finish bookkeeping.
+-- Returns true if there IS a next item (click was sent), false if queue is exhausted.
+local function pipelineNextClick(batchState_)
+    local nextIdx = batchState_.queueIndex + 1
+    if nextIdx > batchState_.totalToSell then return false end
+    local entry = batchState_.queue[nextIdx]
+    if not entry then return false end
+    mq.cmdf('/itemnotify in pack%d %d leftmouseup', entry.bag, entry.slot)
+    return true
+end
+
 --- Advance batch state machine one step. Call every frame from main_loop phase 7.
+--- Optimized for speed: zero-settle polling, pipelined item clicks, instant label checks.
 function M.advance(now)
     now = now or (mq.gettime and mq.gettime() or 0)
     if batchState == nil then return end
 
     local sellMacState = deps.sellMacState
     local timing = batchState.timing
-    local WAIT_SELECTED_SETTLE_MS = 33  -- single-frame minimum before accepting label match (Issue 4)
     local sellRetries = (timing.sellRetries or 4)
     local timeoutSec = (timing.sellMaxTimeoutSeconds or 60) * 1000
 
@@ -217,7 +261,11 @@ function M.advance(now)
             attempt = 1,
             itemStartedAt = now,
         }
-        mq.cmdf('/itemnotify in pack%d %d leftmouseup', entry.bag, entry.slot)
+        -- Only send click if we didn't already pipeline it from the previous item's completion
+        if not batchState.pipelinedClick then
+            mq.cmdf('/itemnotify in pack%d %d leftmouseup', entry.bag, entry.slot)
+        end
+        batchState.pipelinedClick = nil
     end
 
     local cur = batchState.current
@@ -227,23 +275,17 @@ function M.advance(now)
 
     -- Per-item timeout
     if (now - cur.itemStartedAt) >= timeoutSec then
-        batchState.failedCount = batchState.failedCount + 1
-        batchState.failedItems[#batchState.failedItems + 1] = itemName
-        batchState.current = nil
-        batchState.queueIndex = batchState.queueIndex + 1
-        if sellMacState then
-            sellMacState.current = batchState.soldCount
-            sellMacState.remaining = batchState.totalToSell - batchState.soldCount - batchState.failedCount
-            sellMacState.smoothedFrac = (batchState.soldCount + batchState.failedCount) / batchState.totalToSell
-        end
+        failCurrentItem(batchState, sellMacState)
         return
     end
 
+    -- WAIT_SELECTED: check merchant label immediately — no settle delay.
+    -- The label updates synchronously on /itemnotify so if it matches, sell right away.
     if cur.phase == "wait_selected" then
         local wnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("MerchantWnd/MW_SelectedItemLabel")
         local sel = (wnd and wnd.Text and wnd.Text()) or ""
-        local elapsed = now - cur.enteredAt
-        if sel == itemName and elapsed >= WAIT_SELECTED_SETTLE_MS then
+        if sel == itemName then
+            -- Label matches: fire sell instantly (same frame as match)
             mq.cmd('/nomodkey /shiftkey /notify MerchantWnd MW_Sell_Button leftmouseup')
             cur.phase = "wait_sold"
             cur.enteredAt = now
@@ -254,53 +296,36 @@ function M.advance(now)
         if cur.pollCount >= 10 then
             if cur.attempt <= sellRetries then
                 cur.attempt = cur.attempt + 1
-                cur.phase = "wait_selected"
                 cur.enteredAt = now
                 cur.pollCount = 0
                 mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
             else
-                batchState.failedCount = batchState.failedCount + 1
-                batchState.failedItems[#batchState.failedItems + 1] = itemName
-                batchState.current = nil
-                batchState.queueIndex = batchState.queueIndex + 1
-                if sellMacState then
-                    sellMacState.current = batchState.soldCount
-                    sellMacState.remaining = batchState.totalToSell - batchState.soldCount - batchState.failedCount
-                    sellMacState.smoothedFrac = (batchState.soldCount + batchState.failedCount) / batchState.totalToSell
-                end
+                failCurrentItem(batchState, sellMacState)
             end
         end
         return
     end
 
+    -- WAIT_SOLD: poll slot every frame with no minimum settle.
+    -- On LAN, slot ID clears to 0 within 1-2 frames after sell button click.
     if cur.phase == "wait_sold" then
         local elapsed = now - cur.enteredAt
         local slotItem = pack and pack.Item and pack.Item(slotNum)
         local slotId = (slotItem and slotItem.ID and slotItem.ID()) or 0
         local itemGone = (not slotItem or not slotItem.ID or slotId == 0)
-        -- After settle: itemGone alone is sufficient (label may not clear on some clients). Task 7.4.
         local settled = elapsed >= WAIT_SOLD_SETTLE_MS
-        local complete = settled and itemGone
-        if complete then
-            local io = deps.itemOps
-            if io and io.removeItemFromInventoryBySlot then io.removeItemFromInventoryBySlot(bagNum, slotNum) end
-            if io and io.removeItemFromSellItemsBySlot then io.removeItemFromSellItemsBySlot(bagNum, slotNum) end
-            if getSellHistoryLogEnabled() then logSellHistory(itemName, cur.item.totalValue, cur.item.sellReason) end
-            if getSellVerboseLog() then
-                print(string.format("\ag[CoOpt UI]\ax %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
-            end
-            dbg.log(string.format("Sold: %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
-            batchState.soldCount = batchState.soldCount + 1
+        if settled and itemGone then
+            -- SUCCESS: item sold. Pipeline the NEXT item's click before doing bookkeeping
+            -- so the game starts processing it while we handle Lua-side record keeping.
+            local didPipeline = pipelineNextClick(batchState)
+            recordSold(cur, batchState)
             batchState.current = nil
             batchState.queueIndex = batchState.queueIndex + 1
-            if sellMacState then
-                sellMacState.current = batchState.soldCount
-                sellMacState.remaining = batchState.totalToSell - batchState.soldCount
-                sellMacState.smoothedFrac = batchState.soldCount / batchState.totalToSell
-            end
+            batchState.pipelinedClick = didPipeline or nil
+            updateProgress(batchState, sellMacState)
             return
         end
-        -- Time-based timeout (was 180 frames ~5.94s). Fallback frame cap as safeguard.
+        -- Timeout / frame cap
         cur.pollCount = (cur.pollCount or 0) + 1
         local timedOut = elapsed >= WAIT_SOLD_TIMEOUT_MS or cur.pollCount >= WAIT_SOLD_FRAME_CAP
         if timedOut then
@@ -311,15 +336,7 @@ function M.advance(now)
                 cur.pollCount = 0
                 mq.cmdf('/itemnotify in pack%d %d leftmouseup', bagNum, slotNum)
             else
-                batchState.failedCount = batchState.failedCount + 1
-                batchState.failedItems[#batchState.failedItems + 1] = itemName
-                batchState.current = nil
-                batchState.queueIndex = batchState.queueIndex + 1
-                if sellMacState then
-                    sellMacState.current = batchState.soldCount
-                    sellMacState.remaining = batchState.totalToSell - batchState.soldCount - batchState.failedCount
-                    sellMacState.smoothedFrac = (batchState.soldCount + batchState.failedCount) / batchState.totalToSell
-                end
+                failCurrentItem(batchState, sellMacState)
             end
         end
         return

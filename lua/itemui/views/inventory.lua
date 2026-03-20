@@ -77,14 +77,7 @@ function InventoryView.render(ctx, bankOpen)
     if nCols == 0 then nCols = 1; visibleCols = {{key = "Name", label = "Name", numeric = false}} end
     
     if ImGui.BeginTable("ItemUI_InvGameplay", nCols, ctx.uiState.tableFlags) then
-        -- Use a stable hash of the column key as UserID so ImGui can persist across visibility changes
-        local function simpleHash(str)
-            local h = 0
-            for i = 1, #str do
-                h = (h * 31 + string.byte(str, i)) % 2147483647
-            end
-            return h
-        end
+        local simpleHash = ctx.sortColumns.simpleHash
         -- Setup columns with stable user IDs based on column key hash or index
         local sortCol = (ctx.sortState.invColumn and type(ctx.sortState.invColumn) == "string" and ctx.sortState.invColumn) or "Name"
         for i, colDef in ipairs(visibleCols) do

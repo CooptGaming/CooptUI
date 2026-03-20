@@ -13,6 +13,8 @@ local layout_io = require('itemui.utils.layout_io')
 local layout_columns = require('itemui.utils.layout_columns')
 local layout_setup = require('itemui.utils.layout_setup')
 local diagnostics = require('itemui.core.diagnostics')
+local debugModule = require('itemui.core.debug')
+local dbg = debugModule.channel('Layout')
 
 local LayoutUtils = {}
 
@@ -52,8 +54,7 @@ function LayoutUtils.init(deps)
         saveLayoutToFile = function() LayoutUtils.saveLayoutToFile() end,
     })
     
-    -- Debug: Enable to trace layout save/load
-    LayoutUtils.DEBUG = false  -- Set to true to enable debug logging
+    -- Debug logging controlled via Settings > Advanced > Debug: Layout
 end
 
 -- Delegate INI path and parse to layout_io (Phase D extraction 8)
@@ -162,9 +163,7 @@ function LayoutUtils.scheduleLayoutSave()
     local perfCache = LayoutUtils.perfCache
     perfCache.layoutDirty = true
     perfCache.layoutSaveScheduledAt = mq.gettime()
-    if LayoutUtils.DEBUG then
-        print("[LayoutUtils DEBUG] scheduleLayoutSave() called - layoutDirty set to true")
-    end
+    dbg.log("scheduleLayoutSave() called - layoutDirty set to true")
 end
 
 -- Consolidated: Layout + ColumnVisibility in single read/write (was 2 reads, 2 writes)
@@ -177,13 +176,11 @@ function LayoutUtils.saveLayoutToFileImmediate()
     local filterState = LayoutUtils.filterState
     local columnVisibility = LayoutUtils.columnVisibility
     
-    if LayoutUtils.DEBUG then
-        print(string.format("[LayoutUtils DEBUG] Saving layout - InvSort: %s/%d, SellSort: %s/%d, BankSort: %s/%d",
+    dbg.log(string.format("Saving layout - InvSort: %s/%d, SellSort: %s/%d, BankSort: %s/%d",
             tostring(sortState.invColumn or "nil"), sortState.invDirection or 0,
             tostring(sortState.sellColumn or "nil"), sortState.sellDirection or 0,
             tostring(sortState.bankColumn or "nil"), sortState.bankDirection or 0))
-    end
-    
+
     perfCache.layoutNeedsReload = true
     local path = LayoutUtils.getLayoutFilePath()
     if not path then return end
@@ -312,9 +309,7 @@ end
 -- Flush any pending layout save (call on exit, setup save, sort change, etc.)
 function LayoutUtils.flushLayoutSave()
     local perfCache = LayoutUtils.perfCache
-    if LayoutUtils.DEBUG then
-        print(string.format("[LayoutUtils DEBUG] flushLayoutSave() called - layoutDirty: %s", tostring(perfCache.layoutDirty)))
-    end
+    dbg.log(string.format("flushLayoutSave() called - layoutDirty: %s", tostring(perfCache.layoutDirty)))
     if perfCache.layoutDirty then
         perfCache.layoutDirty = false
         LayoutUtils.saveLayoutToFileImmediate()
@@ -364,9 +359,7 @@ function LayoutUtils.loadLayoutConfig()
     local t0 = mq.gettime()
     -- Skip parse if config unchanged (perfCache.layoutNeedsReload set when we save)
     if not perfCache.layoutNeedsReload and perfCache.layoutCached then
-        if LayoutUtils.DEBUG then
-            print("[LayoutUtils DEBUG] Loading layout from CACHE")
-        end
+        dbg.log("Loading layout from CACHE")
         LayoutUtils.initColumnVisibility()
         LayoutUtils.applyDefaultsFromParsed(perfCache.layoutCached)
         local layout = perfCache.layoutCached.layout or {}
@@ -472,18 +465,14 @@ function LayoutUtils.loadLayoutConfig()
         sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
         LayoutUtils.applyColumnVisibilityFromParsed(perfCache.layoutCached)
         local e = mq.gettime() - t0
-        if LayoutUtils.DEBUG then
-            print(string.format("[LayoutUtils DEBUG] Loaded from CACHE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
-        end
-        if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
+        dbg.log(string.format("Loaded from CACHE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
+        if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
             print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
         end
         return
     end
     -- Single file read: parse all sections at once (avoids 3x I/O on every UI open)
-    if LayoutUtils.DEBUG then
-        print("[LayoutUtils DEBUG] Loading layout from FILE (cache miss or invalidated)")
-    end
+    dbg.log("Loading layout from FILE (cache miss or invalidated)")
     local parsed = LayoutUtils.parseLayoutFileFull()
     perfCache.layoutCached = parsed
     perfCache.layoutNeedsReload = false
@@ -587,10 +576,8 @@ function LayoutUtils.loadLayoutConfig()
     sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
     local e = mq.gettime() - t0
-    if LayoutUtils.DEBUG then
-        print(string.format("[LayoutUtils DEBUG] Loaded from FILE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
-    end
-        if C.PROFILE_ENABLED and e >= C.PROFILE_THRESHOLD_MS then
+    dbg.log(string.format("Loaded from FILE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
+        if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
             print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
         end
     end

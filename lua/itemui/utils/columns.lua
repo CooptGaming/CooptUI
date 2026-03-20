@@ -19,6 +19,15 @@ function Columns.init(deps)
     Columns.getSpellName = deps.getSpellName
 end
 
+-- Stable hash of a column key string for ImGui UserID persistence.
+function Columns.simpleHash(str)
+    local h = 0
+    for i = 1, #str do
+        h = (h * 31 + string.byte(str, i)) % 2147483647
+    end
+    return h
+end
+
 function Columns.getVisibleColumns(view)
     local visible = {}
     if Columns.columnVisibility and Columns.columnVisibility[view] then

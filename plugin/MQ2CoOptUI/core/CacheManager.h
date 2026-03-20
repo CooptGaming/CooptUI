@@ -68,14 +68,6 @@ class CacheManager {
   size_t GetLootCount() const { return loot_.size(); }
   size_t GetSellItemsCount() const { return sellItems_.size(); }
 
-  // Last scan time (ms) and scan counts for status
-  uint64_t GetLastInventoryScanTimeMs() const { return lastInventoryScanMs_; }
-  uint64_t GetLastBankScanTimeMs() const { return lastBankScanMs_; }
-  uint64_t GetLastLootScanTimeMs() const { return lastLootScanMs_; }
-  uint32_t GetInventoryScanCount() const { return inventoryScanCount_; }
-  uint32_t GetBankScanCount() const { return bankScanCount_; }
-  uint32_t GetLootScanCount() const { return lootScanCount_; }
-
   // Phase 12: perf counters (count, totalMs, maxMs) per operation type
   struct PerfStats {
     uint32_t count = 0;
@@ -114,13 +106,6 @@ class CacheManager {
   bool dirtyInventory_ = false;
   bool dirtyBank_ = false;
   bool dirtyLoot_ = false;
-
-  uint64_t lastInventoryScanMs_ = 0;
-  uint64_t lastBankScanMs_ = 0;
-  uint64_t lastLootScanMs_ = 0;
-  uint32_t inventoryScanCount_ = 0;
-  uint32_t bankScanCount_ = 0;
-  uint32_t lootScanCount_ = 0;
 
   uint32_t inventoryVersion_ = 0;
   uint32_t bankVersion_ = 0;

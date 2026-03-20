@@ -4,11 +4,9 @@
 --]]
 
 local mq = require('mq')
-local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
-local context_init = require('itemui.context_init')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
@@ -20,7 +18,6 @@ local registry = require('itemui.core.registry')
 local CharacterStats = require('itemui.components.character_stats')
 
 -- Phase 3: Filter system modules
-local filterService = require('itemui.services.filter_service')
 local searchbar = require('itemui.components.searchbar')
 local filtersComponent = require('itemui.components.filters')
 local ui_common = require('itemui.components.ui_common')
@@ -701,6 +698,7 @@ local sortColumnsAPI = {
     getCellDisplayText = columns.getCellDisplayText,
     isNumericColumn = columns.isNumericColumn,
     getVisibleColumns = columns.getVisibleColumns,
+    simpleHash = columns.simpleHash,
 }
 
 local function getItemStatsForTooltipRef(item, source)
@@ -788,7 +786,7 @@ end
 
 local defaultLayoutAppliedThisRun = false
 
-context_init.init({
+context.init({
     -- Main window state access (unifies former mainWindowRefs + context wiring)
     getShouldDraw = function() return shouldDraw end,
     setShouldDraw = function(v) shouldDraw = v end,
@@ -1308,6 +1306,8 @@ local function main()
         if scanState.lastPersistSaveTime == 0 then scanState.lastPersistSaveTime = mq.gettime() end
     end
 
+    local soundService = require('itemui.services.sound')
+    soundService.init()
     local d = buildMainLoopDeps()
     mainLoop.init(d)
     sellBatch.init(d)

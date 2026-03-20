@@ -146,15 +146,7 @@ function BankView.render(ctx)
     end
     
     if ImGui.BeginTable("ItemUI_Bank", nCols, ctx.uiState.tableFlags) then
-        -- Setup columns dynamically
-        local function simpleHash(str)
-            local h = 0
-            for i = 1, #str do
-                h = (h * 31 + string.byte(str, i)) % 2147483647
-            end
-            return h
-        end
-        
+        local simpleHash = ctx.sortColumns.simpleHash
         local bankSortCol = (ctx.sortState.bankColumn and type(ctx.sortState.bankColumn) == "string" and ctx.sortState.bankColumn) or "Name"
         for i, colDef in ipairs(visibleCols) do
             -- Set base flags: Name = WidthStretch, others = WidthFixed

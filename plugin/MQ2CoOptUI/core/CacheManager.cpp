@@ -29,12 +29,6 @@ void CacheManager::Initialize(const CoOptCoreConfig& config) {
   dirtyBank_ = false;
   dirtyLoot_ = false;
   lastThrottleCheckMs_ = 0;
-  lastInventoryScanMs_ = 0;
-  lastBankScanMs_ = 0;
-  lastLootScanMs_ = 0;
-  inventoryScanCount_ = 0;
-  bankScanCount_ = 0;
-  lootScanCount_ = 0;
 
   initialized_ = true;
 }
@@ -87,24 +81,18 @@ void CacheManager::InvalidateInventory() {
 }
 
 void CacheManager::RecordInventoryScanMs(uint64_t ms) {
-  lastInventoryScanMs_ = ms;
-  ++inventoryScanCount_;
   ++perfInv_.count;
   perfInv_.totalMs += ms;
   if (ms > perfInv_.maxMs) perfInv_.maxMs = ms;
 }
 
 void CacheManager::RecordBankScanMs(uint64_t ms) {
-  lastBankScanMs_ = ms;
-  ++bankScanCount_;
   ++perfBank_.count;
   perfBank_.totalMs += ms;
   if (ms > perfBank_.maxMs) perfBank_.maxMs = ms;
 }
 
 void CacheManager::RecordLootScanMs(uint64_t ms) {
-  lastLootScanMs_ = ms;
-  ++lootScanCount_;
   ++perfLoot_.count;
   perfLoot_.totalMs += ms;
   if (ms > perfLoot_.maxMs) perfLoot_.maxMs = ms;

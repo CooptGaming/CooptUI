@@ -246,9 +246,7 @@ Sub Main
     /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
     /if (${testLinkStr.Length} > 0) /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink "${testLinkStr}"
     /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ${Corpse.Item[1].Icon}
-    /beep
-    /delay ${lootDelayTicks}
-    /beep
+    | Sound notification handled by CoOpt UI Sound Service.
     /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
         /declare linkText string local
         /squelch /varset linkText ${testLinkStr}
@@ -656,9 +654,7 @@ sub EvaluateItem(int slot)
             /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
             /if (${itemLinkStr.Length} > 0) /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink "${itemLinkStr}"
             /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ${Corpse.Item[${slot}].Icon}
-            /beep
-            /delay ${lootDelayTicks}
-            /beep
+            | Sound notification handled by CoOpt UI Sound Service.
             /if (${lootVerbose}) /echo Paused: Mythical NoDrop/NoTrade — choose Loot or Skip in the Loot UI.
             /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
                 /declare linkText string local
@@ -1034,10 +1030,10 @@ sub LootItem(int slot)
     /declare lootAttempts int local 0
     /declare maxAttempts int local 5
     /declare itemName string local
-    
+
     | --- Safety check: ensure item still exists ---
     /if (!${Corpse.Item[${slot}].ID}) /return
-    
+
     | --- Store item name for verification (and for lore-dup event) ---
     /varset itemName ${Corpse.Item[${slot}].Name}
     /varset lastLootAttemptName ${itemName}
@@ -1046,31 +1042,36 @@ sub LootItem(int slot)
     /doevents
     /if (${loreDupDetected}) /return
     /varset lootAttempts ${Math.Calc[${lootAttempts}+1]}
-    
+
     | --- Check if we've tried too many times ---
     /if (${lootAttempts} > ${maxAttempts}) {
         /echo Warning: Failed to loot "${itemName}" after ${maxAttempts} tries - skipping
         /return
     }
-    
+
     | --- Attempt to loot the item ---
     /ctrl /itemnotify loot${slot} rightmouseup
     /delay ${lootDelayTicks} !${Corpse.Item[${slot}].ID}
-    
+
     | --- Handle confirmation dialog if it appears ---
     /if (${Window[ConfirmationDialogBox].Open}) {
         /notify ConfirmationDialogBox CD_Yes_Button leftmouseup
         /delay ${lootDelayTicks}
     }
-    
-    | --- Put item on cursor into inventory (required so next slot can be looted) ---
+
+    | --- Put item on cursor into inventory (only if actually on cursor) ---
+    | Many items auto-inventory on loot — skip the delay entirely when cursor is already clear
     /if (${Cursor.ID}) {
         /autoinventory
         /delay ${lootDelayTicks} !${Cursor.ID}
     }
-    
-    | --- Retry if item is still on corpse ---
-    /if (${Corpse.Item[${slot}].ID}) /goto :WaitLootItem
+
+    | --- Item gone from corpse? Done. Check immediately before retry loop. ---
+    /if (!${Corpse.Item[${slot}].ID}) /return
+
+    | --- Still on corpse: brief doevents then retry ---
+    /doevents
+    /goto :WaitLootItem
 /return
 
 | ================================================= |
@@ -1111,9 +1112,8 @@ sub Event_LoreDup
 | LootItemWithSound - Loot with sound notification  |
 | ================================================= |
 sub LootItemWithSound(int slot)
-    | --- Check for special items and play sound effect ---
+    | --- Check for special items (sound handled by CoOpt UI Sound Service) ---
     /if (${lootName.Find[Legendary]} || ${lootName.Find[Mythical]} || ${lootName.Find[Script]}) {
-        /beep
         /if (${lootVerbose}) /echo *** SPECIAL ITEM LOOTED! *** ${lootName}
     }
 
@@ -1130,11 +1130,11 @@ sub LootItemWithSound(int slot)
 sub WaitForMythicalDecision
     /declare alertFile string local ${configPath}/loot_mythical_alert.ini
     /declare waitCount int local 0
-    | maxWait in seconds (300 = 5 min). Each loop is /delay 1s = 1 second.
-    /declare maxWait int local 300
+    | maxWait: 1500 iterations × 200ms = 5 min. Each loop is /delay 2 = 200ms for fast UI response.
+    /declare maxWait int local 1500
     /declare dec string local
 :WaitMythicalLoop
-    /delay 1s
+    /delay 2
     /varcalc waitCount ${waitCount}+1
     /if (${waitCount} >= ${maxWait}) {
         /echo Mythical decision timeout (5 min) - skipping item.
@@ -1167,11 +1167,9 @@ sub PauseMythicalNoDropAlert
     /ini "${configPath}/loot_mythical_alert.ini" Alert corpseName "${corpseDisplay}"
     /ini "${configPath}/loot_mythical_alert.ini" Alert timestamp "${Time.Date} ${Time.Time12}"
     
-    | Two beeps in quick succession
-    /beep
-    /delay ${lootDelayTicks}
-    /beep
-    
+    | Sound notification handled by CoOpt UI Sound Service (Settings > Advanced > Sound Notifications).
+    | Default: double-beep. Custom .wav files can be set in the UI.
+
     /echo Paused: Mythical NoDrop/NoTrade item left on corpse for group. See group chat. Restart macro when ready.
     
     | Group alert: item and corpse name (LinkDB used if available)
@@ -1194,6 +1192,8 @@ sub PauseMythicalNoDropAlert
 | CloseLootWindow                                   |
 | ================================================= |
 sub CloseLootWindow
+    | Fast path: already closed
+    /if (!${Window[LootWnd].Open}) /return
     /declare closeAttempts int local 0
 :TryClose
     /varset closeAttempts ${Math.Calc[${closeAttempts}+1]}
@@ -1202,6 +1202,8 @@ sub CloseLootWindow
         /return
     }
     /notify LootWnd DoneButton leftmouseup
+    | Check immediately — often closes within the same tick on LAN
+    /if (!${Window[LootWnd].Open}) /return
     /delay ${lootDelayTicks} !${Window[LootWnd].Open}
     /if (${Window[LootWnd].Open}) /goto :TryClose
 /return
@@ -1529,7 +1531,7 @@ sub LoadConfig(bool verbose)
     /if (${Ini[${flagsFile},Settings,approachWaitTicks].Length}) {
         /varset approachWaitTicks ${Ini[${flagsFile},Settings,approachWaitTicks]}
     } else {
-        /varset approachWaitTicks 15
+        /varset approachWaitTicks 8
     }
     
     | Load Epic Items. Prefer Lua-written epic_items_resolved.ini (chunk1..chunk4); fall back to epic_classes.ini + per-class INIs if resolved missing.
@@ -1826,78 +1828,62 @@ sub ApproachCorpse
     /declare approachDistance int local 15
     /declare moveDistance int local 5
     /declare moveDelay int local 0
-    
-    | Check if we need to approach
+
+    | Check if we need to approach — no delay if already in range
     /if (${Target.Distance} <= ${approachDistance}) {
-        | Already close enough, just face it
         /face fast
-        /delay 1
         /return
     }
-    
-    | If corpse is too far, try to approach
+
+    | If corpse is too far, skip
     /if (${Target.Distance} > ${maxApproachDistance}) {
         /echo Warning: Corpse too far (${Target.Distance} units, max: ${maxApproachDistance}) - skipping
         /return
     }
-    
+
     | Try to approach the corpse
 :ApproachLoop
     /varset retryCount ${Math.Calc[${retryCount}+1]}
-    
+
     /if (${retryCount} > ${maxRetries}) {
         /echo Warning: Failed to approach corpse after ${maxRetries} attempts - skipping
         /return
     }
-    
-    | Face the corpse
+
+    | Face and re-check — no delay needed, /face fast is instant
     /face fast
-    /delay 1
-    
-    | Check current distance
-    /if (${Target.Distance} <= ${approachDistance}) {
-        | Close enough now
-        /return
-    }
-    
-    | Move closer using stick
-    /echo Approaching corpse (${Target.Distance} units away, attempt ${retryCount}/${maxRetries})...
+    /if (${Target.Distance} <= ${approachDistance}) /return
+
+    | Move closer using stick — wait up to approachWaitTicks (default 8, configurable)
     /stick ${approachDistance}
     /delay ${approachWaitTicks} ${Target.Distance}<=${approachDistance}
-    
-    | If still too far, try manual movement
-    /if (${Target.Distance} > ${approachDistance}) {
-        | Stop stick
+
+    | If stick got us close enough, stop and return
+    /if (${Target.Distance} <= ${approachDistance}) {
         /stick off
-        /delay 1
-        
-        | Face corpse again
-        /face fast
-        /delay 1
-        
-        | Move forward manually for a short distance
-        /keypress up hold
-        /varset moveDelay ${Math.Calc[${Target.Distance}*10]}
-        /if (${moveDelay} > ${maxMoveDelay}) /varset moveDelay ${maxMoveDelay}
-        /delay ${moveDelay}
-        /keypress up
-        /delay 1
-        
-        | Check if we got closer
-        /if (${Target.Distance} > ${approachDistance}) {
-            /echo Still too far (${Target.Distance} units) - retrying...
-            /goto :ApproachLoop
-        }
+        /return
     }
-    
+
+    | Still too far: stop stick, try manual movement
+    /stick off
+
+    | Face corpse and move forward manually
+    /face fast
+    /keypress up hold
+    /varset moveDelay ${Math.Calc[${Target.Distance}*10]}
+    /if (${moveDelay} > ${maxMoveDelay}) /varset moveDelay ${maxMoveDelay}
+    /delay ${moveDelay}
+    /keypress up
+
+    | Check if we got closer
+    /if (${Target.Distance} > ${approachDistance}) {
+        /goto :ApproachLoop
+    }
+
     | Stop any movement
     /stick off
     /keypress up
-    /delay 1
-    
-    | Final face check
     /face fast
-    /delay 1
 /return
 
 | ================================================= |

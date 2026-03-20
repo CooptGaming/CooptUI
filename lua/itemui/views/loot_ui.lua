@@ -397,6 +397,13 @@ function LootUIView.render(ctx)
                     ImGui.TableSetupScrollFreeze(0, 1)
                     ImGui.TableHeadersRow()
                     local normalizedBestName = state.lootRunBestItemName and item_name.normalizeItemName(state.lootRunBestItemName) or nil
+                    -- Pre-compute normalized names to avoid per-row string ops inside the render loop
+                    local normalizedRowNames = {}
+                    if normalizedBestName then
+                        for i, row in ipairs(itemsForTable) do
+                            normalizedRowNames[i] = item_name.normalizeItemName(row.name)
+                        end
+                    end
                     local clipper = ImGuiListClipper.new()
                     clipper:Begin(#itemsForTable)
                     while clipper:Step() do
@@ -407,7 +414,7 @@ function LootUIView.render(ctx)
                             ImGui.TableNextColumn()
                             ImGui.Text(tostring(i))
                             ImGui.TableNextColumn()
-                            if normalizedBestName and item_name.normalizeItemName(row.name) == normalizedBestName then
+                            if normalizedBestName and normalizedRowNames[i] == normalizedBestName then
                                 ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
                             else
                                 ImGui.Text(row.name or "")

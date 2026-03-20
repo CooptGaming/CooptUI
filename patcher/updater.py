@@ -171,6 +171,27 @@ def patch(
     return True, "Update complete."
 
 
+def verify_installation(
+    files_patched: list[dict],
+    root_path: str,
+) -> tuple[bool, list[str]]:
+    """
+    Post-patch verification: re-hash each patched file and compare to expected hash.
+    Returns (all_ok, list_of_failed_paths). Empty list means all files verified.
+    """
+    failed: list[str] = []
+    for entry in files_patched:
+        path = entry.get("path")
+        expected_hash = (entry.get("hash") or "").strip().lower()
+        if not path or not expected_hash:
+            continue
+        local_path = os.path.join(root_path, path.replace("/", os.sep))
+        local_hash = _sha256_file(local_path)
+        if local_hash != expected_hash:
+            failed.append(path)
+    return len(failed) == 0, failed
+
+
 def check_for_default_config(
     repo_base_url: str,
     root_path: str,

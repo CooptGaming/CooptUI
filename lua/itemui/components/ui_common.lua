@@ -339,36 +339,68 @@ function M.renderItemContextMenu(ctx, item, opts)
                         validSlots[#validSlots + 1] = idx
                     end
                 end
-                -- For weapons: put mainhand before offhand so a 1H fills primary first.
-                -- Paired non-weapon slots (finger/ear/wrist) keep their natural order.
-                table.sort(validSlots, function(a, b)
-                    if a == SLOT_MAINHAND then return true end
-                    if b == SLOT_MAINHAND then return false end
-                    return a < b
-                end)
-                -- Primary-only: item fits mainhand but NOT offhand (2-handers, bows, some specials).
-                local isPrimaryOnly = slotSet[SLOT_MAINHAND] and not slotSet[SLOT_OFFHAND]
                 local eqCache = ctx.equipmentCache or {}
-                -- Prefer an empty slot (covers finger/ear/wrist pairs); fall back to first valid.
-                local bestIdx = nil
-                for _, idx in ipairs(validSlots) do
-                    if eqCache[idx + 1] == nil then bestIdx = idx; break end
-                end
-                if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
-                if bestIdx ~= nil then
-                    bestSlotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(bestIdx) or nil
-                end
-                -- Primary-only: pre-clear BOTH offhand and mainhand before equipping.
-                -- Order: offhand first, then mainhand. The state machine handles empty slots
-                -- safely (cursor stays clear, /autoinventory is skipped for that slot).
-                if isPrimaryOnly then
-                    local getSlotName = ctx.getEquipmentSlotNameForItemNotify
-                    if getSlotName then
-                        preClearSlots = {}
-                        local ohName = getSlotName(SLOT_OFFHAND)
-                        local mhName = getSlotName(SLOT_MAINHAND)
-                        if ohName then preClearSlots[#preClearSlots + 1] = ohName end
-                        if mhName then preClearSlots[#preClearSlots + 1] = mhName end
+                local getSlotName = ctx.getEquipmentSlotNameForItemNotify
+                if slotSet[SLOT_MAINHAND] then
+                    -- New item fits mainhand. Determine if a primary-only constraint applies.
+                    local newIsPrimaryOnly = not slotSet[SLOT_OFFHAND]
+                    -- Check if the currently-equipped mainhand item is primary-only (e.g. a 2-hander).
+                    local equippedMHIsPrimaryOnly = false
+                    if not newIsPrimaryOnly and eqCache[SLOT_MAINHAND + 1] ~= nil then
+                        local mhInv = Me and Me.Inventory and Me.Inventory("mainhand")
+                        if mhInv and mhInv.ID and mhInv.ID() and mhInv.ID() > 0 and mhInv.WornSlots then
+                            local nMhSlots = mhInv.WornSlots()
+                            if nMhSlots and nMhSlots > 0 and nMhSlots < 20 then
+                                local mhSlotSet = {}
+                                for i = 1, nMhSlots do
+                                    local s = mhInv.WornSlot and mhInv.WornSlot(i)
+                                    local idx = s and tonumber(tostring(s))
+                                    if idx then mhSlotSet[idx] = true end
+                                end
+                                equippedMHIsPrimaryOnly = mhSlotSet[SLOT_MAINHAND] and not mhSlotSet[SLOT_OFFHAND]
+                            end
+                        end
+                    end
+                    if newIsPrimaryOnly or equippedMHIsPrimaryOnly then
+                        -- A primary-only constraint is in play: pre-clear BOTH weapon slots
+                        -- (offhand first — may be a no-op), then equip to mainhand.
+                        -- targetSlot is always mainhand here since we are clearing it.
+                        bestSlotName = getSlotName and getSlotName(SLOT_MAINHAND) or nil
+                        if getSlotName then
+                            preClearSlots = {}
+                            local ohName = getSlotName(SLOT_OFFHAND)
+                            local mhName = getSlotName(SLOT_MAINHAND)
+                            if ohName then preClearSlots[#preClearSlots + 1] = ohName end
+                            if mhName then preClearSlots[#preClearSlots + 1] = mhName end
+                        end
+                    else
+                        -- 1H weapon with no primary-only constraint: prefer empty slot
+                        -- (fills offhand if mainhand is already taken), fall back to mainhand.
+                        table.sort(validSlots, function(a, b)
+                            if a == SLOT_MAINHAND then return true end
+                            if b == SLOT_MAINHAND then return false end
+                            return a < b
+                        end)
+                        local bestIdx = nil
+                        for _, idx in ipairs(validSlots) do
+                            if eqCache[idx + 1] == nil then bestIdx = idx; break end
+                        end
+                        if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
+                        if bestIdx ~= nil then
+                            bestSlotName = getSlotName and getSlotName(bestIdx) or nil
+                        end
+                    end
+                else
+                    -- Non-mainhand item (offhand-only, finger, ear, wrist, etc.):
+                    -- prefer an empty slot; fall back to first valid slot.
+                    table.sort(validSlots, function(a, b) return a < b end)
+                    local bestIdx = nil
+                    for _, idx in ipairs(validSlots) do
+                        if eqCache[idx + 1] == nil then bestIdx = idx; break end
+                    end
+                    if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
+                    if bestIdx ~= nil then
+                        bestSlotName = getSlotName and getSlotName(bestIdx) or nil
                     end
                 end
             end

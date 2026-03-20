@@ -8,6 +8,7 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local dbg = require('itemui.core.debug').channel('ItemOps')
 
 local M = {}
 local deps  -- set by init()
@@ -80,6 +81,7 @@ function M.queueItemForSelling(itemData)
         item = { name = itemData.name, bag = bagNum, slot = slotNum, id = itemData.id },
         enteredAt = mq.gettime and mq.gettime() or 0,
     }
+    dbg.log(string.format("Manual sell queued: %s (bag %d slot %d)", itemData.name or "?", bagNum, slotNum))
     deps.setStatusMessage("Selling...")
     return true
 end
@@ -252,6 +254,7 @@ end
 --- Reduce stack at bag/slot by destroyQty; remove row if stack would be 0. Updates both inventoryItems and sellItems.
 function M.reduceStackOrRemoveBySlot(bag, slot, destroyQty)
     if not destroyQty or destroyQty < 1 then return end
+    dbg.log(string.format("Destroy: qty %d from bag %d slot %d", destroyQty, bag, slot))
     deps.invalidateSortCache("inv")
     deps.invalidateSortCache("sell")
     for i = #deps.inventoryItems, 1, -1 do
@@ -1010,7 +1013,6 @@ function M.advanceDestroyStateMachine(now)
         M.reduceStackOrRemoveBySlot(action.bag, action.slot, qty)
         if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
         if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
-        if deps.rescanInventoryBags then deps.rescanInventoryBags({ action.bag }) end
         local itemName = action.name
         local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
         if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
