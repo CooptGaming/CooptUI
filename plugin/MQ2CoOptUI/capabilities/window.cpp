@@ -32,13 +32,6 @@ void registerLua(sol::state_view L, sol::table& table) {
   table.set_function("isWindowOpen", [](const std::string& name) {
     return isWindowOpenImpl(name);
   });
-  // Stubs: getText and click deferred (TLO/commands).
-  table.set_function("click", [](const std::string&, const std::string&) { return false; });
-  table.set_function("getText", [](const std::string&, const std::string&) -> sol::optional<std::string> {
-    return sol::nullopt;
-  });
-  table.set_function("waitOpen", [](const std::string&, int) { return false; });
-  table.set_function("inspectItem", [](int, int, const std::string&) { (void)0; });
   table.set_function("isMerchantOpen", []() { return isWindowOpenImpl("MerchantWnd"); });
 }
 

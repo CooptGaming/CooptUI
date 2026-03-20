@@ -315,6 +315,108 @@ function M.renderItemContextMenu(ctx, item, opts)
         if ImGui.MenuItem("Remove from list") then opts.onRemoveFromRerollList(opts.rerollEntryId) end
     end
 
+    -- Equip (inventory items only; not augments, scripts, or reroll books)
+    local canEquip = (source == "inv") and item.bag ~= nil and item.slot ~= nil
+        and not isAugment and not isScriptItem and not isRerollBook
+    if canEquip then
+        -- Slot indices per SLOT_NAMES_ITEMNOTIFY in item_tlo.lua (0-22 map)
+        local SLOT_MAINHAND, SLOT_OFFHAND = 13, 14
+        -- Determine best equipment slot via live TLO (runs only while menu is open, not per-frame)
+        local bestSlotName, preClearSlots = nil, nil
+        local Me = mq.TLO and mq.TLO.Me
+        local pack = Me and Me.Inventory and Me.Inventory("pack" .. item.bag)
+        local it = pack and pack.Item and pack.Item(item.slot)
+        if it and it.WornSlots then
+            local nSlots = it.WornSlots()
+            if nSlots and nSlots > 0 and nSlots < 20 then
+                -- Build deduplicated slot index list (weapons, fingers, ears, wrists, etc.)
+                local validSlots, slotSet = {}, {}
+                for i = 1, nSlots do
+                    local s = it.WornSlot and it.WornSlot(i)
+                    local idx = s and tonumber(tostring(s))
+                    if idx ~= nil and not slotSet[idx] then
+                        slotSet[idx] = true
+                        validSlots[#validSlots + 1] = idx
+                    end
+                end
+                local eqCache = ctx.equipmentCache or {}
+                local getSlotName = ctx.getEquipmentSlotNameForItemNotify
+                if slotSet[SLOT_MAINHAND] then
+                    -- New item fits mainhand. Determine if a primary-only constraint applies.
+                    local newIsPrimaryOnly = not slotSet[SLOT_OFFHAND]
+                    -- Check if the currently-equipped mainhand item is primary-only (e.g. a 2-hander).
+                    local equippedMHIsPrimaryOnly = false
+                    if not newIsPrimaryOnly and eqCache[SLOT_MAINHAND + 1] ~= nil then
+                        local mhInv = Me and Me.Inventory and Me.Inventory("mainhand")
+                        if mhInv and mhInv.ID and mhInv.ID() and mhInv.ID() > 0 and mhInv.WornSlots then
+                            local nMhSlots = mhInv.WornSlots()
+                            if nMhSlots and nMhSlots > 0 and nMhSlots < 20 then
+                                local mhSlotSet = {}
+                                for i = 1, nMhSlots do
+                                    local s = mhInv.WornSlot and mhInv.WornSlot(i)
+                                    local idx = s and tonumber(tostring(s))
+                                    if idx then mhSlotSet[idx] = true end
+                                end
+                                equippedMHIsPrimaryOnly = mhSlotSet[SLOT_MAINHAND] and not mhSlotSet[SLOT_OFFHAND]
+                            end
+                        end
+                    end
+                    if newIsPrimaryOnly or equippedMHIsPrimaryOnly then
+                        -- A primary-only constraint is in play: pre-clear BOTH weapon slots
+                        -- (offhand first — may be a no-op), then equip to mainhand.
+                        -- targetSlot is always mainhand here since we are clearing it.
+                        bestSlotName = getSlotName and getSlotName(SLOT_MAINHAND) or nil
+                        if getSlotName then
+                            preClearSlots = {}
+                            local ohName = getSlotName(SLOT_OFFHAND)
+                            local mhName = getSlotName(SLOT_MAINHAND)
+                            if ohName then preClearSlots[#preClearSlots + 1] = ohName end
+                            if mhName then preClearSlots[#preClearSlots + 1] = mhName end
+                        end
+                    else
+                        -- 1H weapon with no primary-only constraint: prefer empty slot
+                        -- (fills offhand if mainhand is already taken), fall back to mainhand.
+                        table.sort(validSlots, function(a, b)
+                            if a == SLOT_MAINHAND then return true end
+                            if b == SLOT_MAINHAND then return false end
+                            return a < b
+                        end)
+                        local bestIdx = nil
+                        for _, idx in ipairs(validSlots) do
+                            if eqCache[idx + 1] == nil then bestIdx = idx; break end
+                        end
+                        if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
+                        if bestIdx ~= nil then
+                            bestSlotName = getSlotName and getSlotName(bestIdx) or nil
+                        end
+                    end
+                else
+                    -- Non-mainhand item (offhand-only, finger, ear, wrist, etc.):
+                    -- prefer an empty slot; fall back to first valid slot.
+                    table.sort(validSlots, function(a, b) return a < b end)
+                    local bestIdx = nil
+                    for _, idx in ipairs(validSlots) do
+                        if eqCache[idx + 1] == nil then bestIdx = idx; break end
+                    end
+                    if not bestIdx and #validSlots > 0 then bestIdx = validSlots[1] end
+                    if bestIdx ~= nil then
+                        bestSlotName = getSlotName and getSlotName(bestIdx) or nil
+                    end
+                end
+            end
+        end
+        if bestSlotName then
+            ImGui.Separator()
+            if ImGui.MenuItem("Equip") then
+                local q = ctx.uiState.cursorActionQueue or {}
+                q[#q + 1] = { type = "equip", bag = item.bag, slot = item.slot, name = item.name,
+                               targetSlot = bestSlotName, attuneable = item.attuneable,
+                               preClearSlots = preClearSlots }
+                ctx.uiState.cursorActionQueue = q
+            end
+        end
+    end
+
     -- Destroy
     local canDestroy = (source == "inv" or source == "bank" or source == "sell" or source == "augments" or source == "reroll") and item.bag ~= nil and item.slot ~= nil
     if canDestroy and ctx.setPendingDestroy and ctx.requestDestroyItem then

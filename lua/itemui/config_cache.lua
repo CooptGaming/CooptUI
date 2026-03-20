@@ -49,7 +49,7 @@ local function loadConfigCache()
     lootFlags.pauseOnMythicalNoDropNoTrade = config.readLootINIValue("loot_flags.ini", "Settings", "pauseOnMythicalNoDropNoTrade", "FALSE") == "TRUE"
     lootFlags.alertMythicalGroupChat = config.readLootINIValue("loot_flags.ini", "Settings", "alertMythicalGroupChat", "TRUE") == "TRUE"
     lootFlags.enableLiveLootFeed = config.readLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", "FALSE") == "TRUE"
-    lootFlags.quietMode = config.readLootINIValue("loot_flags.ini", "Settings", "quietMode", "FALSE") == "TRUE"
+    -- quietMode removed: loot verbosity now uses Debug:Loot channel in itemui_layout.ini (Advanced > Debug channels)
     lootFlags.lootDelayTicks = tonumber(config.readLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", "3")) or 3
     if lootFlags.lootDelayTicks < 1 then lootFlags.lootDelayTicks = 1 elseif lootFlags.lootDelayTicks > 10 then lootFlags.lootDelayTicks = 10 end
     lootValues.minLoot = tonumber(config.readLootINIValue("loot_value.ini", "Settings", "minLootValue", "999")) or 999

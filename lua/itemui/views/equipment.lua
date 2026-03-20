@@ -285,7 +285,6 @@ registry.register({
     enableKey   = "ShowEquipmentWindow",
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         EquipmentView.render(ctx)
     end,
 })

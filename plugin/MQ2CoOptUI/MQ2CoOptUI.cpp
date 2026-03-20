@@ -14,6 +14,7 @@
 #include "capabilities/ipc.h"
 #include "capabilities/items.h"
 #include "capabilities/loot.h"
+#include "capabilities/sound.h"
 #include "capabilities/window.h"
 #include "core/CacheManager.h"
 #include "core/Config.h"
@@ -629,6 +630,10 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   sol::table cursor_table = lua.create_table();
   cooptui::cursor::registerLua(lua, cursor_table);
   mod["cursor"] = cursor_table;
+
+  sol::table sound_table = lua.create_table();
+  cooptui::sound::registerLua(lua, sound_table);
+  mod["sound"] = sound_table;
 
   // Top-level aliases: scan.lua calls these directly (no sub-table lookup needed)
   mod["scanInventory"] = items_table["scanInventory"];

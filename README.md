@@ -34,11 +34,15 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 
 **First-time setup** — A short wizard walks you through the main windows and lets you set sell protection and loot rules. You can skip it and configure later in Settings.
 
-**Open Settings** — Click the Settings button on the main window, or type `/itemui config`. Manage sell, loot, and shared lists as well as well as pick settings ot meet your preference. 
+**Open Settings** — Click the Settings button on the main window, or type `/itemui config`. Manage sell, loot, and shared lists, and pick settings to meet your preference.
+
+**Sound Notifications** — Get audio feedback when sell completes, items fail to sell, or rare loot is found. Toggle per event, use system beep or custom .wav files. Configure in Settings → Advanced → Sound Notifications.
+
+**Debug Console** — When troubleshooting, enable debug channels in Settings → Advanced. Each channel (Sell, Loot, MacroBridge, Layout, Scan, ItemOps, Augment) logs verbose messages to the MQ console and `logs/coopui_debug.log`. A Recent Errors panel shows any recoverable errors.
 
 **Backup / Restore** — In Settings → Advanced you can export or restore all your CoOpt UI settings.
 
-**Updater (Patcher)** — Optional desktop app that updates CoOpt UI files without touching your config. Get it from the releases page if you want easy updates.
+**Updater (Patcher)** — Optional desktop app that updates CoOpt UI files without touching your config. Post-update verification confirms file integrity. Get it from the releases page.
 
 ---
 
@@ -47,6 +51,7 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 - **MacroQuest2** with Lua and ImGui (most MQ2 installs have this).
 - **EverQuest** on an **emulator server**.
 - **Windows.**
+- **MQ2CoOptUI plugin** (optional, included in releases) — Native C++ plugin for fast inventory/bank/loot scanning, item cursor tracking, and sound playback. Falls back to Lua TLO if not loaded.
 
 **Recommended:** If you’re setting up from scratch, use the prebuilt package and setup guide from the **E3Next** project: [Getting started (EMU 32-bit)](https://github.com/RekkasGit/E3Next/wiki/1%29-Getting-started-EMU-32bit). That package includes E3Next and MQNext already configured. Credit to **Rekkas** and the E3Next team for the binary distribution and EMU setup docs.
 

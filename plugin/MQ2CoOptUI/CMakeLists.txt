@@ -14,12 +14,14 @@ set(MQ2CoOptUI_SOURCES
   core/CacheManager.cpp
   core/Logger.cpp
   core/ItemDataPopulate.cpp
+  core/ItemDataToTable.cpp
   capabilities/ini.cpp
   capabilities/ipc.cpp
   capabilities/cursor.cpp
   capabilities/window.cpp
   capabilities/items.cpp
   capabilities/loot.cpp
+  capabilities/sound.cpp
   rules/RulesEngine.cpp
   scanners/BankScanner.cpp
   scanners/InventoryScanner.cpp

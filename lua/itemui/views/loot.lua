@@ -23,8 +23,6 @@ end
 -- Module interface: render loot view content
 -- Params: context table containing all necessary state and functions from init.lua
 function LootView.render(ctx)
-    ctx.maybeScanLootItems(true)
-    
     -- Macro.Name may return "loot" or "loot.mac" depending on MQ version
     local lootMacName = ((mq.TLO and mq.TLO.Macro and mq.TLO.Macro.Name and (mq.TLO.Macro.Name() or "")) or ""):lower()
     local lootMacRunning = (lootMacName == "loot" or lootMacName == "loot.mac")

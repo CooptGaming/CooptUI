@@ -25,12 +25,6 @@ function M.init(opts)
     companionWindowOpenedAt = opts and opts.companionWindowOpenedAt
 end
 
-local function getState(id)
-    local m = modules[id]
-    if not m then return nil end
-    return m.windowOpen, m.windowShouldDraw, m.openedAt
-end
-
 local function isEnabled(spec)
     if not spec.enableKey then return true end
     if not layoutConfig then return true end

@@ -307,6 +307,25 @@ function LootUIView.render(ctx)
                     end
                     ImGui.SameLine()
                 end
+                -- Reroll: visible after item was taken so user can queue it for mythical reroll
+                if decision == "taken" then
+                    local itemName = alert.itemName
+                    if ImGui.Button("Reroll##MythicalAlert") then
+                        local found = nil
+                        if itemName and itemName ~= "" and ctx.inventoryItems then
+                            for _, inv in ipairs(ctx.inventoryItems) do
+                                if inv.name == itemName then found = inv; break end
+                            end
+                        end
+                        if found then
+                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", found) end
+                        else
+                            if ctx.setStatusMessage then ctx.setStatusMessage("Item not found in inventory: " .. (itemName or "")) end
+                        end
+                    end
+                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add to Mythical Reroll list."); ImGui.EndTooltip() end
+                    ImGui.SameLine()
+                end
                 if ImGui.Button("Dismiss##MythicalAlert") then
                     if ctx.clearLootUIMythicalAlert then ctx.clearLootUIMythicalAlert() end
                 end
@@ -377,28 +396,44 @@ function LootUIView.render(ctx)
                     ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_STATUS_WIDTH, 3)
                     ImGui.TableSetupScrollFreeze(0, 1)
                     ImGui.TableHeadersRow()
-                    for i, row in ipairs(itemsForTable) do
-                        ImGui.TableNextRow()
-                        ImGui.TableNextColumn()
-                        ImGui.Text(tostring(i))
-                        ImGui.TableNextColumn()
-                        if state.lootRunBestItemName and item_name.normalizeItemName(row.name) == item_name.normalizeItemName(state.lootRunBestItemName) then
-                            ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
-                        else
-                            ImGui.Text(row.name or "")
+                    local normalizedBestName = state.lootRunBestItemName and item_name.normalizeItemName(state.lootRunBestItemName) or nil
+                    -- Pre-compute normalized names to avoid per-row string ops inside the render loop
+                    local normalizedRowNames = {}
+                    if normalizedBestName then
+                        for i, row in ipairs(itemsForTable) do
+                            normalizedRowNames[i] = item_name.normalizeItemName(row.name)
                         end
-                        ImGui.TableNextColumn()
-                        local valStr = (ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0)
-                        ImGui.Text(valStr)
-                        ImGui.TableNextColumn()
-                        local statusText = row.statusText or "—"
-                        if statusText == "Epic" then statusText = "EpicQuest" end
-                        local statusColor = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
-                        if statusText == "EpicQuest" then statusColor = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
-                        elseif statusText == "NoDrop" or statusText == "NoTrade" then statusColor = theme.ToVec4(theme.Colors.Error)
-                        end
-                        ImGui.TextColored(statusColor, statusText)
                     end
+                    local clipper = ImGuiListClipper.new()
+                    clipper:Begin(#itemsForTable)
+                    while clipper:Step() do
+                        for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+                            local row = itemsForTable[i]
+                            if not row then goto continue end
+                            ImGui.TableNextRow()
+                            ImGui.TableNextColumn()
+                            ImGui.Text(tostring(i))
+                            ImGui.TableNextColumn()
+                            if normalizedBestName and normalizedRowNames[i] == normalizedBestName then
+                                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
+                            else
+                                ImGui.Text(row.name or "")
+                            end
+                            ImGui.TableNextColumn()
+                            local valStr = (ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0)
+                            ImGui.Text(valStr)
+                            ImGui.TableNextColumn()
+                            local statusText = row.statusText or "—"
+                            if statusText == "Epic" then statusText = "EpicQuest" end
+                            local statusColor = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
+                            if statusText == "EpicQuest" then statusColor = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
+                            elseif statusText == "NoDrop" or statusText == "NoTrade" then statusColor = theme.ToVec4(theme.Colors.Error)
+                            end
+                            ImGui.TextColored(statusColor, statusText)
+                            ::continue::
+                        end
+                    end
+                    clipper:End()
                     ImGui.EndTable()
                 end
             end

@@ -18,6 +18,7 @@ from updater import (
     install_default_config,
     get_installed_version,
     write_installed_version,
+    verify_installation,
 )
 from validator import validate_mq_root
 
@@ -303,6 +304,16 @@ class PatcherApp(ctk.CTk):
         self.status_label.pack(side="left", fill="x", expand=True)
         if success:
             ensure_env_after_patch(self.mq_root)
+            # Post-patch verification: re-hash patched files to confirm integrity
+            if self.files_to_update:
+                all_ok, failed = verify_installation(self.files_to_update, self.mq_root)
+                if not all_ok:
+                    self._set_status(
+                        f"Update complete but {len(failed)} file(s) failed verification. "
+                        f"Check permissions or antivirus: {', '.join(failed[:3])}"
+                    )
+                else:
+                    self._set_status(message + " All files verified.")
             if self.manifest_version:
                 write_installed_version(self.mq_root, self.manifest_version)
             self.files_to_update = []

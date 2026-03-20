@@ -487,7 +487,6 @@ registry.register({
     enableKey   = "ShowAugmentUtilityWindow",
     render      = function(refs)
         local ctx = context.build()
-        ctx = context.extend(ctx)
         AugmentUtilityView.render(ctx)
     end,
 })

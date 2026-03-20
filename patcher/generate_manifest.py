@@ -8,9 +8,21 @@ Uses same "replace on update" list as build-release.ps1 / RELEASE_AND_DEPLOYMENT
 import hashlib
 import json
 import os
+import re
 
 # Repo root (parent of patcher/)
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _read_coopt_version() -> str:
+    """Read PACKAGE version from lua/coopui/version.lua."""
+    version_file = os.path.join(REPO_ROOT, "lua", "coopui", "version.lua")
+    if not os.path.isfile(version_file):
+        return "0.0.0"
+    with open(version_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    m = re.search(r'PACKAGE\s*=\s*"([^"]+)"', content)
+    return m.group(1) if m else "0.0.0"
 
 # Paths to include (relative to repo root). Mirrors build-release.ps1 replace-on-update list.
 # We collect lua/itemui (excluding docs, upvalue_check), scripttracker, coopui, mq/ItemUtils,
@@ -83,7 +95,8 @@ def main():
         if os.path.isfile(full):
             h = _sha256_file(full)
             files.append({"path": path, "hash": h})
-    manifest = {"version": "1.0.0", "files": files}
+    version = _read_coopt_version()
+    manifest = {"version": version, "files": files}
     out_path = os.path.join(REPO_ROOT, "release_manifest.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)

@@ -4,11 +4,9 @@
 --]]
 
 local mq = require('mq')
-local CoopVersion = require('coopui.version')
 local config = require('itemui.config')
 local config_cache = require('itemui.config_cache')
 local context = require('itemui.context')
-local context_init = require('itemui.context_init')
 local rules = require('itemui.rules')
 local storage = require('itemui.storage')
 -- Phase 2: Core infrastructure (cache.lua used for spell caches; state/events partially integrated)
@@ -20,7 +18,6 @@ local registry = require('itemui.core.registry')
 local CharacterStats = require('itemui.components.character_stats')
 
 -- Phase 3: Filter system modules
-local filterService = require('itemui.services.filter_service')
 local searchbar = require('itemui.components.searchbar')
 local filtersComponent = require('itemui.components.filters')
 local ui_common = require('itemui.components.ui_common')
@@ -283,11 +280,14 @@ local function saveLootHistoryToFile()
     if not uiState.lootHistory or #uiState.lootHistory == 0 then return end
     local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
     if not path or path == "" then return end
-    mq.cmdf('/ini "%s" History count %d', path, #uiState.lootHistory)
+    -- Single file write instead of N+1 /ini commands (eliminates post-loot stutter)
+    local lines = { "[History]" }
+    lines[#lines + 1] = "count=" .. #uiState.lootHistory
     for i, row in ipairs(uiState.lootHistory) do
         local val = string.format("%s%s%d%s%s%s%s", row.name or "", LOOT_HISTORY_DELIM, row.value or 0, LOOT_HISTORY_DELIM, row.statusText or "—", LOOT_HISTORY_DELIM, row.willSell and "1" or "0")
-        mq.cmdf('/ini "%s" History %d "%s"', path, i, val:gsub('"', '""'))
+        lines[#lines + 1] = string.format("%d=%s", i, val)
     end
+    file_safe.safeWrite(path, table.concat(lines, "\n"))
 end
 local function loadSkipHistoryFromFile()
     if not config.getLootConfigFile then return end
@@ -327,11 +327,14 @@ local function saveSkipHistoryToFile()
     if not uiState.skipHistory or #uiState.skipHistory == 0 then return end
     local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
     if not path or path == "" then return end
-    mq.cmdf('/ini "%s" Skip count %d', path, #uiState.skipHistory)
+    -- Single file write instead of N+1 /ini commands (eliminates post-loot stutter)
+    local lines = { "[Skip]" }
+    lines[#lines + 1] = "count=" .. #uiState.skipHistory
     for i, row in ipairs(uiState.skipHistory) do
         local val = (row.name or "") .. LOOT_HISTORY_DELIM .. (row.reason or "")
-        mq.cmdf('/ini "%s" Skip %d "%s"', path, i, val:gsub('"', '""'))
+        lines[#lines + 1] = string.format("%d=%s", i, val)
     end
+    file_safe.safeWrite(path, table.concat(lines, "\n"))
 end
 lootLoopRefs.saveLootHistory = saveLootHistoryToFile
 lootLoopRefs.saveSkipHistory = saveSkipHistoryToFile
@@ -701,6 +704,7 @@ local sortColumnsAPI = {
     getCellDisplayText = columns.getCellDisplayText,
     isNumericColumn = columns.isNumericColumn,
     getVisibleColumns = columns.getVisibleColumns,
+    simpleHash = columns.simpleHash,
 }
 
 local function getItemStatsForTooltipRef(item, source)
@@ -788,7 +792,7 @@ end
 
 local defaultLayoutAppliedThisRun = false
 
-context_init.init({
+context.init({
     -- Main window state access (unifies former mainWindowRefs + context wiring)
     getShouldDraw = function() return shouldDraw end,
     setShouldDraw = function(v) shouldDraw = v end,
@@ -815,6 +819,8 @@ context_init.init({
     isLootWindowOpen = isLootWindowOpen,
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
+    startIncrementalScan = function() scanService.startIncrementalScan() end,
+    processIncrementalScan = function() return scanService.processIncrementalScan() end,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
     refreshAllScans = function()
         scanInventory()
@@ -1266,6 +1272,12 @@ local function main()
         end
     end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
+    -- Sync enableRealTimeLoot with enableLiveLootFeed: if the macro feed is enabled but
+    -- the UI-side flag is off (default), enable it now so IPC items are actually shown.
+    if configLootFlags.enableLiveLootFeed and not uiState.enableRealTimeLoot then
+        uiState.enableRealTimeLoot = true
+        layoutUtils.scheduleLayoutSave()
+    end
     layoutUtils.applyItemUIToggleBind()  -- Apply keybind on startup only (not on every /inv)
     do
         local bindKey = layoutUtils.getItemUIToggleKeyDisplay and layoutUtils.getItemUIToggleKeyDisplay()
@@ -1302,6 +1314,8 @@ local function main()
         if scanState.lastPersistSaveTime == 0 then scanState.lastPersistSaveTime = mq.gettime() end
     end
 
+    local soundService = require('itemui.services.sound')
+    soundService.init()
     local d = buildMainLoopDeps()
     mainLoop.init(d)
     sellBatch.init(d)
