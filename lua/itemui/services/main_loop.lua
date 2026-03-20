@@ -268,11 +268,19 @@ local function phase5_lootMacro(now)
     local SESSION_MERGE_PER_TICK = 20  -- items to merge per frame during chunked drain
 
     local sessionReadDelay = constants.TIMING.LOOT_SESSION_READ_DELAY_MS or 80
-    -- Phase A: Read session INI once, store raw data for chunked merge
+    -- Phase A: Read session INI once, store raw data for chunked merge.
+    -- When IPC is active, drainIPCFast already populated lootRunLootedItems in real-time
+    -- and loot_end already set summary totals — skip the expensive INI read + merge entirely.
     if lootLoopRefs.pendingSession and (now - (lootLoopRefs.pendingSessionAt or 0)) >= sessionReadDelay then
         lootLoopRefs.pendingSession = nil
         lootLoopRefs.pendingSessionAt = 0
-        if uiState.lootUIOpen and macroBridge and macroBridge.getLootSession then
+        local ipcActive = macroBridge and macroBridge.isIPCAvailable and macroBridge.isIPCAvailable()
+        local alreadyHaveItems = uiState.lootRunLootedItems and #uiState.lootRunLootedItems > 0
+        if ipcActive and alreadyHaveItems then
+            -- IPC already populated everything — skip straight to Phase C (skip history + history saves)
+            lootLoopRefs.sessionMerge = nil
+            lootLoopRefs.pendingSessionFinish = { session = nil }
+        elseif uiState.lootUIOpen and macroBridge and macroBridge.getLootSession then
             local session = macroBridge.getLootSession()
             if session and session.count and session.count > 0 then
                 -- Build seen-set from existing items (fast: just a hash table build)
@@ -992,7 +1000,13 @@ local function handleAutoShowHide(now, ws)
         local userOpening = shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) or shouldDraw
         local elapsed = now - (lootMacState.finishedAt or 0)
         if not userOpening and elapsed >= C.LOOT_PENDING_SCAN_DELAY_MS then
-            scanInventory()
+            -- Use incremental scan (2 bags/frame across 5 frames) instead of full scanInventory
+            -- to avoid a single-frame stutter after looting many corpses.
+            if d.startIncrementalScan then
+                d.startIncrementalScan()
+            else
+                scanInventory()
+            end
             invalidateSortCache("inv")
             lootMacState.pendingScan = false
         end
@@ -1073,7 +1087,7 @@ local function handleAutoShowHide(now, ws)
         uiState.configWindowOpen = false
         if invOpen then mq.cmd('/keypress inventory') end
     end
-    -- Inventory just closed: save state and hide companion.
+    -- Inventory just closed: defer saves across multiple frames to avoid stutter.
     -- Guard: skip when loot macro is active or recently finished (prevents spurious saves
     -- triggered by the macro or its cleanup closing the inventory window at loot end).
     local lootFinishedAt = lootMacState and lootMacState.finishedAt or 0
@@ -1082,17 +1096,21 @@ local function handleAutoShowHide(now, ws)
         uiState.userClosedViaKeybind = false
         mq.cmd('/keypress CLOSE_INV_BAGS')
         storage.ensureCharFolderExists()
+        -- Queue saves to spread across frames (1 disk write per tick instead of 3-4 in one frame)
+        local saveQueue = uiState._deferredCloseSaves or {}
         if #sellItems > 0 then
-            storage.saveInventory(sellItems)
-            storage.writeSellCache(sellItems)
+            saveQueue[#saveQueue + 1] = function() storage.saveInventory(sellItems) end
+            saveQueue[#saveQueue + 1] = function() storage.writeSellCache(sellItems) end
         else
-            computeAndAttachSellStatus(inventoryItems)
-            storage.saveInventory(inventoryItems)
-            storage.writeSellCache(inventoryItems)
+            saveQueue[#saveQueue + 1] = function() computeAndAttachSellStatus(inventoryItems); storage.saveInventory(inventoryItems) end
+            saveQueue[#saveQueue + 1] = function() storage.writeSellCache(inventoryItems) end
         end
         local bankToSave = bankOpen and bankItems or bankCache
-        if bankToSave and #bankToSave > 0 then storage.saveBank(bankToSave) end
-        flushLayoutSave()
+        if bankToSave and #bankToSave > 0 then
+            saveQueue[#saveQueue + 1] = function() storage.saveBank(bankToSave) end
+        end
+        saveQueue[#saveQueue + 1] = function() flushLayoutSave() end
+        uiState._deferredCloseSaves = saveQueue
         setShouldDraw(false)
         setOpen(false)
         uiState.configWindowOpen = false
@@ -1590,6 +1608,15 @@ function M.tick(now)
     end
     phase5b_lootSellStatusDrain()
     phase6_deferredHistorySaves(now)
+    -- Drain deferred close-saves (1 per tick to spread disk I/O across frames)
+    local closeSaves = d.uiState and d.uiState._deferredCloseSaves
+    if closeSaves and #closeSaves > 0 then
+        local fn = table.remove(closeSaves, 1)
+        if fn then pcall(fn) end
+        if #closeSaves == 0 then d.uiState._deferredCloseSaves = nil end
+    end
+    -- Advance incremental inventory scan (2 bags/frame; used after loot to avoid stutter)
+    if d.processIncrementalScan then d.processIncrementalScan() end
     phase7_sellQueueQuantityDestroyMoveAugment(now)
     phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     phase8b_pendingRerollAdd(now)

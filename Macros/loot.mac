@@ -1217,75 +1217,84 @@ sub FinishLooting
     /ini "${configPath}/loot_progress.ini" Protocol Version 1
     /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
     
-    | Write loot_session.ini only when this run had items (from chunked lists; each chunk capped at runListMaxLen)
-    /if (${runLootedCount} > 0) {
-        /declare count1 int local 0
-        /declare count2 int local 0
-        /if (${runLootedList.Length} > 0) /varcalc count1 ${runLootedList.Count[|]}+1
-        /if (${runLootedList2.Length} > 0) /varcalc count2 ${runLootedList2.Count[|]}+1
-        /ini "${configPath}/loot_session.ini" Protocol Version 1
-        /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
-        /declare i int local 1
-        /declare idx2 int local 0
-        /declare idx3 int local 0
-        /for i 1 to ${runLootedCount}
-            /if (${i} <= ${count1}) {
-                /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
-                /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
-                /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
-            } else /if (${i} <= ${Math.Calc[${count1}+${count2}]}) {
-                /varcalc idx2 ${i}-${count1}
-                /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList2.Token[${idx2},|]}"
-                /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues2.Token[${idx2},|]}
-                /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes2.Token[${idx2},|]}
-            } else {
-                /varcalc idx3 ${i}-${count1}-${count2}
-                /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList3.Token[${idx3},|]}"
-                /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues3.Token[${idx3},|]}
-                /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes3.Token[${idx3},|]}
-            }
-        /next i
-        /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
-        /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
-        /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
-        /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
+    | IPC: send loot_end FIRST so Lua UI gets the finish signal immediately (before any INI writes)
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"
+
+    | Write loot_session.ini and loot_skipped.ini ONLY when plugin is NOT loaded (fallback path).
+    | When plugin is loaded, IPC already streamed every loot_item and loot_skip in real-time —
+    | these INI files are redundant and their synchronous writes (3*N + S lines) cause a frame stutter
+    | that scales with corpse count.
+    /if (!${pluginLoaded}) {
+        | Write loot_session.ini only when this run had items (from chunked lists; each chunk capped at runListMaxLen)
+        /if (${runLootedCount} > 0) {
+            /declare count1 int local 0
+            /declare count2 int local 0
+            /if (${runLootedList.Length} > 0) /varcalc count1 ${runLootedList.Count[|]}+1
+            /if (${runLootedList2.Length} > 0) /varcalc count2 ${runLootedList2.Count[|]}+1
+            /ini "${configPath}/loot_session.ini" Protocol Version 1
+            /ini "${configPath}/loot_session.ini" Items count ${runLootedCount}
+            /declare i int local 1
+            /declare idx2 int local 0
+            /declare idx3 int local 0
+            /for i 1 to ${runLootedCount}
+                /if (${i} <= ${count1}) {
+                    /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList.Token[${i},|]}"
+                    /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues.Token[${i},|]}
+                    /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes.Token[${i},|]}
+                } else /if (${i} <= ${Math.Calc[${count1}+${count2}]}) {
+                    /varcalc idx2 ${i}-${count1}
+                    /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList2.Token[${idx2},|]}"
+                    /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues2.Token[${idx2},|]}
+                    /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes2.Token[${idx2},|]}
+                } else {
+                    /varcalc idx3 ${i}-${count1}-${count2}
+                    /ini "${configPath}/loot_session.ini" Items ${i} "${runLootedList3.Token[${idx3},|]}"
+                    /ini "${configPath}/loot_session.ini" ItemValues ${i} ${runLootedValues3.Token[${idx3},|]}
+                    /ini "${configPath}/loot_session.ini" ItemTributes ${i} ${runLootedTributes3.Token[${idx3},|]}
+                }
+            /next i
+            /ini "${configPath}/loot_session.ini" Summary totalValue ${runTotalValue}
+            /ini "${configPath}/loot_session.ini" Summary tributeValue ${runTributeValue}
+            /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
+            /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
+        }
+        | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason). IPC Protocol Version=1.
+        /if (${runSkippedCount} > 0) {
+            /declare skipCount1 int local 0
+            /declare skipCount2 int local 0
+            /declare skipCount3 int local 0
+            /declare skipCount4 int local 0
+            /if (${runSkippedList.Length} > 0) /varcalc skipCount1 ${runSkippedList.Count[|]}+1
+            /if (${runSkippedList2.Length} > 0) /varcalc skipCount2 ${runSkippedList2.Count[|]}+1
+            /if (${runSkippedList3.Length} > 0) /varcalc skipCount3 ${runSkippedList3.Count[|]}+1
+            /if (${runSkippedList4.Length} > 0) /varcalc skipCount4 ${runSkippedList4.Count[|]}+1
+            /ini "${configPath}/loot_skipped.ini" Protocol Version 1
+            /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
+            /declare j int local 1
+            /declare jdx2 int local 0
+            /declare jdx3 int local 0
+            /declare jdx4 int local 0
+            /declare jdx5 int local 0
+            /for j 1 to ${runSkippedCount}
+                /if (${j} <= ${skipCount1}) {
+                    /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
+                } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}]}) {
+                    /varcalc jdx2 ${j}-${skipCount1}
+                    /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList2.Token[${jdx2},|]}^${runSkippedReasons2.Token[${jdx2},|]}"
+                } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}]}) {
+                    /varcalc jdx3 ${j}-${skipCount1}-${skipCount2}
+                    /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList3.Token[${jdx3},|]}^${runSkippedReasons3.Token[${jdx3},|]}"
+                } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}+${skipCount4}]}) {
+                    /varcalc jdx4 ${j}-${skipCount1}-${skipCount2}-${skipCount3}
+                    /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList4.Token[${jdx4},|]}^${runSkippedReasons4.Token[${jdx4},|]}"
+                } else {
+                    /varcalc jdx5 ${j}-${skipCount1}-${skipCount2}-${skipCount3}-${skipCount4}
+                    /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList5.Token[${jdx5},|]}^${runSkippedReasons5.Token[${jdx5},|]}"
+                }
+            /next j
+        }
     }
-    | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason). IPC Protocol Version=1.
-    /if (${runSkippedCount} > 0) {
-        /declare skipCount1 int local 0
-        /declare skipCount2 int local 0
-        /declare skipCount3 int local 0
-        /declare skipCount4 int local 0
-        /if (${runSkippedList.Length} > 0) /varcalc skipCount1 ${runSkippedList.Count[|]}+1
-        /if (${runSkippedList2.Length} > 0) /varcalc skipCount2 ${runSkippedList2.Count[|]}+1
-        /if (${runSkippedList3.Length} > 0) /varcalc skipCount3 ${runSkippedList3.Count[|]}+1
-        /if (${runSkippedList4.Length} > 0) /varcalc skipCount4 ${runSkippedList4.Count[|]}+1
-        /ini "${configPath}/loot_skipped.ini" Protocol Version 1
-        /ini "${configPath}/loot_skipped.ini" Skipped count ${runSkippedCount}
-        /declare j int local 1
-        /declare jdx2 int local 0
-        /declare jdx3 int local 0
-        /declare jdx4 int local 0
-        /declare jdx5 int local 0
-        /for j 1 to ${runSkippedCount}
-            /if (${j} <= ${skipCount1}) {
-                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList.Token[${j},|]}^${runSkippedReasons.Token[${j},|]}"
-            } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}]}) {
-                /varcalc jdx2 ${j}-${skipCount1}
-                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList2.Token[${jdx2},|]}^${runSkippedReasons2.Token[${jdx2},|]}"
-            } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}]}) {
-                /varcalc jdx3 ${j}-${skipCount1}-${skipCount2}
-                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList3.Token[${jdx3},|]}^${runSkippedReasons3.Token[${jdx3},|]}"
-            } else /if (${j} <= ${Math.Calc[${skipCount1}+${skipCount2}+${skipCount3}+${skipCount4}]}) {
-                /varcalc jdx4 ${j}-${skipCount1}-${skipCount2}-${skipCount3}
-                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList4.Token[${jdx4},|]}^${runSkippedReasons4.Token[${jdx4},|]}"
-            } else {
-                /varcalc jdx5 ${j}-${skipCount1}-${skipCount2}-${skipCount3}-${skipCount4}
-                /ini "${configPath}/loot_skipped.ini" Skipped ${j} "${runSkippedList5.Token[${jdx5},|]}^${runSkippedReasons5.Token[${jdx5},|]}"
-            }
-        /next j
-    }
-    
+
     /echo ==========================================
     /echo ${Time} Done Looting
     /if (${enableSorting} && ${enableWeightSort}) {
@@ -1295,9 +1304,6 @@ sub FinishLooting
         /echo Inventory sorting disabled.
     }
     /echo ==========================================
-    
-    | IPC: stream session summary for real-time UI
-    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"
     /if (${Me.Grouped}) /g Done Looting
     /if (${Alert}) /squelch /alert clear ${Alert}
 /return

@@ -187,83 +187,148 @@ function M.scanInventory(skipAugmentIndex)
 end
 
 -- Incremental scan state (internal to this module)
+-- Phases: "scanning" (2 bags/frame), "finalize" (swap items + assign seq), "sellstatus" (chunked), "done"
+local SELL_STATUS_PER_FRAME = 40  -- items per tick for chunked sell-status attachment
 local incrementalScanState = {
     active = false,
+    phase = "scanning",   -- "scanning" | "finalize" | "sellstatus" | "done"
     currentBag = 1,
     newItems = {},
     seen = {},
     startTime = 0,
     bagsPerFrame = 2,
+    sellStatusIdx = 1,    -- current index into inventoryItems for chunked sell-status
 }
 
 function M.startIncrementalScan()
     incrementalScanState.active = true
+    incrementalScanState.phase = "scanning"
     incrementalScanState.currentBag = 1
     incrementalScanState.newItems = {}
     incrementalScanState.seen = {}
     incrementalScanState.startTime = mq.gettime()
+    incrementalScanState.sellStatusIdx = 1
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
 end
 
 function M.processIncrementalScan()
     if not incrementalScanState.active then return true end
-    local inventoryItems = env.inventoryItems
-    local buildItemFromMQ = env.buildItemFromMQ
-    local bagsScanned = 0
-    local Me = mq.TLO and mq.TLO.Me
-    if not Me or not Me.Inventory then incrementalScanState.active = false; return true end
-    while incrementalScanState.currentBag <= 10 and bagsScanned < incrementalScanState.bagsPerFrame do
-        local bagNum = incrementalScanState.currentBag
-        local pack = Me.Inventory("pack" .. bagNum)
-        if pack and pack.Container and pack.Container() then
-            local bagSize = pack.Container()
-            for slotNum = 1, bagSize do
-                local key = bagNum .. ":" .. slotNum
-                if not incrementalScanState.seen[key] then
-                    incrementalScanState.seen[key] = true
-                    local item = pack.Item and pack.Item(slotNum)
-                    local it = buildItemFromMQ(item, bagNum, slotNum)
-                    if it then table.insert(incrementalScanState.newItems, it) end
+    local ist = incrementalScanState
+
+    -- Phase 1: Scan bags (2 bags per frame)
+    if ist.phase == "scanning" then
+        local buildItemFromMQ = env.buildItemFromMQ
+        local bagsScanned = 0
+        local Me = mq.TLO and mq.TLO.Me
+        if not Me or not Me.Inventory then ist.active = false; return true end
+        while ist.currentBag <= 10 and bagsScanned < ist.bagsPerFrame do
+            local bagNum = ist.currentBag
+            local pack = Me.Inventory("pack" .. bagNum)
+            if pack and pack.Container and pack.Container() then
+                local bagSize = pack.Container()
+                for slotNum = 1, bagSize do
+                    local key = bagNum .. ":" .. slotNum
+                    if not ist.seen[key] then
+                        ist.seen[key] = true
+                        local item = pack.Item and pack.Item(slotNum)
+                        local it = buildItemFromMQ(item, bagNum, slotNum)
+                        if it then ist.newItems[#ist.newItems + 1] = it end
+                    end
                 end
             end
+            ist.currentBag = ist.currentBag + 1
+            bagsScanned = bagsScanned + 1
         end
-        incrementalScanState.currentBag = incrementalScanState.currentBag + 1
-        bagsScanned = bagsScanned + 1
-    end
-    local acquiredMap = {}
-    for _, it in ipairs(inventoryItems) do
-        if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
-    end
-    env.scanState.sellStatusAttachedAt = nil  -- Task 6.3: list is being updated
-    for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
-    for _, it in ipairs(incrementalScanState.newItems) do
-        table.insert(inventoryItems, it)
-    end
-    local scanState = env.scanState
-    for _, it in ipairs(inventoryItems) do
-        it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
-        if not it.acquiredSeq then
-            it.acquiredSeq = scanState.nextAcquiredSeq
-            scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+        if ist.currentBag > 10 then
+            ist.phase = "finalize"
         end
+        return false
     end
-    if incrementalScanState.currentBag > 10 then
-        local scanMs = mq.gettime() - incrementalScanState.startTime
-        env.perfCache.lastScanTimeInv = mq.gettime()
-        -- Fix 1: Always attach sell status. Fix 3: Persist is handled by phase2.
+
+    -- Phase 2: Swap items into inventoryItems + assign acquiredSeq (one frame)
+    if ist.phase == "finalize" then
+        local inventoryItems = env.inventoryItems
+        local acquiredMap = {}
+        for _, it in ipairs(inventoryItems) do
+            if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
+        end
+        env.scanState.sellStatusAttachedAt = nil
+        for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
+        for _, it in ipairs(ist.newItems) do
+            inventoryItems[#inventoryItems + 1] = it
+        end
+        local scanState = env.scanState
+        for _, it in ipairs(inventoryItems) do
+            it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
+            if not it.acquiredSeq then
+                it.acquiredSeq = scanState.nextAcquiredSeq
+                scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+            end
+        end
+        ist.newItems = {}
+        ist.seen = {}
+        ist.sellStatusIdx = 1
         if #inventoryItems > 0 and env.computeAndAttachSellStatus then
-            env.computeAndAttachSellStatus(inventoryItems)
-            env.scanState.sellStatusAttachedAt = mq.gettime()
+            ist.phase = "sellstatus"
+        else
+            ist.phase = "done"
         end
+        return false
+    end
+
+    -- Phase 3: Attach sell status in chunks (SELL_STATUS_PER_FRAME items per tick)
+    if ist.phase == "sellstatus" then
+        local inventoryItems = env.inventoryItems
+        local attachFlags = env.attachGranularFlags
+        local willBeSold = env.willItemBeSold
+        if not attachFlags or not willBeSold then
+            -- Fallback: single-frame if individual functions not available
+            if env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(inventoryItems) end
+            env.scanState.sellStatusAttachedAt = mq.gettime()
+            ist.phase = "done"
+            return false
+        end
+        -- Ensure config cache + storedInvByName are warm (one-time per scan)
+        if ist.sellStatusIdx == 1 then
+            if env.loadSellConfigCache then env.loadSellConfigCache() end
+            -- Warm the storedInvByName cache once; getStoredInvByName refreshes it
+            if env.getStoredInvByName then ist._storedInvByName = env.getStoredInvByName() end
+        end
+        local storedInvByName = ist._storedInvByName or (env.perfCache and env.perfCache.storedInvByName) or nil
+        local endIdx = math.min(ist.sellStatusIdx + SELL_STATUS_PER_FRAME - 1, #inventoryItems)
+        for i = ist.sellStatusIdx, endIdx do
+            local item = inventoryItems[i]
+            attachFlags(item, storedInvByName)
+            local sell, reason = willBeSold(item)
+            item.willSell = sell
+            item.sellReason = reason or ""
+        end
+        ist.sellStatusIdx = endIdx + 1
+        if ist.sellStatusIdx > #inventoryItems then
+            env.scanState.sellStatusAttachedAt = mq.gettime()
+            ist._storedInvByName = nil
+            ist.phase = "done"
+        end
+        return false
+    end
+
+    -- Phase 4: Finalize (fingerprint, augment index, cleanup)
+    if ist.phase == "done" then
+        local inventoryItems = env.inventoryItems
+        local scanMs = mq.gettime() - ist.startTime
+        env.perfCache.lastScanTimeInv = mq.gettime()
         if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
             print(string.format("\ag[CoOpt UI Profile]\ax incrementalScanInventory: scan=%d ms (%d items, %d bags/frame)",
-                scanMs, #inventoryItems, incrementalScanState.bagsPerFrame))
+                scanMs, #inventoryItems, ist.bagsPerFrame))
         end
         env.scanState.lastInventoryFingerprint = buildInventoryFingerprint()
-        incrementalScanState.active = false
+        if env.invalidateTooltipCache then env.invalidateTooltipCache() end
+        if env.buildAugmentIndex then env.buildAugmentIndex() end
+        ist.active = false
         return true
     end
+
     return false
 end
 

@@ -280,11 +280,14 @@ local function saveLootHistoryToFile()
     if not uiState.lootHistory or #uiState.lootHistory == 0 then return end
     local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
     if not path or path == "" then return end
-    mq.cmdf('/ini "%s" History count %d', path, #uiState.lootHistory)
+    -- Single file write instead of N+1 /ini commands (eliminates post-loot stutter)
+    local lines = { "[History]" }
+    lines[#lines + 1] = "count=" .. #uiState.lootHistory
     for i, row in ipairs(uiState.lootHistory) do
         local val = string.format("%s%s%d%s%s%s%s", row.name or "", LOOT_HISTORY_DELIM, row.value or 0, LOOT_HISTORY_DELIM, row.statusText or "—", LOOT_HISTORY_DELIM, row.willSell and "1" or "0")
-        mq.cmdf('/ini "%s" History %d "%s"', path, i, val:gsub('"', '""'))
+        lines[#lines + 1] = string.format("%d=%s", i, val)
     end
+    file_safe.safeWrite(path, table.concat(lines, "\n"))
 end
 local function loadSkipHistoryFromFile()
     if not config.getLootConfigFile then return end
@@ -324,11 +327,14 @@ local function saveSkipHistoryToFile()
     if not uiState.skipHistory or #uiState.skipHistory == 0 then return end
     local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
     if not path or path == "" then return end
-    mq.cmdf('/ini "%s" Skip count %d', path, #uiState.skipHistory)
+    -- Single file write instead of N+1 /ini commands (eliminates post-loot stutter)
+    local lines = { "[Skip]" }
+    lines[#lines + 1] = "count=" .. #uiState.skipHistory
     for i, row in ipairs(uiState.skipHistory) do
         local val = (row.name or "") .. LOOT_HISTORY_DELIM .. (row.reason or "")
-        mq.cmdf('/ini "%s" Skip %d "%s"', path, i, val:gsub('"', '""'))
+        lines[#lines + 1] = string.format("%d=%s", i, val)
     end
+    file_safe.safeWrite(path, table.concat(lines, "\n"))
 end
 lootLoopRefs.saveLootHistory = saveLootHistoryToFile
 lootLoopRefs.saveSkipHistory = saveSkipHistoryToFile
@@ -813,6 +819,8 @@ context.init({
     isLootWindowOpen = isLootWindowOpen,
     -- Scan functions
     scanInventory = scanInventory, scanBank = scanBank,
+    startIncrementalScan = function() scanService.startIncrementalScan() end,
+    processIncrementalScan = function() return scanService.processIncrementalScan() end,
     scanSellItems = scanSellItems, scanLootItems = scanLootItems,
     refreshAllScans = function()
         scanInventory()
