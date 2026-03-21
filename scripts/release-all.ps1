@@ -1,13 +1,13 @@
-# Unified release script: manifest gen -> commit -> tag -> push -> CI wait -> EMU build -> upload -> publish.
-# Orchestrates existing scripts - no logic duplicated.
+# Unified release script: manifest gen -> commit -> tag -> push -> local builds -> create release -> publish.
+# Builds everything locally (CoOpt UI ZIP, Patcher exe, EMU ZIP) and uploads to GitHub.
 #
 # Usage:
-#   .\scripts\release-all.ps1                          # Full release (CI + EMU build + upload + publish)
-#   .\scripts\release-all.ps1 -SkipEMU                 # CoOpt UI + patcher only (no EMU build)
-#   .\scripts\release-all.ps1 -DryRun                  # Preview all stages without doing anything
-#   .\scripts\release-all.ps1 -Force                   # No confirmation prompts
+#   .\scripts\release-all.ps1                          # Full release (all 3 assets)
+#   .\scripts\release-all.ps1 -SkipEMU                 # CoOpt UI ZIP + patcher only
+#   .\scripts\release-all.ps1 -DryRun                  # Preview all stages
+#   .\scripts\release-all.ps1 -Force                   # No prompts, overwrite existing release
 #   .\scripts\release-all.ps1 -Version "1.0.0"         # Override version
-#   .\scripts\release-all.ps1 -SkipEMU -SkipPublish    # CI-only, leave draft
+#   .\scripts\release-all.ps1 -Force -SkipPublish      # Build + upload, leave as draft
 
 param(
     [string]$Version = "",
@@ -22,7 +22,7 @@ param(
     [switch]$SkipEMU,        # Skip EMU build + upload
     [switch]$SkipPublish,    # Leave release as draft
     [switch]$DryRun,
-    [switch]$Force           # Skip confirmation prompts
+    [switch]$Force           # Skip prompts + overwrite existing release/assets
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,6 +59,19 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  [OK] gh CLI (authenticated)" -ForegroundColor Green
 
+# PyInstaller for patcher build
+$pyiVersion = python -m PyInstaller --version 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "PyInstaller not found. Installing patcher requirements..."
+    $reqFile = Join-Path $RepoRoot "patcher\requirements.txt"
+    if (Test-Path $reqFile) {
+        python -m pip install -r $reqFile --quiet
+    } else {
+        python -m pip install pyinstaller customtkinter Pillow --quiet
+    }
+}
+Write-Host "  [OK] PyInstaller" -ForegroundColor Green
+
 # EMU build prerequisites
 if (-not $SkipEMU) {
     if (-not (Test-Path $SourceRoot)) {
@@ -91,6 +104,18 @@ if (-not $Version) {
 $tag = "v$Version"
 Write-Host "  [OK] Version: $Version (tag: $tag)" -ForegroundColor Green
 
+# Check for existing release
+$existingRelease = $false
+$releaseJson = gh release view $tag --repo $Repo --json tagName,isDraft 2>$null
+if ($LASTEXITCODE -eq 0) {
+    $existingRelease = $true
+    if ($Force) {
+        Write-Host "  [!!] Release $tag already exists - will overwrite (-Force)" -ForegroundColor Yellow
+    } else {
+        Write-Error "Release $tag already exists. Use -Force to overwrite, or choose a different -Version."
+    }
+}
+
 # Summary
 Write-Host ""
 Write-Host "  Release Plan:" -ForegroundColor White
@@ -99,8 +124,10 @@ Write-Host "    Tag:          $tag"
 Write-Host "    Branch:       $Branch"
 $emuPlan = if ($SkipEMU) { "SKIP" } else { "Yes" }
 $pubPlan = if ($SkipPublish) { "No (draft)" } else { "Yes" }
+$forcePlan = if ($Force) { "Yes (overwrite)" } else { "No" }
 Write-Host "    EMU Build:    $emuPlan"
 Write-Host "    Auto-Publish: $pubPlan"
+Write-Host "    Force:        $forcePlan"
 if ($DryRun) {
     Write-Host "    Mode:         DRY RUN" -ForegroundColor Yellow
 }
@@ -135,60 +162,79 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
 Write-Host "  [OK] Publish complete" -ForegroundColor Green
 
 # ======================================================================
-# Stage 3: Wait for CI
+# Stage 3: Build CoOpt UI ZIP (local)
 # ======================================================================
 
 Write-Host ""
-Write-Host "--- Stage 3: Wait for CI ---" -ForegroundColor Yellow
+Write-Host "--- Stage 3: Build CoOpt UI ZIP ---" -ForegroundColor Yellow
+
+$cooptZipName = "CoOptUI_v$Version.zip"
+$cooptZipPath = Join-Path $RepoRoot $cooptZipName
 
 if ($DryRun) {
-    Write-Host "  [DRY RUN] Would wait for GitHub Actions workflow triggered by tag $tag" -ForegroundColor Yellow
+    Write-Host "  [DRY RUN] Would run: build-release.ps1 -Version `"$Version`"" -ForegroundColor Yellow
+    Write-Host "    Output: $cooptZipPath"
 } else {
-    Write-Host "  Waiting for GitHub Actions run to appear for tag $tag..."
+    & "$ScriptDir\build-release.ps1" -Version $Version -OutputDir $RepoRoot
 
-    $runId = $null
-    $maxAttempts = 30  # 5 minutes (30 x 10s)
-    for ($i = 0; $i -lt $maxAttempts; $i++) {
-        $runsJson = gh run list --workflow release.yml --repo $Repo --json databaseId,headBranch,status,conclusion --limit 10 2>$null
-        if ($runsJson) {
-            $runs = $runsJson | ConvertFrom-Json
-            $run = $runs | Where-Object { $_.headBranch -eq $tag } | Select-Object -First 1
-            if ($run) {
-                $runId = $run.databaseId
-                break
-            }
-        }
-        Write-Host "    Polling... ($($i + 1)/$maxAttempts)" -ForegroundColor DarkGray
-        Start-Sleep -Seconds 10
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        Write-Error "CoOpt UI ZIP build failed."
     }
 
-    if (-not $runId) {
-        Write-Error "GitHub Actions run for tag $tag did not appear within 5 minutes. Check: https://github.com/$Repo/actions"
+    if (-not (Test-Path $cooptZipPath)) {
+        Write-Error "Expected CoOpt UI ZIP not found at: $cooptZipPath"
     }
-
-    Write-Host "  Found CI run: $runId. Streaming output..." -ForegroundColor Green
-    Write-Host ""
-
-    gh run watch $runId --repo $Repo --exit-status
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host ""
-        Write-Host "  CI FAILED. View details:" -ForegroundColor Red
-        Write-Host "    https://github.com/$Repo/actions/runs/$runId" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "  To retry: gh run rerun $runId --repo $Repo" -ForegroundColor Yellow
-        Write-Error "CI workflow failed. Fix the issue, then re-run or retry the workflow."
-    }
-
-    Write-Host ""
-    Write-Host "  [OK] CI passed - draft release created with CoOpt UI ZIP + Patcher" -ForegroundColor Green
+    $sizeMB = [math]::Round((Get-Item $cooptZipPath).Length / 1MB, 1)
+    Write-Host "  [OK] CoOpt UI ZIP: $cooptZipName ($sizeMB MB)" -ForegroundColor Green
 }
 
 # ======================================================================
-# Stage 4: Build EMU ZIP
+# Stage 4: Build Patcher exe (local)
 # ======================================================================
 
 Write-Host ""
-Write-Host "--- Stage 4: Build EMU ZIP ---" -ForegroundColor Yellow
+Write-Host "--- Stage 4: Build Patcher exe ---" -ForegroundColor Yellow
+
+$patcherExePath = Join-Path $RepoRoot "patcher\dist\CoOptUIPatcher.exe"
+
+if ($DryRun) {
+    Write-Host "  [DRY RUN] Would build patcher via PyInstaller" -ForegroundColor Yellow
+    Write-Host "    Output: $patcherExePath"
+} else {
+    Write-Host "  Building patcher..."
+
+    # Install requirements
+    $reqFile = Join-Path $RepoRoot "patcher\requirements.txt"
+    if (Test-Path $reqFile) {
+        python -m pip install -r $reqFile --quiet
+    }
+
+    # Build icon if script exists
+    $buildIconScript = Join-Path $RepoRoot "patcher\build_icon.py"
+    if (Test-Path $buildIconScript) {
+        Push-Location (Join-Path $RepoRoot "patcher")
+        python build_icon.py
+        Pop-Location
+    }
+
+    # Run PyInstaller
+    Push-Location (Join-Path $RepoRoot "patcher")
+    python -m PyInstaller patcher.spec --noconfirm
+    Pop-Location
+
+    if (-not (Test-Path $patcherExePath)) {
+        Write-Error "Patcher exe not found at: $patcherExePath"
+    }
+    $sizeMB = [math]::Round((Get-Item $patcherExePath).Length / 1MB, 1)
+    Write-Host "  [OK] Patcher: CoOptUIPatcher.exe ($sizeMB MB)" -ForegroundColor Green
+}
+
+# ======================================================================
+# Stage 5: Build EMU ZIP
+# ======================================================================
+
+Write-Host ""
+Write-Host "--- Stage 5: Build EMU ZIP ---" -ForegroundColor Yellow
 
 $emuZipPath = $null
 
@@ -224,51 +270,81 @@ if ($SkipEMU) {
 }
 
 # ======================================================================
-# Stage 5: Upload EMU ZIP
+# Stage 6: Create/Update GitHub Release + Upload Assets
 # ======================================================================
 
 Write-Host ""
-Write-Host "--- Stage 5: Upload EMU ZIP ---" -ForegroundColor Yellow
+Write-Host "--- Stage 6: Upload to GitHub Release ---" -ForegroundColor Yellow
 
-if ($SkipEMU) {
-    Write-Host "  [SKIP] EMU upload skipped (-SkipEMU)" -ForegroundColor DarkGray
-} elseif ($DryRun) {
-    Write-Host "  [DRY RUN] Would upload: $emuZipPath to release $tag" -ForegroundColor Yellow
-} else {
-    & "$ScriptDir\upload-emu-zip.ps1" -ZipPath $emuZipPath -Tag $tag
-
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-        Write-Host ""
-        Write-Host "  Upload failed. Retry manually:" -ForegroundColor Red
-        Write-Host "    .\scripts\upload-emu-zip.ps1 -ZipPath `"$emuZipPath`" -Tag `"$tag`"" -ForegroundColor Yellow
-        Write-Error "EMU ZIP upload failed."
+if ($DryRun) {
+    Write-Host "  [DRY RUN] Would create/update release $tag and upload:" -ForegroundColor Yellow
+    Write-Host "    - $cooptZipName"
+    Write-Host "    - CoOptUIPatcher.exe"
+    if (-not $SkipEMU) {
+        Write-Host "    - CoOptUI-EMU-$tag.zip"
     }
-    Write-Host "  [OK] EMU ZIP uploaded" -ForegroundColor Green
+} else {
+    # Delete existing release if -Force and it exists
+    if ($existingRelease -and $Force) {
+        Write-Host "  Deleting existing release $tag..." -ForegroundColor Yellow
+        gh release delete $tag --repo $Repo --yes 2>$null
+        # Also delete the remote tag so we can recreate it
+        # (publish-release.ps1 already created/pushed the new tag)
+    }
+
+    # Create draft release
+    Write-Host "  Creating draft release $tag..."
+    $releaseAssets = @($cooptZipPath, $patcherExePath)
+    if (-not $SkipEMU -and $emuZipPath) {
+        # Rename EMU ZIP to consistent release name
+        $emuReleaseName = "CoOptUI-EMU-$tag.zip"
+        $emuReleasePath = Join-Path (Split-Path $emuZipPath -Parent) $emuReleaseName
+        if ($emuReleasePath -ne $emuZipPath) {
+            Copy-Item $emuZipPath -Destination $emuReleasePath -Force
+        }
+        $releaseAssets += $emuReleasePath
+    }
+
+    # Build the gh release create command with all assets
+    $ghArgs = @("release", "create", $tag)
+    $ghArgs += $releaseAssets
+    $ghArgs += @("--repo", $Repo, "--title", $tag, "--generate-notes", "--draft")
+    gh @ghArgs
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to create release. Check gh CLI output above."
+    }
+
+    # Clean up the EMU copy if we made one
+    if (-not $SkipEMU -and $emuReleasePath -and $emuReleasePath -ne $emuZipPath -and (Test-Path $emuReleasePath)) {
+        Remove-Item $emuReleasePath -Force
+    }
+
+    Write-Host "  [OK] Draft release created with all assets" -ForegroundColor Green
 }
 
 # ======================================================================
-# Stage 6: Verify Release Assets
+# Stage 7: Verify Release Assets
 # ======================================================================
 
 Write-Host ""
-Write-Host "--- Stage 6: Verify Release Assets ---" -ForegroundColor Yellow
+Write-Host "--- Stage 7: Verify Release Assets ---" -ForegroundColor Yellow
 
 if ($DryRun) {
     Write-Host "  [DRY RUN] Would verify release assets for $tag" -ForegroundColor Yellow
-    $expectedList = "CoOptUI_v$Version.zip, CoOptUIPatcher.exe"
+    $expectedList = "$cooptZipName, CoOptUIPatcher.exe"
     if (-not $SkipEMU) { $expectedList += ", CoOptUI-EMU-$tag.zip" }
     Write-Host "    Expected: $expectedList"
 } else {
     $assetsJson = gh release view $tag --repo $Repo --json assets 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Could not read release assets. The release may not exist yet."
+        Write-Warning "Could not read release assets."
     } else {
         $assets = ($assetsJson | ConvertFrom-Json).assets
         Write-Host ""
-        Write-Host "  Release Assets for $tag`:" -ForegroundColor White
 
         $expectedAssets = @(
-            "CoOptUI_v$Version.zip",
+            $cooptZipName,
             "CoOptUIPatcher.exe"
         )
         if (-not $SkipEMU) {
@@ -296,11 +372,11 @@ if ($DryRun) {
 }
 
 # ======================================================================
-# Stage 7: Publish + Summary
+# Stage 8: Publish + Summary
 # ======================================================================
 
 Write-Host ""
-Write-Host "--- Stage 7: Publish Release ---" -ForegroundColor Yellow
+Write-Host "--- Stage 8: Publish Release ---" -ForegroundColor Yellow
 
 if ($DryRun) {
     Write-Host ""

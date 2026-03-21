@@ -37,7 +37,9 @@ DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 
 # Window
 WIDTH = 520
-HEIGHT = 580
+HEIGHT = 620
+MIN_WIDTH = 460
+MIN_HEIGHT = 480
 
 # Brand colours
 NAVY = "#1a2332"
@@ -228,7 +230,7 @@ class MainView(ctk.CTkFrame):
 
         # --- Update info panel ---
         self.update_frame = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=8)
-        self.update_frame.pack(fill="x", padx=16, pady=(12, 0))
+        self.update_frame.pack(fill="both", expand=True, padx=16, pady=(12, 0))
 
         self.update_title = ctk.CTkLabel(
             self.update_frame, text="Checking for updates...",
@@ -244,11 +246,11 @@ class MainView(ctk.CTkFrame):
 
         # Changelog area (scrollable)
         self.changelog_box = ctk.CTkTextbox(
-            self.update_frame, height=140,
+            self.update_frame, height=120,
             font=ctk.CTkFont(size=12), fg_color="#2e2e2e",
             state="disabled", wrap="word",
         )
-        self.changelog_box.pack(fill="x", padx=16, pady=(8, 12))
+        self.changelog_box.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         self.changelog_box.pack_forget()  # Hidden until we have changelog data
 
         # --- Progress area ---
@@ -256,7 +258,7 @@ class MainView(ctk.CTkFrame):
         self.progress_frame.pack(fill="x", padx=16, pady=(12, 0))
 
         self.progress_bar = ctk.CTkProgressBar(
-            self.progress_frame, width=WIDTH - 48,
+            self.progress_frame,
             progress_color=ORANGE,
         )
         self.progress_bar.pack(fill="x")
@@ -272,11 +274,11 @@ class MainView(ctk.CTkFrame):
 
         # --- Patch log (shows during patching) ---
         self.patch_log = ctk.CTkTextbox(
-            self, height=120,
+            self, height=100,
             font=ctk.CTkFont(size=11), fg_color="#1e1e1e",
             state="disabled", wrap="word",
         )
-        self.patch_log.pack(fill="x", padx=16, pady=(8, 0))
+        self.patch_log.pack(fill="both", padx=16, pady=(8, 0))
         self.patch_log.pack_forget()
 
         # Start update check
@@ -493,12 +495,13 @@ class PatcherApp(ctk.CTk):
         super().__init__()
         self.title("CoOpt UI Patcher")
         self.geometry(f"{WIDTH}x{HEIGHT}")
-        self.resizable(False, False)
+        self.minsize(MIN_WIDTH, MIN_HEIGHT)
+        self.resizable(True, True)
         self.config = load_config()
 
-        # --- Header bar (navy) ---
+        # --- Header bar (navy) — packed first (top) ---
         self.header = ctk.CTkFrame(self, fg_color=NAVY, height=50, corner_radius=0)
-        self.header.pack(fill="x")
+        self.header.pack(fill="x", side="top")
         self.header.pack_propagate(False)
 
         # Logo icon
@@ -532,18 +535,7 @@ class PatcherApp(ctk.CTk):
         )
         self.version_label.pack(side="right", padx=16)
 
-        # --- Body frame ---
-        self.body = ctk.CTkFrame(self, fg_color=BODY_BG, corner_radius=0)
-        self.body.pack(fill="both", expand=True)
-
-        # --- Status label (inline, below body) ---
-        self.status_label = ctk.CTkLabel(
-            self, text="", font=ctk.CTkFont(size=11),
-            text_color=TEXT_DIM, anchor="w", height=20,
-        )
-        self.status_label.pack(fill="x", padx=16, pady=(0, 0))
-
-        # --- Footer bar (navy) ---
+        # --- Footer bar (navy) — packed BEFORE body so it always stays visible ---
         self.footer = ctk.CTkFrame(self, fg_color=NAVY, height=56, corner_radius=0)
         self.footer.pack(fill="x", side="bottom")
         self.footer.pack_propagate(False)
@@ -563,6 +555,17 @@ class PatcherApp(ctk.CTk):
             width=120, state="disabled",
         )
         self.primary_btn.pack(side="right", padx=(0, 8), pady=10)
+
+        # --- Status label — packed above footer ---
+        self.status_label = ctk.CTkLabel(
+            self, text="", font=ctk.CTkFont(size=11),
+            text_color=TEXT_DIM, anchor="w", height=20,
+        )
+        self.status_label.pack(fill="x", side="bottom", padx=16, pady=(0, 0))
+
+        # --- Body frame — fills remaining space, scrollable ---
+        self.body = ctk.CTkScrollableFrame(self, fg_color=BODY_BG, corner_radius=0)
+        self.body.pack(fill="both", expand=True)
 
         # --- Decide initial state ---
         saved_root = self.config.get("mq_root", "")
@@ -591,9 +594,10 @@ class PatcherApp(ctk.CTk):
         )
 
     def _clear_body(self):
-        """Remove all children from the body frame."""
-        for child in self.body.winfo_children():
-            child.destroy()
+        """Destroy and recreate the scrollable body frame."""
+        self.body.destroy()
+        self.body = ctk.CTkScrollableFrame(self, fg_color=BODY_BG, corner_radius=0)
+        self.body.pack(fill="both", expand=True)
 
     def show_setup(self):
         """Show the Setup/welcome view."""
