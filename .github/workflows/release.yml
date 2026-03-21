@@ -3,7 +3,7 @@
 # Manual:    git tag v0.1.0-alpha && git push origin v0.1.0-alpha
 #
 # Release assets (3 total):
-#   1. CoOpt UI_v<version>.zip      — CoOpt UI files only (built by CI via build-release.ps1)
+#   1. CoOptUI_v<version>.zip      — CoOpt UI files only (built by CI via build-release.ps1)
 #   2. CoOptUIPatcher.exe            — Desktop patcher (built by CI via PyInstaller)
 #   3. CoOptUI-EMU-v<version>.zip   — Full EMU package (built locally, uploaded via upload-emu-zip.ps1)
 #
@@ -75,7 +75,7 @@ jobs:
 
       - name: Verify build artifacts
         run: |
-          $zip = "CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip"
+          $zip = "CoOptUI_v${{ steps.version.outputs.VERSION }}.zip"
           if (-not (Test-Path $zip)) {
             Write-Error "Release ZIP not found: $zip"
             exit 1
@@ -91,7 +91,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            CoOpt UI_v${{ steps.version.outputs.VERSION }}.zip
+            CoOptUI_v${{ steps.version.outputs.VERSION }}.zip
             patcher/dist/CoOptUIPatcher.exe
           generate_release_notes: true
           draft: true

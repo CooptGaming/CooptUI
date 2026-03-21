@@ -22,7 +22,7 @@ if (-not $Version) {
 }
 if (-not $OutputDir) { $OutputDir = $RepoRoot }
 
-$ZipName = "CoOpt UI_v$Version.zip"
+$ZipName = "CoOptUI_v$Version.zip"
 $Staging = Join-Path $env:TEMP "CoOptUI_release_staging_$(Get-Random)"
 New-Item -ItemType Directory -Path $Staging -Force | Out-Null
 

@@ -290,7 +290,7 @@ if ($BuildLocal) {
 if ($CleanZips) {
     Write-Host ""
     Write-Host "--- Stage 7: Clean Old ZIPs ---" -ForegroundColor Yellow
-    $currentZipName = "CoOpt UI_v$Version.zip"
+    $currentZipName = "CoOptUI_v$Version.zip"
     $zips = Get-ChildItem -Path $RepoRoot -Filter "*.zip" -File | Where-Object { $_.Name -ne $currentZipName }
     if ($zips.Count -eq 0) {
         Write-Host "  No old ZIPs to clean." -ForegroundColor DarkGray

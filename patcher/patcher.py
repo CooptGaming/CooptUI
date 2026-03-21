@@ -31,7 +31,7 @@ from validator import ensure_directories, validate_mq_root
 # Constants
 # ---------------------------------------------------------------------------
 
-REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/main"
+REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/master"
 MANIFEST_PATH = "release_manifest.json"
 DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 

@@ -255,7 +255,7 @@ Write-Host "--- Stage 6: Verify Release Assets ---" -ForegroundColor Yellow
 
 if ($DryRun) {
     Write-Host "  [DRY RUN] Would verify release assets for $tag" -ForegroundColor Yellow
-    $expectedList = "CoOpt UI_v$Version.zip, CoOptUIPatcher.exe"
+    $expectedList = "CoOptUI_v$Version.zip, CoOptUIPatcher.exe"
     if (-not $SkipEMU) { $expectedList += ", CoOptUI-EMU-$tag.zip" }
     Write-Host "    Expected: $expectedList"
 } else {
@@ -268,7 +268,7 @@ if ($DryRun) {
         Write-Host "  Release Assets for $tag`:" -ForegroundColor White
 
         $expectedAssets = @(
-            "CoOpt UI_v$Version.zip",
+            "CoOptUI_v$Version.zip",
             "CoOptUIPatcher.exe"
         )
         if (-not $SkipEMU) {
