@@ -15,11 +15,11 @@
     },
     {
       "path": "Macros/shared_config/log_item.mac",
-      "hash": "4abb50b2f626f2c5b0c817736c109d84c9e4efecb4d470f2f44169ec0c2301a5"
+      "hash": "173dbb32917ebe3cc5eb638e62c98ed6c1c58443ececb94d53e88fc1e8d150cf"
     },
     {
       "path": "Macros/shared_config/validate_config.mac",
-      "hash": "0e987e4dc15a50684ba1b538db48c62e8c63abdf314876bba4a2d7bb7f37fa88"
+      "hash": "7d0acdd8dd20b89a46e203de05cd626236b935070f34c932087c23e2e8bd454d"
     },
     {
       "path": "config/MQ2CustomBinds.txt",
@@ -203,7 +203,7 @@
     },
     {
       "path": "lua/itemui/utils/augment_ranking.lua",
-      "hash": "7980b467521c9a0dd82849d34087bcb6083a5e552c32299c98f56d4cac4d4316"
+      "hash": "e4c71640af7cb4aec0ec0053fd4c9a35324df11d11135bb4cecfb235523ffdb8"
     },
     {
       "path": "lua/itemui/utils/column_config.lua",
@@ -383,11 +383,11 @@
     },
     {
       "path": "lua/mq/ItemUtils.lua",
-      "hash": "7e88c4848350aa829d0cc9b24ccc88485d2189ca5b4d8e09e53b4403f902e4de"
+      "hash": "edfb42bfcf420ee023e8cb57455961bbedb3c9d7cc5fcf1abc977276e69dbe55"
     },
     {
       "path": "lua/scripttracker/README.md",
-      "hash": "96b0387584707c2116642b2cfdfc0b587fc588e1017d50d9af6df9e71bc13840"
+      "hash": "f69e82d0663116eebd0f87ea5b9f8be7b621a4fbeca1538667b932885cdd5a03"
     },
     {
       "path": "lua/scripttracker/init.lua",
@@ -403,7 +403,7 @@
     },
     {
       "path": "resources/UIFiles/Default/MQUI_ItemColorAnimation.xml",
-      "hash": "2408221b9727ff6abec98e7383271aabd2a413a28941eef836daed532081ef0e"
+      "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
     }
   ]
 }
