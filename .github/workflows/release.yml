@@ -1,5 +1,6 @@
 # Build CoopUI release zip and patcher exe, then create a GitHub Release when a version tag is pushed.
-# Usage: tag and push, e.g.  git tag v0.1.0-alpha   &&   git push origin v0.1.0-alpha
+# Preferred: .\scripts\publish-release.ps1 (generates manifests, commits, tags, pushes)
+# Manual:    git tag v0.1.0-alpha && git push origin v0.1.0-alpha
 # Assets: CoOpt UI_v<version>.zip and CoOptUIPatcher.exe
 
 name: Release
@@ -36,6 +37,18 @@ jobs:
         run: |
           python patcher/generate_manifest.py
           python patcher/generate_default_config_manifest.py
+        shell: pwsh
+
+      # Safety net: commit manifests back to master so patcher always fetches correct hashes.
+      # If publish-release.ps1 already committed them (the expected path), this is a no-op.
+      - name: Commit manifests to master (idempotent)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add release_manifest.json default_config_manifest.json
+          git diff --cached --quiet && echo "Manifests already up to date" && exit 0
+          git commit -m "chore(ci): regenerate manifests for ${{ github.ref_name }}"
+          git push origin HEAD:master
         shell: pwsh
 
       - name: Build release zip

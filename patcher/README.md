@@ -100,14 +100,26 @@ Maps template config files to install paths. Patcher installs only when the file
 
 The patcher queries the GitHub Releases API for the latest published release, downloads the ZIP asset, and extracts it into the chosen folder. Draft releases are skipped. Requires at least one published release on the repo.
 
+## Releasing
+
+Run from repo root:
+
+```powershell
+.\scripts\publish-release.ps1
+```
+
+This regenerates manifests, commits, tags, and pushes. GitHub Actions builds the ZIP + patcher exe and creates a draft release. Review and publish on GitHub.
+
+Options:
+- `-DryRun` — preview all checks and manifest generation without committing/pushing
+- `-BuildLocal` — also build the release ZIP locally for inspection
+- `-CleanZips` — remove old `*.zip` files from repo root
+- `-SkipPush` — commit and tag locally without pushing
+- `-Version "1.0.0"` — override version (default: reads from `lua/coopui/version.lua`)
+
 ## When do users get updates?
 
-The patcher only offers files listed in the manifest. During development, push code freely — users won't see changes until you regenerate and push the manifest:
-
-```bash
-python patcher/generate_manifest.py           # release manifest
-python patcher/generate_default_config_manifest.py  # default config manifest
-```
+Users only see changes when the release manifests are committed to `master`. The `publish-release.ps1` script handles this automatically. During development, push code freely — users won't see changes until you run the release script.
 
 ## Auto-detection
 
