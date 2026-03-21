@@ -1,7 +1,15 @@
 # Build CoopUI release zip and patcher exe, then create a GitHub Release when a version tag is pushed.
 # Preferred: .\scripts\publish-release.ps1 (generates manifests, commits, tags, pushes)
 # Manual:    git tag v0.1.0-alpha && git push origin v0.1.0-alpha
-# Assets: CoOpt UI_v<version>.zip and CoOptUIPatcher.exe
+#
+# Release assets (3 total):
+#   1. CoOpt UI_v<version>.zip      — CoOpt UI files only (built by CI via build-release.ps1)
+#   2. CoOptUIPatcher.exe            — Desktop patcher (built by CI via PyInstaller)
+#   3. CoOptUI-EMU-v<version>.zip   — Full EMU package (built locally, uploaded via upload-emu-zip.ps1)
+#
+# The full EMU ZIP requires Visual Studio + CMake + Mono SDK so it can't be built in CI.
+# After CI creates the draft release, build locally and upload with:
+#   .\scripts\upload-emu-zip.ps1 -ZipPath "<path-to-zip>"
 
 name: Release
 

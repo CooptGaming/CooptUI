@@ -98,17 +98,17 @@ Maps template config files to install paths. Patcher installs only when the file
 
 ## Fresh install
 
-The patcher queries the GitHub Releases API for the latest published release, downloads the ZIP asset, and extracts it into the chosen folder. Draft releases are skipped. Requires at least one published release on the repo.
+The patcher queries the GitHub Releases API for the latest published release. It prefers the full EMU ZIP (`CoOptUI-EMU-v*.zip`) which contains MacroQuest + Mono + E3Next + CoOpt UI — everything needed to play. Falls back to the CoOpt-UI-only ZIP if the EMU ZIP is not available. Draft releases are skipped.
 
-## Releasing
+## Releasing (full workflow)
 
-Run from repo root:
+### Step 1: Publish CoOpt UI + patcher (automated)
 
 ```powershell
 .\scripts\publish-release.ps1
 ```
 
-This regenerates manifests, commits, tags, and pushes. GitHub Actions builds the ZIP + patcher exe and creates a draft release. Review and publish on GitHub.
+This regenerates manifests, commits, tags, and pushes. GitHub Actions builds the CoOpt UI ZIP + patcher exe and creates a draft release.
 
 Options:
 - `-DryRun` — preview all checks and manifest generation without committing/pushing
@@ -116,6 +116,30 @@ Options:
 - `-CleanZips` — remove old `*.zip` files from repo root
 - `-SkipPush` — commit and tag locally without pushing
 - `-Version "1.0.0"` — override version (default: reads from `lua/coopui/version.lua`)
+
+### Step 2: Build and upload the full EMU ZIP (local build required)
+
+The full EMU ZIP requires Visual Studio, CMake, and Mono SDK — it can't be built in CI.
+
+```powershell
+# Build MQ + Mono + E3 + CoOpt UI into a deploy folder
+.\scripts\build-and-deploy.ps1 -SourceRoot "C:\MQ-EMU-Dev" -DeployPath "C:\MQ\Deploy" -CreateZip -ZipVersion "1.0.0"
+
+# Upload the EMU ZIP to the draft release
+.\scripts\upload-emu-zip.ps1 -ZipPath "C:\MQ\CoOptUI-EMU-v1.0.0.zip"
+```
+
+### Step 3: Publish
+
+Review the draft release on GitHub (should now have 3 assets: CoOpt UI ZIP, patcher exe, EMU ZIP) and click Publish.
+
+### Release assets
+
+| Asset | Contents | Built by |
+|---|---|---|
+| `CoOptUIPatcher.exe` | Desktop patcher for existing users | CI (PyInstaller) |
+| `CoOpt UI_v*.zip` | CoOpt UI files only (Lua, macros, resources) | CI (build-release.ps1) |
+| `CoOptUI-EMU-v*.zip` | Full package: MQ + Mono + E3 + CoOpt UI | Local (build-and-deploy.ps1) |
 
 ## When do users get updates?
 

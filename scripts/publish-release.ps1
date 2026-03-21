@@ -315,8 +315,15 @@ if ($DryRun) {
 } else {
     Write-Host "=== Release $tag Published ===" -ForegroundColor Cyan
     if (-not $SkipPush) {
-        Write-Host "  GitHub Actions will build the ZIP and patcher exe."
-        Write-Host "  Review the draft release on GitHub, then publish it."
+        Write-Host "  GitHub Actions will build the CoOpt UI ZIP and patcher exe."
+        Write-Host ""
+        Write-Host "  Next steps:" -ForegroundColor Yellow
+        Write-Host "    1. Wait for GitHub Actions to finish (creates draft release with CoOpt UI ZIP + patcher exe)"
+        Write-Host "    2. Build the full EMU ZIP locally:"
+        Write-Host "       .\scripts\build-and-deploy.ps1 -SourceRoot `"C:\MQ-EMU-Dev`" -DeployPath `"C:\MQ\Deploy`" -CreateZip -ZipVersion `"$Version`"" -ForegroundColor White
+        Write-Host "    3. Upload it to the release:"
+        Write-Host "       .\scripts\upload-emu-zip.ps1 -ZipPath `"<path-to-CoOptUI-EMU-*.zip>`"" -ForegroundColor White
+        Write-Host "    4. Review and publish the draft release on GitHub."
     }
 }
 Write-Host ""

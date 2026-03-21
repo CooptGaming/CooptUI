@@ -1,5 +1,9 @@
 """
 Fresh install flow: download latest release ZIP from GitHub Releases, extract to target folder.
+
+The patcher prefers the full EMU ZIP (CoOptUI-EMU-*.zip) which contains MacroQuest + Mono +
+E3Next + CoOpt UI — everything needed to play. Falls back to the CoOpt-UI-only ZIP if the
+EMU ZIP is not available on the release.
 """
 
 import json
@@ -18,6 +22,10 @@ GITHUB_API_ALL_RELEASES = "https://api.github.com/repos/RekkasGit/E3NextAndMQNex
 def get_latest_release_zip_url() -> tuple[str | None, str | None, str | None]:
     """
     Query GitHub Releases API for the latest published release.
+
+    Prefers the full EMU ZIP (CoOptUI-EMU-*.zip) which includes MacroQuest, Mono, E3Next,
+    and CoOpt UI. Falls back to the CoOpt-UI-only ZIP (CoOpt UI_v*.zip) if the EMU ZIP
+    is not available.
 
     Returns:
         (zip_download_url, version_string, error_message)
@@ -44,12 +52,26 @@ def get_latest_release_zip_url() -> tuple[str | None, str | None, str | None]:
             tag = release.get("tag_name", "")
             version = tag.lstrip("v") if tag else None
             assets = release.get("assets", [])
+
+            # First pass: look for the full EMU ZIP (preferred)
+            emu_url = None
+            coopt_url = None
             for asset in assets:
                 name = asset.get("name", "")
-                if name.lower().endswith(".zip") and "coopt" in name.lower():
-                    download_url = asset.get("browser_download_url")
-                    if download_url:
-                        return download_url, version, None
+                dl = asset.get("browser_download_url")
+                if not name.lower().endswith(".zip") or not dl:
+                    continue
+                name_lower = name.lower()
+                if "emu" in name_lower and "coopt" in name_lower:
+                    emu_url = dl
+                elif "coopt" in name_lower:
+                    coopt_url = dl
+
+            # Prefer EMU ZIP, fall back to CoOpt-UI-only
+            if emu_url:
+                return emu_url, version, None
+            if coopt_url:
+                return coopt_url, version, None
 
     return None, None, "No release ZIP found on GitHub. Check that a release has been published."
 
