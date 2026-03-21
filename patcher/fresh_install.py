@@ -15,8 +15,8 @@ import zipfile
 from typing import Callable
 
 # GitHub API endpoints
-GITHUB_API_RELEASES = "https://api.github.com/repos/RekkasGit/E3NextAndMQNextBinary/releases/latest"
-GITHUB_API_ALL_RELEASES = "https://api.github.com/repos/RekkasGit/E3NextAndMQNextBinary/releases"
+GITHUB_API_RELEASES = "https://api.github.com/repos/CooptGaming/CooptUI/releases/latest"
+GITHUB_API_ALL_RELEASES = "https://api.github.com/repos/CooptGaming/CooptUI/releases"
 
 
 def get_latest_release_zip_url() -> tuple[str | None, str | None, str | None]:

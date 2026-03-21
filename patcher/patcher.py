@@ -31,7 +31,7 @@ from validator import ensure_directories, validate_mq_root
 # Constants
 # ---------------------------------------------------------------------------
 
-REPO_BASE_URL = "https://raw.githubusercontent.com/RekkasGit/E3NextAndMQNextBinary/main"
+REPO_BASE_URL = "https://raw.githubusercontent.com/CooptGaming/CooptUI/main"
 MANIFEST_PATH = "release_manifest.json"
 DEFAULT_CONFIG_MANIFEST_PATH = "default_config_manifest.json"
 

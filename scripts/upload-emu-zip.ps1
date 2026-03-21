@@ -76,7 +76,7 @@ $Tag = $Tag.Trim()
 Write-Host "  [OK] tag: $Tag" -ForegroundColor Green
 
 # 5. Release exists for this tag
-$releaseInfo = gh release view $Tag --repo RekkasGit/E3NextAndMQNextBinary --json tagName,isDraft,name 2>$null
+$releaseInfo = gh release view $Tag --repo CooptGaming/CooptUI --json tagName,isDraft,name 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Error "No GitHub Release found for tag '$Tag'. Run publish-release.ps1 first, or wait for GitHub Actions to create the draft."
 }
@@ -85,7 +85,7 @@ $draftLabel = if ($release.isDraft) { " (draft)" } else { "" }
 Write-Host "  [OK] release: $($release.name)$draftLabel" -ForegroundColor Green
 
 # 6. Check if EMU ZIP already attached
-$existingAssets = gh release view $Tag --repo RekkasGit/E3NextAndMQNextBinary --json assets 2>$null | ConvertFrom-Json
+$existingAssets = gh release view $Tag --repo CooptGaming/CooptUI --json assets 2>$null | ConvertFrom-Json
 $version = $Tag -replace '^v', ''
 $targetName = "CoOptUI-EMU-$Tag.zip"
 $alreadyUploaded = $existingAssets.assets | Where-Object { $_.name -eq $targetName }
@@ -125,7 +125,7 @@ if ($DryRun) {
     Write-Host "=== DRY RUN Complete ===" -ForegroundColor Yellow
 } else {
     Write-Host "  Uploading $targetName ($sizeMB MB) to release $Tag..."
-    gh release upload $Tag $uploadPath --repo RekkasGit/E3NextAndMQNextBinary --clobber
+    gh release upload $Tag $uploadPath --repo CooptGaming/CooptUI --clobber
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Upload failed."
     }
@@ -138,7 +138,7 @@ if ($DryRun) {
     Write-Host ""
     Write-Host "=== Upload Complete ===" -ForegroundColor Cyan
     Write-Host "  Asset: $targetName ($sizeMB MB)"
-    Write-Host "  Release: https://github.com/RekkasGit/E3NextAndMQNextBinary/releases/tag/$Tag"
+    Write-Host "  Release: https://github.com/CooptGaming/CooptUI/releases/tag/$Tag"
     Write-Host ""
     if ($release.isDraft) {
         Write-Host "  The release is still a draft. Review and publish it on GitHub." -ForegroundColor Yellow
