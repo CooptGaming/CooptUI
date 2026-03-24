@@ -159,6 +159,14 @@
     {
       "repoPath": "config_templates/shared_config/valuable_types.ini",
       "installPath": "Macros/shared_config/valuable_types.ini"
+    },
+    {
+      "repoPath": "config/ingame.cfg",
+      "installPath": "config/ingame.cfg"
+    },
+    {
+      "repoPath": "config/zoned.cfg",
+      "installPath": "config/zoned.cfg"
     }
   ]
 }

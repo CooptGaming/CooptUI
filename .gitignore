@@ -90,6 +90,8 @@ Logs/
 # --- config: only track MQ2CustomBinds.txt for patcher / keybinds ---
 config/*
 !config/MQ2CustomBinds.txt
+!config/ingame.cfg
+!config/zoned.cfg
 
 # --- Build-Smart.ps1 state and output ---
 .build_state.json

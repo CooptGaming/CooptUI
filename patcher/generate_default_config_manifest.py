@@ -21,8 +21,24 @@ INSTALL_MAP = [
 ]
 
 
+# Config files that should be installed if missing (repo path -> MQ install path).
+# These are NOT overwritten if the user already has them.
+DIRECT_CONFIG_FILES = [
+    ("config/ingame.cfg", "config/ingame.cfg"),
+    ("config/zoned.cfg", "config/zoned.cfg"),
+]
+
+
 def _collect_install_only_entries():
     entries = []
+
+    # --- Direct config files (install-if-missing) ---
+    for repo_path, install_path in DIRECT_CONFIG_FILES:
+        full = os.path.join(REPO_ROOT, repo_path.replace("/", os.sep))
+        if os.path.isfile(full):
+            entries.append({"repoPath": repo_path, "installPath": install_path})
+
+    # --- Config templates (config_templates/ -> Macros/) ---
     if not os.path.isdir(CONFIG_TEMPLATES):
         return entries
     for subdir, macro_parent, macro_subdir in INSTALL_MAP:
