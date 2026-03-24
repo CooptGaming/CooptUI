@@ -338,23 +338,7 @@ function BankView.render(ctx)
                         end
                         ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                     elseif colKey == "Status" then
-                        local statusText, willSell = "", false
-                        if item.sellReason ~= nil and item.willSell ~= nil then
-                            statusText = item.sellReason or "—"
-                            willSell = item.willSell
-                        elseif ctx.getSellStatusForItem then
-                            statusText, willSell = ctx.getSellStatusForItem(item)
-                        end
-                        if statusText == "" then statusText = "—" end
-                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
-                        if statusText == "Epic" then
-                            statusText = "EpicQuest"
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
-                        elseif statusText == "NoDrop" or statusText == "NoTrade" then
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
-                        elseif statusText == "RerollList" and ctx.theme.Colors.RerollList then
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
-                        end
+                        local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
                     else
                         -- All other columns use dynamic display text

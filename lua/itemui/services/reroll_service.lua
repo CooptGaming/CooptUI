@@ -90,8 +90,9 @@ local _uniqueMythGen = -1
 local _locInvSet = nil              -- cached { [id] = true } for items on list AND in inventory
 local _locBankSet = nil             -- cached { [id] = true } for items on list AND in bank
 local _locGen = -1                  -- generation when location sets were built
-local _locInvRef = nil              -- reference to inventoryItems table when last built
-local _locBankRef = nil             -- reference to bankItems table when last built
+local _locItemGen = 0               -- bumped when inventory/bank contents change (items move)
+local _locItemGenAtBuild = -1       -- _locItemGen value when location sets were last built
+local _locPaused = false            -- when true, location cache rebuilds are suppressed (during automated roll moves)
 
 local function markListDirty()
     _listGeneration = _listGeneration + 1
@@ -427,26 +428,24 @@ end
 
 --- Return protection sets for sell/loot rules: items in these sets must never be sold and should be skipped by loot.
 --- Includes server list and pending list so items queued for sync are protected until synced or removed.
+--- ID-only: name-based matching was removed because same-name-different-ID items are common
+--- (e.g. "Gem of Illusion: Ogre Pirate" exists with multiple IDs) and name matching
+--- would incorrectly protect/block unrelated items.
 function M.getRerollListProtection()
     local idSet = {}
-    local nameSet = {}
     for _, e in ipairs(augList) do
         if e.id then idSet[e.id] = true end
-        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
     for _, e in ipairs(mythicalList) do
         if e.id then idSet[e.id] = true end
-        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
     for _, e in ipairs(pendingAugList) do
         if e.id then idSet[e.id] = true end
-        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
     for _, e in ipairs(pendingMythicalList) do
         if e.id then idSet[e.id] = true end
-        if e.name and e.name ~= "" then nameSet[(e.name):match("^%s*(.-)%s*$")] = true end
     end
-    return { idSet = idSet, nameSet = nameSet }
+    return { idSet = idSet }
 end
 
 --- Register callback for add-ack: when a list line with this id is parsed, callback is invoked (put back, update UI).
@@ -693,11 +692,13 @@ function M.getUniqueMythicalList()
 end
 
 --- Return cached location sets: which list items are in inventory vs bank.
---- Rebuilds only when list generation changes or inventory/bank table references change.
+--- Rebuilds when list generation or item generation changes (unless paused).
 function M.getLocationSets(inventoryItems, bankItems)
-    local invChanged = (inventoryItems ~= _locInvRef)
-    local bankChanged = (bankItems ~= _locBankRef)
-    if _locGen == _listGeneration and not invChanged and not bankChanged and _locInvSet then
+    if _locGen == _listGeneration and _locItemGenAtBuild == _locItemGen and _locInvSet then
+        return _locInvSet, _locBankSet
+    end
+    -- When paused (automated roll in progress), return stale cache to avoid churn
+    if _locPaused and _locInvSet then
         return _locInvSet, _locBankSet
     end
     local augIds = getAugIdSet()
@@ -718,14 +719,37 @@ function M.getLocationSets(inventoryItems, bankItems)
     _locInvSet = invSet
     _locBankSet = bankSet
     _locGen = _listGeneration
-    _locInvRef = inventoryItems
-    _locBankRef = bankItems
+    _locItemGenAtBuild = _locItemGen
     return invSet, bankSet
 end
 
 --- Return current list generation (for external sort cache invalidation).
 function M.getListGeneration()
     return _listGeneration
+end
+
+--- Bump item-location generation so getLocationSets rebuilds on next call.
+--- Call when inventory or bank contents change (scan, move, sell, etc.).
+function M.invalidateLocationCache()
+    if not _locPaused then
+        _locItemGen = _locItemGen + 1
+    end
+end
+
+--- Pause location cache updates (during automated roll bank-to-inv moves).
+function M.pauseLocationCache()
+    _locPaused = true
+end
+
+--- Resume location cache updates and force a rebuild on next access.
+function M.resumeLocationCache()
+    _locPaused = false
+    _locItemGen = _locItemGen + 1
+end
+
+--- Return the current item-location generation (for view-level change detection).
+function M.getLocationGeneration()
+    return _locItemGen
 end
 
 --- Return state table for 4.2 ownership; init wires uiState.* to this so existing code unchanged.

@@ -364,7 +364,7 @@ function M.addItemToInventory(bag, slot, name, id, value, totalValue, stackSize,
         end
     end
     local row = { bag = bag, slot = slot, name = name, id = id, value = value or 0, totalValue = totalValue or value or 0,
-        stackSize = stackSize or 1, type = itemType or "", icon = icon,
+        stackSize = stackSize or 1, type = itemType or "", icon = icon, source = "inv",
         nodrop = nodrop or false, notrade = notrade or false, lore = lore or false, quest = quest or false,
         collectible = collectible or false, heirloom = heirloom or false, attuneable = attuneable or false, augSlots = augSlots or 0 }
     if deps.scanState and deps.scanState.nextAcquiredSeq then

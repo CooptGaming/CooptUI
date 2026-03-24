@@ -37,6 +37,43 @@ function M.getSellStatusNameColor(ctx, item)
     return ImVec4(1, 1, 1, 1)
 end
 
+--- Format a sellReason string for display and return the display text + color.
+--- Centralizes the Epic→EpicQuest rename and status-specific coloring
+--- so views don't duplicate this logic.
+--- @param reason string raw sellReason or statusText (e.g. "Epic", "NoDrop", "RerollList")
+--- @param willSell boolean whether the item will be sold
+--- @param theme table ctx.theme with ToVec4 and Colors
+--- @return string displayText, ImVec4 color
+function M.formatSellStatus(reason, willSell, theme)
+    local text = (reason and reason ~= "") and reason or "\xe2\x80\x94"
+    local color = willSell and theme.ToVec4(theme.Colors.Error) or theme.ToVec4(theme.Colors.Success)
+    if text == "Epic" then
+        text = "EpicQuest"
+        color = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
+    elseif text == "NoDrop" or text == "NoTrade" then
+        color = theme.ToVec4(theme.Colors.Error)
+    elseif text == "RerollList" and theme.Colors.RerollList then
+        color = theme.ToVec4(theme.Colors.RerollList)
+    end
+    return text, color
+end
+
+--- Resolve sellReason/willSell from item row state or fallback to getSellStatusForItem.
+--- Returns displayText, color ready for ImGui.TextColored.
+--- @param ctx table with theme, getSellStatusForItem
+--- @param item table with optional sellReason, willSell
+--- @return string displayText, ImVec4 color
+function M.resolveSellStatusDisplay(ctx, item)
+    local reason, willSell = "", false
+    if item.sellReason ~= nil and item.willSell ~= nil then
+        reason = item.sellReason or ""
+        willSell = item.willSell
+    elseif ctx.getSellStatusForItem then
+        reason, willSell = ctx.getSellStatusForItem(item)
+    end
+    return M.formatSellStatus(reason, willSell, ctx.theme)
+end
+
 --- Draw a Refresh button with tooltip and optional status messages. Call onRefresh() on click.
 --- @param ctx table context (setStatusMessage, etc.)
 --- @param id string unique button id (e.g. "Refresh##Inv")
@@ -276,8 +313,6 @@ function M.renderItemContextMenu(ctx, item, opts)
             for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
             for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
         end
-        if not onAugList then for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end end
-        if not onMythicalList then for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end end
         ImGui.Separator()
         if isAugment then
             if onAugList then

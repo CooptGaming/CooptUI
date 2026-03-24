@@ -423,12 +423,7 @@ function LootUIView.render(ctx)
                             local valStr = (ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0)
                             ImGui.Text(valStr)
                             ImGui.TableNextColumn()
-                            local statusText = row.statusText or "—"
-                            if statusText == "Epic" then statusText = "EpicQuest" end
-                            local statusColor = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
-                            if statusText == "EpicQuest" then statusColor = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
-                            elseif statusText == "NoDrop" or statusText == "NoTrade" then statusColor = theme.ToVec4(theme.Colors.Error)
-                            end
+                            local statusText, statusColor = ctx.formatSellStatus(row.statusText, row.willSell, theme)
                             ImGui.TextColored(statusColor, statusText)
                             ::continue::
                         end
@@ -474,11 +469,7 @@ function LootUIView.render(ctx)
                             ImGui.TableNextColumn()
                             ImGui.Text((ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0))
                             ImGui.TableNextColumn()
-                            local st = row.statusText or "—"
-                            if st == "Epic" then st = "EpicQuest" end
-                            local sc = (row.willSell and theme.ToVec4(theme.Colors.Error)) or theme.ToVec4(theme.Colors.Success)
-                            if st == "EpicQuest" then sc = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
-                            elseif st == "NoDrop" or st == "NoTrade" then sc = theme.ToVec4(theme.Colors.Error) end
+                            local st, sc = ctx.formatSellStatus(row.statusText, row.willSell, theme)
                             ImGui.TextColored(sc, st)
                         end
                         ImGui.EndTable()

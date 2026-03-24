@@ -32,6 +32,10 @@ local _sortCache = {
     mythical = { sortCol = -1, sortAsc = true, listLen = 0, listGen = -1, locGen = -1, result = nil },
 }
 
+-- Track inventory/bank item count so we can detect moves and invalidate location cache.
+local _lastInvCount = -1
+local _lastBankCount = -1
+
 -- Tab index: 1 = Augments, 2 = Mythicals
 local function renderTabContent(ctx, track, rerollService)
     local isAug = (track == "aug")
@@ -45,6 +49,14 @@ local function renderTabContent(ctx, track, rerollService)
     local bankCache = ctx.bankCache or {}
     local bankConnected = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
     local bankList = bankConnected and bankItems or bankCache
+    -- Detect inventory/bank content changes and invalidate location cache so Status/Location columns update live.
+    local invCount = inventoryItems and #inventoryItems or 0
+    local bankCount = bankList and #bankList or 0
+    if invCount ~= _lastInvCount or bankCount ~= _lastBankCount then
+        _lastInvCount = invCount
+        _lastBankCount = bankCount
+        rerollService.invalidateLocationCache()
+    end
     local countInInv = rerollService.countInInventory(list, inventoryItems)
     local countInBank = (bankConnected and bankList and #bankList > 0) and rerollService.countInInventory(list, bankList) or 0
     local combinedCount = countInInv + countInBank
@@ -133,7 +145,7 @@ local function renderTabContent(ctx, track, rerollService)
     else
         theme.PushKeepButton(false)
     end
-    local rollLabel = isMovingFromBank and ("Moving " .. tostring(pendingBankMoves.nextIndex or 0) .. "/" .. tostring(#(pendingBankMoves.items or {})) .. "##" .. track) or ("Roll##" .. track)
+    local rollLabel = isMovingFromBank and ("Moving " .. tostring(pendingBankMoves.nextIndex or 0) .. "/" .. tostring(#(pendingBankMoves.items or {})) .. "##" .. track) or ("Reroll##" .. track)
     if ImGui.Button(rollLabel, ImVec2(60, 0)) then
         if not rollDisabled then ctx.uiState[pendingRollKey] = true end
     end
@@ -237,6 +249,8 @@ local function renderTabContent(ctx, track, rerollService)
                         setStatusMessage(string.format("Need %d items from bank but only found %d listed in bank.", needToMove, #bankItemsToMove))
                     else
                         -- Start bank-to-bag move sequence; main_loop will process one per tick then trigger roll
+                        -- Pause location cache updates so each move doesn't trigger a rebuild
+                        rerollService.pauseLocationCache()
                         ctx.uiState.pendingRerollBankMoves = { list = track, items = bankItemsToMove, nextIndex = 1 }
                         ctx.uiState[pendingRollKey] = nil
                         setStatusMessage(string.format("Moving %d item(s) from bank...", needToMove))
@@ -244,6 +258,7 @@ local function renderTabContent(ctx, track, rerollService)
                 end
             else
                 -- Enough in inventory already; roll immediately
+                rerollService.pauseLocationCache()
                 if isAug then
                     rerollService.augRoll()
                     ctx.uiState.pendingAugRollComplete = true
@@ -298,11 +313,13 @@ local function renderTabContent(ctx, track, rerollService)
         -- Use cached location sets (rebuilt only when list/inventory/bank change)
         local inInvSet, inBankSet = rerollService.getLocationSets(inventoryItems, bankList)
         local listGen = rerollService.getListGeneration()
+        local locGen = rerollService.getLocationGeneration()
 
         -- Sort cache: only re-sort when sort params, list, or location sets change
         local sc = _sortCache[track]
         local needsResort = (sc.sortCol ~= sortCol or sc.sortAsc ~= sortAsc
-            or sc.listLen ~= #uniqueList or sc.listGen ~= listGen or not sc.result)
+            or sc.listLen ~= #uniqueList or sc.listGen ~= listGen
+            or sc.locGen ~= locGen or not sc.result)
         local sorted
         if needsResort then
             sorted = {}
@@ -341,6 +358,7 @@ local function renderTabContent(ctx, track, rerollService)
             sc.sortAsc = sortAsc
             sc.listLen = #uniqueList
             sc.listGen = listGen
+            sc.locGen = locGen
         else
             sorted = sc.result
         end
