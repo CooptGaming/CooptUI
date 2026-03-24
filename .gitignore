@@ -11,6 +11,8 @@
 !README.md
 !DEPLOY.md
 !CHANGELOG.md
+!Build-Smart.ps1
+!build/
 !release_manifest.json
 !default_config_manifest.json
 !patcher/
@@ -88,6 +90,10 @@ Logs/
 # --- config: only track MQ2CustomBinds.txt for patcher / keybinds ---
 config/*
 !config/MQ2CustomBinds.txt
+
+# --- Build-Smart.ps1 state and output ---
+.build_state.json
+/dist/
 
 # --- Root-level: binaries, IDE, nested repo, runtime (Windows-friendly) ---
 /.cursor/

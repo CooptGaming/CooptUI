@@ -21,11 +21,26 @@ def _raw_url(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path}" if path else base_url
 
 
+_TEXT_EXTS = frozenset({
+    '.lua', '.mac', '.ini', '.txt', '.cfg', '.xml', '.json', '.md',
+    '.py', '.ps1', '.bat', '.cmd', '.sh', '.csv', '.html', '.htm',
+    '.yml', '.yaml', '.toml', '.reg', '.config',
+})
+
+
 def _sha256_file(file_path: str) -> str:
-    """Return SHA256 hex digest of file contents. Returns '' if file missing or unreadable."""
+    """Return SHA256 hex digest of file contents. Returns '' if file missing or unreadable.
+
+    Normalizes CRLF→LF for text files so hashes match GitHub raw content
+    regardless of local platform line endings.
+    """
     try:
         with open(file_path, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
+            content = f.read()
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in _TEXT_EXTS:
+            content = content.replace(b"\r\n", b"\n")
+        return hashlib.sha256(content).hexdigest()
     except OSError:
         return ""
 

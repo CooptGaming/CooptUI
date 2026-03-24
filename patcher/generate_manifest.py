@@ -109,9 +109,25 @@ def _read_changelog() -> list[str]:
     return entries
 
 
+_TEXT_EXTS = frozenset({
+    '.lua', '.mac', '.ini', '.txt', '.cfg', '.xml', '.json', '.md',
+    '.py', '.ps1', '.bat', '.cmd', '.sh', '.csv', '.html', '.htm',
+    '.yml', '.yaml', '.toml', '.reg', '.config',
+})
+
+
 def _sha256_file(file_path: str) -> str:
+    """Hash file contents, normalizing CRLF→LF for text files.
+
+    GitHub raw serves LF-normalized content, so manifest hashes must
+    match what the patcher downloads regardless of local line endings.
+    """
     with open(file_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        content = f.read()
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in _TEXT_EXTS:
+        content = content.replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
 
 
 def main():

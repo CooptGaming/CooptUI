@@ -228,9 +228,9 @@ class MainView(ctk.CTkFrame):
         )
         self.valid_label.pack(fill="x", padx=20, pady=(4, 0))
 
-        # --- Update info panel ---
+        # --- Update info panel (fixed-height card, does NOT expand) ---
         self.update_frame = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=8)
-        self.update_frame.pack(fill="both", expand=True, padx=16, pady=(12, 0))
+        self.update_frame.pack(fill="x", padx=16, pady=(12, 0))
 
         self.update_title = ctk.CTkLabel(
             self.update_frame, text="Checking for updates...",
@@ -241,17 +241,18 @@ class MainView(ctk.CTkFrame):
         self.update_subtitle = ctk.CTkLabel(
             self.update_frame, text="",
             font=ctk.CTkFont(size=12), text_color=TEXT_DIM, anchor="w",
+            wraplength=440,
         )
-        self.update_subtitle.pack(fill="x", padx=16, pady=(2, 0))
+        self.update_subtitle.pack(fill="x", padx=16, pady=(2, 8))
 
-        # Changelog area (scrollable)
+        # Changelog area (scrollable textbox, max height, hidden until needed)
         self.changelog_box = ctk.CTkTextbox(
-            self.update_frame, height=120,
+            self.update_frame, height=140,
             font=ctk.CTkFont(size=12), fg_color="#2e2e2e",
             state="disabled", wrap="word",
         )
-        self.changelog_box.pack(fill="both", expand=True, padx=16, pady=(8, 12))
-        self.changelog_box.pack_forget()  # Hidden until we have changelog data
+        # Don't pack yet — shown only when changelog data exists
+        self._changelog_visible = False
 
         # --- Progress area ---
         self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -261,25 +262,28 @@ class MainView(ctk.CTkFrame):
             self.progress_frame,
             progress_color=ORANGE,
         )
-        self.progress_bar.pack(fill="x")
         self.progress_bar.set(0)
-        self.progress_bar.pack_forget()
+        # Hidden until patching starts
+        self._progress_visible = False
 
         self.progress_label = ctk.CTkLabel(
             self.progress_frame, text="",
             font=ctk.CTkFont(size=11), text_color=TEXT_DIM, anchor="w",
         )
-        self.progress_label.pack(fill="x", pady=(4, 0))
-        self.progress_label.pack_forget()
 
-        # --- Patch log (shows during patching) ---
+        # --- Patch log (fills remaining space, scrolls internally) ---
         self.patch_log = ctk.CTkTextbox(
-            self, height=100,
+            self, height=120,
             font=ctk.CTkFont(size=11), fg_color="#1e1e1e",
             state="disabled", wrap="word",
         )
-        self.patch_log.pack(fill="both", padx=16, pady=(8, 0))
-        self.patch_log.pack_forget()
+        # Hidden until patching starts
+        self._patchlog_visible = False
+
+        # Bottom spacer — absorbs extra vertical space so content stays pinned to top.
+        # Without this, tkinter's pack distributes remaining space, pushing content down.
+        self._bottom_spacer = ctk.CTkFrame(self, fg_color="transparent", height=0)
+        self._bottom_spacer.pack(fill="both", expand=True)
 
         # Start update check
         self._run_migration_and_check()
@@ -380,7 +384,9 @@ class MainView(ctk.CTkFrame):
 
         # Show changelog if available
         if changelog:
-            self.changelog_box.pack(fill="x", padx=16, pady=(8, 12))
+            if not self._changelog_visible:
+                self.changelog_box.pack(in_=self.update_frame, fill="x", padx=16, pady=(4, 12))
+                self._changelog_visible = True
             self.changelog_box.configure(state="normal")
             self.changelog_box.delete("0.0", "end")
             for entry in changelog:
@@ -405,10 +411,16 @@ class MainView(ctk.CTkFrame):
         self.app.set_primary_button("Updating...", None, enabled=False, color=ORANGE)
 
         # Show progress UI
-        self.progress_bar.pack(fill="x")
+        if not self._progress_visible:
+            self.progress_bar.pack(in_=self.progress_frame, fill="x")
+            self.progress_label.pack(in_=self.progress_frame, fill="x", pady=(4, 0))
+            self._progress_visible = True
         self.progress_bar.set(0)
-        self.progress_label.pack(fill="x", pady=(4, 0))
-        self.patch_log.pack(fill="x", padx=16, pady=(8, 0))
+        if not self._patchlog_visible:
+            # Hide spacer so patch_log can claim the expand space
+            self._bottom_spacer.pack_forget()
+            self.patch_log.pack(fill="both", expand=True, padx=16, pady=(8, 8))
+            self._patchlog_visible = True
         self.patch_log.configure(state="normal")
         self.patch_log.delete("0.0", "end")
         self.patch_log.configure(state="disabled")
@@ -563,8 +575,9 @@ class PatcherApp(ctk.CTk):
         )
         self.status_label.pack(fill="x", side="bottom", padx=16, pady=(0, 0))
 
-        # --- Body frame — fills remaining space, scrollable ---
-        self.body = ctk.CTkScrollableFrame(self, fg_color=BODY_BG, corner_radius=0)
+        # --- Body frame — fills remaining space ---
+        # Starts as regular frame; show_setup() will replace with scrollable if needed
+        self.body = ctk.CTkFrame(self, fg_color=BODY_BG, corner_radius=0)
         self.body.pack(fill="both", expand=True)
 
         # --- Decide initial state ---
@@ -594,10 +607,14 @@ class PatcherApp(ctk.CTk):
         )
 
     def _clear_body(self):
-        """Destroy and recreate the scrollable body frame."""
-        self.body.destroy()
-        self.body = ctk.CTkScrollableFrame(self, fg_color=BODY_BG, corner_radius=0)
-        self.body.pack(fill="both", expand=True)
+        """Remove all children from the body frame.
+
+        Unlike destroy/recreate, this keeps the same body widget in the
+        pack order — avoids tkinter layout bugs where a recreated frame
+        loses its position relative to header/footer.
+        """
+        for child in self.body.winfo_children():
+            child.destroy()
 
     def show_setup(self):
         """Show the Setup/welcome view."""

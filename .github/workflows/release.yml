@@ -1,15 +1,16 @@
-# Build CoopUI release zip and patcher exe, then create a GitHub Release when a version tag is pushed.
-# Preferred: .\scripts\publish-release.ps1 (generates manifests, commits, tags, pushes)
-# Manual:    git tag v0.1.0-alpha && git push origin v0.1.0-alpha
+# Build all CoOpt UI release assets via Build-Smart.ps1, then create a GitHub Release.
 #
-# Release assets (3 total):
-#   1. CoOptUI_v<version>.zip      — CoOpt UI files only (built by CI via build-release.ps1)
-#   2. CoOptUIPatcher.exe            — Desktop patcher (built by CI via PyInstaller)
-#   3. CoOptUI-EMU-v<version>.zip   — Full EMU package (built locally, uploaded via upload-emu-zip.ps1)
+# Trigger: push a version tag (e.g. git tag v1.0.0 && git push origin v1.0.0)
+# Preferred: .\Build-Smart.ps1 -OutputDir dist -Release  (handles tag + push locally)
 #
-# The full EMU ZIP requires Visual Studio + CMake + Mono SDK so it can't be built in CI.
-# After CI creates the draft release, build locally and upload with:
-#   .\scripts\upload-emu-zip.ps1 -ZipPath "<path-to-zip>"
+# Release assets (up to 4):
+#   1. CoOptUI-v<ver>.zip          — CoOpt UI files only (Lua, macros, resources)
+#   2. CoOptUI-EMU-v<ver>.zip      — Full EMU bundle (E3Next + MQ + CoOpt UI)
+#   3. MQ2CoOptUI-v<ver>-Win32.zip — Plugin DLL only
+#   4. CoOptUIPatcher.exe          — Desktop patcher app
+#
+# Note: The FullBundle target downloads E3Next prebuild and builds the plugin from
+# source, so all 3 ZIPs are produced in CI. No manual upload step needed.
 
 name: Release
 
@@ -33,24 +34,31 @@ jobs:
         run: |
           $ver = "${{ github.ref_name }}" -replace '^v',''
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+        shell: pwsh
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # Generate manifests BEFORE building zip/patcher so hashes match the tagged code.
-      # This ensures the patcher always serves correct hashes for the release being built.
-      - name: Generate release manifests
+      # Build all targets (CoOptOnly + PluginOnly + FullBundle) + patcher
+      # -CI implies -Force (clean build, no state file)
+      # -SkipPlugin is NOT set — plugin is built from source in CI
+      - name: Build all targets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          .\Build-Smart.ps1 -OutputDir dist `
+            -Target All `
+            -Version "${{ steps.version.outputs.VERSION }}" `
+            -CI
+        shell: pwsh
+
+      # Generate manifests and commit back to master
+      - name: Generate and commit manifests
         run: |
           python patcher/generate_manifest.py
           python patcher/generate_default_config_manifest.py
-        shell: pwsh
-
-      # Safety net: commit manifests back to master so patcher always fetches correct hashes.
-      # If publish-release.ps1 already committed them (the expected path), this is a no-op.
-      - name: Commit manifests to master (idempotent)
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add release_manifest.json default_config_manifest.json
@@ -59,39 +67,54 @@ jobs:
           git push origin HEAD:master
         shell: pwsh
 
-      - name: Build release zip
-        env:
-          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
-        run: .\scripts\build-release.ps1 -OutputDir $env:GITHUB_WORKSPACE
-
+      # Build patcher exe
       - name: Build patcher exe
         run: |
           python -m pip install -r patcher/requirements.txt --quiet
           Push-Location patcher
           python build_icon.py
-          python -m PyInstaller patcher.spec
+          python -m PyInstaller patcher.spec --noconfirm
           Pop-Location
         shell: pwsh
 
+      # Verify all artifacts exist
       - name: Verify build artifacts
         run: |
-          $zip = "CoOptUI_v${{ steps.version.outputs.VERSION }}.zip"
-          if (-not (Test-Path $zip)) {
-            Write-Error "Release ZIP not found: $zip"
-            exit 1
+          $ver = "${{ steps.version.outputs.VERSION }}"
+          $expected = @(
+            "dist/CoOptUI-v$ver.zip",
+            "dist/CoOptUI-EMU-v$ver.zip",
+            "patcher/dist/CoOptUIPatcher.exe"
+          )
+          $missing = @()
+          foreach ($f in $expected) {
+            if (Test-Path $f) {
+              $size = [math]::Round((Get-Item $f).Length / 1KB, 0)
+              Write-Host "[OK] $f ($size KB)"
+            } else {
+              Write-Host "[MISSING] $f" -ForegroundColor Yellow
+              $missing += $f
+            }
           }
-          if (-not (Test-Path "patcher/dist/CoOptUIPatcher.exe")) {
-            Write-Error "CoOptUIPatcher.exe was not built at patcher/dist/CoOptUIPatcher.exe"
-            exit 1
+          # PluginOnly is optional (may fail if MQ source issues)
+          $pluginZip = "dist/MQ2CoOptUI-v$ver-Win32.zip"
+          if (Test-Path $pluginZip) {
+            $size = [math]::Round((Get-Item $pluginZip).Length / 1KB, 0)
+            Write-Host "[OK] $pluginZip ($size KB)"
           }
-          Write-Host "Build artifacts verified: $zip and CoOptUIPatcher.exe"
+          # Only fail if CoOptOnly ZIP or patcher missing
+          if ($missing | Where-Object { $_ -notlike '*EMU*' -and $_ -notlike '*MQ2CoOptUI*' }) {
+            Write-Error "Required artifacts missing: $($missing -join ', ')"
+          }
         shell: pwsh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            CoOptUI_v${{ steps.version.outputs.VERSION }}.zip
+            dist/CoOptUI-v${{ steps.version.outputs.VERSION }}.zip
+            dist/CoOptUI-EMU-v${{ steps.version.outputs.VERSION }}.zip
+            dist/MQ2CoOptUI-v${{ steps.version.outputs.VERSION }}-Win32.zip
             patcher/dist/CoOptUIPatcher.exe
           generate_release_notes: true
           draft: true
