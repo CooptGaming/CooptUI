@@ -847,6 +847,20 @@ context.init({
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
     renderItemContextMenu = function(ctx, item, opts) return ui_common.renderItemContextMenu(ctx, item, opts) end,
+    -- Remove a consumed item from inv/sell/bank lists and schedule a bag rescan.
+    consumeItemAtSlot = function(source, bag, slot)
+        if source == "bank" then
+            itemOps.removeItemFromBankBySlot(bag, slot)
+        else
+            itemOps.removeItemFromInventoryBySlot(bag, slot)
+            itemOps.removeItemFromSellItemsBySlot(bag, slot)
+        end
+        -- Schedule a targeted rescan so the bag state reconciles with the game.
+        if source ~= "bank" then
+            uiState.pendingStatRescanBags = uiState.pendingStatRescanBags or {}
+            uiState.pendingStatRescanBags[bag] = true
+        end
+    end,
     formatSellStatus = function(reason, willSell, theme) return ui_common.formatSellStatus(reason, willSell, theme) end,
     resolveSellStatusDisplay = function(ctx, item) return ui_common.resolveSellStatusDisplay(ctx, item) end,
     -- Layout (module direct)

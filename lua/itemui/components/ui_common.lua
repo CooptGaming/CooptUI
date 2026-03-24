@@ -198,15 +198,18 @@ function M.renderItemContextMenu(ctx, item, opts)
     end
 
     -- Book of Mythical Reroll: single "Use" option that right-clicks the item in-game.
+    -- After use the book is consumed, so remove it from the UI immediately and schedule a bag rescan.
     if isRerollBook then
         if (source == "inv" or source == "sell" or source == "augments") and item.bag and item.slot then
             if ImGui.MenuItem("Use (Book of Mythical Reroll)") then
                 mq.cmdf('/itemnotify in pack%d %d rightmouseup', item.bag, item.slot)
+                if ctx.consumeItemAtSlot then ctx.consumeItemAtSlot(source, item.bag, item.slot) end
                 if ctx.setStatusMessage then ctx.setStatusMessage("Used Book of Mythical Reroll.") end
             end
         elseif source == "bank" and item.bag and item.slot then
             if ImGui.MenuItem("Use (Book of Mythical Reroll)") then
                 mq.cmdf('/itemnotify in bank%d %d rightmouseup', item.bag, item.slot)
+                if ctx.consumeItemAtSlot then ctx.consumeItemAtSlot(source, item.bag, item.slot) end
                 if ctx.setStatusMessage then ctx.setStatusMessage("Used Book of Mythical Reroll.") end
             end
         end
