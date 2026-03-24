@@ -697,9 +697,14 @@ function Copy-CoOptUIFiles {
     foreach ($mod in @('itemui', 'coopui', 'scripttracker')) {
         $src = Join-Path $RepoRoot "lua\$mod"
         Assert-FileExists $src "lua\$mod"
-        Copy-Item $src -Destination (Join-Path $luaDst $mod) -Recurse -Force
-        Remove-Item (Join-Path $luaDst "$mod\docs") -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item (Join-Path $luaDst "$mod\upvalue_check.lua") -Force -ErrorAction SilentlyContinue
+        $modDst = Join-Path $luaDst $mod
+        # Remove any prior copy (e.g. from Layer 0) to prevent PowerShell nesting
+        # the source dir INSIDE the existing dir (lua/itemui/itemui/ duplication bug)
+        if (Test-Path $modDst) { Remove-Item $modDst -Recurse -Force }
+        Copy-Item $src -Destination $modDst -Recurse -Force
+        # Remove dev-only content
+        Remove-Item (Join-Path $modDst 'docs') -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $modDst 'upvalue_check.lua') -Force -ErrorAction SilentlyContinue
     }
 
     $mqDst = Join-Path $luaDst 'mq'
