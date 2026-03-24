@@ -310,24 +310,7 @@ function InventoryView.render(ctx, bankOpen)
                         end
                         ctx.renderItemContextMenu(ctx, item, { source = "inv", popupId = "ItemContextInv_" .. rid, bankOpen = bankOpen or (ctx.uiState and ctx.uiState.bankOpen) or false, hasCursor = hasCursor })
                     elseif colKey == "Status" then
-                        -- Prefer row state (updated by list changes) so Status updates immediately; fallback to getSellStatusForItem
-                        local statusText, willSell = "", false
-                        if item.sellReason ~= nil and item.willSell ~= nil then
-                            statusText = item.sellReason or "—"
-                            willSell = item.willSell
-                        elseif ctx.getSellStatusForItem then
-                            statusText, willSell = ctx.getSellStatusForItem(item)
-                        end
-                        if statusText == "" then statusText = "—" end
-                        local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
-                        if statusText == "Epic" then
-                            statusText = "EpicQuest"
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
-                        elseif statusText == "NoDrop" or statusText == "NoTrade" then
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
-                        elseif statusText == "RerollList" and ctx.theme.Colors.RerollList then
-                            statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
-                        end
+                        local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
                     else
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Inventory"))

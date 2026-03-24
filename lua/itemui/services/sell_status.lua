@@ -19,12 +19,11 @@ end
 
 function M.loadSellConfigCache()
     deps.perfCache.sellConfigCache = deps.rules.loadSellConfigCache()
-    -- Reroll List protection: merge aug/mythical list IDs and names so willItemBeSold never sells listed items.
+    -- Reroll List protection: merge aug/mythical list IDs so willItemBeSold never sells listed items.
     if deps.perfCache.sellConfigCache and deps.getRerollListProtection then
         local r = deps.getRerollListProtection()
         if r then
             deps.perfCache.sellConfigCache.rerollListIdSet = r.idSet
-            deps.perfCache.sellConfigCache.rerollListNameSet = r.nameSet
         end
     end
 end

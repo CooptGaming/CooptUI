@@ -789,14 +789,18 @@ local function handleMoveAction(now)
         local idx = pm.nextIndex or 1
         if d.isBankWindowOpen and not d.isBankWindowOpen() then
             uiState.pendingRerollBankMoves = nil
+            if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
             if d.setStatusMessage then d.setStatusMessage("Bank closed; roll cancelled.") end
         elseif idx <= #items then
             local one = items[idx]
             if one and one.bag and one.slot then
                 local ok = d.itemOps.moveBankToInv(one.bag, one.slot)
                 pm.nextIndex = idx + 1
-                if not ok and d.setStatusMessage then d.setStatusMessage("Move from bank failed; roll cancelled.") end
-                if not ok then uiState.pendingRerollBankMoves = nil end
+                if not ok then
+                    if d.setStatusMessage then d.setStatusMessage("Move from bank failed; roll cancelled.") end
+                    uiState.pendingRerollBankMoves = nil
+                    if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
+                end
             else
                 pm.nextIndex = idx + 1
             end
@@ -1030,6 +1034,8 @@ local function handleAutoShowHide(now, ws)
             invalidateSortCache("inv")
             uiState.rerollPendingScan = false
             uiState.rerollPendingScanAt = 0
+            -- Resume location cache now that scan is done (was paused during roll)
+            if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
         end
     end
     if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
@@ -1401,6 +1407,7 @@ local function phase8c_pendingAugRollComplete(now)
     if uiState.pendingAugRollCompleteAt and (now - uiState.pendingAugRollCompleteAt) > AUG_ROLL_COMPLETE_TIMEOUT_MS then
         uiState.pendingAugRollComplete = nil
         uiState.pendingAugRollCompleteAt = nil
+        if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
         return
     end
     if not hasItemOnCursor() then return end

@@ -699,10 +699,10 @@ function M.scanLootItems()
     if not corpse or not itemsCount or (type(itemsCount) ~= "number") or itemsCount <= 0 then return end
     env.perfCache.lootConfigCache = env.perfCache.lootConfigCache or env.rules.loadLootConfigCache()
     local lootCache = env.perfCache.lootConfigCache
-    -- Reroll List protection: merge aug/mythical list IDs and names so shouldItemBeLooted can skip them.
+    -- Reroll List protection: merge aug/mythical list IDs so shouldItemBeLooted can skip them.
     if lootCache and env.getRerollListProtection then
         local r = env.getRerollListProtection()
-        if r then lootCache.rerollListIdSet = r.idSet; lootCache.rerollListNameSet = r.nameSet end
+        if r then lootCache.rerollListIdSet = r.idSet end
     end
     for i = 1, itemsCount do
         local it = corpse.Item and corpse.Item(i)

@@ -334,26 +334,7 @@ function SellView.render(ctx, simulateSellView)
                     ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
                 ImGui.TableNextColumn()
-                -- Prefer row state (match Inventory/Bank); fallback to getSellStatusForItem so Status is never blank
-                local statusText, willSell = "", false
-                if item.sellReason ~= nil and item.willSell ~= nil then
-                    statusText = item.sellReason or "—"
-                    willSell = item.willSell
-                elseif ctx.getSellStatusForItem then
-                    statusText, willSell = ctx.getSellStatusForItem(item)
-                    if statusText == "" then statusText = "—" end
-                else
-                    statusText = "—"
-                end
-                local statusColor = willSell and ctx.theme.ToVec4(ctx.theme.Colors.Error) or ctx.theme.ToVec4(ctx.theme.Colors.Success)
-                if statusText == "Epic" then
-                    statusText = "EpicQuest"
-                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
-                elseif statusText == "NoDrop" or statusText == "NoTrade" then
-                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.Error)
-                elseif statusText == "RerollList" and ctx.theme.Colors.RerollList then
-                    statusColor = ctx.theme.ToVec4(ctx.theme.Colors.RerollList)
-                end
+                local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                 ImGui.TextColored(statusColor, statusText)
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
                 ImGui.TableNextColumn() ImGui.Text(item.type or "")
