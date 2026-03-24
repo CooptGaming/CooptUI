@@ -1,5 +1,5 @@
 {
-  "version": "0.9.5",
+  "version": "0.9.6",
   "changelog": [
     "### Added",
     "**Patcher version tracking** \u2014 After a successful patch, the patcher writes the manifest version to `Macros/coopui_installed_version.txt` so support can see what version players have. Patcher UI shows \"Installed: X \u00b7 Available: Y\" when updates are available and \"Up to date (vX)\" when current. ItemUI startup message uses this file when present so patcher users see the same version in-game."
@@ -39,7 +39,7 @@
     },
     {
       "path": "lua/coopui/version.lua",
-      "hash": "a63c7e09fd9e9b74c9974a887251b501a93604fd865d66e7f667f0b9beffa37e"
+      "hash": "6568696f6d422d639f61ed3d990fd0f6eb837c3627efef79476d2db5bfdfecf0"
     },
     {
       "path": "lua/itemui/README.md",
@@ -47,7 +47,7 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "d6afb7b8a5565e3b7dd5d62ad438d0c449d4819c11f765610de567803cc90ccf"
+      "hash": "0bdf4dac9e79a5a758edb08f12b390ffff6a25f92609937a4779d2a1762e8749"
     },
     {
       "path": "lua/itemui/commands.lua",
@@ -67,7 +67,7 @@
     },
     {
       "path": "lua/itemui/components/ui_common.lua",
-      "hash": "1c5b4030e31ce60248703475f242e11efbfb38c773dfe5b8cb84e7b3aa373996"
+      "hash": "40b28a7bf20f744ed223543fee21b86c725eea237dc5cf0ce7f3d537a804336f"
     },
     {
       "path": "lua/itemui/config.lua",
@@ -79,7 +79,7 @@
     },
     {
       "path": "lua/itemui/constants.lua",
-      "hash": "db0a32698dc7e84b7d636d4e8a0a8fba55b4851d3dcfd0d126f417249bd36622"
+      "hash": "128fefabb0d00dca5f6195185d20c815d43b40c5a62fe78755dd4eb6281e2392"
     },
     {
       "path": "lua/itemui/context.lua",
@@ -131,7 +131,7 @@
     },
     {
       "path": "lua/itemui/rules.lua",
-      "hash": "a891ba28ab76f69f078c71f8d9b4ed670d7af7ccceec1292b9fffbe22c9d43c6"
+      "hash": "4e17129e02e752b553c48dd5c27e3f01909d9a93725c82e47c093d31bcc18473"
     },
     {
       "path": "lua/itemui/services/aa_data.lua",
@@ -151,7 +151,7 @@
     },
     {
       "path": "lua/itemui/services/item_ops.lua",
-      "hash": "034c1eb90244d10dca2cff41ed797d1ed69cee2db772054c8cc142c991c71f5f"
+      "hash": "d9605907fdb6570f7c52f85ef6b615f22b411a1b5e0bfc4cd20978870d2012ed"
     },
     {
       "path": "lua/itemui/services/loot_feed_events.lua",
@@ -163,15 +163,15 @@
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "9e1370f12e2185231f52fda46eb55528e28ce99d4d016ba16d8924904ec9258d"
+      "hash": "830f31faccfec4b99340b19789e9017361867825d17840fd75e60e4c1f29e786"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
-      "hash": "d1bf73f0ac559da34ef85974469d57ba5acfa7b4ae34e30f56561b15be478535"
+      "hash": "5f287fbf57930f45cf595a1805197533ff0c5e0d4685e9b62b87cd81d17ba970"
     },
     {
       "path": "lua/itemui/services/scan.lua",
-      "hash": "896862ec7a05f13b084ecff1c6cacbfbcfbe030430548cd6446d273853d1b82b"
+      "hash": "2d90b55853ad66faf1fad13be906ce04695b30cd96150d97040116947de17ee8"
     },
     {
       "path": "lua/itemui/services/script_consume_events.lua",
@@ -183,7 +183,7 @@
     },
     {
       "path": "lua/itemui/services/sell_status.lua",
-      "hash": "45e3e4b769ba6dc96bdabd60a6af59fa961ee832525f79cf05e57acace7323c2"
+      "hash": "d7f33d6872fb9555441fc8adddf5353df900fef0d3a75fc7fdcfaec4d51429dc"
     },
     {
       "path": "lua/itemui/services/sound.lua",
@@ -303,7 +303,7 @@
     },
     {
       "path": "lua/itemui/views/bank.lua",
-      "hash": "45bce15aae082fd31667c25df8df292b6e02247726faafbbf54750b5c928f3cc"
+      "hash": "fc0f85feafb615c9bfa94584b45fd5a674d86f39c6899ea13032b87891a3ff62"
     },
     {
       "path": "lua/itemui/views/config_advanced.lua",
@@ -347,7 +347,7 @@
     },
     {
       "path": "lua/itemui/views/inventory.lua",
-      "hash": "d19bcc1c6fee0055e709d4468f7e52e60f7a311a252d87e4cd61719f8e5180fc"
+      "hash": "096a437d796dc4861351ff130a8bb3237f4ed7672f915a8dc151bf0401fac89b"
     },
     {
       "path": "lua/itemui/views/item_display.lua",
@@ -359,7 +359,7 @@
     },
     {
       "path": "lua/itemui/views/loot_ui.lua",
-      "hash": "af98c62d8dce253050cae17a9073e3485287a5b0e1e6bfe2d2b0738a79194472"
+      "hash": "388a3fc99ed1e18ce0bd92e4399caa8f1d6a9a1e7586f022f9e52bc64700cf9e"
     },
     {
       "path": "lua/itemui/views/main_window.lua",
@@ -367,11 +367,11 @@
     },
     {
       "path": "lua/itemui/views/reroll.lua",
-      "hash": "3522fd2dc5797783f284af6e28bb5a03b975a81c0a799b39e39bb86966051707"
+      "hash": "14dea19dee704779607e3dd0ec1bd584112614f9465aecd061b25f3c49e5337e"
     },
     {
       "path": "lua/itemui/views/sell.lua",
-      "hash": "0dbb6327ea083bf8a67faf90f302c9078a5f806a0bb3eda1f6b58822af5814eb"
+      "hash": "7f75d4be2a702eefdc00ba9d4f0f54c4ebdc70b9fc9a1afc66e208504c414624"
     },
     {
       "path": "lua/itemui/views/settings.lua",
@@ -404,6 +404,11 @@
     {
       "path": "resources/UIFiles/Default/MQUI_ItemColorAnimation.xml",
       "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
+    },
+    {
+      "path": "plugins/MQ2CoOptUI.dll",
+      "hash": "f32c98bad151505fa10a6b5559e84bf8f2786b8ed75536f6759bf5189a730dc5",
+      "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.6/MQ2CoOptUI.dll"
     }
   ]
 }
