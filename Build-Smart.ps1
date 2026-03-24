@@ -771,7 +771,7 @@ function Ensure-MacroQuestIni {
     $mqIni = Join-Path $configDir 'MacroQuest.ini'
 
     if (-not (Test-Path $mqIni)) {
-        # Create a complete MacroQuest.ini with all required plugins + auto-exec
+        # Create a complete MacroQuest.ini with all required plugins
         $iniContent = @"
 [MacroQuest]
 MacroQuestWinClassName=__MacroQuestTray
@@ -789,12 +789,9 @@ mq2itemdisplay=1
 mq2map=1
 mq2nav=1
 mq2dannet=1
-
-[AutoExec]
-/mono load e3
 "@
         Set-Content $mqIni $iniContent
-        Write-Ok 'Created MacroQuest.ini (with /mono load e3 auto-exec)'
+        Write-Ok 'Created MacroQuest.ini'
     } else {
         # Patch existing to ensure required plugins are enabled
         $content = Get-Content $mqIni -Raw
@@ -805,15 +802,29 @@ mq2dannet=1
                 $modified = $true
             }
         }
-        # Ensure [AutoExec] with /mono load e3
-        if ($content -notmatch '\[AutoExec\]') {
-            $content = $content.TrimEnd() + "`r`n`r`n[AutoExec]`r`n/mono load e3`r`n"
-            $modified = $true
-        } elseif ($content -notmatch '/mono\s+load\s+e3') {
-            $content = $content -replace '(\[AutoExec\])', "`$1`r`n/mono load e3"
-            $modified = $true
-        }
         if ($modified) { Set-Content $mqIni $content -NoNewline }
+    }
+
+    # --- ingame.cfg: MQ executes this when entering the game world ---
+    # This is how E3Next auto-loads (not [AutoExec] which runs on MQ startup before login)
+    $ingameCfg = Join-Path $configDir 'ingame.cfg'
+    if (-not (Test-Path $ingameCfg)) {
+        Set-Content $ingameCfg "/mono e3"
+        Write-Ok 'Created ingame.cfg (/mono e3 auto-load)'
+    } else {
+        $content = Get-Content $ingameCfg -Raw
+        if ($content -notmatch '/mono\s+e3') {
+            $content = $content.TrimEnd() + "`r`n/mono e3`r`n"
+            Set-Content $ingameCfg $content -NoNewline
+            Write-Ok 'Added /mono e3 to ingame.cfg'
+        }
+    }
+
+    # --- zoned.cfg: MQ executes this on every zone change ---
+    $zonedCfg = Join-Path $configDir 'zoned.cfg'
+    if (-not (Test-Path $zonedCfg)) {
+        Set-Content $zonedCfg '/setwintitle ${Me.Name}'
+        Write-Ok 'Created zoned.cfg (window title = character name)'
     }
 }
 
@@ -1527,7 +1538,7 @@ foreach ($t in $targets) {
                     $nullIni = Join-Path $configDir 'NULL.ini'
                     if (Test-Path $nullIni) { Remove-Item $nullIni -Force; $removedCount++ }
                     # Remove runtime-generated files
-                    foreach ($rtFile in @('sort_settings.ini','ingame.cfg','zoned.cfg','giveitems.ini')) {
+                    foreach ($rtFile in @('sort_settings.ini','giveitems.ini')) {
                         $f = Join-Path $configDir $rtFile
                         if (Test-Path $f) { Remove-Item $f -Force; $removedCount++ }
                     }
