@@ -78,7 +78,6 @@ def _collect_release_paths():
     cb = os.path.join(REPO_ROOT, "config", "MQ2CustomBinds.txt")
     if os.path.isfile(cb):
         paths.append("config/MQ2CustomBinds.txt")
-    # plugin/ excluded — plugin work paused; see lua/itemui/docs/archive/plugin/PLUGIN_INACTIVE.md
     return sorted(paths)
 
 
@@ -131,6 +130,12 @@ def _sha256_file(file_path: str) -> str:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate release_manifest.json")
+    parser.add_argument("--plugin-dll", help="Path to MQ2CoOptUI.dll to include as release-asset entry")
+    parser.add_argument("--release-tag", help="GitHub release tag for asset URLs (e.g. v0.9.5)")
+    args = parser.parse_args()
+
     paths = _collect_release_paths()
     files = []
     for path in paths:
@@ -138,6 +143,19 @@ def main():
         if os.path.isfile(full):
             h = _sha256_file(full)
             files.append({"path": path, "hash": h})
+
+    # Include MQ2CoOptUI.dll as a release-asset download (not in git repo)
+    if args.plugin_dll and os.path.isfile(args.plugin_dll):
+        h = _sha256_file(args.plugin_dll)
+        entry = {"path": "plugins/MQ2CoOptUI.dll", "hash": h}
+        if args.release_tag:
+            entry["url"] = (
+                f"https://github.com/CooptGaming/CooptUI/releases/download/"
+                f"{args.release_tag}/MQ2CoOptUI.dll"
+            )
+        files.append(entry)
+        print(f"  Included plugins/MQ2CoOptUI.dll (release asset, {h[:12]}...)")
+
     version = _read_coopt_version()
     manifest = {"version": version, "changelog": _read_changelog(), "files": files}
     out_path = os.path.join(REPO_ROOT, "release_manifest.json")

@@ -860,12 +860,23 @@ function New-ZipFromStaging {
 # ======================================================================
 
 function Generate-Manifests {
-    param([string]$RepoRoot)
+    param(
+        [string]$RepoRoot,
+        [string]$PluginDllPath = '',
+        [string]$ReleaseTag = ''
+    )
     Push-Location $RepoRoot
     try {
-        python patcher/generate_manifest.py
+        $manifestArgs = @('patcher/generate_manifest.py')
+        if ($PluginDllPath -and (Test-Path $PluginDllPath)) {
+            $manifestArgs += '--plugin-dll', $PluginDllPath
+        }
+        if ($ReleaseTag) {
+            $manifestArgs += '--release-tag', $ReleaseTag
+        }
+        python @manifestArgs 2>&1 | ForEach-Object { Write-Host "  $_" }
         if ($LASTEXITCODE -ne 0) { Write-Error 'generate_manifest.py failed' }
-        python patcher/generate_default_config_manifest.py
+        python patcher/generate_default_config_manifest.py 2>&1 | ForEach-Object { Write-Host "  $_" }
         if ($LASTEXITCODE -ne 0) { Write-Error 'generate_default_config_manifest.py failed' }
         Write-Ok 'Manifests generated'
     } finally { Pop-Location }
@@ -1698,7 +1709,9 @@ if ($Release) {
         }
 
         # --- Generate manifests (so patcher can detect updates) ---
-        Generate-Manifests $RepoRoot
+        # Pass the built plugin DLL path so patcher can also update the plugin
+        $dllForManifest = if ($pluginDllPath -and (Test-Path $pluginDllPath)) { $pluginDllPath } else { '' }
+        Generate-Manifests -RepoRoot $RepoRoot -PluginDllPath $dllForManifest -ReleaseTag "v$Version"
 
         # --- Git commit, tag, push ---
         Write-Info "Staging release files..."
@@ -1737,6 +1750,12 @@ if ($Release) {
             }
             $standalonePatcherPath = Join-Path $OutputDir 'CoOptUIPatcher.exe'
             if (Test-Path $standalonePatcherPath) { $artifacts += $standalonePatcherPath }
+            # Upload plugin DLL as standalone release asset (patcher downloads it)
+            if ($pluginDllPath -and (Test-Path $pluginDllPath)) {
+                $dllCopy = Join-Path $OutputDir 'MQ2CoOptUI.dll'
+                Copy-Item $pluginDllPath -Destination $dllCopy -Force
+                $artifacts += $dllCopy
+            }
 
             $ghArgs = @('release', 'create', $tag)
             $ghArgs += $artifacts

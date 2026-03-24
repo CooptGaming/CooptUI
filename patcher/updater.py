@@ -151,7 +151,8 @@ def patch(
         if not path:
             continue
         path_norm = path.replace("\\", "/")
-        url = _raw_url(repo_base_url, path_norm)
+        # Use explicit URL if provided (e.g. release-asset DLLs), otherwise raw GitHub
+        url = entry.get("url") or _raw_url(repo_base_url, path_norm)
         local_path = os.path.join(root_path, path_norm.replace("/", os.sep))
 
         if progress_callback:
