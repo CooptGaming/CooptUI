@@ -1241,10 +1241,14 @@ local function phase8b_pendingRerollAdd(now)
             if bg.syncState then
                 rerollService.removeFromPending(bg.list, bg.itemId)
                 rerollService.addEntryToList(bg.list, bg.itemId, bg.itemName or "")
+                bg.syncState.syncedCount = (bg.syncState.syncedCount or 0) + 1
                 bg.syncState.nextIndex = (bg.syncState.nextIndex or 0) + 1
                 if bg.syncState.nextIndex > #(bg.syncState.entries or {}) then
+                    local sc, fc = bg.syncState.syncedCount or 0, bg.syncState.failedCount or 0
                     rerollState.pendingRerollSync = nil
-                    if setStatusMessage then setStatusMessage("Sync complete.") end
+                    if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
+                else
+                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d...", bg.syncState.nextIndex, bg.syncState.totalCount or 0)) end
                 end
             end
             table.remove(_bgAckPending, i)
@@ -1254,8 +1258,19 @@ local function phase8b_pendingRerollAdd(now)
                 rerollService.removeEntryFromCache(bg.list, bg.itemId)
             end
             if bg.syncState then
-                if setStatusMessage then setStatusMessage("Sync failed for item; left in pending.") end
-                rerollState.pendingRerollSync = nil
+                -- Don't abort entire sync; record failure and advance to next item
+                bg.syncState.failedCount = (bg.syncState.failedCount or 0) + 1
+                local fi = bg.syncState.failedItems or {}
+                fi[#fi + 1] = { id = bg.itemId, name = bg.itemName or "", reason = "Server timeout" }
+                bg.syncState.failedItems = fi
+                bg.syncState.nextIndex = (bg.syncState.nextIndex or 0) + 1
+                if bg.syncState.nextIndex > #(bg.syncState.entries or {}) then
+                    local sc, fc = bg.syncState.syncedCount or 0, bg.syncState.failedCount or 0
+                    rerollState.pendingRerollSync = nil
+                    if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
+                else
+                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (1 failed)...", bg.syncState.nextIndex, bg.syncState.totalCount or 0)) end
+                end
             else
                 if setStatusMessage then setStatusMessage("Server did not confirm add; list reverted.") end
             end
@@ -1268,29 +1283,49 @@ local function phase8b_pendingRerollAdd(now)
     end
 
     -- Sync pending: start next item when cursor is free and no add in flight.
+    -- Skip items not in inventory (record as failed) and continue to next.
     if not uiState.pendingRerollAdd and rerollState.pendingRerollSync and hasItemOnCursor and not hasItemOnCursor() then
         local sync = rerollState.pendingRerollSync
-        local idx = sync.nextIndex
-        local entry = sync.entries and sync.entries[idx]
-        if entry and inventoryItems then
-            local bag, slot, src = nil, nil, "inv"
-            for _, inv in ipairs(inventoryItems) do
-                if (inv.id or inv.ID) == entry.id then bag, slot = inv.bag, inv.slot; break end
-            end
-            if bag and slot then
-                uiState.pendingRerollAdd = {
-                    list = sync.list, bag = bag, slot = slot, source = src,
-                    itemId = entry.id, itemName = entry.name or "", step = "pickup",
-                    syncState = sync,
-                }
-                if d.pickupFromSlot then d.pickupFromSlot(bag, slot, src) end
-                if setStatusMessage then setStatusMessage(string.format("Syncing pending %d/%d...", idx, #sync.entries)) end
-            else
-                if setStatusMessage then setStatusMessage("Item not in inventory: " .. (entry.name or tostring(entry.id)) .. "; left in pending.") end
+        -- Advance past any items not found in inventory
+        while sync and sync.nextIndex <= #(sync.entries or {}) do
+            local idx = sync.nextIndex
+            local entry = sync.entries[idx]
+            if not entry then
+                sync.nextIndex = idx + 1
+            elseif not inventoryItems then
                 rerollState.pendingRerollSync = nil
+                break
+            else
+                local bag, slot, src = nil, nil, "inv"
+                for _, inv in ipairs(inventoryItems) do
+                    if (inv.id or inv.ID) == entry.id then bag, slot = inv.bag, inv.slot; break end
+                end
+                if bag and slot then
+                    -- Found in inventory — start pickup flow
+                    uiState.pendingRerollAdd = {
+                        list = sync.list, bag = bag, slot = slot, source = src,
+                        itemId = entry.id, itemName = entry.name or "", step = "pickup",
+                        syncState = sync,
+                    }
+                    if d.pickupFromSlot then d.pickupFromSlot(bag, slot, src) end
+                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d...", idx, sync.totalCount or 0)) end
+                    break
+                else
+                    -- Item not in inventory — record as failed, skip to next
+                    sync.failedCount = (sync.failedCount or 0) + 1
+                    local fi = sync.failedItems or {}
+                    fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not in inventory" }
+                    sync.failedItems = fi
+                    sync.nextIndex = idx + 1
+                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not found)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
+                end
             end
-        else
+        end
+        -- Check if we've exhausted all entries after skipping
+        if rerollState.pendingRerollSync and rerollState.pendingRerollSync.nextIndex > #(rerollState.pendingRerollSync.entries or {}) then
+            local sc, fc = rerollState.pendingRerollSync.syncedCount or 0, rerollState.pendingRerollSync.failedCount or 0
             rerollState.pendingRerollSync = nil
+            if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
         end
     end
 
@@ -1335,8 +1370,20 @@ local function phase8b_pendingRerollAdd(now)
             if removeItemFromCursor then removeItemFromCursor() end
             uiState.pendingRerollAdd = nil
             if pending.syncState then
-                if setStatusMessage then setStatusMessage("Sync failed for item; left in pending.") end
-                rerollState.pendingRerollSync = nil
+                -- Don't abort entire sync; record failure and advance to next item
+                local sync = pending.syncState
+                sync.failedCount = (sync.failedCount or 0) + 1
+                local fi = sync.failedItems or {}
+                fi[#fi + 1] = { id = pending.itemId, name = pending.itemName or "", reason = "Pickup timeout" }
+                sync.failedItems = fi
+                sync.nextIndex = (sync.nextIndex or 0) + 1
+                if sync.nextIndex > #(sync.entries or {}) then
+                    local sc, fc = sync.syncedCount or 0, sync.failedCount or 0
+                    rerollState.pendingRerollSync = nil
+                    if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
+                else
+                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (1 pickup failed)...", sync.nextIndex, sync.totalCount or 0)) end
+                end
             else
                 local q = uiState.cursorActionQueue or {}
                 local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""

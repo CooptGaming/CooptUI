@@ -75,6 +75,28 @@ local onRerollListChangedFn = nil       -- optional: callback when aug/mythical/
 local pendingAddAckId = nil
 local pendingAddAckCallback = nil
 
+-- ---------------------------------------------------------------------------
+-- Cache infrastructure: generation-based invalidation for O(1) lookups
+-- ---------------------------------------------------------------------------
+local _listGeneration = 0           -- incremented on every list mutation
+local _augIdSet = nil               -- cached { [id] = true } for augList
+local _augIdSetGen = -1
+local _mythIdSet = nil              -- cached { [id] = true } for mythicalList
+local _mythIdSetGen = -1
+local _uniqueAugList = nil          -- cached deduplicated augList
+local _uniqueAugGen = -1
+local _uniqueMythList = nil         -- cached deduplicated mythicalList
+local _uniqueMythGen = -1
+local _locInvSet = nil              -- cached { [id] = true } for items on list AND in inventory
+local _locBankSet = nil             -- cached { [id] = true } for items on list AND in bank
+local _locGen = -1                  -- generation when location sets were built
+local _locInvRef = nil              -- reference to inventoryItems table when last built
+local _locBankRef = nil             -- reference to bankItems table when last built
+
+local function markListDirty()
+    _listGeneration = _listGeneration + 1
+end
+
 -- Parse server line: "id=92314  name=Blessed Sleeve Symbol of Terror". Returns id, name or nil.
 local function parseIdNameLine(line)
     if not line or type(line) ~= "string" then return nil, nil end
@@ -215,6 +237,7 @@ local function loadFromFile()
         if type(data.mythical) == "table" then mythicalList = data.mythical end
         if type(data.pendingAug) == "table" then pendingAugList = data.pendingAug end
         if type(data.pendingMythical) == "table" then pendingMythicalList = data.pendingMythical end
+        markListDirty()
         if onRerollListChangedFn then onRerollListChangedFn() end
     elseif not ok then
         local diag = require('itemui.core.diagnostics')
@@ -250,11 +273,13 @@ local function onRerollListLine(line)
     if header == "aug" then
         augList = {}
         currentList = "aug"
+        markListDirty()
         return
     end
     if header == "mythical" then
         mythicalList = {}
         currentList = "mythical"
+        markListDirty()
         return
     end
     if line:match("^%s*[Tt]otal") then return end
@@ -275,12 +300,9 @@ local function onRerollListLine(line)
     else
         if #mythicalList < MAX_LIST_ENTRIES then table.insert(mythicalList, entry) end
     end
+    markListDirty()
     setStatusMessageFn("Lists updated.")
-    -- Throttle persist during burst so update stays fast; data is already in memory.
-    if not lastListSaveAt or (now - lastListSaveAt) > 200 then
-        saveToFile()
-        lastListSaveAt = now
-    end
+    -- No intermediate saves during burst: data is in memory, final save happens in checkListRequestTimeout().
 end
 
 local M = {}
@@ -396,6 +418,7 @@ function M.checkListRequestTimeout(now)
         receivingListSince = nil
         currentList = nil
         lastListSaveAt = nil
+        markListDirty()
         saveToFile()
         setStatusMessageFn("List request finished.")
         if onRerollListChangedFn then onRerollListChangedFn() end
@@ -443,10 +466,10 @@ function M.addEntryToList(listKind, id, name)
     local entry = { id = id, name = name or "" }
     if listKind == "aug" then
         for _, e in ipairs(augList) do if e.id == id then return end end
-        if #augList < MAX_LIST_ENTRIES then table.insert(augList, entry); saveToFile() end
+        if #augList < MAX_LIST_ENTRIES then table.insert(augList, entry); markListDirty(); saveToFile() end
     elseif listKind == "mythical" then
         for _, e in ipairs(mythicalList) do if e.id == id then return end end
-        if #mythicalList < MAX_LIST_ENTRIES then table.insert(mythicalList, entry); saveToFile() end
+        if #mythicalList < MAX_LIST_ENTRIES then table.insert(mythicalList, entry); markListDirty(); saveToFile() end
     end
 end
 
@@ -455,11 +478,11 @@ function M.removeEntryFromCache(listKind, id)
     if not id or (listKind ~= "aug" and listKind ~= "mythical") then return end
     if listKind == "aug" then
         for i = #augList, 1, -1 do
-            if augList[i].id == id then table.remove(augList, i); saveToFile(); return end
+            if augList[i].id == id then table.remove(augList, i); markListDirty(); saveToFile(); return end
         end
     else
         for i = #mythicalList, 1, -1 do
-            if mythicalList[i].id == id then table.remove(mythicalList, i); saveToFile(); return end
+            if mythicalList[i].id == id then table.remove(mythicalList, i); markListDirty(); saveToFile(); return end
         end
     end
 end
@@ -513,6 +536,7 @@ function M.removeAug(id)
     for i = #augList, 1, -1 do
         if augList[i].id == id then table.remove(augList, i); break end
     end
+    markListDirty()
     saveToFile()
     setStatusMessageFn("Removed from augment list.")
 end
@@ -524,6 +548,7 @@ function M.removeMythical(id)
     for i = #mythicalList, 1, -1 do
         if mythicalList[i].id == id then table.remove(mythicalList, i); break end
     end
+    markListDirty()
     saveToFile()
     setStatusMessageFn("Removed from mythical list.")
 end
@@ -535,11 +560,11 @@ local function removeLastNFromList(listKind, n)
     if listKind == "aug" then
         local remove = math.min(n, #augList)
         for _ = 1, remove do table.remove(augList) end
-        if remove > 0 then saveToFile() end
+        if remove > 0 then markListDirty(); saveToFile() end
     elseif listKind == "mythical" then
         local remove = math.min(n, #mythicalList)
         for _ = 1, remove do table.remove(mythicalList) end
-        if remove > 0 then saveToFile() end
+        if remove > 0 then markListDirty(); saveToFile() end
     end
 end
 
@@ -559,12 +584,39 @@ function M.mythicalRoll()
     removeLastNFromList("mythical", ITEMS_CONSUMED_PER_ROLL)
 end
 
+--- Return cached ID set for augList (rebuilt only when list generation changes).
+local function getAugIdSet()
+    if _augIdSetGen == _listGeneration and _augIdSet then return _augIdSet end
+    local s = {}
+    for _, e in ipairs(augList) do if e.id then s[e.id] = true end end
+    _augIdSet = s
+    _augIdSetGen = _listGeneration
+    return s
+end
+
+--- Return cached ID set for mythicalList (rebuilt only when list generation changes).
+local function getMythIdSet()
+    if _mythIdSetGen == _listGeneration and _mythIdSet then return _mythIdSet end
+    local s = {}
+    for _, e in ipairs(mythicalList) do if e.id then s[e.id] = true end end
+    _mythIdSet = s
+    _mythIdSetGen = _listGeneration
+    return s
+end
+
 --- Count how many inventory/bank items are on the list (every instance counts).
---- List has no duplicates; inv/bank can have multiple of the same item — each instance counts toward the total.
+--- Uses cached ID sets for O(1) per-item lookup.
 function M.countInInventory(listEntries, inventoryItems)
     if not listEntries or not inventoryItems then return 0 end
-    local listIds = {}
-    for _, e in ipairs(listEntries) do if e.id then listIds[e.id] = true end end
+    local listIds
+    if listEntries == augList then
+        listIds = getAugIdSet()
+    elseif listEntries == mythicalList then
+        listIds = getMythIdSet()
+    else
+        listIds = {}
+        for _, e in ipairs(listEntries) do if e.id then listIds[e.id] = true end end
+    end
     local count = 0
     for _, inv in ipairs(inventoryItems) do
         local id = inv.id or inv.ID
@@ -580,11 +632,16 @@ function M.isCursorMythical()
     return name:sub(1, #prefix) == prefix
 end
 
---- Check if cursor item is already in the given list (by id).
+--- Check if cursor item is already in the given list (by id). Uses cached O(1) set lookup.
 function M.isCursorIdInList(listEntries)
     if not listEntries then return false end
     local cursorId = getCursorId()
     if not cursorId or cursorId == 0 then return false end
+    if listEntries == augList then
+        return getAugIdSet()[cursorId] == true
+    elseif listEntries == mythicalList then
+        return getMythIdSet()[cursorId] == true
+    end
     for _, e in ipairs(listEntries) do
         if e.id == cursorId then return true end
     end
@@ -598,7 +655,77 @@ function M.startPendingSync(listKind)
     if #entries == 0 then return end
     local copy = {}
     for _, e in ipairs(entries) do copy[#copy + 1] = { id = e.id, name = e.name or "" } end
-    state.pendingRerollSync = { list = listKind, nextIndex = 1, entries = copy }
+    state.pendingRerollSync = {
+        list = listKind, entries = copy, nextIndex = 1,
+        syncedCount = 0, failedCount = 0, failedItems = {},
+        totalCount = #copy,
+    }
+end
+
+--- Return cached deduplicated augList (rebuilt only when list generation changes).
+function M.getUniqueAugList()
+    if _uniqueAugGen == _listGeneration and _uniqueAugList then return _uniqueAugList end
+    local seen, result = {}, {}
+    for _, e in ipairs(augList) do
+        if e.id and not seen[e.id] then
+            seen[e.id] = true
+            result[#result + 1] = e
+        end
+    end
+    _uniqueAugList = result
+    _uniqueAugGen = _listGeneration
+    return result
+end
+
+--- Return cached deduplicated mythicalList (rebuilt only when list generation changes).
+function M.getUniqueMythicalList()
+    if _uniqueMythGen == _listGeneration and _uniqueMythList then return _uniqueMythList end
+    local seen, result = {}, {}
+    for _, e in ipairs(mythicalList) do
+        if e.id and not seen[e.id] then
+            seen[e.id] = true
+            result[#result + 1] = e
+        end
+    end
+    _uniqueMythList = result
+    _uniqueMythGen = _listGeneration
+    return result
+end
+
+--- Return cached location sets: which list items are in inventory vs bank.
+--- Rebuilds only when list generation changes or inventory/bank table references change.
+function M.getLocationSets(inventoryItems, bankItems)
+    local invChanged = (inventoryItems ~= _locInvRef)
+    local bankChanged = (bankItems ~= _locBankRef)
+    if _locGen == _listGeneration and not invChanged and not bankChanged and _locInvSet then
+        return _locInvSet, _locBankSet
+    end
+    local augIds = getAugIdSet()
+    local mythIds = getMythIdSet()
+    local invSet, bankSet = {}, {}
+    if inventoryItems then
+        for _, inv in ipairs(inventoryItems) do
+            local id = inv.id or inv.ID
+            if id and (augIds[id] or mythIds[id]) then invSet[id] = true end
+        end
+    end
+    if bankItems then
+        for _, bn in ipairs(bankItems) do
+            local id = bn.id or bn.ID
+            if id and (augIds[id] or mythIds[id]) then bankSet[id] = true end
+        end
+    end
+    _locInvSet = invSet
+    _locBankSet = bankSet
+    _locGen = _listGeneration
+    _locInvRef = inventoryItems
+    _locBankRef = bankItems
+    return invSet, bankSet
+end
+
+--- Return current list generation (for external sort cache invalidation).
+function M.getListGeneration()
+    return _listGeneration
 end
 
 --- Return state table for 4.2 ownership; init wires uiState.* to this so existing code unchanged.

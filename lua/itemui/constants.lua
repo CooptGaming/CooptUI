@@ -204,6 +204,7 @@ M.REROLL = {
     COMMAND_MYTHICAL_LIST = "!mythicallist",
     COMMAND_MYTHICAL_ROLL = "!mythicalroll",
     MYTHICAL_NAME_PREFIX = "Mythical",
+    AUGMENT_TYPE_NAME = "Augmentation",
     -- Chat list response: longer window so we capture full list from slow or alternate chat.
     LIST_RESPONSE_PARSE_MS = 6000,
 }

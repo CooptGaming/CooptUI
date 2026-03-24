@@ -15,10 +15,9 @@ local registry = require('itemui.core.registry')
 
 local REROLL = constants.REROLL or {}
 local ITEMS_REQUIRED = REROLL.ITEMS_REQUIRED or 10
+local AUGMENT_TYPE = REROLL.AUGMENT_TYPE_NAME or "Augmentation"
 
 local RerollView = {}
-
-local AUGMENT_TYPE = "Augmentation"
 
 -- Build set of list IDs for "on list" checks.
 local function listIdSet(list)
@@ -26,6 +25,12 @@ local function listIdSet(list)
     if list then for _, e in ipairs(list) do if e.id then set[e.id] = true end end end
     return set
 end
+
+-- Sort cache: avoid re-sorting every frame. Per-track cache keyed by sort params + data generation.
+local _sortCache = {
+    aug = { sortCol = -1, sortAsc = true, listLen = 0, listGen = -1, locGen = -1, result = nil },
+    mythical = { sortCol = -1, sortAsc = true, listLen = 0, listGen = -1, locGen = -1, result = nil },
+}
 
 -- Tab index: 1 = Augments, 2 = Mythicals
 local function renderTabContent(ctx, track, rerollService)
@@ -139,32 +144,43 @@ local function renderTabContent(ctx, track, rerollService)
     end
     theme.PopButtonColors()
 
+    -- Single refresh button: requests both aug and mythical lists
     ImGui.SameLine()
-    if ImGui.Button("Refresh List##" .. track, ImVec2(90, 0)) then
-        if isAug then rerollService.requestAugList() else rerollService.requestMythicalList() end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Re-query this tab's list from server"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Refresh both##" .. track, ImVec2(85, 0)) then
+    if ImGui.Button("Refresh##" .. track, ImVec2(70, 0)) then
         rerollService.requestBothLists()
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Request both lists at once; both fill in one stream (fast)"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Request both aug and mythical lists from server"); ImGui.EndTooltip() end
 
     -- Sync pending: only active in guild hall when this tab's pending list is non-empty.
     local pendingCount = pendingList and #pendingList or 0
-    local syncPendingDisabled = not inGuildHall or pendingCount == 0
+    local rerollState = rerollService.getState and rerollService.getState() or {}
+    local sync = rerollState.pendingRerollSync
+    local syncActive = sync and sync.list == track
+    local syncPendingDisabled = (not inGuildHall or pendingCount == 0) and not syncActive
     ImGui.SameLine()
     if syncPendingDisabled then
         theme.PushKeepButton(true)
     else
         theme.PushKeepButton(false)
     end
-    if ImGui.Button("Sync Pending##" .. track, ImVec2(95, 0)) then
-        if not syncPendingDisabled then rerollService.startPendingSync(track) end
+    local syncLabel = "Sync Pending##" .. track
+    if syncActive then
+        syncLabel = string.format("Syncing %d/%d##%s", sync.nextIndex or 0, sync.totalCount or 0, track)
+    end
+    if ImGui.Button(syncLabel, ImVec2(95, 0)) then
+        if not syncPendingDisabled and not syncActive then rerollService.startPendingSync(track) end
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        if not inGuildHall then ImGui.Text("Must be in guild hall to sync pending.") elseif pendingCount == 0 then ImGui.Text("No pending items to sync.") else ImGui.Text(string.format("Sync %d pending item(s) to server (one per cycle).", pendingCount)) end
+        if syncActive then
+            ImGui.Text(string.format("Syncing: %d/%d (%d failed)", sync.syncedCount or 0, sync.totalCount or 0, sync.failedCount or 0))
+        elseif not inGuildHall then
+            ImGui.Text("Must be in guild hall to sync pending.")
+        elseif pendingCount == 0 then
+            ImGui.Text("No pending items to sync.")
+        else
+            ImGui.Text(string.format("Sync %d pending item(s) to server.", pendingCount))
+        end
         ImGui.EndTooltip()
     end
     theme.PopButtonColors()
@@ -249,27 +265,20 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.Separator()
     end
 
-    -- Server list table: Name, Item ID, Status (On list + In inv / On list, in bank / List only), In Inventory (sortable)
+    -- Server list table: Name, Item ID, Status (Available / List Only), Location (Inventory / Bank / —)
     theme.TextHeader(isAug and "Server reroll list (augments)" or "Server reroll list (mythicals)")
     if #list == 0 then
         theme.TextMuted(isAug and "No augments on list. Add from cursor or refresh." or "No mythicals on list. Add from cursor or refresh.")
     else
-    -- One row per unique item (server list has no duplicates; dedupe for display in case of duplicate lines)
-    local uniqueList = {}
-    local seenId = {}
-    for _, e in ipairs(list) do
-        if e.id and not seenId[e.id] then
-            seenId[e.id] = true
-            uniqueList[#uniqueList + 1] = e
-        end
-    end
+    -- Use cached deduplicated list (rebuilt only when list generation changes)
+    local uniqueList = isAug and rerollService.getUniqueAugList() or rerollService.getUniqueMythicalList()
     local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     local nCols = 4
     if ImGui.BeginTable("RerollList_" .. track, nCols, tableFlags) then
         ImGui.TableSetupColumn("Item Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 0)
         ImGui.TableSetupColumn("Item ID", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 1)
-        ImGui.TableSetupColumn("Status", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 120, 2)
-        ImGui.TableSetupColumn("In Inventory", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 3)
+        ImGui.TableSetupColumn("Status", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 2)
+        ImGui.TableSetupColumn("Location", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 3)
         ImGui.TableSetupScrollFreeze(0, 1)
         ImGui.TableHeadersRow()
 
@@ -285,40 +294,56 @@ local function renderTabContent(ctx, track, rerollService)
             end
             sortSpecs.SpecsDirty = false
         end
-        local sorted = {}
-        for i = 1, #uniqueList do sorted[i] = uniqueList[i] end
-        local inInvSet = {}
-        local inBankSet = {}
-        for _, entry in ipairs(uniqueList) do
-            for _, inv in ipairs(inventoryItems) do
-                if (inv.id or inv.ID) == entry.id then inInvSet[entry.id] = true; break end
-            end
-            for _, bn in ipairs(bankList) do
-                if (bn.id or bn.ID) == entry.id then inBankSet[entry.id] = true; break end
-            end
+
+        -- Use cached location sets (rebuilt only when list/inventory/bank change)
+        local inInvSet, inBankSet = rerollService.getLocationSets(inventoryItems, bankList)
+        local listGen = rerollService.getListGeneration()
+
+        -- Sort cache: only re-sort when sort params, list, or location sets change
+        local sc = _sortCache[track]
+        local needsResort = (sc.sortCol ~= sortCol or sc.sortAsc ~= sortAsc
+            or sc.listLen ~= #uniqueList or sc.listGen ~= listGen or not sc.result)
+        local sorted
+        if needsResort then
+            sorted = {}
+            for i = 1, #uniqueList do sorted[i] = uniqueList[i] end
+            -- Strict comparator: never return true when a and b are equal; use id as tie-breaker.
+            table.sort(sorted, function(a, b)
+                local aid, bid = a.id or 0, b.id or 0
+                local an, bn = (a.name or ""):lower(), (b.name or ""):lower()
+                local primary_lt, primary_gt
+                if sortCol == 0 then
+                    primary_lt = an < bn
+                    primary_gt = an > bn
+                elseif sortCol == 1 then
+                    primary_lt = aid < bid
+                    primary_gt = aid > bid
+                elseif sortCol == 2 then
+                    -- Status: Available (inv or bank) = 1, List Only = 0
+                    local av = (inInvSet[a.id] or inBankSet[a.id]) and 1 or 0
+                    local bv = (inInvSet[b.id] or inBankSet[b.id]) and 1 or 0
+                    primary_lt = av < bv
+                    primary_gt = av > bv
+                else
+                    -- Location: Inventory (2) > Bank (1) > none (0)
+                    local av = inInvSet[a.id] and 2 or (inBankSet[a.id] and 1 or 0)
+                    local bv = inInvSet[b.id] and 2 or (inBankSet[b.id] and 1 or 0)
+                    primary_lt = av < bv
+                    primary_gt = av > bv
+                end
+                if primary_lt then return sortAsc end
+                if primary_gt then return not sortAsc end
+                -- Tie-breaker: same primary value -> order by id so comparator is strict
+                return (aid < bid) and sortAsc or (aid > bid) and not sortAsc
+            end)
+            sc.result = sorted
+            sc.sortCol = sortCol
+            sc.sortAsc = sortAsc
+            sc.listLen = #uniqueList
+            sc.listGen = listGen
+        else
+            sorted = sc.result
         end
-        -- Strict comparator for table.sort: never return true when a and b are equal; use id as tie-breaker.
-        table.sort(sorted, function(a, b)
-            local aid, bid = a.id or 0, b.id or 0
-            local an, bn = (a.name or ""):lower(), (b.name or ""):lower()
-            local av = (inInvSet[a.id] and 1) or 0
-            local bv = (inInvSet[b.id] and 1) or 0
-            local primary_lt, primary_gt
-            if sortCol == 0 then
-                primary_lt = an < bn
-                primary_gt = an > bn
-            elseif sortCol == 1 then
-                primary_lt = aid < bid
-                primary_gt = aid > bid
-            else
-                primary_lt = av < bv
-                primary_gt = av > bv
-            end
-            if primary_lt then return sortAsc end
-            if primary_gt then return not sortAsc end
-            -- Tie-breaker: same primary value -> order by id so comparator is strict
-            return (aid < bid) and sortAsc or (aid > bid) and not sortAsc
-        end)
 
         for i, entry in ipairs(sorted) do
             ImGui.TableNextRow()
@@ -326,7 +351,6 @@ local function renderTabContent(ctx, track, rerollService)
             local inBank = inBankSet[entry.id] == true
             -- Row ID must include index so duplicate list entries (same item twice) get unique ImGui IDs
             local rowId = "reroll_" .. track .. "_" .. tostring(i) .. "_" .. tostring(entry.id)
-            local locationOk = inInv or (inBank and bankConnected)
             -- Resolve inv/bank item for tooltip and shared context menu
             local invItem, bankItem, tipItem, tipSource = nil, nil, nil, nil
             for _, inv in ipairs(inventoryItems) do
@@ -339,13 +363,16 @@ local function renderTabContent(ctx, track, rerollService)
             end
             tipItem = invItem or bankItem
             tipSource = invItem and "inv" or "bank"
-            local menuItem = { name = entry.name, id = entry.id, type = isAug and "Augmentation" or nil }
+            local menuItem = { name = entry.name, id = entry.id, type = isAug and AUGMENT_TYPE or nil }
             if tipItem then menuItem.bag = tipItem.bag; menuItem.slot = tipItem.slot; menuItem.inKeep = tipItem.inKeep; menuItem.inJunk = tipItem.inJunk end
 
             ImGui.TableNextColumn()
             ImGui.PushID(rowId)
-            if locationOk then
+            -- Three-tier coloring: green (inventory, ready to roll), yellow (bank, needs move), grey (list only)
+            if inInv then
                 ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Success))
+            elseif inBank then
+                ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning))
             else
                 ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
             end
@@ -367,9 +394,9 @@ local function renderTabContent(ctx, track, rerollService)
                     end
                 else
                     ImGui.BeginTooltip()
-                    ImGui.Text(entry.name or "—")
+                    ImGui.Text(entry.name or "\xe2\x80\x94")
                     ImGui.Text("ID: " .. tostring(entry.id))
-                    if inInv then ImGui.Text("In inventory") elseif inBank then ImGui.Text("In bank" .. (bankConnected and " (bank open)" or " (bank not open)")) else ImGui.Text("Not in inventory or bank") end
+                    if inInv then ImGui.Text("In inventory (ready to roll)") elseif inBank then ImGui.Text("In bank" .. (bankConnected and " (bank open)" or " (bank not open)")) else ImGui.Text("Not in inventory or bank") end
                     ImGui.EndTooltip()
                 end
             end
@@ -387,26 +414,24 @@ local function renderTabContent(ctx, track, rerollService)
             ImGui.PopID()
 
             ImGui.TableNextColumn()
-            ImGui.Text(tostring(entry.id or "—"))
+            ImGui.Text(tostring(entry.id or "\xe2\x80\x94"))
 
+            -- Status column: Available or List Only
             ImGui.TableNextColumn()
-            if inInv then
-                theme.TextSuccess("On list, in inv")
-            elseif inBank then
-                if bankConnected then
-                    theme.TextSuccess("On list, in bank")
-                else
-                    theme.TextMuted("On list, in bank")
-                end
+            if inInv or inBank then
+                theme.TextSuccess("Available")
             else
-                theme.TextMuted("List only")
+                theme.TextMuted("List Only")
             end
 
+            -- Location column: Inventory, Bank, or —
             ImGui.TableNextColumn()
             if inInv then
-                theme.TextSuccess("Yes")
+                theme.TextSuccess("Inventory")
+            elseif inBank then
+                theme.TextWarning("Bank")
             else
-                theme.TextMuted("No")
+                theme.TextMuted("\xe2\x80\x94")
             end
         end
         ImGui.EndTable()
@@ -475,7 +500,7 @@ local function renderTabContent(ctx, track, rerollService)
                     end
                 end
                 ImGui.TableNextColumn()
-                ImGui.Text(tostring(id or "—"))
+                ImGui.Text(tostring(id or "\xe2\x80\x94"))
                 ImGui.TableNextColumn()
                 if onList then
                     theme.TextSuccess("Yes")
