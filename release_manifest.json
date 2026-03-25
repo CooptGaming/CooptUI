@@ -404,6 +404,11 @@
     {
       "path": "resources/UIFiles/Default/MQUI_ItemColorAnimation.xml",
       "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
+    },
+    {
+      "path": "plugins/MQ2CoOptUI.dll",
+      "hash": "a1198825adaa2744f013064ebb554b907ca1eb6e37dfdc0acd82d4d6926b117f",
+      "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.6/MQ2CoOptUI.dll"
     }
   ]
 }
