@@ -126,7 +126,7 @@ local function serializeItem(it)
     if it.isProtected ~= nil then parts[#parts + 1] = "isProtected=" .. (it.isProtected and "true" or "false") end
     if it.willSell ~= nil then parts[#parts + 1] = "willSell=" .. (it.willSell and "true" or "false") end
     if it.sellReason ~= nil and it.sellReason ~= "" then parts[#parts + 1] = "sellReason=" .. escapeLuaString(it.sellReason) end
-    if it.acquiredSeq then parts[#parts + 1] = "acquiredSeq=" .. tonumber(it.acquiredSeq) end
+    if it.acquiredSeq then parts[#parts + 1] = "acquiredSeq=" .. (tonumber(it.acquiredSeq) or 0) end
     if it.source and it.source ~= "" then parts[#parts + 1] = "source=" .. escapeLuaString(it.source) end
     return "{" .. table.concat(parts, ",") .. "}"
 end
@@ -188,10 +188,6 @@ local function loadBank()
     if not data or not data.items then return nil, nil end
     return data.items, data.savedAt
 end
-
--- Profile toggle is now controlled by debugModule.isProfileEnabled() / debugModule.getProfileThresholdMs()
--- (Advanced → Performance Profiling in Settings). Stub kept for backward compat; callers may pass opts safely.
-local function initStorage(_opts) end
 
 -- Save inventory to char folder (nextAcquiredSeq optional, for persistent acquired order)
 local function saveInventory(items, nextAcquiredSeq)
@@ -363,7 +359,6 @@ local function ensureCharFolderExists()
 end
 
 return {
-    init = initStorage,
     getCharName = getCharName,
     getCharFolder = getCharFolder,
     loadInventory = loadInventory,

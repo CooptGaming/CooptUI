@@ -31,7 +31,7 @@ function M.init()
         local fi = config.readINIValue(LAYOUT_INI, SOUND_SECTION, name .. "_File", "")
         settings.events[name] = {
             enabled = (en == "1" or en == "true"),
-            file    = (fi ~= "") and fi or nil,
+            file    = (fi ~= "") and fi or "",
         }
     end
 end
@@ -115,13 +115,13 @@ function M.getEventSettings(n) return settings.events[n] end
 function M.getEventDefs()      return EVENT_DEFS end
 
 function M.setEventEnabled(eventName, v)
-    if not settings.events[eventName] then settings.events[eventName] = { enabled = true, file = nil } end
+    if not settings.events[eventName] then settings.events[eventName] = { enabled = true, file = "" } end
     settings.events[eventName].enabled = v; M.save()
 end
 
 function M.setEventFile(eventName, file)
-    if not settings.events[eventName] then settings.events[eventName] = { enabled = true, file = nil } end
-    settings.events[eventName].file = (file and file ~= "") and file or nil; M.save()
+    if not settings.events[eventName] then settings.events[eventName] = { enabled = true, file = "" } end
+    settings.events[eventName].file = (file and file ~= "") and file or ""; M.save()
 end
 
 return M

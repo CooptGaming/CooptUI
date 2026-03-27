@@ -25,7 +25,6 @@ local SCREEN_TITLES = {
     [11] = "Loot rules",
     [12] = "Epic protection",
     [13] = "Settings overview",
-    [14] = "Save & finish",
 }
 
 -- Instructional header prompt for config/action steps (shown in setup bar)
@@ -43,11 +42,11 @@ local HEADER_PROMPTS = {
 }
 
 local function isDescriptionScreen(step)
-    return step == 1 or step == 3 or step == 5 or step == 7 or step == 9 or step == 12 or step == 13
+    return step == 1 or step == 3 or step == 5 or step == 7 or step == 9 or step == 13
 end
 
 --- Screen 0: Welcome (env checklist, two buttons, bullet points). Shown when showWelcomePanel or when setupMode and setupStep==0.
-function renderWelcomeScreen(refs)
+local function renderWelcomeScreen(refs)
     local theme = refs.theme
     local uiState = refs.uiState
     -- Environment validation (Task 8.2): run once, show checklist
@@ -146,7 +145,7 @@ function renderWelcomeScreen(refs)
 end
 
 --- Description overlay for step 1 (Inventory overview). Renders as a child region over the content.
-function renderInventoryOverviewOverlay(refs)
+local function renderInventoryOverviewOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 400) * 0.45)
@@ -177,7 +176,7 @@ function renderInventoryOverviewOverlay(refs)
 end
 
 --- Description overlay for step 3 (Sell overview). Renders as a child region over the content.
-function renderSellOverviewOverlay(refs)
+local function renderSellOverviewOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 400) * 0.45)
@@ -206,7 +205,7 @@ function renderSellOverviewOverlay(refs)
 end
 
 --- Description overlay for step 5 (Bank overview). Renders as a child region over the content.
-function renderBankOverviewOverlay(refs)
+local function renderBankOverviewOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 400) * 0.45)
@@ -238,7 +237,7 @@ local function bulletWrapped(text)
 end
 
 --- Description overlay for step 7 (Remaining companions). Content-heavy; uses most of content area (inventory not needed here).
-function renderRemainingCompanionsOverlay(refs)
+local function renderRemainingCompanionsOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 500) * 0.88)
@@ -274,7 +273,7 @@ function renderRemainingCompanionsOverlay(refs)
 end
 
 --- Description overlay for step 9 (Protection & Loot Rules overview). What's coming and note about Settings.
-function renderProtectionOverviewOverlay(refs)
+local function renderProtectionOverviewOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 400) * 0.5)
@@ -310,7 +309,7 @@ local function completeOnboardingAndExit(refs)
 end
 
 --- Step 13: Settings overview and Save & Finish. Describes Settings tabs; button completes onboarding.
-function renderSettingsOverviewOverlay(refs)
+local function renderSettingsOverviewOverlay(refs)
     local theme = refs.theme
     local availX, availY = ImGui.GetContentRegionAvail()
     local overlayH = math.floor((availY or 400) * 0.88)
@@ -343,7 +342,7 @@ function renderSettingsOverviewOverlay(refs)
 end
 
 --- Render description overlay for a given step. Steps 1,3,5,7,9 have overlays; 13 = Settings + Save & Finish.
-function renderDescriptionOverlay(step, refs)
+local function renderDescriptionOverlay(step, refs)
     if step == 1 then
         renderInventoryOverviewOverlay(refs)
     elseif step == 3 then
@@ -360,7 +359,7 @@ function renderDescriptionOverlay(step, refs)
 end
 
 --- Setup bar (header): step indicator and Back/Next. Called from main_window when setupMode.
-function renderSetupBar(refs)
+local function renderSetupBar(refs)
     local uiState = refs.uiState
     local theme = refs.theme
     local step = uiState.setupStep

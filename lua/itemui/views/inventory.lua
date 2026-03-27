@@ -252,7 +252,7 @@ function InventoryView.render(ctx, bankOpen)
                             ImGui.OpenPopup("ItemContextInv_" .. rid)
                         end
                     elseif colKey == "Clicky" then
-                        local cid = ctx.getItemSpellId(item, "Clicky")
+                        local cid = ctx.getItemSpellId(item, "Clicky") or 0
                         if cid > 0 then
                             local spellName = ctx.getSpellName(cid) or "Unknown"
                             local timerReady = ctx.getTimerReady(item.bag, item.slot)

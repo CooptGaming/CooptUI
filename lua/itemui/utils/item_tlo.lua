@@ -281,12 +281,12 @@ function M.getClassRaceStringsFromTLO(it)
     local nClass = it.Classes and it.Classes()
     if nClass and nClass > 0 then
         if nClass >= 16 then clsStr = "All"
-        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c end, nClass); clsStr = table.concat(p, " ") end
+        else local p = {}; add(p, function(i) local c = it.Class and it.Class(i); return c end, nClass); clsStr = table.concat(p, "|") end
     end
     local nRace = it.Races and it.Races()
     if nRace and nRace > 0 then
         if nRace >= 15 then raceStr = "All"
-        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r end, nRace); raceStr = table.concat(p, " ") end
+        else local p = {}; add(p, function(i) local r = it.Race and it.Race(i); return r end, nRace); raceStr = table.concat(p, "|") end
     end
     return clsStr, raceStr
 end
@@ -324,7 +324,7 @@ function M.getDeityStringFromTLO(it)
             end
         end
     end
-    return (#parts > 0) and table.concat(parts, " ") or ""
+    return (#parts > 0) and table.concat(parts, "|") or ""
 end
 
 return M

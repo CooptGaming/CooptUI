@@ -21,6 +21,19 @@ local state = {
     searchFilterAugmentUtility = "",
     augmentUtilityOnlyShowUsable = true,
 }
+
+-- Cache for optimize plan: recompute only when item/slot/bank state changes
+local optimizeCache = {
+    itemId = nil,
+    bag = nil,
+    slot = nil,
+    source = nil,
+    slotCount = nil,
+    bankOpen = nil,
+    usable = nil,
+    steps = nil,
+    canOptimize = false,
+}
 function AugmentUtilityView.getState()
     return state
 end
@@ -137,50 +150,66 @@ function AugmentUtilityView.render(ctx)
     state.augmentUtilitySlotIndex = slotIdx
     ImGui.Spacing()
 
-    -- Phase 2: Build optimize plan once (used by Optimize button in Remove section). Requires getCompatibleAugments.
-    -- When bank is closed: use only inventory augments. When bank is open: use inventory + bank.
+    -- Phase 2: Build optimize plan (cached — only recompute when item/slot/bank/usable changes).
     local optimizeSteps = {}
     local canOptimize = false
     if ctx.getCompatibleAugments and ctx.getFilledStandardAugmentSlotIndices then
         local bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
-        local entry = { bag = bag, slot = slot, source = source, item = targetItem }
         local onlyShowUsable = (state.augmentUtilityOnlyShowUsable ~= false)
-        local canUseFilter = onlyShowUsable and function(i)
-            local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
-            return info and info.canUse
-        end or nil
-        local filledSlotsAU = ctx.getFilledStandardAugmentSlotIndices(bag, slot, source) or {}
-        local filledSetAU = {}
-        for _, idx in ipairs(filledSlotsAU) do filledSetAU[idx] = true end
-        local emptySlotsAU = {}
-        for i = 1, maxSlots do if not filledSetAU[i] then emptySlotsAU[#emptySlotsAU + 1] = i end end
-        local function usedKeyAU(a) return tostring(a.bag or 0) .. "_" .. tostring(a.slot or 0) .. "_" .. (a.source or "inv") end
-        local usedAU = {}
-        local parentContextAU = { bag = bag, slot = slot, source = source }
-        local rankConfigAU = augmentRanking.getDefaultConfig()
-        for _, si in ipairs(emptySlotsAU) do
-            local compat = ctx.getCompatibleAugments(entry, si, { canUseFilter = canUseFilter })
-            if not bankOpen then
-                local invOnly = {}
-                for _, c in ipairs(compat) do
-                    if (c.source or "inv") ~= "bank" then invOnly[#invOnly + 1] = c end
+        local itemId = targetItem.id or targetItem.ID or 0
+        -- Invalidate cache when inputs change
+        if optimizeCache.itemId ~= itemId or optimizeCache.bag ~= bag or optimizeCache.slot ~= slot
+            or optimizeCache.source ~= source or optimizeCache.slotCount ~= maxSlots
+            or optimizeCache.bankOpen ~= bankOpen or optimizeCache.usable ~= onlyShowUsable then
+            local entry = { bag = bag, slot = slot, source = source, item = targetItem }
+            local canUseFilter = onlyShowUsable and function(i)
+                local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
+                return info and info.canUse
+            end or nil
+            local filledSlotsAU = ctx.getFilledStandardAugmentSlotIndices(bag, slot, source) or {}
+            local filledSetAU = {}
+            for _, idx in ipairs(filledSlotsAU) do filledSetAU[idx] = true end
+            local emptySlotsAU = {}
+            for i = 1, maxSlots do if not filledSetAU[i] then emptySlotsAU[#emptySlotsAU + 1] = i end end
+            local function usedKeyAU(a) return tostring(a.bag or 0) .. "_" .. tostring(a.slot or 0) .. "_" .. (a.source or "inv") end
+            local usedAU = {}
+            local parentContextAU = { bag = bag, slot = slot, source = source }
+            local rankConfigAU = augmentRanking.getDefaultConfig()
+            local steps = {}
+            for _, si in ipairs(emptySlotsAU) do
+                local compat = ctx.getCompatibleAugments(entry, si, { canUseFilter = canUseFilter })
+                if not bankOpen then
+                    local invOnly = {}
+                    for _, c in ipairs(compat) do
+                        if (c.source or "inv") ~= "bank" then invOnly[#invOnly + 1] = c end
+                    end
+                    compat = invOnly
                 end
-                compat = invOnly
-            end
-            local available = {}
-            for _, c in ipairs(compat) do if not usedAU[usedKeyAU(c)] then available[#available + 1] = c end end
-            if #available > 0 then
-                for _, c in ipairs(available) do
-                    local sc = augmentRanking.scoreAugment(c, parentContextAU, ctx, rankConfigAU)
-                    c._optScore = (type(sc) == "number") and sc or 0
+                local available = {}
+                for _, c in ipairs(compat) do if not usedAU[usedKeyAU(c)] then available[#available + 1] = c end end
+                if #available > 0 then
+                    for _, c in ipairs(available) do
+                        local sc = augmentRanking.scoreAugment(c, parentContextAU, ctx, rankConfigAU)
+                        c._optScore = (type(sc) == "number") and sc or 0
+                    end
+                    table.sort(available, function(a, b) return (a._optScore or 0) > (b._optScore or 0) end)
+                    local best = available[1]
+                    usedAU[usedKeyAU(best)] = true
+                    steps[#steps + 1] = { slotIndex = si, augmentItem = best }
                 end
-                table.sort(available, function(a, b) return (a._optScore or 0) > (b._optScore or 0) end)
-                local best = available[1]
-                usedAU[usedKeyAU(best)] = true
-                optimizeSteps[#optimizeSteps + 1] = { slotIndex = si, augmentItem = best }
             end
+            optimizeCache.itemId = itemId
+            optimizeCache.bag = bag
+            optimizeCache.slot = slot
+            optimizeCache.source = source
+            optimizeCache.slotCount = maxSlots
+            optimizeCache.bankOpen = bankOpen
+            optimizeCache.usable = onlyShowUsable
+            optimizeCache.steps = steps
+            optimizeCache.canOptimize = #steps > 0
         end
-        canOptimize = #optimizeSteps > 0
+        optimizeSteps = optimizeCache.steps or {}
+        canOptimize = optimizeCache.canOptimize
     end
 
     -- Compatible augments: header + search + Refresh + table with tooltips
@@ -208,12 +237,11 @@ function AugmentUtilityView.render(ctx)
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
-        -- Persist checkbox state: support both single-return (new state) and two-return (changed, newState) bindings
-        local cb1, cb2 = ImGui.Checkbox("Only show usable by me##AU_OnlyUsable", state.augmentUtilityOnlyShowUsable)
-        state.augmentUtilityOnlyShowUsable = (cb2 ~= nil) and cb2 or cb1
+        -- MQ2 ImGui.Checkbox returns (newValue, changed); just use first return like all other checkboxes
+        state.augmentUtilityOnlyShowUsable = ImGui.Checkbox("Only show usable by me##AU_OnlyUsable", state.augmentUtilityOnlyShowUsable)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("List is always filtered to augments you can use (class, race, deity, level). This option is retained for UI consistency.")
+            ImGui.Text("When checked, only augments your character can use (class, race, deity, level) are shown.\nUncheck to see all compatible augments (e.g. for another character).")
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
@@ -360,9 +388,9 @@ function AugmentUtilityView.render(ctx)
                                 ImGui.EndTooltip()
                             end
                             local subParts = {}
-                            if cand.class and cand.class ~= "" then subParts[#subParts + 1] = tostring(cand.class) end
-                            if cand.race and cand.race ~= "" then subParts[#subParts + 1] = tostring(cand.race) end
-                            if cand.deity and cand.deity ~= "" then subParts[#subParts + 1] = tostring(cand.deity) end
+                            if cand.class and cand.class ~= "" then subParts[#subParts + 1] = tostring(cand.class):gsub("|", " ") end
+                            if cand.race and cand.race ~= "" then subParts[#subParts + 1] = tostring(cand.race):gsub("|", " ") end
+                            if cand.deity and cand.deity ~= "" then subParts[#subParts + 1] = tostring(cand.deity):gsub("|", " ") end
                             if #subParts > 0 then
                                 ctx.theme.TextMuted(table.concat(subParts, " | "))
                             end

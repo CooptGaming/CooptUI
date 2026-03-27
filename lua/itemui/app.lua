@@ -478,10 +478,10 @@ do
             local tt = require('itemui.utils.item_tooltip')
             if tt and tt.invalidateTooltipCache then tt.invalidateTooltipCache() end
         end,
-        -- Use fresh bankItems when bank is open; do NOT fall back to bankCache when bank is closed.
+        -- Use fresh bankItems only when bank is open; never fall back to bankCache.
         -- bankCache becomes stale after augment operations (aug moved bank→socket→inventory),
         -- which would cause the same augment to appear twice in the compatible-augments list.
-        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, isBankWindowOpen() and (bankItems or bankCache) or nil) end,
+        buildAugmentIndex = function() itemHelpers.buildAugmentIndex(inventoryItems, isBankWindowOpen() and bankItems or nil) end,
         computeAndAttachSellStatus = computeAndAttachSellStatus,
         isBankWindowOpen = isBankWindowOpen,
         storage = storage,
@@ -1010,6 +1010,11 @@ context.init({
     end,
     insertAugment = function(targetItem, augmentItem, slotIndex, targetLocation)
         if not targetItem or not augmentItem then return end
+        -- Guard: don't start a new insert while one is in flight
+        if uiState.pendingInsertAugment or uiState.waitingForInsertConfirmation or uiState.waitingForInsertCursorClear then
+            setStatusMessage("Insert already in progress.")
+            return
+        end
         uiState.pendingInsertAugment = {
             targetItem = { id = targetItem.id or targetItem.ID, name = targetItem.name or targetItem.Name },
             targetBag = targetLocation and targetLocation.bag,
@@ -1020,6 +1025,11 @@ context.init({
         }
     end,
     removeAugment = function(bag, slot, source, slotIndex)
+        -- Guard: don't start a new remove while one is in flight
+        if uiState.pendingRemoveAugment or uiState.waitingForRemoveConfirmation or uiState.waitingForRemoveCursorPopulated then
+            setStatusMessage("Remove already in progress.")
+            return
+        end
         uiState.pendingRemoveAugment = { bag = bag, slot = slot, source = source, slotIndex = slotIndex }
     end,
     getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
@@ -1057,7 +1067,7 @@ local function runSellMacroLegacy()
     end
     local count = 0
     for _, it in ipairs(sellItems) do if it.willSell then count = count + 1 end end
-    if count >= 0 and macroBridge.writeSellProgress then
+    if count > 0 and macroBridge.writeSellProgress then
         macroBridge.writeSellProgress(count, 0)
     end
     mq.cmd('/macro sell confirm')
@@ -1269,7 +1279,6 @@ local function main()
             break
         end
     end
-    storage.init({ profileEnabled = C.PROFILE_ENABLED, profileThresholdMs = C.PROFILE_THRESHOLD_MS })
     local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
     if charName ~= "" then storage.ensureCharFolderExists() end
     -- First-run per character: apply bundled default layout if no existing layout OR first ItemUI launch for this char.

@@ -104,6 +104,7 @@ local DESCRIPTIVE_FIELDS = {
     "norent", "magic", "prestige", "tradeskills",
     "requiredLevel", "recommendedLevel", "instrumentType", "instrumentMod",
     "class", "race", "deity",
+    "class", "race", "deity",
 }
 local DESCRIPTIVE_FIELDS_SET = {}
 for _, f in ipairs(DESCRIPTIVE_FIELDS) do DESCRIPTIVE_FIELDS_SET[f] = true end

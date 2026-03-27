@@ -364,12 +364,6 @@ local function loadLootConfigCache()
         alwaysLootEpic = readLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", "TRUE") == "TRUE",
     }
 
-    local function isValidEntry(t)
-        if not t or t == "" then return false end
-        local lower = t:lower()
-        if lower == "null" or lower == "nil" then return false end
-        return true
-    end
     local function buildSet(str)
         local s = {}
         for item in (str or ""):gmatch("([^/]+)") do
@@ -391,7 +385,7 @@ local function loadLootConfigCache()
     cache.skipContainsList = {}
     for s in (skipContains or ""):gmatch("([^/]+)") do
         local x = s:match("^%s*(.-)%s*$")
-        if isValidEntry(x) then cache.skipContainsList[#cache.skipContainsList + 1] = x end
+        if isValidFilterEntry(x) then cache.skipContainsList[#cache.skipContainsList + 1] = x end
     end
     cache.skipTypeSet = buildSet(skipTypes)
 

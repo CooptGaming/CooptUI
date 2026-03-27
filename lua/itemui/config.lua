@@ -54,7 +54,7 @@ end
 
 --- Safe INI read: TLO.Ini can be nil during zone transitions/loading. Returns default on any nil or error.
 --- path: full path to INI file; section/key: INI section and key names.
-function safeIniValueByPath(path, section, key, default)
+local function safeIniValueByPath(path, section, key, default)
     if not path or path == "" or not section or not key then return default or "" end
     local ok, v = pcall(function()
         local ini = mq.TLO and mq.TLO.Ini
@@ -66,12 +66,13 @@ function safeIniValueByPath(path, section, key, default)
         local k = s.Key(key)
         return (k and k.Value and k.Value()) or nil
     end)
-    return (ok and v and v ~= "") and v or (default or "")
+    if ok and v and v ~= "" and v ~= "NULL" then return v end
+    return default or ""
 end
 
 --- Read loot_progress.ini Progress section (O7: single "line" key with format running##corpsesLooted##totalCorpses##currentCorpse).
 --- Returns: corpsesLooted (number), totalCorpses (number), currentCorpse (string).
-function readLootProgressSection(path)
+local function readLootProgressSection(path)
     local default = { 0, 0, "" }
     if not path or path == "" then return default[1], default[2], default[3] end
     local ok, result = pcall(function()

@@ -91,7 +91,7 @@ function M.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, 
     local sameContext = (cache.sorted and #cache.sorted > 0)
         and cache.key == sortKey and cache.dir == sortDir and cache.filter == validity.filter and cache.hidingSlot == validity.hidingSlot
         and (validity.scanTime == nil or cache.scanTime == validity.scanTime)
-        and (validity.nFiltered == nil or true)  -- nFiltered checked via deltaFiltered
+        -- nFiltered is checked via deltaFiltered above
         and (validity.showOnly == nil or cache.showOnly == validity.showOnly)
     if sameContext and deltaFull >= -1 and deltaFull <= 1 and deltaFiltered >= -1 and deltaFiltered <= 1 then
         local newMap = {}

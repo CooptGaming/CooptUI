@@ -13,10 +13,9 @@ local registry = require('itemui.core.registry')
 
 local ConfigView = {}
 
--- Per 4.2 state ownership: load flag and advanced mode
+-- Per 4.2 state ownership: load flag
 local state = {
     configNeedsLoad = false,
-    configAdvancedMode = false,
 }
 function ConfigView.getState()
     return state

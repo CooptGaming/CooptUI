@@ -10,7 +10,6 @@ local LAYOUT_INI = "itemui_layout.ini"
 local DEBUG_SECTION = "Debug"
 local LOG_SUBDIR = "logs"
 local LOG_FILENAME = "coopui_debug.log"
-local LOG_BAK_FILENAME = "coopui_debug.log.bak"
 local ROTATE_SIZE = 1024 * 1024  -- 1MB
 
 local config

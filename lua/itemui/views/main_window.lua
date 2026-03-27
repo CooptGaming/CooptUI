@@ -98,41 +98,6 @@ local function renderInventoryContent(refs)
     end
 end
 
-local function renderBankWindow(refs)
-    local ctx = buildViewContext()
-    BankView.render(ctx)
-end
-
-local function renderEquipmentWindow(refs)
-    local ctx = buildViewContext()
-    EquipmentView.render(ctx)
-end
-
-local function renderAugmentsWindow(refs)
-    local ctx = buildViewContext()
-    AugmentsView.render(ctx)
-end
-
-local function renderItemDisplayWindow(refs)
-    local ctx = buildViewContext()
-    ItemDisplayView.render(ctx)
-end
-
-local function renderAugmentUtilityWindow(refs)
-    local ctx = buildViewContext()
-    AugmentUtilityView.render(ctx)
-end
-
-local function renderAAWindow(refs)
-    local ctx = buildViewContext()
-    ctx.refreshAA = function() aa_data.refresh() end
-    ctx.getAAList = function() return aa_data.getList() end
-    ctx.getAAPointsSummary = function() return aa_data.getPointsSummary() end
-    ctx.shouldRefreshAA = function() return aa_data.shouldRefresh() end
-    ctx.getAALastRefreshTime = function() return aa_data.getLastRefreshTime() end
-    AAView.render(ctx)
-end
-
 local function renderLootWindow(refs)
     local ctx = buildViewContext()
     local uiState = refs.uiState
@@ -412,7 +377,6 @@ function M.render(refs)
                 layoutConfig.AAWindowY = hubY + idH + defGap
             end
             if registry.shouldDraw("reroll") and (layoutConfig.RerollWindowX or 0) == 0 and (layoutConfig.RerollWindowY or 0) == 0 then
-                local rw = layoutConfig.WidthRerollPanel or layoutDefaults.WidthRerollPanel or constants.VIEWS.WidthRerollPanel or 520
                 layoutConfig.RerollWindowX = hubX + hubW + defGap
                 layoutConfig.RerollWindowY = hubY
             end

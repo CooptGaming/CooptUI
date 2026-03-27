@@ -104,7 +104,7 @@ local function parseIdNameLine(line)
     local idStr, name = line:match("id=(%d+)%s+name=(.+)")
     if not idStr or idStr == "" then return nil, nil end
     local id = tonumber(idStr)
-    if not id or id < 0 then return nil, nil end
+    if not id or id <= 0 then return nil, nil end
     name = (name and name:match("^%s*(.-)%s*$")) or ""
     return id, name
 end
@@ -531,6 +531,7 @@ end
 --- Remove item from augment list by ID. Updates cache immediately; persist to file.
 function M.removeAug(id)
     if not id then return end
+    closeParseWindow()
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_REMOVE or "!augremove") .. " " .. tostring(id))
     for i = #augList, 1, -1 do
         if augList[i].id == id then table.remove(augList, i); break end
@@ -543,6 +544,7 @@ end
 --- Remove item from mythical list by ID. Updates cache immediately; persist to file.
 function M.removeMythical(id)
     if not id then return end
+    closeParseWindow()
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_REMOVE or "!mythicalremove") .. " " .. tostring(id))
     for i = #mythicalList, 1, -1 do
         if mythicalList[i].id == id then table.remove(mythicalList, i); break end
@@ -567,9 +569,19 @@ local function removeLastNFromList(listKind, n)
     end
 end
 
+--- Close the parse window so server output from roll/remove commands doesn't corrupt the list.
+--- The roll response can contain lines matching the broad chat patterns (#*#:#*#, #*#-#*#),
+--- and if a header like "===== Aug List =====" appears, onRerollListLine would wipe augList = {}
+--- and repopulate with only the few lines from the roll output, giving a wrong total.
+local function closeParseWindow()
+    receivingListSince = nil
+    currentList = nil
+end
+
 --- Consume 10 listed augments from inventory and grant one new augment.
 --- No server list request: list only changes by add/remove; optimistically update in-memory list.
 function M.augRoll()
+    closeParseWindow()
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_ROLL or "!augroll"))
     setStatusMessageFn("Augment roll executed.")
     removeLastNFromList("aug", ITEMS_CONSUMED_PER_ROLL)
@@ -578,6 +590,7 @@ end
 --- Consume 10 listed mythicals, grant Book of Mythical Reroll.
 --- No server list request: optimistically update in-memory list.
 function M.mythicalRoll()
+    closeParseWindow()
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_ROLL or "!mythicalroll"))
     setStatusMessageFn("Mythical roll executed.")
     removeLastNFromList("mythical", ITEMS_CONSUMED_PER_ROLL)

@@ -167,11 +167,6 @@ local function getOrnamentFromIt(it)
     return { name = nameVal, iconId = iconId }
 end
 
-local function getOrnamentNameFromIt(it)
-    local o = getOrnamentFromIt(it)
-    return o and o.name or nil
-end
-
 --- Count rows in each column to match the actual tooltip layout.
 local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     local nameLen = item.name and #tostring(item.name) or 0
@@ -319,7 +314,6 @@ M.attrLine = attrLine
 M.slotStringToDisplay = slotStringToDisplay
 M.getSocketItemStats = getSocketItemStats
 M.getOrnamentFromIt = getOrnamentFromIt
-M.getOrnamentNameFromIt = getOrnamentNameFromIt
 M.getAugmentSlotLinesFromIt = getAugmentSlotLinesFromIt
 M.getAugmentSlotLines = getAugmentSlotLines
 M.ORNAMENT_SLOT_INDEX = ORNAMENT_SLOT_INDEX

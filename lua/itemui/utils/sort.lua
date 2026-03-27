@@ -27,24 +27,6 @@ function Sort.getSellSortVal(item, col)
     return ""
 end
 
-local function getInvSortVal(item, col)
-    if not item then return "" end
-    if col == 1 then return tostring(item.name or ""):lower()
-    elseif col == 2 then return tonumber(item.totalValue) or 0
-    elseif col == 3 then return tonumber(item.weight) or 0
-    elseif col == 4 then return tostring(item.type or ""):lower()
-    elseif col == 5 then return tonumber(item.bag) or 0
-    elseif col == 6 then
-        if item.clicky and item.clicky > 0 then
-            local spellName = Sort.getSpellName(item.clicky) or ""
-            return tostring(spellName):lower()
-        else
-            return "zzz_no_clicky"
-        end
-    end
-    return ""
-end
-
 function Sort.getBankSortVal(item, col)
     if not item then return "" end
     if col == 1 then return tostring(item.name or ""):lower()

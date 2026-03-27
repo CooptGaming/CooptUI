@@ -122,7 +122,7 @@ function BankView.render(ctx)
     -- Pre-filter bank list
     local filteredBank = {}
     local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
-    for _, item in ipairs(list) do
+    for _, item in ipairs(list or {}) do
         if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
             if not ctx.shouldHideRowForCursor(item, "bank") then
                 table.insert(filteredBank, item)
