@@ -128,11 +128,6 @@ function MacroBridge.init(config)
     log("Initialized with pollInterval=" .. MacroBridge.config.pollInterval .. "ms")
 end
 
--- Enable/disable debug logging
-function MacroBridge.setDebug(enabled)
-    MacroBridge.config.debug = enabled
-end
-
 -- Subscribe to events
 -- Events: 'sell:started', 'sell:progress', 'sell:complete', 'loot:started', 'loot:complete'
 function MacroBridge.subscribe(event, callback)

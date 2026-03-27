@@ -667,6 +667,7 @@ local function handleAugmentConfirmationTimeouts(now)
         uiState.removeConfirmationSetAt = nil
         uiState.waitingForRemoveCursorPopulated = false
         uiState.removeCursorPopulatedTimeoutAt = nil
+        resolveAugmentQueueStep("removeAll")
     end
     if uiState.waitingForInsertCursorClear then
         if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then

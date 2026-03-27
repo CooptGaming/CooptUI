@@ -37,8 +37,6 @@ local REMOVE_OPEN_DELAY_MS = T.AUGMENT_REMOVE_OPEN_DELAY_MS
 local REMOVE_AFTER_RIGHTCLICK_MS = 150
 local DISPLAY_OPEN_TIMEOUT_MS = T.AUGMENT_DISPLAY_OPEN_TIMEOUT_MS or 4000
 local SETTLE_AFTER_CLICK_MS = T.AUGMENT_SETTLE_AFTER_CLICK_MS or 200
-local REMOVE_MENU_CONTROL = nil
-
 function M.init(d)
     deps = d
 end
@@ -130,6 +128,9 @@ function M.advanceInsert(now)
     local slot = (pa.augmentItem and pa.augmentItem.slot) or 0
 
     if phase == "pickup" then
+        -- Close any existing Item Display window so our Inspect() opens a clean one
+        -- and /notify targets the correct window.
+        M.closeItemDisplayWindow()
         if deps.hasItemOnCursor and deps.hasItemOnCursor() then
             deps.setStatusMessage("Clear cursor first.")
             state.pendingInsertAugment = nil
@@ -249,6 +250,8 @@ function M.advanceRemove(now)
     local phase = ra.phase or "inspect"
 
     if phase == "inspect" then
+        -- Close any existing Item Display window so our Inspect() opens a clean one.
+        M.closeItemDisplayWindow()
         local it = deps.getItemTLO and deps.getItemTLO(ra.bag, ra.slot, ra.source)
         if it and it.Inspect then it.Inspect() end
         ra.phase = "wait_display_open"
@@ -275,10 +278,6 @@ function M.advanceRemove(now)
 
     if phase == "settle_after_click" then
         if (now - (ra.phaseEnteredAt or 0)) < REMOVE_AFTER_RIGHTCLICK_MS then return end
-        if REMOVE_MENU_CONTROL then
-            local windowName = resolveItemDisplayWindowName()
-            mq.cmdf('/notify %s %s leftmouseup', windowName, REMOVE_MENU_CONTROL)
-        end
         ra.phase = "wait_confirm"
         ra.phaseEnteredAt = now
         if deps.setWaitingForRemoveConfirmation then deps.setWaitingForRemoveConfirmation(true) end

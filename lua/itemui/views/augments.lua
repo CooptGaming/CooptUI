@@ -173,13 +173,19 @@ function AugmentsView.render(ctx)
         local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
         if sortCol >= 1 and sortCol <= 3 then
+            -- Pre-compute sort keys to avoid repeated getEffectsLine calls in comparator
+            if sortCol == 2 then
+                for _, it in ipairs(filtered) do
+                    it._sortEffects = it._sortEffects or getEffectsLine(ctx, it):lower()
+                end
+            end
             table.sort(filtered, function(a, b)
                 local av, bv
                 if sortCol == 1 then
                     av, bv = (a.name or ""):lower(), (b.name or ""):lower()
                     if asc then return av < bv else return av > bv end
                 elseif sortCol == 2 then
-                    av, bv = getEffectsLine(ctx, a):lower(), getEffectsLine(ctx, b):lower()
+                    av, bv = a._sortEffects or "", b._sortEffects or ""
                     if asc then return av < bv else return av > bv end
                 else
                     av = tonumber(a.totalValue) or 0
@@ -190,6 +196,26 @@ function AugmentsView.render(ctx)
         end
 
         local hasCursor = ctx.hasItemOnCursor()
+
+        -- Build lookup tables for reroll lists once (not per-row)
+        local rerollService = ctx.rerollService
+        local augListById, augListByName = {}, {}
+        local mythListById, mythListByName = {}, {}
+        if showRerollColumns and rerollService then
+            local augList = rerollService.getAugList and rerollService.getAugList() or {}
+            local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
+            for _, e in ipairs(augList) do
+                if e.id then augListById[e.id] = true end
+                local n = (e.name or ""):match("^%s*(.-)%s*$")
+                if n ~= "" then augListByName[n] = true end
+            end
+            for _, e in ipairs(mythicalList) do
+                if e.id then mythListById[e.id] = true end
+                local n = (e.name or ""):match("^%s*(.-)%s*$")
+                if n ~= "" then mythListByName[n] = true end
+            end
+        end
+
         local clipper = ImGuiListClipper.new()
         clipper:Begin(#filtered)
         while clipper:Step() do
@@ -202,25 +228,10 @@ function AugmentsView.render(ctx)
 
                 local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
                 local itemId = item.id or item.ID
-                local rerollService = ctx.rerollService
-                local augList = rerollService and rerollService.getAugList and rerollService.getAugList() or {}
-                local mythicalList = rerollService and rerollService.getMythicalList and rerollService.getMythicalList() or {}
-                local onAugList = false
-                local onMythicalList = false
-                if itemId then
-                    for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
-                    for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
-                end
-                if not onAugList then
-                    for _, e in ipairs(augList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onAugList = true; break end end
-                end
-                if not onMythicalList then
-                    for _, e in ipairs(mythicalList) do if (e.name or ""):match("^%s*(.-)%s*$") == nameKey then onMythicalList = true; break end end
-                end
-                -- Mythical list only applies to items whose name starts with "Mythical" (augments view shows augments; mythicals can appear if user has them)
-                local itemNameTrim = (item.name or ""):match("^%s*(.-)%s*$")
+                local onAugList = (itemId and augListById[itemId]) or augListByName[nameKey] or false
+                local onMythicalList = (itemId and mythListById[itemId]) or mythListByName[nameKey] or false
                 local mythicalPrefix = "Mythical"
-                local isMythicalEligible = itemNameTrim:sub(1, #mythicalPrefix) == mythicalPrefix
+                local isMythicalEligible = nameKey:sub(1, #mythicalPrefix) == mythicalPrefix
 
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()

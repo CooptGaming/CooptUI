@@ -183,9 +183,9 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
     if cls == "—" and (item.class and item.class ~= "") then cls = item.class end
     if race == "—" and (item.race and item.race ~= "") then race = item.race end
     if (slotStr == "" or slotStr == "—") and (item.wornSlots and item.wornSlots ~= "") then slotStr = item.wornSlots end
-    if cls and cls ~= "" and cls ~= "—" then ImGui.Text("Class: " .. tostring(cls)) end
-    if race and race ~= "" and race ~= "—" then ImGui.Text("Race: " .. tostring(race)) end
-    if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity)) end
+    if cls and cls ~= "" and cls ~= "—" then ImGui.Text("Class: " .. tostring(cls):gsub("|", " ")) end
+    if race and race ~= "" and race ~= "—" then ImGui.Text("Race: " .. tostring(race):gsub("|", " ")) end
+    if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity):gsub("|", " ")) end
     slotStr = api.slotStringToDisplay(slotStr)
     if slotStr and slotStr ~= "" and slotStr ~= "—" then ImGui.Text(slotStr) end
     -- Ornament first (match Item Display: IDW_Appearance_Socket_*). Same row layout: [24x24] + text. Name is a link when filled.

@@ -1,8 +1,8 @@
 --[[
     Loot View - Live loot view for corpse items
-    
+
     Part of ItemUI Phase 5: View Extraction
-    Renders loot window content when corpse is open (CURRENTLY DISABLED in main code)
+    Renders loot window content when corpse is open.
 --]]
 
 local mq = require('mq')
@@ -50,7 +50,7 @@ function LootView.render(ctx)
     ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Success), string.format("Will Loot: %d  ·  Will Skip: %d", lootCount, skipCount))
     ImGui.Separator()
     
-    if ImGui.BeginTable("ItemUI_Loot", 7, ctx.uiState.tableFlags) then
+    if ImGui.BeginTable("ItemUI_Loot", 6, ctx.uiState.tableFlags) then
         ImGui.TableSetupColumn("Slot", ImGuiTableColumnFlags.WidthFixed, 40, 0)
         ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 1)
         ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, 75, 2)

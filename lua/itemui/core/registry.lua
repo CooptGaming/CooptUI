@@ -1,6 +1,6 @@
 --[[
-    Module Registry — Task 4.1 (MASTER_PLAN.md)
-    Leaf module: only require('mq') and require('itemui.constants').
+    Module Registry
+    Leaf module: only require('mq').
     Owns window lifecycle state (windowOpen, windowShouldDraw, openedAt) per registered module.
     init(opts) receives layoutConfig and companionWindowOpenedAt for enable checks and LIFO dual-write.
 ]]

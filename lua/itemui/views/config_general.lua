@@ -264,7 +264,6 @@ function ConfigGeneral.render(ctx)
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
-        ImGui.SameLine()
         if ImGui.Button("Apply##ItemUIToggleKey", ImVec2(50, 0)) then
             filterState.keybindDebounceAt = nil
             if ctx.applyItemUIToggleBind then

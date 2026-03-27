@@ -41,10 +41,39 @@ function ItemTooltip.getCanUseInfo(item, source)
     local result = { canUse = true, reason = nil }
     if not item then return result end
     source = source or (item.source) or "inv"
+
+    -- Primary: use game's built-in CanUse TLO property (catches all restrictions)
+    if item.bag and item.slot and itemHelpers.getItemTLO then
+        local it = itemHelpers.getItemTLO(item.bag, item.slot, source)
+        if it and it.ID and it.ID() and it.ID() ~= 0 then
+            if it.CanUse then
+                local ok, canUse = pcall(function() return it.CanUse() end)
+                if ok and canUse == false then
+                    -- Build reason string from available restriction data
+                    local reason = "Cannot use this item"
+                    local clsStr = item.class and tostring(item.class) or ""
+                    if clsStr == "" then
+                        local c = itemHelpers.getClassRaceStringsFromTLO and itemHelpers.getClassRaceStringsFromTLO(it)
+                        if c and c ~= "" then clsStr = c end
+                    end
+                    if clsStr ~= "" and clsStr:lower() ~= "all" then
+                        reason = "Requires class: " .. clsStr:gsub("|", ", ")
+                    end
+                    result.canUse = false
+                    result.reason = reason
+                    return result
+                end
+                if ok and canUse == true then
+                    return result  -- game says usable, trust it
+                end
+            end
+        end
+    end
+
+    -- Fallback: manual class/race/deity/level check (for items without TLO or when CanUse unavailable)
     local Me = mq.TLO and mq.TLO.Me
     if not Me or not Me.Level then return result end
     local myLevel = tonumber(Me.Level()) or 0
-    -- Use item fields; if missing and we have bag/slot, fetch from TLO (plugin scan rows may not have class/race/deity/level)
     local reqLevel = (item.requiredLevel ~= nil and item.requiredLevel > 0) and item.requiredLevel or nil
     local clsStr = item.class and tostring(item.class) or ""
     local raceStr = item.race and tostring(item.race) or ""
@@ -71,39 +100,41 @@ function ItemTooltip.getCanUseInfo(item, source)
         result.reason = "Requires level " .. tostring(reqLevel)
         return result
     end
-    local myDeity = Me.Deity and Me.Deity() and tostring(Me.Deity()):lower() or ""
-    if deityStr and deityStr ~= "" then
-        local allowed = false
-        for part in (tostring(deityStr):lower()):gmatch("%S+") do
-            if part == myDeity then allowed = true break end
+    -- Split pipe-delimited lists ("|") for multi-word name support (e.g. "Shadow Knight|Bard").
+    local function listContains(listStr, needle)
+        if not listStr or listStr == "" or not needle or needle == "" then return false end
+        local lower = listStr:lower()
+        local needleLower = needle:lower()
+        if lower:find("|", 1, true) then
+            for entry in lower:gmatch("[^|]+") do
+                local trimmed = entry:match("^%s*(.-)%s*$")
+                if trimmed == needleLower then return true end
+            end
+            return false
         end
-        if not allowed then
+        return lower:match("^%s*(.-)%s*$") == needleLower
+    end
+    local myDeity = Me.Deity and Me.Deity() and tostring(Me.Deity()) or ""
+    if deityStr and deityStr ~= "" then
+        if not listContains(deityStr, myDeity) then
             result.canUse = false
-            result.reason = "Requires deity: " .. tostring(deityStr)
+            result.reason = "Requires deity: " .. tostring(deityStr):gsub("|", ", ")
             return result
         end
     end
-    local myClass = Me.Class and tostring(Me.Class() or ""):lower() or ""
-    local myRace = Me.Race and tostring(Me.Race() or ""):lower() or ""
+    local myClass = Me.Class and tostring(Me.Class() or "") or ""
+    local myRace = Me.Race and tostring(Me.Race() or "") or ""
     if clsStr and clsStr ~= "" and clsStr:lower() ~= "all" then
-        local ok = false
-        for part in (tostring(clsStr):lower()):gmatch("%S+") do
-            if part == myClass then ok = true break end
-        end
-        if not ok then
+        if not listContains(clsStr, myClass) then
             result.canUse = false
-            result.reason = "Requires class: " .. tostring(clsStr)
+            result.reason = "Requires class: " .. tostring(clsStr):gsub("|", ", ")
             return result
         end
     end
     if raceStr and raceStr ~= "" and raceStr:lower() ~= "all" then
-        local ok = false
-        for part in (tostring(raceStr):lower()):gmatch("%S+") do
-            if part == myRace then ok = true break end
-        end
-        if not ok then
+        if not listContains(raceStr, myRace) then
             result.canUse = false
-            result.reason = "Requires race: " .. tostring(raceStr)
+            result.reason = "Requires race: " .. tostring(raceStr):gsub("|", ", ")
             return result
         end
     end

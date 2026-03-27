@@ -26,49 +26,6 @@ local function getMQRoot()
     return (p:gsub("/", "\\"))
 end
 
-local function collectRelativePaths(root, relBase, extList)
-    local out = {}
-    local function scan(dir, base)
-        local ok, entries = pcall(function()
-            local t = {}
-            if not io or not io.popen then return t end
-            local h = io.popen('dir /b /s "' .. dir:gsub('"', '\\"') .. '" 2>nul')
-            if not h then return t end
-            for line in h:lines() do
-                local full = line:gsub("/", "\\")
-                if full:sub(1, #root) == root then
-                    local rel = full:sub(#root + 2)
-                    local ext = rel:match("%.(%w+)$")
-                    if ext and (ext == "ini" or ext == "lua") then
-                        t[#t + 1] = rel
-                    end
-                end
-            end
-            h:close()
-            return t
-        end)
-        if ok and entries then
-            for _, rel in ipairs(entries) do out[#out + 1] = rel end
-        else
-            -- Fallback: no dir/popen, use known files from config paths
-            local cfg = getConfig()
-            if relBase == "Macros\\sell_config" then
-                for _, f in ipairs({ "itemui_layout.ini", "sell_flags.ini", "sell_value.ini", "keep_list.lua", "junk_list.lua" }) do
-                    out[#out + 1] = relBase .. "\\" .. f
-                end
-            elseif relBase == "Macros\\shared_config" then
-                for _, f in ipairs({ "epic_classes.ini" }) do out[#out + 1] = relBase .. "\\" .. f end
-            elseif relBase == "Macros\\loot_config" then
-                for _, f in ipairs({ "loot_flags.ini", "loot_value.ini", "always_loot_list.lua", "skip_list.lua" }) do out[#out + 1] = relBase .. "\\" .. f end
-            end
-        end
-        return out
-    end
-    local subDir = root .. "\\" .. (relBase:gsub("/", "\\"))
-    scan(subDir, relBase)
-    return out
-end
-
 local function safeReadAll(path)
     local f = io.open(path, "rb")
     if not f then return nil end

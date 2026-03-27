@@ -1,3 +1,7 @@
+--[[ commands.lua: /itemui command handler.
+     Subcommands: toggle, show, hide, sell, exit, scan, config, debug, version, help.
+     Dispatched from app.lua via mq.bind('/itemui', ...).
+]]
 local mq = require('mq')
 
 local M = {}

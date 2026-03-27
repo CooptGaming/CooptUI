@@ -228,8 +228,6 @@ function M.buildC(version)
         MAX_INVENTORY_BAGS = L.MAX_INVENTORY_BAGS,
         LAYOUT_INI = M.LAYOUT_INI,
         LAYOUT_SECTION = M.LAYOUT_SECTION,
-        PROFILE_ENABLED = false,   -- controlled via Advanced → Performance Profiling toggle; not used at runtime (debug module reads INI directly)
-        PROFILE_THRESHOLD_MS = 30, -- legacy; kept for backward compat; runtime value comes from debugModule.getProfileThresholdMs()
         STATUS_MSG_SECS = T.STATUS_MSG_SECS,
         STATUS_MSG_MAX_LEN = L.STATUS_MSG_MAX_LEN,
         PERSIST_SAVE_INTERVAL_MS = T.PERSIST_SAVE_INTERVAL_MS,
