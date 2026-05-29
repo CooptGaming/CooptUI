@@ -1582,11 +1582,11 @@ local function phaseEquipAction(now)
         -- Check for attunement confirmation dialog and accept it
         local dlgOpen = false
         do
-            local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogWnd") end)
+            local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox") end)
             dlgOpen = ok and dlg and dlg.Open and dlg.Open()
         end
         if dlgOpen then
-            mq.cmd('/notify ConfirmationDialogWnd Yes_Button leftmouseup')
+            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
             -- Stay in settle_place; cursor will clear once the game processes the equip
             return
         end
