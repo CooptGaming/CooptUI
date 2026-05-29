@@ -864,7 +864,7 @@ context.init({
     formatSellStatus = function(reason, willSell, theme) return ui_common.formatSellStatus(reason, willSell, theme) end,
     resolveSellStatusDisplay = function(ctx, item) return ui_common.resolveSellStatusDisplay(ctx, item) end,
     -- Layout (module direct)
-    saveLayoutToFile = function() layoutUtils.saveLayoutToFile() end,
+    -- (saveLayoutToFile is set once below, near itemOps — duplicate key here removed)
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
     saveColumnVisibility = function() layoutUtils.saveColumnVisibility() end,
     loadLayoutConfig = loadLayoutConfig,

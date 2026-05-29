@@ -6,8 +6,13 @@
 # --- Root: ignore everything, then un-ignore only project paths ---
 /*
 !.gitignore
+!.luacheckrc
 .cursor/*
 .github/*
+!.github/
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/luacheck.yml
 !README.md
 !DEPLOY.md
 !CHANGELOG.md
