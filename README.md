@@ -4,7 +4,7 @@
 
 For **EverQuest emulator** players using **MacroQuest2**. One set of windows, one set of rules. Set what to keep or sell in the UI, and the auto-sell and auto-loot macros use those same rules.
 
-`v0.9.0-beta` · Windows · MacroQuest2
+`v0.9.6` · Windows · MacroQuest2
 
 ---
 
