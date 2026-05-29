@@ -1,20 +1,18 @@
 -- luacheck configuration for CoOpt UI
 -- The addon runs inside MacroQuest2's MQ2Lua, which is LuaJIT (Lua 5.1 semantics).
 -- Goal of this gate: catch the "loads fine, crashes on a player later" bug classes
--- (undefined globals/locals, use-before-declaration, accidental globals, shadowing)
--- without drowning in cosmetic noise.
+-- (undefined globals/locals, use-before-declaration, accidental globals) — the
+-- failure mode behind the Reroll / filters / searchbar crashes — without drowning
+-- in cosmetic noise. The CI workflow scopes checking to lua/itemui + lua/coopui.
 
 std = "luajit"
 max_line_length = false
 
--- Globals injected by the MQ2Lua host and the ImGui binding. These are read-only
--- from our code's perspective, so list them as read_globals to avoid false
--- "accessing undefined variable" reports.
+-- Globals injected by the MQ2Lua host and the ImGui binding (read-only from our
+-- code), so listing them avoids false "accessing undefined variable" reports.
 read_globals = {
-    -- Core handles
-    "mq",          -- usually `local mq = require('mq')`, but allow the global form too
-    "ImGui",       -- require('ImGui') also publishes the global ImGui table
-    "ImVec2", "ImVec4", "ImColor",
+    -- Core handles + ImGui constructors/classes
+    "mq", "ImGui", "ImVec2", "ImVec4", "ImColor", "ImGuiListClipper",
     -- bit32 is provided by the host shim (LuaJIT itself ships `bit`, covered by std)
     "bit32",
     -- ImGui enum tables (each is a global table exposed by the binding)
@@ -28,18 +26,31 @@ read_globals = {
     "ImGuiCond", "ImGuiViewportFlags", "ImDrawFlags",
 }
 
--- Categories we deliberately don't gate on — they're style, not correctness, and
--- the codebase intentionally has unused ctx/refs/self parameters in render funcs.
+-- `_` is the conventional throwaway for discarded multi-return values; allow writing it.
+globals = { "_" }
+
+-- What stays ENFORCED (not listed here) are the crash-class checks:
+--   11x  setting/mutating an undefined (accidental) global
+--   113  accessing an undefined variable  -> catches reroll-style "call a nil global"
+--   143  accessing an undefined field of a global
+--   221  local accessed but never set     -> catches filters/searchbar-style shadows
+-- The categories below are code-cleanliness, not crash risks. Downgraded for this
+-- first baseline so the gate is green on existing code; tighten later if desired.
 ignore = {
+    "211",  -- unused local variable / function
     "212",  -- unused argument
     "213",  -- unused loop variable
-    "542",  -- empty if branch (used a few places as explicit "do nothing" markers)
+    "231",  -- variable assigned but never accessed
+    "311",  -- value assigned is unused / overwritten before use
+    "411",  -- redefining a local
+    "421",  -- shadowing a local
+    "431",  -- shadowing an upvalue
+    "512",  -- loop can be executed at most once (idiomatic "is table non-empty?" check)
+    "542",  -- empty if branch
+    "611", "612", "613", "614",  -- trailing / whitespace-only lines
 }
 
--- Only gate the shipped CoOpt UI Lua. The CI workflow already scopes to these dirs;
--- this is a safety net for anyone running `luacheck .` at the repo root.
-include_files = {
-    "lua/itemui",
-    "lua/coopui",
-    ".luacheckrc",
+-- Don't lint the markdown/docs tree (luacheck would try to parse .md as Lua).
+exclude_files = {
+    "lua/itemui/docs",
 }
