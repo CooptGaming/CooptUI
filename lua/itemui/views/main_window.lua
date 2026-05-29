@@ -901,7 +901,14 @@ function M.render(refs)
             end
         end
         for _, mod in ipairs(registry.getDrawableModules()) do
-            mod.render(refs)
+            -- Isolate each companion window: a render error in one (e.g. reroll, bank,
+            -- augments) must not abort the loop and take down the rest of the ItemUI
+            -- render. Mirrors the pcall guard LootUIView.render already uses.
+            local ok, err = pcall(mod.render, refs)
+            if not ok then
+                if mq and mq.log then mq.log("ItemUI window '%s' render error: %s", tostring(mod.id), tostring(err)) end
+                diagnostics.recordError("Window:" .. tostring(mod.id), "render failed", err)
+            end
         end
     end
 
