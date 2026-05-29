@@ -426,6 +426,17 @@ function M.checkListRequestTimeout(now)
     end
 end
 
+--- Close the parse window so server output from roll/remove commands doesn't corrupt the list.
+--- The roll response can contain lines matching the broad chat patterns (#*#:#*#, #*#-#*#),
+--- and if a header like "===== Aug List =====" appears, onRerollListLine would wipe augList = {}
+--- and repopulate with only the few lines from the roll output, giving a wrong total.
+--- Defined here (before removeAug/removeMythical/augRoll/mythicalRoll) so all callers can see it:
+--- as a `local function` it is only visible to code that follows its declaration.
+local function closeParseWindow()
+    receivingListSince = nil
+    currentList = nil
+end
+
 --- Return protection sets for sell/loot rules: items in these sets must never be sold and should be skipped by loot.
 --- Includes server list and pending list so items queued for sync are protected until synced or removed.
 --- ID-only: name-based matching was removed because same-name-different-ID items are common
@@ -567,15 +578,6 @@ local function removeLastNFromList(listKind, n)
         for _ = 1, remove do table.remove(mythicalList) end
         if remove > 0 then markListDirty(); saveToFile() end
     end
-end
-
---- Close the parse window so server output from roll/remove commands doesn't corrupt the list.
---- The roll response can contain lines matching the broad chat patterns (#*#:#*#, #*#-#*#),
---- and if a header like "===== Aug List =====" appears, onRerollListLine would wipe augList = {}
---- and repopulate with only the few lines from the roll output, giving a wrong total.
-local function closeParseWindow()
-    receivingListSince = nil
-    currentList = nil
 end
 
 --- Consume 10 listed augments from inventory and grant one new augment.
