@@ -227,7 +227,7 @@ end
 -- ============================================================================
 
 --- Add search to history
-local function addToHistory(view, search)
+function addToHistory(view, search)
     if not SearchBar._searchHistory[view] then
         SearchBar._searchHistory[view] = {}
     end
@@ -249,7 +249,7 @@ local function addToHistory(view, search)
 end
 
 --- Render preset details in tooltip
-local function renderPresetTooltip(preset)
+function renderPresetTooltip(preset)
     if preset.text and preset.text ~= '' then
         ImGui.Text("Text: " .. preset.text)
     end

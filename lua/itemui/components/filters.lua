@@ -343,7 +343,7 @@ end
 -- ============================================================================
 
 --- Check if type array contains a type
-local function hasType(types, typeToFind)
+function hasType(types, typeToFind)
     if not types then return false end
     for _, t in ipairs(types) do
         if t == typeToFind then return true end
@@ -352,7 +352,7 @@ local function hasType(types, typeToFind)
 end
 
 --- Remove type from array
-local function removeType(types, typeToRemove)
+function removeType(types, typeToRemove)
     if not types then return end
     for i = #types, 1, -1 do
         if types[i] == typeToRemove then
