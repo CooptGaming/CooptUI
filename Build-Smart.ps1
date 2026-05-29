@@ -349,6 +349,120 @@ function Build-MQFull {
     $env:VCPKG_TARGET_TRIPLET = 'x86-windows-static'
     $env:VCPKG_BUILD_TYPE = 'release'
 
+    # Resolve the VS 2022 instance for CMake to use.
+    # CMake's auto-detect may pick Build Tools over Community, but vcpkg's
+    # bundled version (2024-04) rejects Build Tools for the x64-windows host
+    # triplet. We explicitly select the best instance via vswhere to avoid
+    # this: prefer Community (has NativeDesktop workload), fall back to
+    # Build Tools if Community is missing.
+    $vsInstance = $null
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        # Prefer Community/Professional/Enterprise with the desktop C++ workload
+        $vsInstance = & $vswhere -version '[17.0,18.0)' `
+            -requires Microsoft.VisualStudio.Workload.NativeDesktop `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath -sort | Select-Object -First 1
+        if (-not $vsInstance) {
+            # Fall back to any VS 2022 with VC tools (includes Build Tools)
+            $vsInstance = & $vswhere -version '[17.0,18.0)' -products '*' `
+                -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                -property installationPath -sort | Select-Object -First 1
+        }
+        if ($vsInstance) {
+            Write-Info "Using VS instance: $vsInstance"
+        }
+    }
+
+    # Pin the MSVC toolset version so vcpkg's port builds and our final link step use the SAME
+    # STL implementation. Without this, vcpkg's compiler auto-detection can pick a newer toolset
+    # (e.g. VS 18 preview's 14.50) when one exists alongside VS 2022 Community's 14.44, producing
+    # libprotobuf.lib / cpr.lib that reference vectorized-algorithm symbols (__std_rotate@12 etc.)
+    # not present in the older toolset's libcpmt.lib. Result: LNK1120 unresolved externals at link
+    # time. We force 14.44.35207 by importing the full VS environment for that specific toolset
+    # via vcvarsall.bat — this sets PATH, INCLUDE, LIB, VCToolsVersion, etc. consistently for all
+    # child processes (vcpkg, cmake, msbuild).
+    $pinnedToolsetVersion = '14.44.35207'
+    if ($vsInstance) {
+        $vcvarsall = Join-Path $vsInstance 'VC\Auxiliary\Build\vcvarsall.bat'
+        $toolsetDir = Join-Path $vsInstance "VC\Tools\MSVC\$pinnedToolsetVersion"
+        if ((Test-Path $vcvarsall) -and (Test-Path $toolsetDir)) {
+            Write-Info "Pinning MSVC toolset: $pinnedToolsetVersion (avoids cross-toolset ABI mismatch)"
+            # Capture the env vars vcvarsall sets, then mirror them into PowerShell's session
+            $vcvarsCmd = "`"$vcvarsall`" x86 -vcvars_ver=14.44 >NUL 2>&1 && set"
+            $envOut = cmd.exe /c $vcvarsCmd 2>$null
+            foreach ($line in $envOut) {
+                if ($line -match '^([^=]+)=(.*)$') {
+                    $name = $matches[1]
+                    $value = $matches[2]
+                    # Only import the vars that affect compiler/toolchain selection — leave
+                    # unrelated user env (USERNAME, TEMP, etc.) alone.
+                    if ($name -in @('PATH','INCLUDE','LIB','LIBPATH','VCINSTALLDIR','VCToolsVersion','VCToolsInstallDir','VSINSTALLDIR','VSCMD_VER','VSCMD_ARG_TGT_ARCH','VSCMD_ARG_HOST_ARCH','WindowsSdkDir','WindowsSDKVersion','UCRTVersion','UniversalCRTSdkDir','Platform','Framework40Version','FrameworkDir','FrameworkVersion')) {
+                        Set-Item -Path "Env:$name" -Value $value -EA SilentlyContinue
+                    }
+                }
+            }
+            # Re-pin our CMake 3.30 at the front of PATH (vcvarsall replaced it)
+            $env:Path = "$cmake330Dir;$env:Path"
+            if ($env:VCToolsVersion -eq $pinnedToolsetVersion) {
+                Write-Info "Toolset pinned: VCToolsVersion=$($env:VCToolsVersion), VS=$($env:VSINSTALLDIR.TrimEnd('\'))"
+            } else {
+                Write-Warning "VCToolsVersion is '$($env:VCToolsVersion)', expected '$pinnedToolsetVersion' — vcvarsall may have ignored the pin"
+            }
+            # Bypass vcpkg binary cache for this run. Prior runs may have written archives keyed
+            # by an unpinned toolset (e.g. 14.50), and vcpkg's ABI hash may not always reflect
+            # toolset version changes — restoring such an archive would re-introduce the mismatch.
+            $env:VCPKG_BINARY_SOURCES = 'clear'
+            Write-Info "VCPKG_BINARY_SOURCES=clear (forces source rebuild for any newly-resolved package)"
+
+            # vcvarsall sets VCToolsVersion and PATH/INCLUDE/LIB for OUR shell's invocations of
+            # cmake/msbuild, but vcpkg's port-level CMake builds do their OWN compiler search via
+            # vswhere — and vswhere returns VS 18 first as the latest install. Result: vcpkg
+            # compiles libprotobuf/cpr/etc. with 14.50 anyway. The vcpkg-documented fix is to
+            # set VCPKG_VISUAL_STUDIO_PATH and VCPKG_PLATFORM_TOOLSET_VERSION as TRIPLET variables
+            # (not env vars). vcpkg picks them up via VCPKG_OVERLAY_TRIPLETS.
+            #
+            # Macroquest already uses an overlay triplet at contrib/vcpkg-overlays/triplets/ that
+            # sets the basic 4 settings (architecture, CRT/library linkage, PLATFORM_TOOLSET v143).
+            # Our overlay must include those four lines verbatim, then append the toolset pins.
+            $overlayTripletDir = Join-Path $MQClone 'cooptui-triplets-overlay'
+            $overlayTripletFile = Join-Path $overlayTripletDir 'x86-windows-static.cmake'
+            New-Item -ItemType Directory -Path $overlayTripletDir -Force -EA SilentlyContinue | Out-Null
+            $vsPathEscaped = $vsInstance -replace '\\', '\\'
+            $tripletBody = @"
+# CoOpt UI overlay triplet — pins VS install path and toolset version so vcpkg's port-level
+# CMake builds use the same toolset as our final link step. Without this, vcpkg auto-detects
+# the latest VS via vswhere and picks VS 18 / 14.50, producing libs that reference vectorized
+# STL symbols not present in 14.44's libcpmt.lib (LNK1120 ___std_rotate@12 etc.).
+#
+# Mirrors the 4 settings from contrib/vcpkg-overlays/triplets/x86-windows-static.cmake then adds
+# the toolset pins. Kept explicit (not via include/) so it doesn't break if upstream rearranges.
+
+set(VCPKG_TARGET_ARCHITECTURE x86)
+set(VCPKG_CRT_LINKAGE static)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_PLATFORM_TOOLSET v143)
+
+# Toolset pins (CoOpt UI addition)
+set(VCPKG_VISUAL_STUDIO_PATH "$vsPathEscaped")
+set(VCPKG_PLATFORM_TOOLSET_VERSION "$pinnedToolsetVersion")
+"@
+            [System.IO.File]::WriteAllText($overlayTripletFile, $tripletBody, [System.Text.UTF8Encoding]::new($false))
+            $env:VCPKG_OVERLAY_TRIPLETS = $overlayTripletDir
+            Write-Info "VCPKG_OVERLAY_TRIPLETS overlay at $overlayTripletDir (pins VS path + toolset $pinnedToolsetVersion)"
+
+            # NOTE: We don't manually clear vcpkg_installed for toolset changes anymore. The
+            # overlay triplet sets VCPKG_PLATFORM_TOOLSET_VERSION which is included in vcpkg's
+            # ABI hash — so when the toolset changes, vcpkg auto-detects the hash mismatch and
+            # reinstalls affected packages on its own. An earlier version of this code did
+            # eager cleanup based on a marker file, but that cleanup ran on EVERY failed run
+            # (since the marker only writes on full build success), wiping out correctly-built
+            # libs from prior partial runs and causing chicken-and-egg recovery problems.
+        } else {
+            Write-Warning "Cannot pin toolset: vcvarsall.bat at $vcvarsall (exists=$(Test-Path $vcvarsall)) or toolset dir $toolsetDir (exists=$(Test-Path $toolsetDir)) not found"
+        }
+    }
+
     try {
         # --- Helper: run cmake configure ---
         $configureArgs = @(
@@ -360,6 +474,10 @@ function Build-MQFull {
             '-DMQ_BUILD_LAUNCHER=ON',
             '-DMQ_REGENERATE_SOLUTION=OFF'
         )
+        # Pin CMake to the resolved VS instance so vcpkg inherits it
+        if ($vsInstance) {
+            $configureArgs += "-DCMAKE_GENERATOR_INSTANCE=$vsInstance"
+        }
 
         # Check if existing cache is stale (missing MQ2CoOptUI target)
         $cacheFile = Join-Path $MQBuildDir 'CMakeCache.txt'
@@ -424,6 +542,15 @@ function Build-MQFull {
             & $gotchasScript -MQClone $MQClone -MQBuildDir $MQBuildDir 2>$null
         }
 
+        # Gotchas may delete CMakeCache.txt (e.g. fix #25c when abseil dep was newly added) to
+        # force vcpkg manifest re-resolution. If the cache went away, re-trigger configure.
+        if (-not (Test-Path $cacheFile)) {
+            if (-not $needReconfigure -and -not $needsConfigure) {
+                Write-Info 'CMakeCache.txt removed by build gotchas — forcing reconfigure pass.'
+            }
+            $needReconfigure = $true
+        }
+
         if ($needReconfigure -or $needsConfigure) {
             # Pass 2: clean configure with patches applied — must succeed
             Write-Info 'Configuring CMake pass 2/2 (with patches applied)...'
@@ -452,12 +579,23 @@ function Build-MQFull {
 
         $MQBinDir = Join-Path $MQBuildDir 'bin\release'
 
-        # Validate the plugin DLL at minimum
-        $pluginDll = Join-Path $MQBinDir 'plugins\MQ2CoOptUI.dll'
-        if (-not (Test-Path $pluginDll)) {
-            Write-Error "Build failed — MQ2CoOptUI.dll not found at $pluginDll"
+        # Validate critical artifacts. Earlier the script only checked MQ2CoOptUI.dll, but a
+        # toolset-mismatch link failure can break MQ2Main.dll / MacroQuest.exe / sibling plugins
+        # while still producing MQ2CoOptUI.dll, leaving downstream stages copying a half-broken
+        # build into the final bundle. Check all three top-level outputs.
+        $criticalArtifacts = @(
+            @{ Path = (Join-Path $MQBinDir 'plugins\MQ2CoOptUI.dll'); Name = 'MQ2CoOptUI.dll' }
+            @{ Path = (Join-Path $MQBinDir 'MQ2Main.dll'); Name = 'MQ2Main.dll (core)' }
+            @{ Path = (Join-Path $MQBinDir 'MacroQuest.exe'); Name = 'MacroQuest.exe (loader)' }
+        )
+        $missing = @()
+        foreach ($art in $criticalArtifacts) {
+            if (-not (Test-Path $art.Path)) { $missing += $art.Name }
         }
-        Validate-DllArchitecture $pluginDll | Out-Null
+        if ($missing.Count -gt 0) {
+            Write-Error "Build failed — missing critical artifacts: $($missing -join ', '). Check link errors above for unresolved externals (often MSVC toolset mismatch)."
+        }
+        Validate-DllArchitecture $criticalArtifacts[0].Path | Out-Null
 
         Write-Ok "MacroQuest built: $MQBinDir"
         return $MQBinDir
@@ -499,6 +637,19 @@ function Ensure-MQSourceEnv {
     Push-Location $MQClone
     try {
         git submodule update --init --recursive 2>$null
+        # Validate critical submodule: vcpkg must be fully checked out
+        $vcpkgBootstrap = Join-Path $MQClone 'contrib\vcpkg\bootstrap-vcpkg.bat'
+        if (-not (Test-Path $vcpkgBootstrap)) {
+            Write-Warning 'vcpkg submodule appears broken — re-initializing...'
+            $vcpkgModDir = Join-Path $MQClone '.git\modules\contrib\vcpkg'
+            $vcpkgGitFile = Join-Path $MQClone 'contrib\vcpkg\.git'
+            if (Test-Path $vcpkgModDir) { Remove-Item $vcpkgModDir -Recurse -Force }
+            if (Test-Path $vcpkgGitFile) { Remove-Item $vcpkgGitFile -Force }
+            git submodule update --init contrib/vcpkg
+            if (-not (Test-Path $vcpkgBootstrap)) {
+                Write-Error 'Failed to initialize vcpkg submodule. Check network and try again.'
+            }
+        }
         $eqlibDir = Join-Path $MQClone 'src\eqlib'
         if (Test-Path $eqlibDir) {
             git -C $eqlibDir checkout emu 2>$null
@@ -509,8 +660,17 @@ function Ensure-MQSourceEnv {
     # Checkout specific MQ ref
     if ($MQRef -and $MQRef -ne 'master') {
         Write-Info "Checking out MQ ref: $MQRef"
-        git -C $MQClone fetch origin $MQRef --quiet 2>$null
-        git -C $MQClone checkout $MQRef 2>$null
+        # Surface failures: a bad pin in plugin\MQ_COMMIT_SHA.txt (e.g. a non-existent ref) used
+        # to silently fall through to whatever the clone's default branch was — which masked the
+        # cause of broken builds. Capture stderr and bail with a useful message instead.
+        $fetchOut = git -C $MQClone fetch origin $MQRef --quiet 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "git fetch origin $MQRef failed in $MQClone : $fetchOut`nCheck plugin\MQ_COMMIT_SHA.txt — does the ref exist on the remote?"
+        }
+        $checkoutOut = git -C $MQClone checkout $MQRef 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "git checkout $MQRef failed in $MQClone : $checkoutOut"
+        }
     }
 
     # --- MQ2Mono (plugin inside MQ) ---
@@ -676,6 +836,16 @@ function Get-FullBuildSourceHash {
         # Plugin source hash (our C++ code)
         $pluginHash = Get-PluginSourceHash $RepoRoot
         $parts += "plugin:$pluginHash"
+
+        # MQ source patch script content (so edits to apply-build-gotchas.ps1 force rebuild).
+        # Without this, the build hash is just git HEAD SHAs and our patches to upstream MQ
+        # source live only in the working tree — invisible to the cache check, so re-runs
+        # without -Force would skip the rebuild after a patch update.
+        $gotchasFile = Join-Path $RepoRoot 'scripts\apply-build-gotchas.ps1'
+        if (Test-Path $gotchasFile) {
+            $gotchasHash = Get-FileContentHash $gotchasFile
+            $parts += "gotchas:$gotchasHash"
+        }
 
         $combined = $parts -join '|'
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($combined)
@@ -1523,6 +1693,13 @@ foreach ($t in $targets) {
                     $_.Name -match '^login\.db(-wal|-shm|-journal)?$'
                 } | ForEach-Object { Remove-Item $_.FullName -Force; $removedCount++ }
 
+                # 1b. MQ2AutoLogin.ini — contains DefaultEQPath (local Windows path), server list,
+                # and profile config. Login passwords are in the (already-deleted) login.db but
+                # the INI itself still leaks the user's EQ install path and chosen server. Strip
+                # it entirely; users configure on first run via the MQ2AutoLogin UI.
+                $autoLogin = Join-Path $staging 'config\MQ2AutoLogin.ini'
+                if (Test-Path $autoLogin) { Remove-Item $autoLogin -Force; $removedCount++ }
+
                 # 2. Duplicate config/config/ directory (accidental nesting from repo)
                 $dupConfig = Join-Path $staging 'config\config'
                 if (Test-Path $dupConfig) {
@@ -1558,12 +1735,21 @@ foreach ($t in $targets) {
                     }
                 }
 
-                # 5. E3 Macro Inis: remove character-specific files, keep general templates
+                # 5. E3 Macro Inis: remove character-specific / server-specific files, keep general templates
                 $e3MacroDir = Join-Path $staging 'config\e3 Macro Inis'
                 if (Test-Path $e3MacroDir) {
                     Get-ChildItem $e3MacroDir -File -Recurse | Where-Object {
+                        # Prefix patterns (file starts with these)
                         $_.Name -match '^(E3UI_|Loot_Stackable_|eva_unlock)' -or
-                        $_.Name -match '_(Lazarus|Perky)' -or
+                        # Server/character name anywhere in filename, surrounded by start/end
+                        # or non-letter boundary (_ . space). `\b` doesn't work here because `_`
+                        # is a word char in regex, so `\bLazarus\b` won't match `Lazarus_X`.
+                        # Covers both prefix `Lazarus_X.ini` and suffix `X_Lazarus.ini` forms.
+                        $_.Name -match '(?i)(^|[^A-Za-z])(Lazarus|Perky|Selo|Vox|Cazic|Bertox)([^A-Za-z]|$)' -or
+                        # Runtime state files that accumulate character data
+                        $_.Name -in @('e3 Data.ini','Saved Groups.ini','Tribute Settings.ini',
+                                      'Loot Settings.ini','GlobalCursorDelete.ini','GlobalIfs.ini',
+                                      'doors.ini','Spell Aliases.ini') -or
                         $_.Extension -eq '.reg'
                     } | ForEach-Object { Remove-Item $_.FullName -Force; $removedCount++ }
                 }
@@ -1619,6 +1805,46 @@ foreach ($t in $targets) {
                     Remove-Item -Force -EA SilentlyContinue
                 $sourceDir = Join-Path $staging 'Source'
                 if (Test-Path $sourceDir) { Remove-Item $sourceDir -Recurse -Force }
+
+                # 11. Content-scan safety net: walk text/config files looking for local user paths
+                # and machine/user names. Any file matching gets reported and stripped — the
+                # enumerated-strip rules above are the primary defense; this catches what they
+                # miss. Patterns target the most reliable personal-data markers:
+                #   - C:\Users\<name>\... (user profile paths, except the public-EQ default)
+                #   - C:\MIS\, G:\EQ\, etc. (user-specific drive/folder layouts — heuristic)
+                #   - current build machine's username and computer name (whatever the build ran as)
+                $userName = $env:USERNAME
+                $compName = $env:COMPUTERNAME
+                # Build a regex that matches the user's local-identity markers. C:\Users\Public is
+                # a Microsoft default — exclude it. Use escaped, case-insensitive matching.
+                $userNameEscaped = [regex]::Escape($userName)
+                $compNameEscaped = [regex]::Escape($compName)
+                # Patterns chosen to be specific (not match generic strings like "users")
+                $personalRegex = "(?i)C:\\\\Users\\\\(?!Public\b)[A-Za-z0-9._-]+\\\\|\b$userNameEscaped\b|\b$compNameEscaped\b"
+                # Only scan files that are plausibly text (extension allowlist) and small enough to
+                # avoid hashing the whole release zip. Skip already-deleted patterns; skip the
+                # MQ-bundled lua/ shipped state defaults (they're intended to be generic).
+                $scanExts = @('.ini','.cfg','.txt','.json','.yaml','.yml','.lua','.bat','.ps1','.cmd')
+                $scanned = 0
+                $stripped = 0
+                Get-ChildItem $staging -Recurse -File -EA SilentlyContinue | Where-Object {
+                    $scanExts -contains $_.Extension.ToLower() -and $_.Length -lt 1MB
+                } | ForEach-Object {
+                    $scanned++
+                    try {
+                        $text = [System.IO.File]::ReadAllText($_.FullName)
+                        if ($text -match $personalRegex) {
+                            $match = ([regex]::Match($text, $personalRegex)).Value
+                            Write-Info "  Stripped (contains '$match'): $($_.FullName.Substring($staging.Length).TrimStart('\'))"
+                            Remove-Item $_.FullName -Force
+                            $stripped++
+                            $removedCount++
+                        }
+                    } catch { } # ignore unreadable files
+                }
+                if ($stripped -gt 0) {
+                    Write-Info "Content scan: stripped $stripped of $scanned scanned files containing local user paths or '$userName'/'$compName'"
+                }
 
                 Write-Ok "Cleaned $removedCount sensitive/user-specific files from bundle"
 

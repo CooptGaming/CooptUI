@@ -1,4 +1,11 @@
 # MacroQuest ref (branch, tag, or commit SHA) to build MQ2CoOptUI against.
 # Must match the MQ2 version in the prebuild binary bundle for drop-in compatibility.
-# EMU: use rel-emu tag. Live: use master. Examples: rel-emu, master, v2024.01.15
-rel-emu
+#
+# Note: the original 'rel-emu' tag never actually existed on the macroquest remote, so the
+# fetch was silently failing (mq fetch errors are now fatal — see Ensure-MQSourceEnv).
+# Available remote refs: master, emu, emu-tob, font-render-effects (branches);
+# rel-emu-rof2 (tag). Both master and emu currently have upstream regressions that
+# scripts/apply-build-gotchas.ps1 fixes #21 / #22 patch around.
+#
+# Examples: master, emu, rel-emu-rof2, <40-char SHA>
+master
