@@ -1,0 +1,43 @@
+name: luacheck
+
+# Static analysis gate for the CoOpt UI Lua. Catches undefined globals/locals,
+# use-before-declaration, accidental globals, and shadowing before they ship —
+# the class of bug that loads fine but crashes a player mid-session.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'lua/**'
+      - '.luacheckrc'
+      - '.github/workflows/luacheck.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'lua/**'
+      - '.luacheckrc'
+      - '.github/workflows/luacheck.yml'
+
+jobs:
+  luacheck:
+    name: Lua static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # luacheck is a Lua program; any interpreter can run it. The linting TARGET
+      # (LuaJIT globals/semantics) is set via std="luajit" in .luacheckrc, so the
+      # interpreter version here is just what executes luacheck.
+      - name: Set up Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+
+      - name: Set up LuaRocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install luacheck
+        run: luarocks install luacheck
+
+      - name: Run luacheck
+        run: luacheck lua/itemui lua/coopui
