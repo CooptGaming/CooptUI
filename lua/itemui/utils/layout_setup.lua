@@ -14,7 +14,7 @@ local initColumnVisibility
 local applyDefaultsFromParsed
 local saveLayoutToFile
 
-function layout_setup_init(deps)
+local function layout_setup_init(deps)
     layoutDefaults = deps.layoutDefaults
     layoutConfig = deps.layoutConfig
     uiState = deps.uiState
@@ -29,7 +29,7 @@ function layout_setup_init(deps)
 end
 
 --- Capture current layout state as snapshot (defaults) and write [Defaults] + [ColumnVisibilityDefaults] to INI.
-function layout_setup_captureCurrentLayoutAsDefault()
+local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.WidthInventory = layoutConfig.WidthInventory or layoutDefaults.WidthInventory
     layoutDefaults.Height = layoutConfig.Height or layoutDefaults.Height
     layoutDefaults.WidthSell = layoutConfig.WidthSell or layoutDefaults.WidthSell
@@ -189,7 +189,7 @@ function layout_setup_captureCurrentLayoutAsDefault()
 end
 
 --- Reset layout to defaults (from parsed [Defaults]) and save.
-function layout_setup_resetLayoutToDefault()
+local function layout_setup_resetLayoutToDefault()
     local parsed = parseLayoutFileFull and parseLayoutFileFull()
     if initColumnVisibility then initColumnVisibility() end
     if applyDefaultsFromParsed and parsed then applyDefaultsFromParsed(parsed) end
