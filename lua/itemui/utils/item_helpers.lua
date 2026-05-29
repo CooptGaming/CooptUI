@@ -477,7 +477,7 @@ function M.getStatKeysForRanking()
     for field, _ in pairs(STAT_TLO_MAP) do
         if STAT_STRING_FIELDS[field] then
             -- skip string-only fields for numeric sum
-        elseif field:sub(1, 7) == "heroic" then
+        elseif field:sub(1, 6) == "heroic" then
             heroicKeys[#heroicKeys + 1] = field
         else
             baseKeys[#baseKeys + 1] = field
