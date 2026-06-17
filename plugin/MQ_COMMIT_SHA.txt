@@ -7,5 +7,14 @@
 # rel-emu-rof2 (tag). Both master and emu currently have upstream regressions that
 # scripts/apply-build-gotchas.ps1 fixes #21 / #22 patch around.
 #
+# PINNED to a known-good commit. Floating 'master' broke 2026-06: macroquest
+# 582a71e9 (2026-06-12) added `#include "eqlib/game/ClassInfo.h"` to
+# src/loader/LoaderAutoLogin.cpp, but that header does not exist on the eqlib
+# `emu` branch we build against — MQ2Main.lib then fails and every plugin hits
+# LNK1181. b659319c (2026-04-27, "Activate LoginFrontend hooks") is the last
+# commit verified to build cleanly with eqlib emu (it produced the working
+# v0.9.6 bundles). Re-evaluate/advance this pin once upstream emu eqlib gains
+# ClassInfo.h (or add an apply-build-gotchas patch for the missing header).
+#
 # Examples: master, emu, rel-emu-rof2, <40-char SHA>
-master
+b659319ca5413966843dd3905fb57cfd695700d1
