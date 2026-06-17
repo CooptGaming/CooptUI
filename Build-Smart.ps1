@@ -1735,23 +1735,42 @@ foreach ($t in $targets) {
                     }
                 }
 
-                # 5. E3 Macro Inis: remove character-specific / server-specific files, keep general templates
+                # 5. E3 Macro Inis: clean character/server-specific files, keep general templates.
+                #
+                # CRITICAL: E3Core reads several general runtime INIs at STARTUP via
+                # IniParser's FileIniDataParser.ReadFile() with NO File.Exists guard. For example
+                # E3Core.Processors.Basics' static constructor does `new SavedGroupDataFile()`,
+                # whose ctor calls ReadFile("Saved Groups.ini"). If that file is absent, ReadFile
+                # throws -> the type initializer throws -> E3 dies on load with
+                # "Error: Please reload. Terminating." every launch. So these files must NOT be
+                # deleted. We EMPTY them instead: that removes any accumulated personal/character
+                # state (the privacy intent) while leaving a valid file E3 can parse.
+                #
+                # NOTE: doors.ini and "Spell Aliases.ini" are arguably shared/shippable data, not
+                # personal — if you'd rather ship them intact, drop them from $e3RuntimeStateFiles.
                 $e3MacroDir = Join-Path $staging 'config\e3 Macro Inis'
+                $e3RuntimeStateFiles = @('e3 Data.ini','Saved Groups.ini','Tribute Settings.ini',
+                                         'Loot Settings.ini','GlobalCursorDelete.ini','GlobalIfs.ini',
+                                         'doors.ini','Spell Aliases.ini')
                 if (Test-Path $e3MacroDir) {
-                    Get-ChildItem $e3MacroDir -File -Recurse | Where-Object {
-                        # Prefix patterns (file starts with these)
-                        $_.Name -match '^(E3UI_|Loot_Stackable_|eva_unlock)' -or
-                        # Server/character name anywhere in filename, surrounded by start/end
-                        # or non-letter boundary (_ . space). `\b` doesn't work here because `_`
-                        # is a word char in regex, so `\bLazarus\b` won't match `Lazarus_X`.
-                        # Covers both prefix `Lazarus_X.ini` and suffix `X_Lazarus.ini` forms.
-                        $_.Name -match '(?i)(^|[^A-Za-z])(Lazarus|Perky|Selo|Vox|Cazic|Bertox)([^A-Za-z]|$)' -or
-                        # Runtime state files that accumulate character data
-                        $_.Name -in @('e3 Data.ini','Saved Groups.ini','Tribute Settings.ini',
-                                      'Loot Settings.ini','GlobalCursorDelete.ini','GlobalIfs.ini',
-                                      'doors.ini','Spell Aliases.ini') -or
-                        $_.Extension -eq '.reg'
-                    } | ForEach-Object { Remove-Item $_.FullName -Force; $removedCount++ }
+                    Get-ChildItem $e3MacroDir -File -Recurse | ForEach-Object {
+                        $f = $_
+                        if ($e3RuntimeStateFiles -contains $f.Name) {
+                            # Reset to a present-but-empty file so E3's unguarded ReadFile succeeds.
+                            Set-Content -Path $f.FullName -Value '; Reset for distribution; E3 repopulates per-character state on first run.' -Force
+                            $removedCount++
+                        }
+                        elseif (
+                            # Prefix patterns (file starts with these)
+                            $f.Name -match '^(E3UI_|Loot_Stackable_|eva_unlock)' -or
+                            # Server/character name anywhere in filename, surrounded by start/end
+                            # or non-letter boundary (_ . space). `\b` doesn't work here because `_`
+                            # is a word char in regex, so `\bLazarus\b` won't match `Lazarus_X`.
+                            # Covers both prefix `Lazarus_X.ini` and suffix `X_Lazarus.ini` forms.
+                            $f.Name -match '(?i)(^|[^A-Za-z])(Lazarus|Perky|Selo|Vox|Cazic|Bertox)([^A-Za-z]|$)' -or
+                            $f.Extension -eq '.reg'
+                        ) { Remove-Item $f.FullName -Force; $removedCount++ }
+                    }
                 }
 
                 # 6. Macro user data: character inventories, logs, bank data, caches
