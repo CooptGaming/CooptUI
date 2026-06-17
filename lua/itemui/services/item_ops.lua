@@ -895,7 +895,11 @@ function M.putCursorInBags()
 end
 
 function M.removeItemFromCursor()
-    if not M.hasItemOnCursor() then return false end
+    -- Use the TLO-fallback check: when the C++ plugin is loaded, M.hasItemOnCursor() reads the
+    -- plugin's cursor cache, which lags ~1 frame. Callers like the reroll add/sync flow detect
+    -- the freshly-picked-up item via TLO and immediately call us to put it back; if we gated on
+    -- the lagged plugin cache we'd no-op and leave the item stuck on the cursor.
+    if not M.hasItemOnCursorWithTLOFallback() then return false end
     local lp = state.lastPickup
     if lp and (lp.bag ~= nil or lp.slot ~= nil) and lp.slot ~= nil then
         if lp.source == "bank" then
