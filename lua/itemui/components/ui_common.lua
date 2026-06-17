@@ -217,6 +217,28 @@ function M.renderItemContextMenu(ctx, item, opts)
         return
     end
 
+    -- Consumables: items the user flagged as right-click-to-use (e.g. "Book of Titles").
+    -- Shown up top so the Use action is obvious; the list itself is the safety gate — only
+    -- flagged items ever get a consume option, so nothing valuable is right-clicked by accident.
+    if ctx.consumables and nameKey ~= "" and ctx.consumables.isConsumable(nameKey)
+       and (source == "inv" or source == "sell" or source == "augments" or source == "bank")
+       and item.bag and item.slot then
+        local notifyLoc = (source == "bank") and "bank" or "pack"
+        if ImGui.MenuItem("Use (consume one)") then
+            mq.cmdf('/itemnotify in %s%d %d rightmouseup', notifyLoc, item.bag, item.slot)
+            if ctx.consumeItemAtSlot then ctx.consumeItemAtSlot(source, item.bag, item.slot) end
+            if ctx.setStatusMessage then ctx.setStatusMessage("Used " .. (item.name or "item") .. ".") end
+        end
+        local stack = (item.stackSize and item.stackSize > 1) and item.stackSize or nil
+        if stack and ImGui.MenuItem(string.format("Use all (x%d)", stack)) then
+            enqueueScriptConsume({
+                bag = item.bag, slot = item.slot, source = (source == "augments") and "inv" or source,
+                totalToConsume = stack, consumedSoFar = 0, nextClickAt = 0, itemName = item.name,
+            })
+        end
+        ImGui.Separator()
+    end
+
     -- Inspect (game window)
     if ImGui.MenuItem("Inspect") then
         if hasCursor and ctx.removeItemFromCursor then ctx.removeItemFromCursor()
@@ -256,6 +278,16 @@ function M.renderItemContextMenu(ctx, item, opts)
             if ImGui.MenuItem("Remove from Always sell list") then ctx.applySellListChange(item.name, inKeep, false) end
         else
             if ImGui.MenuItem("Add to Always sell list") then ctx.applySellListChange(item.name, false, true) end
+        end
+    end
+
+    -- Consumables list: flag/unflag any named item so it gets the "Use" option above.
+    if ctx.consumables and nameKey ~= "" and (source == "inv" or source == "sell" or source == "bank" or source == "augments") then
+        ImGui.Separator()
+        if ctx.consumables.isConsumable(nameKey) then
+            if ImGui.MenuItem("Remove from Consumables") then ctx.consumables.removeConsumable(nameKey) end
+        else
+            if ImGui.MenuItem("Add to Consumables") then ctx.consumables.addConsumable(nameKey) end
         end
     end
 

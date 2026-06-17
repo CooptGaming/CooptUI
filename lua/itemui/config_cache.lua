@@ -255,6 +255,44 @@ local function createAugmentListAPI()
     return api
 end
 
+-- Consumables: a simple user-managed list of item NAMES that get a right-click "Use" option in
+-- the item context menu (e.g. "Book of Titles"). Name-based and stored like the other name lists
+-- (consumables.ini in the sell_config dir). Read on demand — only touched when a menu opens.
+local function createConsumablesAPI()
+    local FILE, SECTION, KEY = "consumables.ini", "Items", "exact"
+    local api = {}
+    local function load()
+        return config.parseList(config.readListValue(FILE, SECTION, KEY, ""))
+    end
+    function api.isConsumable(itemName)
+        itemName = config.sanitizeItemName(itemName)
+        if not itemName or itemName == "" then return false end
+        for _, s in ipairs(load()) do if s == itemName then return true end end
+        return false
+    end
+    function api.addConsumable(itemName)
+        itemName = config.sanitizeItemName(itemName)
+        if not itemName or itemName == "" then if opts and opts.setStatusMessage then opts.setStatusMessage("Invalid item name") end; return false end
+        if api.isConsumable(itemName) then if opts and opts.setStatusMessage then opts.setStatusMessage("Already in Consumables") end; return false end
+        local list = load()
+        list[#list + 1] = itemName
+        config.writeListValue(FILE, SECTION, KEY, config.joinList(list))
+        if opts and opts.setStatusMessage then opts.setStatusMessage("Added to Consumables: " .. itemName) end
+        return true
+    end
+    function api.removeConsumable(itemName)
+        itemName = config.sanitizeItemName(itemName)
+        if not itemName or itemName == "" then return false end
+        local newList, found = {}, false
+        for _, s in ipairs(load()) do if s ~= itemName then newList[#newList + 1] = s else found = true end end
+        if not found then return false end
+        config.writeListValue(FILE, SECTION, KEY, config.joinList(newList))
+        if opts and opts.setStatusMessage then opts.setStatusMessage("Removed from Consumables: " .. itemName) end
+        return true
+    end
+    return api
+end
+
 function M.init(o)
     opts = o
     cache = {
@@ -274,5 +312,6 @@ M.isInLootSkipList = isInLootSkipList
 M.addToLootSkipList = addToLootSkipList
 M.removeFromLootSkipList = removeFromLootSkipList
 M.createAugmentListAPI = createAugmentListAPI
+M.createConsumablesAPI = createConsumablesAPI
 
 return M

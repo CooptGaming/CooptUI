@@ -919,6 +919,7 @@ context.init({
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
     augmentLists = augmentListAPI,
+    consumables = config_cache.createConsumablesAPI(),
     requestAddToRerollList = requestAddToRerollList,
     removeFromRerollList = removeFromRerollList,
     addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
