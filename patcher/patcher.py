@@ -14,6 +14,7 @@ from PIL import Image
 
 from config import load as load_config, save as save_config, add_recent_path
 from fresh_install import get_latest_release_zip_url, download_and_extract_zip
+from installer import smart_install
 from migrate_itemui_to_coopui import migrate_itemui_to_coopui, ensure_env_after_patch
 from path_finder import find_mq_installations
 from updater import (
@@ -227,6 +228,17 @@ class MainView(ctk.CTkFrame):
             text_color=SUCCESS_GREEN, anchor="w",
         )
         self.valid_label.pack(fill="x", padx=20, pady=(4, 0))
+
+        # Full install / repair: overlay the COMPLETE bundle (MacroQuest base + Mono + E3 +
+        # plugin + CoOpt UI), preserving the user's config. The "Update" primary button only
+        # refreshes CoOpt files; this turns a vanilla / E3 / partial MQ into a working instance.
+        self.full_install_btn = ctk.CTkButton(
+            self, text="Full Install / Repair  –  download complete bundle",
+            font=ctk.CTkFont(size=11), height=30,
+            fg_color=NAVY, hover_color="#2a3a4f",
+            command=self._on_full_install,
+        )
+        self.full_install_btn.pack(fill="x", padx=20, pady=(8, 0))
 
         # --- Update info panel (fixed-height card, does NOT expand) ---
         self.update_frame = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=8)
@@ -493,6 +505,69 @@ class MainView(ctk.CTkFrame):
             self.update_subtitle.configure(text=message, text_color=ERROR_RED)
             self.progress_label.configure(text=message)
             self.app.set_primary_button("Retry", self._on_patch, enabled=True, color=ORANGE)
+
+    def _on_full_install(self):
+        """Download the complete EMU bundle and overlay it (base + plugin + CoOpt UI),
+        preserving the user's config. Turns a vanilla / E3 / partial MQ into a working
+        instance — and repairs/refreshes an existing one."""
+        if self._patch_in_progress:
+            return
+        self._patch_in_progress = True
+        self.app.set_primary_button("Installing...", None, enabled=False, color=ORANGE)
+        self.full_install_btn.configure(state="disabled")
+        self.update_title.configure(text="Full Install / Repair")
+        self.update_subtitle.configure(
+            text="Downloading the complete bundle and overlaying it. Your config is preserved.",
+            text_color="#ffffff",
+        )
+
+        # Show progress + log UI (same widgets the update flow uses).
+        if not self._progress_visible:
+            self.progress_bar.pack(in_=self.progress_frame, fill="x")
+            self.progress_label.pack(in_=self.progress_frame, fill="x", pady=(4, 0))
+            self._progress_visible = True
+        self.progress_bar.set(0)
+        if not self._patchlog_visible:
+            self._bottom_spacer.pack_forget()
+            self.patch_log.pack(fill="both", expand=True, padx=16, pady=(8, 8))
+            self._patchlog_visible = True
+        self.patch_log.configure(state="normal")
+        self.patch_log.delete("0.0", "end")
+        self.patch_log.configure(state="disabled")
+
+        def progress_cb(msg: str, frac: float):
+            def update():
+                self.progress_bar.set(max(0.0, min(frac, 1.0)))
+                self.progress_label.configure(text=msg[:90])
+                self.patch_log.configure(state="normal")
+                self.patch_log.insert("end", f"  {msg}\n")
+                self.patch_log.see("end")
+                self.patch_log.configure(state="disabled")
+            self.after(0, update)
+
+        def run():
+            success, message = smart_install(self.mq_root, progress_cb)
+            self.after(0, lambda: self._on_full_install_done(success, message))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_full_install_done(self, success: bool, message: str):
+        self._patch_in_progress = False
+        self.full_install_btn.configure(state="normal")
+        if success:
+            ensure_env_after_patch(self.mq_root)
+            self.progress_bar.set(1.0)
+            self.update_title.configure(text="Install / Repair complete")
+            self.update_subtitle.configure(text=message, text_color=SUCCESS_GREEN)
+            self.progress_label.configure(text=message[:90])
+            self.app.set_primary_button("Done", None, enabled=False, color=SUCCESS_GREEN)
+            installed = get_installed_version(self.mq_root)
+            if installed:
+                self.valid_label.configure(text=f"  Valid install · CoOpt UI v{installed}")
+        else:
+            self.update_subtitle.configure(text=message, text_color=ERROR_RED)
+            self.progress_label.configure(text=message[:90])
+            self.app.set_primary_button("Retry", self._on_full_install, enabled=True, color=ORANGE)
 
     def _on_change_folder(self):
         self.app.show_setup()
