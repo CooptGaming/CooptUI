@@ -1807,6 +1807,14 @@ foreach ($t in $targets) {
                 if (Test-Path $sellCfg) {
                     Get-ChildItem $sellCfg -File -Filter 'sell_cache.ini' -EA SilentlyContinue |
                         ForEach-Object { Remove-Item $_.FullName -Force; $removedCount++ }
+                    # Reset first-run onboarding so every distributed bundle launches the welcome /
+                    # setup wizard for new users. itemui reads onboarding_complete from
+                    # Macros\sell_config\coopui_onboarding.ini (config.lua CONFIG_PATH); the builder's
+                    # own install has it =TRUE (they already onboarded), and shipping that value
+                    # suppresses onboarding for everyone who installs the bundle. Force =FALSE.
+                    $onboardIni = Join-Path $sellCfg 'coopui_onboarding.ini'
+                    Set-Content -Path $onboardIni -Value @('[Onboarding]', 'onboarding_complete=FALSE') -Force
+                    $removedCount++
                 }
                 # Remove version stamps and user config markers
                 foreach ($stamp in @('Macros\coopui_installed_version.txt',
