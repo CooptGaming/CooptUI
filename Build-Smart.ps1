@@ -290,12 +290,16 @@ function Build-E3Next {
         & $nugetExe restore $slnFiles.FullName -NonInteractive -Verbosity quiet 2>&1 | ForEach-Object { Write-Host "  $_" }
     }
 
-    # Pipe to Write-Host so MSBuild output doesn't pollute the function return value
+    # Pipe to Write-Host so MSBuild output doesn't pollute the function return value.
+    # NOTE: do NOT bail on a non-zero solution exit. The E3Next .sln contains auxiliary
+    # projects (notably E3NextSysTray, a WinForms tray app) that can fail independently of
+    # the core E3.dll — e.g. E3NextSysTray hits "MSB3103: Invalid Resx file ... E3Next.png"
+    # or needs the .NET Framework 4.8 Developer Pack. Treating that as total failure used to
+    # drop the successfully-built E3.dll from the bundle, leaving E3Next absent entirely
+    # (E3 won't load). Decide success by whether E3.dll actually exists (below), not by the
+    # solution exit code.
     & $msbuild $slnFiles.FullName /p:Configuration=$Configuration "/p:Platform=Any CPU" /v:minimal 2>&1 | ForEach-Object { Write-Host "  $_" }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "E3Next build failed. You may need .NET Framework 4.8 Developer Pack."
-        return $null
-    }
+    $slnExit = $LASTEXITCODE
 
     # Find E3Next output DLL
     $candidates = @(
@@ -306,6 +310,9 @@ function Build-E3Next {
     foreach ($c in $candidates) {
         if ((Test-Path $c) -and ((Get-ChildItem $c -Filter 'E3Next.dll' -EA SilentlyContinue) -or
                                   (Get-ChildItem $c -Filter 'E3.dll' -EA SilentlyContinue))) {
+            if ($slnExit -ne 0) {
+                Write-Warning "E3Next solution reported build errors (likely an auxiliary project such as E3NextSysTray — needs .NET Framework 4.8 Developer Pack), but E3.dll built. Packaging it."
+            }
             Write-Ok "E3Next built: $c"
             return $c
         }
@@ -314,11 +321,18 @@ function Build-E3Next {
     $e3Dll = Get-ChildItem $E3NextDir -Filter 'E3.dll' -Recurse -Depth 5 | Select-Object -First 1
     if (-not $e3Dll) { $e3Dll = Get-ChildItem $E3NextDir -Filter 'E3Next.dll' -Recurse -Depth 5 | Select-Object -First 1 }
     if ($e3Dll) {
+        if ($slnExit -ne 0) {
+            Write-Warning "E3Next solution reported build errors but E3.dll built. Packaging it."
+        }
         Write-Ok "E3Next built: $($e3Dll.DirectoryName)"
         return $e3Dll.DirectoryName
     }
 
-    Write-Warning 'E3Next build produced no output DLL.'
+    if ($slnExit -ne 0) {
+        Write-Warning "E3Next build failed and produced no E3.dll. You may need the .NET Framework 4.8 Developer Pack."
+    } else {
+        Write-Warning 'E3Next build produced no output DLL.'
+    }
     return $null
 }
 
