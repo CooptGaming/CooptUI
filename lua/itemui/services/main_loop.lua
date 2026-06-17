@@ -1241,35 +1241,20 @@ local function phase8b_pendingRerollAdd(now)
     local rerollState = rerollService and rerollService.getState and rerollService.getState() or {}
 
     -- Background ack drain: check for timed-out background acks and roll back
+    -- Only single (non-sync) "Add from cursor" actions use the background-ack list now; the
+    -- Sync flow waits for each item's confirmation inline (step "waitconfirm") so it never has
+    -- more than one add in flight (the add-ack is a single slot — concurrent sends overwrote
+    -- each other and lost confirmations).
     for i = #_bgAckPending, 1, -1 do
         local bg = _bgAckPending[i]
         if bg.acked then
-            -- Server confirmed — handle sync bookkeeping if needed
-            if bg.syncState then
-                -- Confirm this item: move it from the pending list into the synced list.
-                -- nextIndex is advanced at SEND time (fire-and-forget); advancing it here too
-                -- would skip items. Sync completion is reported by the driver below once every
-                -- outstanding ack for this sync has settled.
-                rerollService.removeFromPending(bg.list, bg.itemId)
-                rerollService.addEntryToList(bg.list, bg.itemId, bg.itemName or "")
-                bg.syncState.syncedCount = (bg.syncState.syncedCount or 0) + 1
-            end
             table.remove(_bgAckPending, i)
         elseif (now - bg.sentAt) > REROLL_BG_ACK_TIMEOUT_MS then
-            -- Timed out — roll back optimistic cache add
-            if not bg.syncState and rerollService.removeEntryFromCache then
+            -- Never confirmed — roll back the optimistic cache add.
+            if rerollService.removeEntryFromCache then
                 rerollService.removeEntryFromCache(bg.list, bg.itemId)
             end
-            if bg.syncState then
-                -- Record the failure. nextIndex already advanced at send time; the item was
-                -- never confirmed, so it stays in the pending list (no removeFromPending).
-                bg.syncState.failedCount = (bg.syncState.failedCount or 0) + 1
-                local fi = bg.syncState.failedItems or {}
-                fi[#fi + 1] = { id = bg.itemId, name = bg.itemName or "", reason = "Server timeout" }
-                bg.syncState.failedItems = fi
-            else
-                if setStatusMessage then setStatusMessage("Server did not confirm add; list reverted.") end
-            end
+            if setStatusMessage then setStatusMessage("Server did not confirm add; list reverted.") end
             if invalidateSellConfigCache then invalidateSellConfigCache() end
             if invalidateLootConfigCache then invalidateLootConfigCache() end
             if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
@@ -1317,20 +1302,13 @@ local function phase8b_pendingRerollAdd(now)
                 end
             end
         end
-        -- All entries sent? Wait for any outstanding background acks for THIS sync to settle
-        -- (they update synced/failed counts and move items from pending to the synced list)
-        -- before reporting the final tally and clearing the sync.
-        if rerollState.pendingRerollSync and rerollState.pendingRerollSync.nextIndex > #(rerollState.pendingRerollSync.entries or {}) then
-            local syncObj = rerollState.pendingRerollSync
-            local awaitingAck = false
-            for _, bg in ipairs(_bgAckPending) do
-                if bg.syncState == syncObj then awaitingAck = true; break end
-            end
-            if not awaitingAck then
-                local sc, fc = syncObj.syncedCount or 0, syncObj.failedCount or 0
-                rerollState.pendingRerollSync = nil
-                if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
-            end
+        -- Done when every entry has been processed (each is confirmed/failed before nextIndex
+        -- advances) and nothing is still in flight.
+        if rerollState.pendingRerollSync and not uiState.pendingRerollAdd
+           and rerollState.pendingRerollSync.nextIndex > #(rerollState.pendingRerollSync.entries or {}) then
+            local sc, fc = rerollState.pendingRerollSync.syncedCount or 0, rerollState.pendingRerollSync.failedCount or 0
+            rerollState.pendingRerollSync = nil
+            if setStatusMessage then setStatusMessage(string.format("Sync done: %d synced, %d failed.", sc, fc)) end
         end
     end
 
@@ -1344,41 +1322,40 @@ local function phase8b_pendingRerollAdd(now)
         local lb, ls = tonumber(lp and lp.bag) or (lp and lp.bag), tonumber(lp and lp.slot) or (lp and lp.slot)
         local pb, ps = tonumber(pending.bag) or pending.bag, tonumber(pending.slot) or pending.slot
         if hasCursor and lp and lb == pb and ls == ps and (lp.source or "") == (pending.source or "") then
-            -- Optimistically add to cache
-            if not pending.syncState then
-                rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
-            end
-            -- Send the command
+            -- Send the add command (item is on the cursor).
             local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
             mq.cmd("/say " .. cmd)
-            -- Register background ack listener (fires asynchronously when server confirms)
-            local bgEntry = { itemId = pending.itemId, list = pending.list, sentAt = now, syncState = pending.syncState, itemName = pending.itemName or "", acked = false }
-            _bgAckPending[#_bgAckPending + 1] = bgEntry
-            rerollService.setPendingAddAck(pending.itemId, function()
-                bgEntry.acked = true
-            end)
-            -- Immediately put item back and free cursor — don't wait for ack
-            if removeItemFromCursor then removeItemFromCursor() end
-            uiState.pendingRerollAdd = nil
-            -- Invalidate caches now so UI updates immediately
-            if invalidateSellConfigCache then invalidateSellConfigCache() end
-            if invalidateLootConfigCache then invalidateLootConfigCache() end
-            if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
-            if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-            if not pending.syncState then
+            if pending.syncState then
+                -- Sequential sync: keep the item ON the cursor and WAIT for the server to
+                -- confirm ("... list added: ... (id N)") before putting it back and advancing.
+                -- Only one item is in flight at a time, so the single-slot add-ack isn't
+                -- overwritten (the previous fire-and-forget overwrote it with the next item's
+                -- id, so confirmations were lost and nothing moved to the synced list).
+                pending.ackState = { confirmed = false }
+                rerollService.setPendingAddAck(pending.itemId, function()
+                    pending.ackState.confirmed = true
+                end)
+                pending.step = "waitconfirm"
+                pending.sentAt = now
+                if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d: confirming...", pending.syncState.nextIndex or 0, pending.syncState.totalCount or 0)) end
+            else
+                -- Single (non-sync) add: optimistic, fire-and-forget. Put back now; the bg-ack
+                -- drain rolls the cache add back if the server never confirms.
+                rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+                local bgEntry = { itemId = pending.itemId, list = pending.list, sentAt = now, syncState = nil, itemName = pending.itemName or "", acked = false }
+                _bgAckPending[#_bgAckPending + 1] = bgEntry
+                rerollService.setPendingAddAck(pending.itemId, function()
+                    bgEntry.acked = true
+                end)
+                if removeItemFromCursor then removeItemFromCursor() end
+                uiState.pendingRerollAdd = nil
+                if invalidateSellConfigCache then invalidateSellConfigCache() end
+                if invalidateLootConfigCache then invalidateLootConfigCache() end
+                if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+                if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
                 local q = uiState.cursorActionQueue or {}
                 local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
                 if setStatusMessage then setStatusMessage("Added to list." .. queueMsg) end
-            else
-                -- Sync (fire-and-forget): this item's command is sent and the item is back in
-                -- the bag, so advance to the next item now. The bg ack confirms/records this
-                -- item asynchronously without touching nextIndex (avoids re-picking it). The
-                -- next item isn't picked until the cursor is free again (gate above).
-                local sync = pending.syncState
-                sync.nextIndex = (sync.nextIndex or 0) + 1
-                if sync.nextIndex <= #(sync.entries or {}) and setStatusMessage then
-                    setStatusMessage(string.format("Syncing %d/%d...", sync.nextIndex, sync.totalCount or 0))
-                end
             end
         elseif pending.pickupStartedAt and (now - pending.pickupStartedAt) > REROLL_ADD_PICKUP_TIMEOUT_MS then
             -- Pickup failed
@@ -1400,6 +1377,45 @@ local function phase8b_pendingRerollAdd(now)
                 local q = uiState.cursorActionQueue or {}
                 local queueMsg = #q > 0 and string.format(" (%d queued)", #q) or ""
                 if setStatusMessage then setStatusMessage("Add failed (pickup timeout)." .. queueMsg) end
+            end
+        end
+    elseif pending.step == "waitconfirm" then
+        -- Sequential sync: the item is on the cursor and the add was sent. Wait for the server
+        -- to confirm before putting it back and moving on.
+        local sync = pending.syncState
+        if pending.ackState and pending.ackState.confirmed then
+            -- Confirmed: remove it from the to-be-synced (pending) list and add it to the
+            -- synced (server) list, then put the item back and advance to the next.
+            rerollService.removeFromPending(pending.list, pending.itemId)
+            rerollService.addEntryToList(pending.list, pending.itemId, pending.itemName or "")
+            if sync then
+                sync.syncedCount = (sync.syncedCount or 0) + 1
+                sync.nextIndex = (sync.nextIndex or 0) + 1
+            end
+            if removeItemFromCursor then removeItemFromCursor() end
+            uiState.pendingRerollAdd = nil
+            if invalidateSellConfigCache then invalidateSellConfigCache() end
+            if invalidateLootConfigCache then invalidateLootConfigCache() end
+            if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
+            if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+            if sync and sync.nextIndex <= #(sync.entries or {}) and setStatusMessage then
+                setStatusMessage(string.format("Syncing %d/%d...", sync.nextIndex, sync.totalCount or 0))
+            end
+        elseif (now - (pending.sentAt or now)) > REROLL_BG_ACK_TIMEOUT_MS then
+            -- No confirmation in time: put the item back and record a failure. It stays in the
+            -- pending list (never confirmed), so a later sync can retry it.
+            if rerollService.clearPendingAddAck then rerollService.clearPendingAddAck() end
+            if sync then
+                sync.failedCount = (sync.failedCount or 0) + 1
+                local fi = sync.failedItems or {}
+                fi[#fi + 1] = { id = pending.itemId, name = pending.itemName or "", reason = "No server confirm" }
+                sync.failedItems = fi
+                sync.nextIndex = (sync.nextIndex or 0) + 1
+            end
+            if removeItemFromCursor then removeItemFromCursor() end
+            uiState.pendingRerollAdd = nil
+            if sync and sync.nextIndex <= #(sync.entries or {}) and setStatusMessage then
+                setStatusMessage(string.format("Syncing %d/%d (1 not confirmed)...", sync.nextIndex, sync.totalCount or 0))
             end
         end
     end
