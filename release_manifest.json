@@ -1,8 +1,22 @@
 {
-  "version": "0.9.6",
+  "version": "0.9.7",
   "changelog": [
     "### Added",
-    "**Patcher version tracking** \u2014 After a successful patch, the patcher writes the manifest version to `Macros/coopui_installed_version.txt` so support can see what version players have. Patcher UI shows \"Installed: X \u00b7 Available: Y\" when updates are available and \"Up to date (vX)\" when current. ItemUI startup message uses this file when present so patcher users see the same version in-game."
+    "**Consumables list** \u2014 Right-click any item \u2192 **Add to Consumables**. Items on the list get **Use (consume one)** and **Use all (xN)** options that right-click/consume them in-game (e.g. \"Book of Titles\"). The list is the safety gate, so only items you flag ever show a consume option.",
+    "**Patcher \u2014 Full Install / Repair** \u2014 Point the patcher at any folder (an empty one, a vanilla MacroQuest you downloaded, the E3 distribution, or an existing CoOpt install) and it downloads the complete bundle and installs everything needed, **preserving your config** (EQ path, server list, character data, sell/loot rules). Fresh-install and update now share this one preserve-aware installer.",
+    "**CI** \u2014 luacheck static-analysis gate on every push/PR, catching undefined-global / use-before-declaration bugs before release.",
+    "### Fixed",
+    "**E3 crash on launch** \u2014 The distributed bundle was *deleting* required E3 runtime files (e.g. `Saved Groups.ini`), so E3 died on load with \"Error: Please reload. Terminating.\" Those files are now emptied, not deleted.",
+    "**Reroll \u2014 Remove** no longer crashes the UI.",
+    "**Reroll \u2014 Sync** now works per item: pick up \u2192 add \u2192 **wait for the server's confirmation** \u2192 put back, and confirmed items are removed from the to-be-synced list. (Previously items got stuck on the cursor and never confirmed.)",
+    "**Equip attuneable items** \u2014 The attunement dialog is now auto-confirmed (items no longer bounce back to your bags).",
+    "**Augment ranking** \u2014 Heroic stats are now scored correctly (were treated as base stats).",
+    "**First-run onboarding** \u2014 New installs now correctly show the welcome/setup wizard.",
+    "Several internal crash-class fixes (filters/searchbar helpers, layout reset) and companion-window render isolation so one window's error can't take down the whole UI.",
+    "### Build",
+    "MacroQuest pinned to a known-good commit (upstream `master` regressed with a missing `eqlib/game/ClassInfo.h`).",
+    "`E3.dll` is now packaged even when an auxiliary E3Next project (E3NextSysTray) fails to build.",
+    "MSVC toolset pinned and additional from-source build fixes for a reliable clean build."
   ],
   "files": [
     {
@@ -39,7 +53,7 @@
     },
     {
       "path": "lua/coopui/version.lua",
-      "hash": "6568696f6d422d639f61ed3d990fd0f6eb837c3627efef79476d2db5bfdfecf0"
+      "hash": "0137643910097b60ea11b7ca8b2d2e79082c15f741af41017c265d009cc5bbb0"
     },
     {
       "path": "lua/itemui/README.md",
@@ -47,11 +61,11 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "0bdf4dac9e79a5a758edb08f12b390ffff6a25f92609937a4779d2a1762e8749"
+      "hash": "6cd120b6910b9bd3ddaab9ee4e65ca30854e51cef23f17530cafa3d901c22edd"
     },
     {
       "path": "lua/itemui/commands.lua",
-      "hash": "1c91909360a3fd49b4a2bb5ed69c0c433ea0d99c75904553c8a66fdf4ccf08e6"
+      "hash": "fd81eaa70b18dcf8965f248889744fae814417313f8473db1c165f4598786483"
     },
     {
       "path": "lua/itemui/components/character_stats.lua",
@@ -59,27 +73,27 @@
     },
     {
       "path": "lua/itemui/components/filters.lua",
-      "hash": "a1e7e29fdec6ffc7c923c8abe501f7b8035ed8bf71e7008089e9b8031cb51cc5"
+      "hash": "41527dbe3ca12ad1df92bec49f92e2eb0e38b91e93db6df51ea8056b273d0b66"
     },
     {
       "path": "lua/itemui/components/searchbar.lua",
-      "hash": "aa10973564d993bea00d2fb0d7f60b6da2126522926e1feb79fa85b0e76ba654"
+      "hash": "1d2fe466e2cf496ef3fa876db782e2430b1bdb1966e3a213dbf35e6bc805f44e"
     },
     {
       "path": "lua/itemui/components/ui_common.lua",
-      "hash": "40b28a7bf20f744ed223543fee21b86c725eea237dc5cf0ce7f3d537a804336f"
+      "hash": "5b26b74f2eab74fd8ad04d8e9cd09fdeb208e85a99395f767bc9488a84f357e6"
     },
     {
       "path": "lua/itemui/config.lua",
-      "hash": "26cb35ae1a56eb4ba7de1206a2347ed2525824fd72ce4a50ba15d14661101660"
+      "hash": "bada74b4fbe17987a9efb7fdc2ced8a125635d9596b7d139ed45fd3f1aa16ec2"
     },
     {
       "path": "lua/itemui/config_cache.lua",
-      "hash": "dfe537a2fd4269cbff829dd3b959f849d6e66165ca95d1a631c4e6151a481286"
+      "hash": "43ffda808dec1be1566e6eae0300e6aa4cacedb4f23e26586f0d8c65662e5323"
     },
     {
       "path": "lua/itemui/constants.lua",
-      "hash": "128fefabb0d00dca5f6195185d20c815d43b40c5a62fe78755dd4eb6281e2392"
+      "hash": "3feeab5775b010fc40e6d2ec7c255650a42ceffc13b8d422edc54b8ad6015b7a"
     },
     {
       "path": "lua/itemui/context.lua",
@@ -91,7 +105,7 @@
     },
     {
       "path": "lua/itemui/core/debug.lua",
-      "hash": "f17bde325735d8bed20503e32e6fbbbcdd1dfa1fdd8293d43bff9a79299ebb13"
+      "hash": "45706085e69f1b9a1b1d279a21a6c2504ba6fcb666e7fcd4604e0dbc0dc2a23c"
     },
     {
       "path": "lua/itemui/core/diagnostics.lua",
@@ -103,7 +117,7 @@
     },
     {
       "path": "lua/itemui/core/registry.lua",
-      "hash": "3b5550516b49a60522d166b0a4d3d9069594f71f39b2430cdbd95645ee7d3813"
+      "hash": "58a35f9dcc30f42073e286e8bf0b0e7ed794878cf1eeb3cfa4c11699d7e890e9"
     },
     {
       "path": "lua/itemui/core/welcome_env_manifest.lua",
@@ -131,7 +145,7 @@
     },
     {
       "path": "lua/itemui/rules.lua",
-      "hash": "4e17129e02e752b553c48dd5c27e3f01909d9a93725c82e47c093d31bcc18473"
+      "hash": "2bdb5e054631601184b734d100906727e80c7522b1ec1b9b15a14092ab571fb2"
     },
     {
       "path": "lua/itemui/services/aa_data.lua",
@@ -139,11 +153,11 @@
     },
     {
       "path": "lua/itemui/services/augment_ops.lua",
-      "hash": "673c96e7eb783c05fc0ad0df96d01a22cc3e57d7117a5cac3fc7cb5e1f576c4e"
+      "hash": "69c476f70118fda0971684df9e672af428a377258b52fd6782af740d9eab5901"
     },
     {
       "path": "lua/itemui/services/backup_service.lua",
-      "hash": "fd18791a8e27de6d571aafa7b784682e8f5d2e8efad673a89e660bf0121e78f4"
+      "hash": "eee68048aee57d83f2fa4aa0a35533caab4ea8e82ec3395a9cbaa48208a50354"
     },
     {
       "path": "lua/itemui/services/filter_service.lua",
@@ -151,7 +165,7 @@
     },
     {
       "path": "lua/itemui/services/item_ops.lua",
-      "hash": "d9605907fdb6570f7c52f85ef6b615f22b411a1b5e0bfc4cd20978870d2012ed"
+      "hash": "d66f628fea09a1951c5236f0dcea017a2ea240fb7f52d6d25d1f5f619cf6114e"
     },
     {
       "path": "lua/itemui/services/loot_feed_events.lua",
@@ -159,15 +173,15 @@
     },
     {
       "path": "lua/itemui/services/macro_bridge.lua",
-      "hash": "816656f338b1df3e5c797e309e642e0c1077a69fb6588e217757b9486ae1ae64"
+      "hash": "f06b6010b5cc3fc7c15266c6e64fc40dbf737468b62f66d6334d888bf4bce2d9"
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "830f31faccfec4b99340b19789e9017361867825d17840fd75e60e4c1f29e786"
+      "hash": "6667a7a95bf1c67b2b1a8fd57ce6aede8a60fef614ee18bb42a863b242f95b46"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
-      "hash": "5f287fbf57930f45cf595a1805197533ff0c5e0d4685e9b62b87cd81d17ba970"
+      "hash": "ea49951ca106f2e6d8718aa36d7e187da9757205344a6f931bb02dd36a33ee59"
     },
     {
       "path": "lua/itemui/services/scan.lua",
@@ -187,7 +201,7 @@
     },
     {
       "path": "lua/itemui/services/sound.lua",
-      "hash": "921298d8ae68f2011d1f51d68021350630a830cfd7fb73ab19821929db1eb332"
+      "hash": "b89a87563a7df0b8b1bb4ea60c10d565685f4a5da8eae3c7fbfd1f44fade3be6"
     },
     {
       "path": "lua/itemui/state.lua",
@@ -195,11 +209,11 @@
     },
     {
       "path": "lua/itemui/storage.lua",
-      "hash": "18c3bed88b182d7a5467fafd74e952627469683f97cddc98575145f0c05c7875"
+      "hash": "cb1d3d478a636565343af9094f92b0caced5a064b255f498adc5f8d1b06279e3"
     },
     {
       "path": "lua/itemui/utils/augment_helpers.lua",
-      "hash": "a5a7e2d7938b1c6cedd141b0c95f0bf0c59c2551ba457412d3523fc5d6ebb402"
+      "hash": "f4844b6e0cba757a3c7e15760ba455f6e7a8edff0b61febc73fd98eeab4b5773"
     },
     {
       "path": "lua/itemui/utils/augment_ranking.lua",
@@ -231,7 +245,7 @@
     },
     {
       "path": "lua/itemui/utils/item_helpers.lua",
-      "hash": "71a65278b85aac36417f6dba3762649b36e3b89ff79546818bd3671efbe0e4f6"
+      "hash": "b49df68e6ada0e1f753ba60b20ad31370e4285326021a6143e082c1ffd04fbae"
     },
     {
       "path": "lua/itemui/utils/item_name.lua",
@@ -239,11 +253,11 @@
     },
     {
       "path": "lua/itemui/utils/item_tlo.lua",
-      "hash": "4ba86fd00cce8fcdf0b109f1b3e320e68072be113f3ee88a5a1199c5d9656a9e"
+      "hash": "7b5542ed67eb8b48c6ebe6107cf1be024493be029a79cd13fd8c3cdcfea5532f"
     },
     {
       "path": "lua/itemui/utils/item_tooltip.lua",
-      "hash": "5e5442abf87692f680a0a2e9db46060e80bf45aed6baa487709c3c906d879348"
+      "hash": "0f13f918bc5bcb422be7d5f4cb7262a79d467b04b79503177b561ff552b8e805"
     },
     {
       "path": "lua/itemui/utils/layout.lua",
@@ -259,15 +273,15 @@
     },
     {
       "path": "lua/itemui/utils/layout_setup.lua",
-      "hash": "7e6823768cdfa7bb0b65f3b522e3416e54203abee17ed84088eb56e3d222a906"
+      "hash": "1055a0c7f4ab6c9f008d1690651e63896e15a54993d632d918cf7df3645248a4"
     },
     {
       "path": "lua/itemui/utils/sort.lua",
-      "hash": "bd02ee63c57cbf74da987233d2b4561c14c583ff30132fe069728ca281d4c78a"
+      "hash": "fb1f2b8de469398a02463c7795849634cd0bcb917e35d5acd590a6ebb6a0fb97"
     },
     {
       "path": "lua/itemui/utils/table_cache.lua",
-      "hash": "89ba0d4a320fa464e40c83356fae63a182797dc97194f7616ffd1ccf3372ab1f"
+      "hash": "a4ddbaa372868882903d2408f1c3965594df83e1b0a4fcb65e72de80d9ade309"
     },
     {
       "path": "lua/itemui/utils/theme.lua",
@@ -275,7 +289,7 @@
     },
     {
       "path": "lua/itemui/utils/tooltip_data.lua",
-      "hash": "2e9991b4c687ddee9f2d4e4b9a82394476b6d08f4e8192a78bb1561bb27ce1d8"
+      "hash": "4577efb8afb84b2db849e116a3e9ca63f4c2b30ef289cae11bfeceae33fc5a7b"
     },
     {
       "path": "lua/itemui/utils/tooltip_layout.lua",
@@ -283,7 +297,7 @@
     },
     {
       "path": "lua/itemui/utils/tooltip_render.lua",
-      "hash": "f3fe789860ce600999a38b2c9fee47933072f08b0d1892ed201b096f82ab9d65"
+      "hash": "bbf76a5f7e97702487c1a4c989e6ede25c68118fb6ccfe3928902e84f6998f59"
     },
     {
       "path": "lua/itemui/utils/window_state.lua",
@@ -295,15 +309,15 @@
     },
     {
       "path": "lua/itemui/views/augment_utility.lua",
-      "hash": "119b229b0855aabbb1906fa818d069bf9b5280996b7f33dc9d9052e1a6ba8980"
+      "hash": "ec5e34ba404802d28d51ec2aac9cb40522d90fc1ce13fabdb94723a207782d6d"
     },
     {
       "path": "lua/itemui/views/augments.lua",
-      "hash": "ee20663a01afda5879d6c090715edf28e30c7691acd20e08fe1f4fcebc6eeff9"
+      "hash": "a76dc78bfe696ea50f4f27c5d9bf92b7438f58eb824c48d2300c0e93093b9740"
     },
     {
       "path": "lua/itemui/views/bank.lua",
-      "hash": "fc0f85feafb615c9bfa94584b45fd5a674d86f39c6899ea13032b87891a3ff62"
+      "hash": "86d11b4625edb16a0b5bb67539db8d1ace8bc4d2bf2ae791b24a590eb693b05a"
     },
     {
       "path": "lua/itemui/views/config_advanced.lua",
@@ -327,7 +341,7 @@
     },
     {
       "path": "lua/itemui/views/config_general.lua",
-      "hash": "fa3fe9e921b4ab3f6450604e6116f7fbbec9d099be5244524017863265eb21f2"
+      "hash": "6d5d615762456cd48e783781baf6e6ed647cb58c71500ede32d20b25b3c0cd06"
     },
     {
       "path": "lua/itemui/views/config_loot.lua",
@@ -347,7 +361,7 @@
     },
     {
       "path": "lua/itemui/views/inventory.lua",
-      "hash": "096a437d796dc4861351ff130a8bb3237f4ed7672f915a8dc151bf0401fac89b"
+      "hash": "5bde7bb47665a3394d41f7eddbf31e4e827b5cbff7b683eb5243f58d1e36d16e"
     },
     {
       "path": "lua/itemui/views/item_display.lua",
@@ -355,7 +369,7 @@
     },
     {
       "path": "lua/itemui/views/loot.lua",
-      "hash": "70c94efb8f47dd7028260ab370e7b09d612a5ffcbd3d1008df54a6b34400eca5"
+      "hash": "6e37c7945d43852baa49cbca0113ab6f362978831e3ca212fd845c1ea5cd26db"
     },
     {
       "path": "lua/itemui/views/loot_ui.lua",
@@ -363,7 +377,7 @@
     },
     {
       "path": "lua/itemui/views/main_window.lua",
-      "hash": "81b8806198c07f2f6cc6704cac2d173680871e226147c6a454011482acbbf4cb"
+      "hash": "6eb63e69ec6872044fc63849937410db719f2d66daecf6932ca690b6881fcac2"
     },
     {
       "path": "lua/itemui/views/reroll.lua",
@@ -375,11 +389,11 @@
     },
     {
       "path": "lua/itemui/views/settings.lua",
-      "hash": "1abedece8c8e21521a2963198502e1f3a55e9846592ff0718ba4c83668686ae7"
+      "hash": "36e2ae745fefda808bab5f46582252569fa3ee0a1d17c9c604f3338987feb984"
     },
     {
       "path": "lua/itemui/views/tutorial.lua",
-      "hash": "a14d634c803b3156dc71639bab759b8f3c888d0ba3c03ed7deaab339700af5cc"
+      "hash": "e11c05ea7bc797e877293f221b48dde2ec29191ff046a55d0cbb69931c7149c1"
     },
     {
       "path": "lua/mq/ItemUtils.lua",
@@ -404,6 +418,11 @@
     {
       "path": "resources/UIFiles/Default/MQUI_ItemColorAnimation.xml",
       "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
+    },
+    {
+      "path": "plugins/MQ2CoOptUI.dll",
+      "hash": "41f6f838d962e0de11466d218e0938772576a7d6d4265d09725bff3d64431fa7",
+      "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.7/MQ2CoOptUI.dll"
     }
   ]
 }
