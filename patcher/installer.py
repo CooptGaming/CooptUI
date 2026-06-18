@@ -18,6 +18,7 @@ that protects user data, so they are deliberately conservative.
 
 import os
 import shutil
+import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -215,6 +216,51 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
     return {"written": written, "preserved": preserved, "total": total}
 
 
+# Critical CoOpt UI lua entrypoints. If any is missing/empty after an install the scripts
+# cannot load, so we verify them before reporting success — catches a partial or locked extract.
+_CRITICAL_FILES = (
+    "lua/coopui/init.lua",
+    "lua/coopui/core/events.lua",
+    "lua/coopui/utils/theme.lua",
+    "lua/coopui/version.lua",
+    "lua/itemui/init.lua",
+    "lua/itemui/app.lua",
+    "lua/scripttracker/init.lua",
+)
+
+
+def verify_install(target_dir: str) -> list:
+    """Return critical CoOpt UI files that are missing or empty under target_dir (empty list = OK)."""
+    missing = []
+    for rel in _CRITICAL_FILES:
+        p = os.path.join(target_dir, rel.replace("/", os.sep))
+        try:
+            if not os.path.isfile(p) or os.path.getsize(p) == 0:
+                missing.append(rel)
+        except OSError:
+            missing.append(rel)
+    return missing
+
+
+def is_macroquest_running() -> bool:
+    """Best-effort check for a live MacroQuest / EverQuest process. Installing over a running
+    client is the usual cause of a first launch stuck on 'loop or previous error': MQ2Lua's
+    require cache gets poisoned by a load against files that are still being replaced, and that
+    poison persists for the whole session until a restart. Never raises."""
+    try:
+        for image in ("MacroQuest.exe", "eqgame.exe"):
+            out = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {image}"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW — no console flash from a GUI app
+            )
+            if image.lower() in (out.stdout or "").lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool, str]:
     """
     Full install / repair: download the latest EMU bundle and overlay it onto `target_dir`,
@@ -247,10 +293,28 @@ def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool
             except OSError:
                 pass
 
+    # Catch a partial / locked extract before telling the user it worked.
+    missing = verify_install(target_dir)
+    if missing:
+        return False, (
+            "Install INCOMPLETE — these required CoOpt UI files are missing or empty:\n  "
+            + "\n  ".join(missing)
+            + "\n\nClose MacroQuest completely and run the install again."
+        )
+
     if progress_cb:
         progress_cb("Install complete!", 1.0)
     vtag = f" (v{version})" if version else ""
+    mq_note = ""
+    if is_macroquest_running():
+        mq_note = (
+            "\n\nNOTE: MacroQuest looks like it's running. Close it completely and relaunch "
+            "before loading the UI — installing over a live client can leave the scripts stuck "
+            'on "loop or previous error" until a restart.'
+        )
     return True, (
         f"Install/repair complete{vtag}: {summary['written']} files written, "
         f"{summary['preserved']} user config file(s) preserved."
+        "\n\nNext: start MacroQuest fresh, then in-game run  /lua run itemui  "
+        "(and /lua run scripttracker)." + mq_note
     )
