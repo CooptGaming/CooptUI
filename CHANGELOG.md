@@ -6,6 +6,29 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ---
 
+## [0.9.7] — 2026-06-16
+
+### Added
+- **Consumables list** — Right-click any item → **Add to Consumables**. Items on the list get **Use (consume one)** and **Use all (xN)** options that right-click/consume them in-game (e.g. "Book of Titles"). The list is the safety gate, so only items you flag ever show a consume option.
+- **Patcher — Full Install / Repair** — Point the patcher at any folder (an empty one, a vanilla MacroQuest you downloaded, the E3 distribution, or an existing CoOpt install) and it downloads the complete bundle and installs everything needed, **preserving your config** (EQ path, server list, character data, sell/loot rules). Fresh-install and update now share this one preserve-aware installer.
+- **CI** — luacheck static-analysis gate on every push/PR, catching undefined-global / use-before-declaration bugs before release.
+
+### Fixed
+- **E3 crash on launch** — The distributed bundle was *deleting* required E3 runtime files (e.g. `Saved Groups.ini`), so E3 died on load with "Error: Please reload. Terminating." Those files are now emptied, not deleted.
+- **Reroll — Remove** no longer crashes the UI.
+- **Reroll — Sync** now works per item: pick up → add → **wait for the server's confirmation** → put back, and confirmed items are removed from the to-be-synced list. (Previously items got stuck on the cursor and never confirmed.)
+- **Equip attuneable items** — The attunement dialog is now auto-confirmed (items no longer bounce back to your bags).
+- **Augment ranking** — Heroic stats are now scored correctly (were treated as base stats).
+- **First-run onboarding** — New installs now correctly show the welcome/setup wizard.
+- Several internal crash-class fixes (filters/searchbar helpers, layout reset) and companion-window render isolation so one window's error can't take down the whole UI.
+
+### Build
+- MacroQuest pinned to a known-good commit (upstream `master` regressed with a missing `eqlib/game/ClassInfo.h`).
+- `E3.dll` is now packaged even when an auxiliary E3Next project (E3NextSysTray) fails to build.
+- MSVC toolset pinned and additional from-source build fixes for a reliable clean build.
+
+---
+
 ## [0.9.0-beta] — 2026-03-01
 
 ### Added
