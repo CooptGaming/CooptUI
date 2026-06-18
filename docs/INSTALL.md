@@ -11,7 +11,7 @@
 
 Download the latest release zip from GitHub:
 
-**https://github.com/CooptGaming/CoopUI/releases**
+**https://github.com/CooptGaming/CooptUI/releases**
 
 The zip is named `CoOpt UI_v<version>.zip` (e.g., `CoOpt UI_v0.2.0-alpha.zip`).
 

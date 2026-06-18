@@ -261,7 +261,7 @@ If you encounter a bug not covered here:
 1. **Check the console** for error messages (copy the full error including file/line)
 2. **Note the steps** to reproduce the issue
 3. **Note your version** (shown on load in console)
-4. **Open an issue** at: https://github.com/CooptGaming/CoopUI/issues
+4. **Open an issue** at: https://github.com/CooptGaming/CooptUI/issues
 
 Include:
 - CoOpt UI version

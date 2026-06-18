@@ -62,12 +62,12 @@ In-game, `/lua run` should work. If it doesn’t, CoOpt UI won’t run.
 ## Install
 
 **Option A — Zip (first time or full install)**  
-1. Download the latest release zip from the [releases page](https://github.com/CooptGaming/CoopUI/releases).  
+1. Download the latest release zip from the [releases page](https://github.com/CooptGaming/CooptUI/releases).  
 2. Extract into your **MacroQuest2 folder** (the one with `MacroQuest.exe`, `lua`, `Macros`). Merge/overwrite when asked.  
 3. First time? You can copy `config_templates` into the matching `Macros` folders, or just run the UI and let it create defaults.
 
 **Option B — Patcher (updates)**  
-1. Download **CoOptUIPatcher.exe** from the [releases page](https://github.com/CooptGaming/CoopUI/releases).  
+1. Download **CoOptUIPatcher.exe** from the [releases page](https://github.com/CooptGaming/CooptUI/releases).  
 2. Put it in your MacroQuest2 folder and run it. It only updates CoOpt UI files and won’t overwrite your settings.
 
 **In-game**  

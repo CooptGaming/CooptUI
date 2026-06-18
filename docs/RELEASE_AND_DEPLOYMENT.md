@@ -18,9 +18,9 @@ Use a GitHub repository for version control and to make the codebase available t
 
 ### 2.1 Initial setup (one-time)
 
-1. **Create the repository** on GitHub (e.g. `CoopUI`). Prefer a **private** repo until you are ready for public testing; then switch to public or use GitHub’s “invite collaborators” for testers.
+1. **Create the repository** on GitHub (e.g. `CooptUI`). Prefer a **private** repo until you are ready for public testing; then switch to public or use GitHub’s “invite collaborators” for testers.
 2. **Clone or link locally**  
-   - If this folder is not yet a Git repo: run `git init`, then `git remote add origin https://github.com/YOUR_ORG/CoopUI.git` (or your repo URL).  
+   - If this folder is not yet a Git repo: run `git init`, then `git remote add origin https://github.com/YOUR_ORG/CooptUI.git` (or your repo URL).  
    - If you already cloned from GitHub: ensure `origin` points to the correct repo with `git remote -v`.
 3. **Use the recommended `.gitignore`** in the project root so binaries, logs, and user-specific data are not committed (see Section 2.4 and the project `.gitignore`).
 
