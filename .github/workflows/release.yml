@@ -1,73 +1,38 @@
-# Build all CoOpt UI release assets via Build-Smart.ps1, then create a GitHub Release.
+# CoOpt UI — release helper (manual dispatch only).
 #
-# Trigger: push a version tag (e.g. git tag v1.0.0 && git push origin v1.0.0)
-# Preferred: .\Build-Smart.ps1 -OutputDir dist -Release  (handles tag + push locally)
+# WHY THIS IS NOT TAG-TRIGGERED:
+# The full playable bundle (MacroQuest + E3Next + the MQ2CoOptUI plugin) is built
+# from source by Build-Smart.ps1, which needs CMake 3.30 + Visual Studio 2022 and a
+# long one-time vcpkg build. GitHub-HOSTED runners ship CMake 4.x and can't do this
+# reliably, so an `on: push: tags` build just fails on every release tag. Releases are
+# therefore cut LOCALLY and uploaded with scripts/release-all.ps1 / scripts/upload-emu-zip.ps1
+# (or `gh release create`). See docs/RELEASE_AND_DEPLOYMENT.md.
 #
-# Release assets (up to 4):
-#   1. CoOptUI-v<ver>.zip          — CoOpt UI files only (Lua, macros, resources)
-#   2. CoOptUI-EMU-v<ver>.zip      — Full EMU bundle (E3Next + MQ + CoOpt UI)
-#   3. MQ2CoOptUI-v<ver>-Win32.zip — Plugin DLL only
-#   4. CoOptUIPatcher.exe          — Desktop patcher app
-#
-# Note: The FullBundle target downloads E3Next prebuild and builds the plugin from
-# source, so all 3 ZIPs are produced in CI. No manual upload step needed.
+# WHAT THIS DOES:
+# On manual dispatch it builds CoOptUIPatcher.exe (pure-Python, no MQ toolchain needed)
+# and uploads it as a downloadable artifact — handy for grabbing a fresh patcher without
+# a local build. It does NOT build or publish the EMU bundle or the plugin DLL.
 
-name: Release
+name: Release helper
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  patcher:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set version from tag
-        id: version
-        run: |
-          $ver = "${{ github.ref_name }}" -replace '^v',''
-          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
-        shell: pwsh
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # Build all targets (CoOptOnly + PluginOnly + FullBundle) + patcher
-      # -CI implies -Force (clean build, no state file)
-      # -SkipPlugin is NOT set — plugin is built from source in CI
-      - name: Build all targets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          .\Build-Smart.ps1 -OutputDir dist `
-            -Target All `
-            -Version "${{ steps.version.outputs.VERSION }}" `
-            -CI
-        shell: pwsh
-
-      # Generate manifests and commit back to master
-      - name: Generate and commit manifests
-        run: |
-          python patcher/generate_manifest.py
-          python patcher/generate_default_config_manifest.py
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add release_manifest.json default_config_manifest.json
-          git diff --cached --quiet && echo "Manifests already up to date" && exit 0
-          git commit -m "chore(ci): regenerate manifests for ${{ github.ref_name }}"
-          git push origin HEAD:master
-        shell: pwsh
-
-      # Build patcher exe
       - name: Build patcher exe
         run: |
           python -m pip install -r patcher/requirements.txt --quiet
@@ -77,46 +42,9 @@ jobs:
           Pop-Location
         shell: pwsh
 
-      # Verify all artifacts exist
-      - name: Verify build artifacts
-        run: |
-          $ver = "${{ steps.version.outputs.VERSION }}"
-          $expected = @(
-            "dist/CoOptUI-v$ver.zip",
-            "dist/CoOptUI-EMU-v$ver.zip",
-            "patcher/dist/CoOptUIPatcher.exe"
-          )
-          $missing = @()
-          foreach ($f in $expected) {
-            if (Test-Path $f) {
-              $size = [math]::Round((Get-Item $f).Length / 1KB, 0)
-              Write-Host "[OK] $f ($size KB)"
-            } else {
-              Write-Host "[MISSING] $f" -ForegroundColor Yellow
-              $missing += $f
-            }
-          }
-          # PluginOnly is optional (may fail if MQ source issues)
-          $pluginZip = "dist/MQ2CoOptUI-v$ver-Win32.zip"
-          if (Test-Path $pluginZip) {
-            $size = [math]::Round((Get-Item $pluginZip).Length / 1KB, 0)
-            Write-Host "[OK] $pluginZip ($size KB)"
-          }
-          # Only fail if CoOptOnly ZIP or patcher missing
-          if ($missing | Where-Object { $_ -notlike '*EMU*' -and $_ -notlike '*MQ2CoOptUI*' }) {
-            Write-Error "Required artifacts missing: $($missing -join ', ')"
-          }
-        shell: pwsh
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload patcher artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/CoOptUI-v${{ steps.version.outputs.VERSION }}.zip
-            dist/CoOptUI-EMU-v${{ steps.version.outputs.VERSION }}.zip
-            dist/MQ2CoOptUI-v${{ steps.version.outputs.VERSION }}-Win32.zip
-            patcher/dist/CoOptUIPatcher.exe
-          generate_release_notes: true
-          draft: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: CoOptUIPatcher
+          path: patcher/dist/CoOptUIPatcher.exe
+          if-no-files-found: error
