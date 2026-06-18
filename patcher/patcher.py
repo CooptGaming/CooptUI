@@ -13,7 +13,6 @@ import customtkinter as ctk
 from PIL import Image
 
 from config import load as load_config, save as save_config, add_recent_path
-from fresh_install import get_latest_release_zip_url, download_and_extract_zip
 from installer import smart_install
 from migrate_itemui_to_coopui import migrate_itemui_to_coopui, ensure_env_after_patch
 from path_finder import find_mq_installations
@@ -743,29 +742,22 @@ class PatcherApp(ctk.CTk):
         self.set_primary_button("Installing...", None, enabled=False)
 
         def run():
-            # Step 1: Find release URL
-            zip_url, version, err = get_latest_release_zip_url()
-            if err or not zip_url:
-                self.after(0, lambda: self._fresh_install_error(err or "Could not find release."))
-                return
-
-            self.after(0, lambda: status_label.configure(
-                text=f"Downloading CoOpt UI v{version or 'latest'}..."
-            ))
-
-            # Step 2: Download and extract
             def progress_cb(msg: str, frac: float):
                 self.after(0, lambda: (
                     progress_bar.set(frac),
                     detail_label.configure(text=msg),
                 ))
 
-            success, message = download_and_extract_zip(zip_url, target_dir, progress_cb)
+            # Fresh install uses the same preserve-aware overlay as Full Install / Repair:
+            # smart_install resolves the latest release, downloads the full EMU bundle
+            # (MacroQuest + Mono + E3 + plugin + CoOpt UI), and lays it down — building a new
+            # instance from scratch in an empty folder, or safely overlaying onto an existing
+            # MacroQuest while keeping the user's config.
+            success, message = smart_install(target_dir, progress_cb)
             if not success:
                 self.after(0, lambda: self._fresh_install_error(message))
                 return
 
-            # Step 3: Transition to main view
             self.after(0, lambda: self.show_main(target_dir))
 
         threading.Thread(target=run, daemon=True).start()
