@@ -218,8 +218,10 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
 
 # Critical CoOpt UI lua entrypoints. If any is missing/empty after an install the scripts
 # cannot load, so we verify them before reporting success — catches a partial or locked extract.
+# NOTE: these must be files that genuinely exist in the bundle. The coopui/ package is a slim
+# shared core required by submodule path (coopui.core.events, coopui.utils.theme); it has NO
+# top-level coopui/init.lua, so do not list one here (it would false-fail every install).
 _CRITICAL_FILES = (
-    "lua/coopui/init.lua",
     "lua/coopui/core/events.lua",
     "lua/coopui/utils/theme.lua",
     "lua/coopui/version.lua",
