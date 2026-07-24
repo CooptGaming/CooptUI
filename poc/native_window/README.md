@@ -1,5 +1,17 @@
 # Native-Window Extension — Proof of Concept
 
+> **Status: superseded** by the production native merchant strip
+> (`lua/itemui/services/native_bridge.lua` + `uifiles/coopt`). Do not run
+> `coopt_poc` alongside itemui with the `coopt` skin — the control names
+> differ. Two hard-won lessons folded into production: (1) `Window.Child()`
+> for an **absent** name can return an object with a non-nil ToString but
+> nil members — test a member, never ToString; (2) unlatching a checkbox by
+> sending a synthetic `/notify leftmouseup` immediately after detecting the
+> click can land **while the user's real mouse button is still down**,
+> wedging EQ's mouse capture on that button. Production detects checkbox
+> state *transitions* instead and only sends the cosmetic un-latch when
+> `MouseOver()` is false.
+
 Tests whether CoOpt features can live **inside native EQ windows**: a custom UI
 skin adds a CoOpt button strip to the stock RoF2 Merchant window, and a small
 Lua script gives those buttons behavior through MacroQuest.

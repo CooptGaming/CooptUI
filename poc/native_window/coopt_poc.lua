@@ -49,8 +49,10 @@ end
 -- build honors and reports the result (that IS one of the POC questions).
 local function setStatus(text)
     if setTextMode == 'unsupported' then return end
+    -- Missing children can have a non-nil ToString but nil members on this MQ
+    -- build (e.g. right after /loadskin) - always test a member, not ToString.
     local c = child(STATUS)
-    if c() == nil then return end
+    if c == nil or c.Text == nil then return end
 
     if setTextMode == nil or setTextMode == 'method' then
         pcall(function() c.SetText(text)() end)
@@ -99,7 +101,7 @@ local announced = false
 while true do
     if merchantOpen() then
         local ping = child(PING_BTN)
-        if ping() == nil then
+        if ping == nil or ping.Checked == nil then
             if not announced then
                 out('\arMerchant window is open but %s was not found - is the coopt_poc skin loaded? (/loadskin coopt_poc)', PING_BTN)
                 announced = true
@@ -115,7 +117,7 @@ while true do
                 onPing()
             end
             local ui = child(UI_BTN)
-            if ui() ~= nil and ui.Checked() then
+            if ui ~= nil and ui.Checked ~= nil and ui.Checked() then
                 unlatch(UI_BTN)
                 onUiButton()
             end

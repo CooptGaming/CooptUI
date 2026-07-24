@@ -1,16 +1,29 @@
 --[[ native_bridge.lua: drives CoOpt controls that the "coopt" UI skin adds to
      native EQ windows (uifiles\coopt). v1 surface: the MerchantWnd sell strip.
 
-     Mechanism (proven by poc/native_window): skin buttons are Style_Checkbox,
-     so a user click latches bChecked; we poll Window("MerchantWnd").Child(...)
-     .Checked each tick while the merchant is open, act, then unlatch with
-     /notify leftmouseup. The status readout is an EditBox because this MQ
-     build's Window.SetText method only supports EditBoxes.
+     Click detection: skin buttons are Style_Checkbox, so every real click
+     toggles bChecked. We poll Checked each tick and treat ANY transition as
+     one user click - no synthetic input is ever sent during interaction.
+     (v1 unlatched by sending /notify leftmouseup immediately; at main-loop
+     tick rate that synthetic click can land while the user's real mouse
+     button is still held down, wedging EQ's mouse capture on the button so
+     all later clicks re-route to it.) The only synthetic click we send is a
+     cosmetic un-latch, deferred >=350ms after the click and gated on
+     MouseOver()==false - a real click cannot be in progress on a control
+     the cursor is not over, so the capture race cannot occur.
 
-     Service contract: init(deps) with the main_loop deps table; tick(now) from
-     the main loop only (never from ImGui render). No ImGui calls, no mq.delay.
-     Everything degrades to a no-op when the skin isn't loaded (controls absent)
-     or the toggle uiState.nativeMerchantStrip is off.
+     Missing-control detection: on this MQ build, Window.Child() for an
+     absent name can return an object whose ToString is non-nil but whose
+     members are nil (proven by the POC crash after /loadskin). Existence is
+     therefore judged by a pcall'd member read, never by Child()/ToString.
+
+     The status readout is an EditBox because this MQ build's Window.SetText
+     method only supports EditBoxes.
+
+     Service contract: init(deps) with the main_loop deps table; tick(now)
+     from the main loop only (never from ImGui render). No ImGui calls, no
+     mq.delay. Everything degrades to a no-op when the skin isn't loaded or
+     the toggle uiState.nativeMerchantStrip is off.
 ]]
 
 local mq = require('mq')
@@ -27,10 +40,12 @@ local BTN_KEEP     = 'Coopt_KeepBtn'
 local BTN_JUNK     = 'Coopt_JunkBtn'
 local STATUS       = 'Coopt_Status'
 
-local PROBE_INTERVAL_MS  = 2000
-local STATUS_INTERVAL_MS = 500
-local HINT_MS            = 3000
-local STATUS_MAX_CHARS   = 60
+local PROBE_INTERVAL_MS   = 2000
+local STATUS_INTERVAL_MS  = 500
+local HINT_MS             = 3000
+local STATUS_MAX_CHARS    = 60
+local UNLATCH_SETTLE_MS   = 350   -- min age of a click before the cosmetic un-latch
+local UNLATCH_ECHO_MS     = 1000  -- window to swallow our own un-latch transition
 
 local state = {
     available = false,    -- skin controls present in the open merchant window
@@ -39,8 +54,9 @@ local state = {
     lastStatusText = nil,
     hintText = nil,
     hintUntil = 0,
-    textBroken = false,   -- SetText failed once; stop trying this session
+    textBroken = false,   -- SetText failed; retried on next merchant open
     wasOpen = false,
+    btn = {},             -- name -> { last, unlatchAt, expectSyntheticUntil }
 }
 
 local function merchantOpen()
@@ -48,22 +64,52 @@ local function merchantOpen()
     return (w and w() ~= nil and w.Open and w.Open()) or false
 end
 
--- Child TLO or nil (window closed / control absent).
 local function child(name)
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
     if not w or w() == nil then return nil end
-    local c = w.Child and w.Child(name)
-    if not c or c() == nil then return nil end
-    return c
+    return w.Child and w.Child(name) or nil
 end
 
--- True exactly once per user click (latch consume + unlatch).
-local function consumeClick(name)
+-- Checked state as a real boolean, or nil when the control is absent/invalid.
+local function readChecked(name)
     local c = child(name)
-    if not c then return false end
+    if not c then return nil end
     local ok, checked = pcall(function() return c.Checked() end)
-    if not ok or not checked then return false end
-    mq.cmdf('/notify %s %s leftmouseup', WND, name)
+    if not ok or type(checked) ~= 'boolean' then return nil end
+    return checked
+end
+
+-- True exactly once per real user click (checkbox toggled in either direction).
+-- Also runs the deferred cosmetic un-latch when it is provably safe.
+local function consumeClick(name, now)
+    local checked = readChecked(name)
+    if checked == nil then return false end
+    local b = state.btn[name]
+    if not b then
+        state.btn[name] = { last = checked }
+        return false
+    end
+    if checked == b.last then
+        -- Steady state: maybe un-latch a stale pressed look, cursor-off only.
+        if checked and b.unlatchAt and now >= b.unlatchAt then
+            local c = child(name)
+            local okOver, over = pcall(function() return c.MouseOver() end)
+            if okOver and over == false then
+                mq.cmdf('/notify %s %s leftmouseup', WND, name)
+                b.expectSyntheticUntil = now + UNLATCH_ECHO_MS
+                b.unlatchAt = nil
+            end
+        end
+        return false
+    end
+    -- Transition observed.
+    b.last = checked
+    if now < (b.expectSyntheticUntil or 0) then
+        b.expectSyntheticUntil = 0 -- our own un-latch echoing back; not a click
+        b.unlatchAt = nil
+        return false
+    end
+    b.unlatchAt = checked and (now + UNLATCH_SETTLE_MS) or nil
     return true
 end
 
@@ -90,8 +136,8 @@ local function selectedSellItem()
     local m = mq.TLO and mq.TLO.Merchant
     local sel = m and m.SelectedItem
     if not sel or sel() == nil then return nil end
-    local name = sel.Name and sel.Name()
-    if not name or name == "" then return nil end
+    local okName, name = pcall(function() return sel.Name() end)
+    if not okName or not name or name == "" then return nil end
     local items = d.sellItems
     if not items then return nil end
     for _, it in ipairs(items) do
@@ -200,22 +246,28 @@ function M.tick(now)
         state.wasOpen = false
         state.available = false
         state.lastStatusText = nil
+        state.btn = {}
         return
     end
     -- Probe for the skin's controls on open and periodically (covers /loadskin
-    -- while a merchant is up). Absent controls = skin not loaded = no-op.
+    -- while a merchant is up). Existence = pcall'd member read, never ToString.
     if not state.wasOpen or (now - state.lastProbeAt) >= PROBE_INTERVAL_MS then
         state.lastProbeAt = now
-        state.available = child(STATUS) ~= nil or child(BTN_AUTOSELL) ~= nil
-        if not state.wasOpen then state.lastStatusText = nil end
+        local wasAvailable = state.available
+        state.available = readChecked(BTN_AUTOSELL) ~= nil
+        if not state.wasOpen or (state.available and not wasAvailable) then
+            state.lastStatusText = nil
+            state.textBroken = false
+            state.btn = {}
+        end
         state.wasOpen = true
     end
     if not state.available then return end
 
-    if consumeClick(BTN_AUTOSELL) then onAutoSell(now) end
-    if consumeClick(BTN_PREVIEW) then onPreview(now) end
-    if consumeClick(BTN_KEEP) then onKeep(now) end
-    if consumeClick(BTN_JUNK) then onJunk(now) end
+    if consumeClick(BTN_AUTOSELL, now) then onAutoSell(now) end
+    if consumeClick(BTN_PREVIEW, now) then onPreview(now) end
+    if consumeClick(BTN_KEEP, now) then onKeep(now) end
+    if consumeClick(BTN_JUNK, now) then onJunk(now) end
 
     updateStatus(now)
 end
