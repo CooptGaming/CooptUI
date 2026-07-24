@@ -255,6 +255,10 @@ local function loadFromFile()
     end
 end
 
+-- Module table, declared before the chat handlers: onRerollAddConfirmation references
+-- M.removeFromPending/M.addEntryToList at event time (they attach further down).
+local M = {}
+
 -- Parse "Aug list added: ... (id 75084)." or "Mythical list added: ... (id 413257)." → id or nil.
 local function parseAddConfirmationLine(line)
     if not line or type(line) ~= "string" then return nil end
@@ -343,8 +347,6 @@ local function onRerollListLine(line)
     setStatusMessageFn("Lists updated.")
     -- No intermediate saves during burst: data is in memory, final save happens in checkListRequestTimeout().
 end
-
-local M = {}
 
 function M.init(deps)
     setStatusMessageFn = deps.setStatusMessage or function() end
