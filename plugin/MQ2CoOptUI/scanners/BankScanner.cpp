@@ -24,6 +24,46 @@ bool BankScanner::IsBankWindowOpen() {
   return pBankWnd && pBankWnd->IsVisible();
 }
 
+// FNV-1a 64-bit hash over a pair of ints — fast inline fingerprint accumulator.
+// (Same helper as InventoryScanner.cpp; file-local by design.)
+static inline uint64_t fnv1a_mix(uint64_t hash, int a, int b) {
+  hash ^= static_cast<uint64_t>(static_cast<uint32_t>(a));
+  hash *= 0x00000100000001B3ULL;
+  hash ^= static_cast<uint64_t>(static_cast<uint32_t>(b));
+  hash *= 0x00000100000001B3ULL;
+  return hash;
+}
+
+// Id/stack fingerprint over all bank rows — modeled on
+// InventoryScanner::ComputeFingerprint. Cheap: reads only id + count, no
+// ItemDefinition access and no CoOptItemData population.
+uint64_t BankScanner::ComputeFingerprint() const {
+  if (!pLocalPC) return 0;
+
+  constexpr uint64_t kFNVOffset = 0xcbf29ce484222325ULL;
+  uint64_t hash = kFNVOffset;
+
+  auto& bankItems = pLocalPC->BankItems;
+  int bankSize = bankItems.GetSize();
+  for (int bagIdx = 0; bagIdx < bankSize; ++bagIdx) {
+    ItemPtr bagItem = bankItems.GetItem(bagIdx);
+    if (!bagItem) continue;
+    if (!bagItem->IsContainer()) {
+      // Single item directly in a bank slot
+      hash = fnv1a_mix(hash, bagItem->GetID(), bagItem->GetItemCount());
+      continue;
+    }
+    auto& contents = bagItem->GetHeldItems();
+    int sz = contents.GetSize();
+    for (int s = 0; s < sz; ++s) {
+      ItemPtr item = contents.GetItem(s);
+      if (!item) continue;
+      hash = fnv1a_mix(hash, item->GetID(), item->GetItemCount());
+    }
+  }
+  return hash;
+}
+
 void BankScanner::DoScan() {
   if (!pLocalPC) return;
 
@@ -76,13 +116,6 @@ void BankScanner::DoScan() {
     }
   }
 
-  changed_ = (fresh.size() != snapshot_.size());
-  if (!changed_) {
-    // Quick content check: compare first/last item IDs
-    if (!fresh.empty() && fresh.front().id != snapshot_.front().id)
-      changed_ = true;
-  }
-
   snapshot_ = std::move(fresh);
   lastScanTimeMs_ = GetTickCount64();
 
@@ -100,12 +133,23 @@ void BankScanner::DoScan() {
 const std::vector<core::CoOptItemData>& BankScanner::Scan(bool force) {
   bool bankOpen = IsBankWindowOpen();
 
-  if (force || bankOpen) {
-    DoScan();
-  } else {
+  if (!force && !bankOpen) {
+    // Bank closed: keep the last-seen snapshot (Lua behaviour matches).
     changed_ = false;
+    return snapshot_;
   }
 
+  // Fingerprint check: skip the full populate scan if bank content is unchanged.
+  uint64_t fp = ComputeFingerprint();
+  if (!force && fp == lastFingerprint_) {
+    changed_ = false;
+    return snapshot_;
+  }
+
+  changed_ = (fp != lastFingerprint_) || force;
+  lastFingerprint_ = fp;
+
+  DoScan();
   return snapshot_;
 }
 

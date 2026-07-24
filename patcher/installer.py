@@ -16,6 +16,8 @@ all that's required — no per-piece detection. The preserve rules below are the
 that protects user data, so they are deliberately conservative.
 """
 
+import errno
+import http.client
 import os
 import shutil
 import subprocess
@@ -61,6 +63,11 @@ def should_preserve(rel_path: str) -> bool:
     # CoOpt UI + macro user rules and state: sell/loot/shared rule inis, saved layout, the
     # onboarding flag, filter presets. (.mac macro CODE is excluded above and gets refreshed.)
     if p.startswith("macros/") and ext in (".ini", ".cfg"):
+        return True
+
+    # ScriptTracker user settings: the update path deliberately never ships this file
+    # (excluded from the release manifest), so Full Install / Repair must keep it too.
+    if p == "lua/scripttracker/scripttracker.ini":
         return True
 
     # Login / account databases.
@@ -183,8 +190,20 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
     written = 0
     preserved = 0
     with tempfile.TemporaryDirectory(prefix="coopui_bundle_") as tmp:
+        # Extract member-by-member so the UI shows progress instead of freezing on one
+        # big extractall. Extraction covers 0.5→0.75 of the bar; the copy pass 0.75→1.0.
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(tmp)
+            members = zf.namelist()
+            n_members = len(members)
+            for i, member in enumerate(members):
+                if member.endswith("/"):
+                    continue
+                zf.extract(member, tmp)
+                if progress_cb and n_members:
+                    progress_cb(
+                        f"Extracting: {member}",
+                        0.5 + 0.25 * (i + 1) / n_members,
+                    )
         src_root = _bundle_source_root(tmp)
 
         files = []
@@ -205,10 +224,21 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
                 preserved += 1
             else:
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
-                shutil.copy2(full, dest)
+                # Atomic install: copy to <dest>.tmp then os.replace, so a crash
+                # mid-copy can never leave a truncated target (e.g. MacroQuest.exe).
+                tmp_dest = dest + ".tmp"
+                try:
+                    shutil.copy2(full, tmp_dest)
+                    os.replace(tmp_dest, dest)
+                except OSError:
+                    try:
+                        os.remove(tmp_dest)
+                    except OSError:
+                        pass
+                    raise
                 written += 1
             if progress_cb and total:
-                progress_cb(f"Installing: {rel_norm}", 0.5 + 0.5 * (i + 1) / total)
+                progress_cb(f"Installing: {rel_norm}", 0.75 + 0.25 * (i + 1) / total)
 
         if macroquest_ini and os.path.isfile(macroquest_ini):
             ensure_plugin_keys(macroquest_ini)
@@ -286,7 +316,9 @@ def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool
         summary = overlay_bundle(zip_path, target_dir, progress_cb)
     except zipfile.BadZipFile:
         return False, "Downloaded bundle is not a valid ZIP (the release may be corrupted)."
-    except (urllib.error.URLError, OSError) as e:
+    except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
+        if getattr(e, "errno", None) == errno.ENOSPC:
+            return False, "Not enough disk space."
         return False, f"Install failed: {e}"
     finally:
         if zip_path:

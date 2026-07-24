@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/ItemData.h"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -98,6 +99,12 @@ class RulesEngine {
   // Attach willSell/sellReason to all items in a vector.
   void AttachSellStatus(std::vector<core::CoOptItemData>& items) const;
 
+  // Replace the reroll-list item id set (fed from Lua at runtime, by ID only).
+  // Items on the list are never sold and never looted ("RerollList" reason).
+  // Replace-all semantics: each call discards the previous set.
+  void SetRerollIds(const std::vector<int32_t>& ids);
+  size_t GetRerollIdCount() const { return rerollIdSet_.size(); }
+
   bool IsLoaded() const { return loaded_; }
 
   // Diagnostic counts for /cooptui status
@@ -141,6 +148,9 @@ class RulesEngine {
   std::string macrosPath_;  // gPathMacros (e.g. "...\CoOptUI7\Macros\")
   SellConfig sell_;
   LootConfig loot_;
+  // Reroll-list item ids (set via SetRerollIds). Lives outside SellConfig /
+  // LootConfig so a config Reload() does not clear it.
+  std::unordered_set<int32_t> rerollIdSet_;
   bool loaded_ = false;
 };
 

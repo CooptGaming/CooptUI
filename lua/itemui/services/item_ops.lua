@@ -626,7 +626,6 @@ function M.moveInvToBank(invBag, invSlot)
     if stackSize > 1 then
         state.pendingMoveAction = {
             source = "inv", bag = invBag, slot = invSlot, destBag = bb, destSlot = bs, qty = stackSize,
-            skipQtyWindow = true,
             mergeIntoExisting = mergeIntoExisting,
             row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, weight = row.weight, container = row.container, icon = row.icon },
             phase = "start",
@@ -669,7 +668,6 @@ function M.moveBankToInv(bagIdx, slotIdx)
     if stackSize > 1 then
         state.pendingMoveAction = {
             source = "bank", bag = bagIdx, slot = slotIdx, destBag = ib, destSlot = is_, qty = stackSize,
-            skipQtyWindow = true,
             row = row and { name = row.name, id = row.id, value = row.value, totalValue = row.totalValue, stackSize = row.stackSize, type = row.type, nodrop = row.nodrop, notrade = row.notrade, lore = row.lore, quest = row.quest, collectible = row.collectible, heirloom = row.heirloom, attuneable = row.attuneable, augSlots = row.augSlots, icon = row.icon },
             phase = "start",
         }
@@ -688,9 +686,8 @@ function M.moveBankToInv(bagIdx, slotIdx)
     return true
 end
 
-local MOVE_QTY_WINDOW_TIMEOUT_MS = 2000
-
 --- Advance move state machine one step per frame (task 1.3). Call from main_loop when pendingMoveAction is set. Clears state.pendingMoveAction when done or on failure.
+--- Moves are always whole-stack (pickup grabs the full stack), so no quantity-window phases.
 function M.advanceMoveStateMachine(now)
     now = now or (mq.gettime and mq.gettime() or 0)
     local action = state.pendingMoveAction
@@ -698,7 +695,6 @@ function M.advanceMoveStateMachine(now)
     local T = constants.TIMING
     local MEDIUM_MS = T.ITEM_OPS_DELAY_MEDIUM_MS
     local SHORT_MS = T.ITEM_OPS_DELAY_SHORT_MS
-    local qty = (action.qty and action.qty > 0) and action.qty or 1
     local phase = action.phase or "start"
 
     if phase == "start" then
@@ -730,13 +726,8 @@ function M.advanceMoveStateMachine(now)
         else
             mq.cmdf('/itemnotify in bank%d %d leftmouseup', action.bag, action.slot)
         end
-        if qty > 1 and not action.skipQtyWindow then
-            action.phase = "wait_qty_window"
-            action.enteredAt = now
-        else
-            action.phase = "pickup_delay"
-            action.enteredAt = now
-        end
+        action.phase = "pickup_delay"
+        action.enteredAt = now
         return
     end
 
@@ -746,39 +737,10 @@ function M.advanceMoveStateMachine(now)
         return
     end
 
-    if phase == "wait_qty_window" then
-        local qtyWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("QuantityWnd")
-        if qtyWnd and qtyWnd.Open and qtyWnd.Open() then
-            mq.cmd(string.format('/notify QuantityWnd QTYW_Slider newvalue %d', qty))
-            action.phase = "qty_accept_delay"
-            action.enteredAt = now
-            return
-        end
-        if (now - (action.enteredAt or 0)) >= MOVE_QTY_WINDOW_TIMEOUT_MS then
-            state.pendingMoveAction = nil
-            deps.setStatusMessage("Quantity window did not open.")
-            if deps.hasItemOnCursor and deps.hasItemOnCursor() then mq.cmd('/autoinv') end
-            return
-        end
-        return
-    end
-
-    if phase == "qty_accept_delay" then
-        if (now - (action.enteredAt or 0)) < MEDIUM_MS then return end
-        mq.cmd('/notify QuantityWnd QTYW_Accept_Button leftmouseup')
-        action.phase = "qty_close_delay"
-        action.enteredAt = now
-        return
-    end
-
-    if phase == "qty_close_delay" then
-        if (now - (action.enteredAt or 0)) < SHORT_MS then return end
-        action.phase = "drop"
-        return
-    end
-
     if phase == "drop" then
-        if deps.hasItemOnCursor and not deps.hasItemOnCursor() then
+        -- Use the TLO-fallback cursor check: the plugin cursor cache lags ~1 frame behind a
+        -- pickup (see removeItemFromCursor), so deps.hasItemOnCursor() here aborted valid moves.
+        if not M.hasItemOnCursorWithTLOFallback() then
             state.pendingMoveAction = nil
             deps.setStatusMessage("Move failed; no item on cursor.")
             return
@@ -929,6 +891,7 @@ end
 
 local DESTROY_QTY_WINDOW_TIMEOUT_MS = 2000
 local DESTROY_MIN_PICKUP_SETTLE_MS = 25
+local DESTROY_CONFIRM_TIMEOUT_MS = 1000
 
 --- Advance destroy state machine one step per frame (task 1.3). Call from main_loop when pendingDestroyAction is set. Clears state.pendingDestroyAction when done or on failure.
 function M.advanceDestroyStateMachine(now)
@@ -961,6 +924,15 @@ function M.advanceDestroyStateMachine(now)
     end
 
     if phase == "pickup" then
+        -- Capture the expected item id before pickup (creators pass bag/slot/name/qty only) so
+        -- confirm_destroy can verify the cursor actually holds this item before /destroy.
+        if not action.id then
+            local Me = mq.TLO and mq.TLO.Me
+            local pack = Me and Me.Inventory and Me.Inventory("pack" .. action.bag)
+            local slotItem = pack and pack.Item and pack.Item(action.slot)
+            local slotId = (slotItem and slotItem.ID and slotItem.ID()) or 0
+            if slotId > 0 then action.id = slotId end
+        end
         mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
         if qty > 1 then
             action.phase = "wait_qty_window"
@@ -978,6 +950,7 @@ function M.advanceDestroyStateMachine(now)
         if elapsed < DESTROY_MIN_PICKUP_SETTLE_MS then return end
         if not hasCursor and elapsed < SHORT_MS then return end
         action.phase = "confirm_destroy"
+        action.enteredAt = now
         return
     end
 
@@ -1009,21 +982,41 @@ function M.advanceDestroyStateMachine(now)
     if phase == "qty_close_delay" then
         if (now - (action.enteredAt or 0)) < SHORT_MS then return end
         action.phase = "confirm_destroy"
+        action.enteredAt = now
         return
     end
 
     if phase == "confirm_destroy" then
-        mq.cmd('/destroy')
-        state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
-        state.lastPickupClearedAt = mq.gettime()
-        M.reduceStackOrRemoveBySlot(action.bag, action.slot, qty)
-        if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
-        if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
-        local itemName = action.name
-        local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
-        if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
-        deps.setStatusMessage(msg)
-        state.pendingDestroyAction = nil
+        -- Never /destroy blind: require an item on cursor AND (when known) the expected item id.
+        local hasCursor = M.hasItemOnCursorWithTLOFallback()
+        local cursorId = M.getCursorItemId()
+        if hasCursor and (not action.id or cursorId == action.id) then
+            mq.cmd('/destroy')
+            state.lastPickup.bag, state.lastPickup.slot, state.lastPickup.source = nil, nil, nil
+            state.lastPickupClearedAt = mq.gettime()
+            M.reduceStackOrRemoveBySlot(action.bag, action.slot, qty)
+            if deps.storage and deps.inventoryItems then deps.storage.saveInventory(deps.inventoryItems) end
+            if deps.storage and deps.storage.writeSellCache and deps.sellItems then deps.storage.writeSellCache(deps.sellItems) end
+            local itemName = action.name
+            local msg = itemName and (#itemName > 0) and ("Destroyed: " .. itemName) or "Destroyed item"
+            if qty > 1 then msg = msg .. string.format(" (x%d)", qty) end
+            deps.setStatusMessage(msg)
+            state.pendingDestroyAction = nil
+            return
+        end
+        -- Cursor empty or holding a different item: keep polling briefly (the plugin cursor id
+        -- cache can lag ~1 frame behind the pickup), then abort and put the item back.
+        if (now - (action.enteredAt or 0)) >= DESTROY_CONFIRM_TIMEOUT_MS then
+            state.pendingDestroyAction = nil
+            M.removeItemFromCursor()  -- returns the held (unexpected) item; no-op when cursor empty
+            if hasCursor then
+                deps.setStatusMessage("Destroy cancelled - cursor mismatch")
+            else
+                deps.setStatusMessage("Destroy cancelled - no item on cursor")
+            end
+            return
+        end
+        return
     end
 end
 

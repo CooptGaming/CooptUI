@@ -19,11 +19,9 @@ local function slotStringToDisplay(str)
     return (#parts > 0) and table.concat(parts, ", ") or str
 end
 
-local SIZE_NAMES = { [1] = "SMALL", [2] = "MEDIUM", [3] = "LARGE", [4] = "GIANT" }
-local function formatSize(item)
-    if not item or not item.size then return nil end
-    return SIZE_NAMES[item.size] or tostring(item.size)
-end
+-- Shared helpers live in tooltip_layout (single definition; re-exported below for the api table)
+local SIZE_NAMES = tooltip_layout.SIZE_NAMES
+local formatSize = tooltip_layout.formatSize
 
 --- Build type line: flags (Magic, Lore, etc.) and item type (e.g. Augmentation), like in-game.
 local function getTypeLine(item)
@@ -43,12 +41,45 @@ local function getTypeLine(item)
     return #parts > 0 and table.concat(parts, ", ") or nil
 end
 
---- Attribute line: "Label: base" or "Label: base+heroic"
-local function attrLine(base, heroic, label)
-    local b, h = base or 0, heroic or 0
-    if b == 0 and h == 0 then return nil end
-    if h > 0 then return string.format("%s: %d+%d", label, b, h) end
-    return string.format("%s: %d", label, b)
+--- Attribute line: "Label: base" or "Label: base+heroic" (defined in tooltip_layout)
+local attrLine = tooltip_layout.attrLine
+
+-- All numeric fields from STAT_TLO_MAP that augments can contribute to.
+-- String-only fields (baneDMGType, dmgBonusType) are excluded. Used to merge socketed
+-- augment stats into the parent item's tooltip (here and in tooltip_render).
+local STAT_MERGE_FIELDS = {
+    "ac", "hp", "mana", "endurance",
+    "str", "sta", "agi", "dex", "int", "wis", "cha",
+    "attack", "accuracy", "avoidance", "shielding", "haste",
+    "damage", "itemDelay", "dmgBonus",
+    "spellDamage", "strikeThrough", "damageShield", "combatEffects",
+    "dotShielding", "hpRegen", "manaRegen", "enduranceRegen",
+    "spellShield", "damageShieldMitigation", "stunResist", "clairvoyance", "healAmount",
+    "heroicSTR", "heroicSTA", "heroicAGI", "heroicDEX", "heroicINT", "heroicWIS", "heroicCHA",
+    "svMagic", "svFire", "svCold", "svPoison", "svDisease", "svCorruption",
+    "heroicSvMagic", "heroicSvFire", "heroicSvCold", "heroicSvDisease", "heroicSvPoison", "heroicSvCorruption",
+    "luck", "purity", "baneDMG", "skillModValue", "skillModMax",
+}
+
+-- Item effect kinds, in display order. Shared with tooltip_render.
+local EFFECT_KEYS = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
+
+--- Append effect entries ({key, spellId, spellName, desc, castTime, recastTime}) from itm to ef.
+--- No-op when ctx lacks the spell helpers. Shared by prepareTooltipContent and tooltip_render.
+local function addEffectsFromItem(ctx, ef, itm, keys)
+    if not ctx or not ctx.getItemSpellId or not ctx.getSpellName then return end
+    for _, key in ipairs(keys) do
+        local id = ctx.getItemSpellId(itm, key)
+        if id and id > 0 then
+            local spellName = ctx.getSpellName(id)
+            if spellName and spellName ~= "" then
+                local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
+                local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
+                local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
+                ef[#ef + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+            end
+        end
+    end
 end
 
 -- Augment slot type ID to display name (in-game style). Extended to match default Item Display.
@@ -75,7 +106,8 @@ local AUGMENT_SLOT_COUNT = 4
 
 --- Core: build augment slot lines from item TLO (slots 1-4 only; slot 5 is ornament, shown separately).
 local function getAugmentSlotLinesFromIt(it, augSlots)
-    if not it or not it.ID or it.ID() == 0 then return nil end
+    local itId = it and it.ID and it.ID()
+    if (tonumber(itId) or 0) == 0 then return nil end
     local numSlots = (it and itemHelpers.getStandardAugSlotsCountFromTLO(it)) or 0
     if numSlots == 0 then
         local hasOrnament = itemHelpers.itemHasOrnamentSlot(it)
@@ -135,12 +167,14 @@ end
 local function getSocketItemStats(it, bag, slot, source, socketIndex)
     if not it or not it.Item or not bag or not slot or not source or not socketIndex then return nil end
     local ok, socketTLO = pcall(function() return it.Item(socketIndex) end)
-    if not ok or not socketTLO or not socketTLO.ID or socketTLO.ID() == 0 then return nil end
+    local sockId = ok and socketTLO and socketTLO.ID and socketTLO.ID()
+    if (tonumber(sockId) or 0) == 0 then return nil end
     return itemHelpers.buildItemFromMQ(socketTLO, bag, slot, source, socketIndex)
 end
 
 local function getOrnamentFromIt(it)
-    if not it or not it.ID or it.ID() == 0 then return nil end
+    local itId = it and it.ID and it.ID()
+    if (tonumber(itId) or 0) == 0 then return nil end
     if itemHelpers.getSlotType(it, ORNAMENT_SLOT_INDEX) ~= 20 then
         local okO, ornamentObj = pcall(function() return it.Ornament end)
         if okO and ornamentObj then
@@ -231,6 +265,17 @@ local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts
     return left, right
 end
 
+--- Cache key for (item, opts): id/bag/slot/source/socketIndex — must stay in sync with how
+--- prepareTooltipContent derives those values.
+local function tooltipCacheKey(item, opts)
+    local source = opts.source or (item and item.source) or "inv"
+    local bag = item.bag ~= nil and item.bag or opts.bag
+    local slot = item.slot ~= nil and item.slot or opts.slot
+    local socketIndex = opts.socketIndex or 0
+    local id = item.id or 0
+    return tostring(id) .. "\0" .. tostring(bag or -1) .. "\0" .. tostring(slot or -1) .. "\0" .. tostring(source) .. "\0" .. tostring(socketIndex)
+end
+
 --- Pre-warm item, build effects, and estimate tooltip size. Returns effects, width, height.
 function M.prepareTooltipContent(item, ctx, opts)
     if not item then return {}, tooltip_layout.TOOLTIP_MIN_WIDTH, 400 end
@@ -238,9 +283,7 @@ function M.prepareTooltipContent(item, ctx, opts)
     local source = opts.source or (item and item.source) or "inv"
     local bag = item.bag ~= nil and item.bag or opts.bag
     local slot = item.slot ~= nil and item.slot or opts.slot
-    local socketIndex = opts.socketIndex or 0
-    local id = item.id or 0
-    local cacheKey = tostring(id) .. "\0" .. tostring(bag or -1) .. "\0" .. tostring(slot or -1) .. "\0" .. tostring(source) .. "\0" .. tostring(socketIndex)
+    local cacheKey = tooltipCacheKey(item, opts)
     local cached = tooltipCache[cacheKey]
     if cached then
         opts.tooltipColWidth = tooltip_layout.TOOLTIP_COL_WIDTH
@@ -261,32 +304,27 @@ function M.prepareTooltipContent(item, ctx, opts)
         local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
         if ok and sockIt then it = sockIt end
     end
-    local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
     local effects = {}
-    local function addEffectsFromItem(ef, itm, keys)
-        if not ctx or not ctx.getItemSpellId or not ctx.getSpellName then return end
-        for _, key in ipairs(keys) do
-            local id = ctx.getItemSpellId(itm, key)
-            if id and id > 0 then
-                local spellName = ctx.getSpellName(id)
-                if spellName and spellName ~= "" then
-                    local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
-                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
-                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
-                    ef[#ef + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
+    addEffectsFromItem(ctx, effects, item, EFFECT_KEYS)
+    -- Merge socket contributions once here (entry is cached until the next scan): effect
+    -- entries plus augStats (summed numeric stats) and augLines (slot rows) consumed by
+    -- tooltip_render, so an augmented-item hover does not re-walk AugSlot TLOs every frame.
+    local augStats = nil
+    if parentIt and bag ~= nil and slot ~= nil and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
+        augStats = {}
+        for sockIdx = 1, item.augSlots do
+            local socketItem = getSocketItemStats(parentIt, bag, slot, source, sockIdx)
+            if socketItem then
+                if sockIdx <= 5 then addEffectsFromItem(ctx, effects, socketItem, EFFECT_KEYS) end
+                for _, field in ipairs(STAT_MERGE_FIELDS) do
+                    local v = tonumber(socketItem[field])
+                    if v and v ~= 0 then augStats[field] = (augStats[field] or 0) + v end
                 end
             end
         end
     end
-    if ctx and ctx.getItemSpellId and ctx.getSpellName then
-        addEffectsFromItem(effects, item, effectKeys)
-        if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
-            for socketIndex = 1, math.min(5, item.augSlots or 0) do
-                local socketItem = getSocketItemStats(parentIt, bag, slot, source, socketIndex)
-                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
-            end
-        end
-    end
+    -- false = computed and none (lets tooltip_render skip its live fallback entirely)
+    local augLines = getAugmentSlotLinesFromIt(it, item.augSlots) or false
     local itemInfoRows = tooltip_layout.getItemInfoRowCount(item)
     local statRows = tooltip_layout.getStatRowCount(item)
     local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHelpers.itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
@@ -294,7 +332,7 @@ function M.prepareTooltipContent(item, ctx, opts)
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     local width, height = tooltip_layout.computeTooltipSize(leftRows, rightRows)
     opts.tooltipColWidth = tooltip_layout.TOOLTIP_COL_WIDTH
-    tooltipCache[cacheKey] = { effects = effects, width = width, height = height }
+    tooltipCache[cacheKey] = { effects = effects, width = width, height = height, augStats = augStats, augLines = augLines }
     if TOOLTIP_CACHE_MAX > 0 then
         local n = 0
         for _ in pairs(tooltipCache) do n = n + 1; if n > TOOLTIP_CACHE_MAX then break end end
@@ -305,6 +343,14 @@ end
 
 function M.invalidateTooltipCache()
     tooltipCache = {}
+end
+
+--- Return the scan-invalidated cache entry for (item, opts), or nil when absent.
+--- Read-only accessor for tooltip_render: entry.augStats and entry.augLines (false = none)
+--- avoid re-walking socket TLOs every frame; callers fall back to live compute when nil.
+function M.getCachedTooltipEntry(item, opts)
+    if not item then return nil end
+    return tooltipCache[tooltipCacheKey(item, opts or {})]
 end
 
 -- Exports for item_tooltip api table and tooltip_render
@@ -320,5 +366,8 @@ M.ORNAMENT_SLOT_INDEX = ORNAMENT_SLOT_INDEX
 M.AUG_TYPE_NAMES = AUG_TYPE_NAMES
 M.AUG_RESTRICTION_NAMES = AUG_RESTRICTION_NAMES
 M.SIZE_NAMES = SIZE_NAMES
+M.STAT_MERGE_FIELDS = STAT_MERGE_FIELDS
+M.EFFECT_KEYS = EFFECT_KEYS
+M.addEffectsFromItem = addEffectsFromItem
 
 return M

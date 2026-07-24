@@ -38,6 +38,16 @@ local function getCursorName()
     return (cur and cur.Name and cur.Name()) or ""
 end
 
+local function getCursorType()
+    local coop = tryCoopUIPlugin()
+    if coop and coop.cursor and coop.cursor.getItemType then
+        local typ = coop.cursor.getItemType()
+        return (typ ~= nil) and typ or ""
+    end
+    local cur = mq.TLO and mq.TLO.Cursor
+    return (cur and cur.Type and cur.Type()) or ""
+end
+
 local function getCursorLink()
     local coop = tryCoopUIPlugin()
     if coop and coop.cursor and coop.cursor.getItemLink then
@@ -58,6 +68,11 @@ local pendingMythicalList = {}
 -- Single parse window: accept list lines until receivingListSince + LIST_PARSE_MS. Header sets currentList (aug/mythical).
 local receivingListSince = nil   -- mq.gettime() when we sent list request(s)
 local currentList = nil         -- "aug" or "mythical", set by last header seen in stream
+-- Once a strict "id=N name=X" line is accepted in the current parse window, reject the loose
+-- colon/dash fallback formats for the rest of the window: the generic chat events (#*#:#*#,
+-- #*#-#*#) also fire on ambient chat ("meet at 5:30" would otherwise become {id=5, name="30"}).
+-- Reset whenever a new parse window opens (request* functions).
+local strictLineSeenInWindow = false
 local lastListSaveAt = nil      -- throttle saveToFile during burst (persist every 200ms)
 local setStatusMessageFn = function() end
 
@@ -118,12 +133,6 @@ local function parseColonDashLine(line)
     if not id or id < 0 then return nil, nil end
     name = (name and name:match("^%s*(.-)%s*$")) or ""
     return id, name
-end
-
-local function parseListLine(line)
-    local id, name = parseIdNameLine(line)
-    if id then return id, name end
-    return parseColonDashLine(line)
 end
 
 -- More permissive: "ID: 123 Name: Foo", "id 123 name Foo", or leading digits then rest as name (for paste/import).
@@ -286,9 +295,20 @@ local function onRerollListLine(line)
     if line:match("^%s*[Tt]otal") then return end
     if not receivingListSince or (now - receivingListSince) >= LIST_PARSE_MS then return end
     if not currentList then return end
-    local id, name = parseListLine(line)
-    if not id then id, name = parseListLineFlexible(line) end
-    if not id then return end
+    local id, name = parseIdNameLine(line)
+    if id then
+        strictLineSeenInWindow = true
+    else
+        -- Fallback formats (colon/dash + flexible). Once a strict line has been accepted this
+        -- window the server clearly uses the strict format, so reject fallbacks entirely;
+        -- otherwise require a plausible item name (>= 3 chars, at least one letter) so ambient
+        -- chat like "meet at 5:30" cannot inject junk entries into the protection sets.
+        if strictLineSeenInWindow then return end
+        id, name = parseColonDashLine(line)
+        if not id then id, name = parseListLineFlexible(line) end
+        if not id then return end
+        if not name or #name < 3 or not name:find("%a") then return end
+    end
     if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
         pendingAddAckCallback()
         pendingAddAckId = nil
@@ -318,6 +338,7 @@ function M.init(deps)
     pendingMythicalList = {}
     receivingListSince = nil
     currentList = nil
+    strictLineSeenInWindow = false
     lastListSaveAt = nil
     pendingAddAckId = nil
     pendingAddAckCallback = nil
@@ -391,6 +412,7 @@ function M.requestAugList()
     augList = {}
     currentList = "aug"
     receivingListSince = mq.gettime()
+    strictLineSeenInWindow = false
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_LIST or "!auglist"))
     setStatusMessageFn("Requesting augment list...")
 end
@@ -400,6 +422,7 @@ function M.requestMythicalList()
     mythicalList = {}
     currentList = "mythical"
     receivingListSince = mq.gettime()
+    strictLineSeenInWindow = false
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_LIST or "!mythicallist"))
     setStatusMessageFn("Requesting mythical list...")
 end
@@ -408,6 +431,7 @@ end
 function M.requestBothLists()
     currentList = nil
     receivingListSince = mq.gettime()
+    strictLineSeenInWindow = false
     mq.cmd("/say " .. (REROLL.COMMAND_AUG_LIST or "!auglist"))
     mq.cmd("/say " .. (REROLL.COMMAND_MYTHICAL_LIST or "!mythicallist"))
     setStatusMessageFn("Requesting lists...")
@@ -618,6 +642,14 @@ local function getMythIdSet()
     return s
 end
 
+--- Return the cached ID set for a server list table (augList or mythicalList); nil for other tables.
+--- Lets views test membership without rebuilding a set every frame. Read-only for callers.
+function M.getListIdSet(listEntries)
+    if listEntries == augList then return getAugIdSet() end
+    if listEntries == mythicalList then return getMythIdSet() end
+    return nil
+end
+
 --- Count how many inventory/bank items are on the list (every instance counts).
 --- Uses cached ID sets for O(1) per-item lookup.
 function M.countInInventory(listEntries, inventoryItems)
@@ -637,6 +669,26 @@ function M.countInInventory(listEntries, inventoryItems)
         if id and listIds[id] then count = count + 1 end
     end
     return count
+end
+
+--- Single source of truth for reroll routing: which list does an item belong on?
+--- "mythical" when the trimmed name starts with the Mythical prefix (same semantics as the
+--- augments view's prefix check), else "aug" for Augmentation-type items, else nil (not
+--- reroll-eligible). Takes plain values (not an item table) so callers with partial rows can use it.
+function M.resolveListForItem(name, itemType)
+    local prefix = REROLL.MYTHICAL_NAME_PREFIX or "Mythical"
+    local nameKey = (name or ""):match("^%s*(.-)%s*$") or ""
+    if nameKey ~= "" and nameKey:sub(1, #prefix) == prefix then return "mythical" end
+    local typeTrim = (itemType or ""):match("^%s*(.-)%s*$") or ""
+    if typeTrim == (REROLL.AUGMENT_TYPE_NAME or "Augmentation") then return "aug" end
+    return nil
+end
+
+--- Resolve the reroll list for the item currently on the cursor ("aug"/"mythical"/nil).
+function M.resolveCursorList()
+    local name = getCursorName()
+    if not name or name == "" then return nil end
+    return M.resolveListForItem(name, getCursorType())
 end
 
 --- Return whether cursor item name starts with Mythical (for mythical track).

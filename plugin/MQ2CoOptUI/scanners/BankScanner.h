@@ -24,9 +24,11 @@ class BankScanner {
 
   // Return cached items (or fresh scan if bank window is open).
   // force=true rescans even if the window is closed (for /cooptui scan bank).
+  // When the window is open and force=false, a cheap id/stack fingerprint
+  // check skips the full populate scan if bank content is unchanged.
   const std::vector<core::CoOptItemData>& Scan(bool force = false);
 
-  // True if the snapshot changed on the last Scan() call.
+  // True if the bank fingerprint changed on the last Scan() call.
   bool HasChanged() const { return changed_; }
 
   // Time (ms since epoch) when the last successful scan completed.
@@ -41,9 +43,11 @@ class BankScanner {
  private:
   BankScanner() = default;
 
+  uint64_t ComputeFingerprint() const;
   void DoScan();
 
   std::vector<core::CoOptItemData> snapshot_;  // retained after bank closes
+  uint64_t lastFingerprint_ = 0;
   uint64_t lastScanTimeMs_ = 0;
   bool changed_ = false;
 };

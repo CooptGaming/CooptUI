@@ -7,7 +7,6 @@
 local mq = require('mq')
 local itemHelpers = require('itemui.utils.item_helpers')
 local constants = require('itemui.constants')
-local dbg = require('itemui.core.debug').channel('Augment')
 
 local M = {}
 local deps  -- set by init()
@@ -84,40 +83,8 @@ end
 -- Insert: state machine (phase_pickup -> settle -> inspect | /insertaug -> wait_display_open -> click_socket -> wait_confirm)
 -- ============================================================================
 
-function M.insertAugment(targetItem, augmentItem, slotIndex, targetBag, targetSlot, targetSource)
-    if not targetItem or not augmentItem then
-        deps.setStatusMessage("No target or augment selected.")
-        return false
-    end
-    local src = (augmentItem.source or "inv"):lower()
-    local bag = augmentItem.bag or 0
-    local slot = augmentItem.slot or 0
-    if bag <= 0 or slot <= 0 then
-        deps.setStatusMessage("Invalid augment location.")
-        return false
-    end
-    if src == "bank" and deps.isBankWindowOpen and not deps.isBankWindowOpen() then
-        deps.setStatusMessage("Open bank first to use augment from bank.")
-        return false
-    end
-    if deps.hasItemOnCursor and deps.hasItemOnCursor() then
-        deps.setStatusMessage("Clear cursor first.")
-        return false
-    end
-    state.pendingInsertAugment = {
-        targetItem = targetItem,
-        augmentItem = augmentItem,
-        slotIndex = slotIndex,
-        targetBag = targetBag,
-        targetSlot = targetSlot,
-        targetSource = targetSource,
-        phase = "pickup",
-    }
-    dbg.log(string.format("Insert augment: %s into %s slot %d",
-        augmentItem.name or "?", targetItem.name or "?", slotIndex or 0))
-    return true
-end
-
+-- Note: inserts are started by app.lua's ctx.insertAugment, which writes the
+-- pendingInsertAugment queue entry directly (proxied to this module's state).
 function M.advanceInsert(now)
     local pa = state.pendingInsertAugment
     if not pa then return end
@@ -222,27 +189,8 @@ end
 -- Remove: state machine (phase_inspect -> wait_display_open -> click_socket -> settle -> click_remove -> wait_confirm)
 -- ============================================================================
 
-function M.removeAugment(bag, slot, source, slotIndex)
-    if not bag or not slot or not source or not slotIndex or slotIndex < 1 or slotIndex > 6 then
-        deps.setStatusMessage("Invalid slot for remove.")
-        return false
-    end
-    local it = deps.getItemTLO and deps.getItemTLO(bag, slot, source)
-    if not it or not it.Inspect then
-        deps.setStatusMessage("Could not get item to inspect.")
-        return false
-    end
-    state.pendingRemoveAugment = {
-        bag = bag,
-        slot = slot,
-        source = source,
-        slotIndex = slotIndex,
-        phase = "inspect",
-    }
-    dbg.log(string.format("Remove augment: bag %d slot %d source %s augSlot %d", bag, slot, source or "?", slotIndex))
-    return true
-end
-
+-- Note: removes are started by app.lua's ctx.removeAugment, which writes the
+-- pendingRemoveAugment queue entry directly (proxied to this module's state).
 function M.advanceRemove(now)
     local ra = state.pendingRemoveAugment
     if not ra then return end
@@ -278,8 +226,8 @@ function M.advanceRemove(now)
 
     if phase == "settle_after_click" then
         if (now - (ra.phaseEnteredAt or 0)) < REMOVE_AFTER_RIGHTCLICK_MS then return end
-        ra.phase = "wait_confirm"
-        ra.phaseEnteredAt = now
+        -- Hand-off to the waitingForRemoveConfirmation flag; the queue entry is discarded
+        -- below, so no phase transition is written (mirrors advanceInsert).
         if deps.setWaitingForRemoveConfirmation then deps.setWaitingForRemoveConfirmation(true) end
         state.removeConfirmationSetAt = now
         state.pendingRemoveAugment = nil

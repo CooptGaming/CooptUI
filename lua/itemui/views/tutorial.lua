@@ -58,14 +58,13 @@ local function renderWelcomeScreen(refs)
     for _, r in ipairs(envResults) do
         if r.status == "failed" then hasFailure = true; break end
     end
-    local envAllValid = not hasFailure and #envResults > 0
 
     ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Welcome to CoOpt UI")
     ImGui.Separator()
     ImGui.TextWrapped("Your unified inventory, sell, loot, and augment companion.")
     ImGui.Spacing()
-    -- Environment checklist (collapsible if all valid)
-    if ImGui.CollapsingHeader("Environment check", envAllValid and ImGuiTreeNodeFlags.DefaultOpen or ImGuiTreeNodeFlags.None) then
+    -- Environment checklist (open by default when something failed, collapsed when all valid)
+    if ImGui.CollapsingHeader("Environment check", hasFailure and ImGuiTreeNodeFlags.DefaultOpen or ImGuiTreeNodeFlags.None) then
         for _, r in ipairs(envResults) do
             if r.status == "valid" then
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Success), "  [OK] ")
@@ -86,12 +85,24 @@ local function renderWelcomeScreen(refs)
                 end
             end
         end
-        if hasFailure then
-            ImGui.Spacing()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Fix the failed items (create folders or run from your MacroQuest root) or acknowledge below to continue.")
-            if ImGui.Button("I Understand, Continue##WelcomeEnvAck", ImVec2(200, 0)) then
-                uiState.welcomeEnvAcknowledged = true
-            end
+    end
+    -- Failure controls live below the header (not inside it) so they stay visible even
+    -- when the checklist is collapsed.
+    if hasFailure then
+        ImGui.Spacing()
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Fix the failed items (create folders or run from your MacroQuest root) or acknowledge below to continue.")
+        if ImGui.Button("Re-check##WelcomeEnvRecheck", ImVec2(90, 0)) then
+            uiState.welcomeEnvResults = nil        -- validate() reruns next frame
+            uiState.welcomeEnvAcknowledged = false
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Run the environment checks again (after fixing folders/files).")
+            ImGui.EndTooltip()
+        end
+        ImGui.SameLine()
+        if ImGui.Button("I Understand, Continue##WelcomeEnvAck", ImVec2(200, 0)) then
+            uiState.welcomeEnvAcknowledged = true
         end
     end
     ImGui.Spacing()
@@ -425,9 +436,17 @@ local function renderSetupBar(refs)
         if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 8 end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open all companion windows and continue"); ImGui.EndTooltip() end
     elseif step == 8 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 7 end
+        -- Leaving step 8 (either direction) clears the opened-once flag so re-entering
+        -- step 8 re-opens all companion windows instead of showing a stale "now open" prompt.
+        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then
+            uiState.setupCompanionsOpenedAtStep8 = false
+            uiState.setupStep = 7
+        end
         ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 9 end
+        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
+            uiState.setupCompanionsOpenedAtStep8 = false
+            uiState.setupStep = 9
+        end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Protection overview"); ImGui.EndTooltip() end
     elseif step == 9 then
         if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 8 end

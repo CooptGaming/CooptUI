@@ -2,8 +2,9 @@
     Reroll Companion — UI for server Augment and Mythical reroll lists.
     Architecture: New companion window (like Augments/Bank) with two internal tabs:
     Augments and Mythicals. Each tab shows the server list, inventory match counter,
-    and actions (Add from Cursor, Remove, Roll, Refresh). Fits CoOpt UI's existing
-    companion pattern and design language.
+    and actions (Add to Reroll from Cursor — auto-routes to the aug or mythical list
+    by item, Remove, Roll, Refresh). Fits CoOpt UI's existing companion pattern and
+    design language.
 ]]
 
 local mq = require('mq')
@@ -95,11 +96,17 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.EndTooltip()
     end
 
-    -- Action buttons row
+    -- Action buttons row. Add auto-routes by cursor item: Mythical-prefixed -> mythical list,
+    -- augments -> aug list (resolveCursorList in reroll_service; nil = not reroll-eligible).
     local hasCursor = ctx.hasItemOnCursor and ctx.hasItemOnCursor()
-    local cursorOnList = rerollService.isCursorIdInList(list)
-    local cursorValid = hasCursor and (isAug or rerollService.isCursorMythical())
-    local addDisabled = not hasCursor or cursorOnList or not cursorValid
+    local cursorList = nil
+    if hasCursor and rerollService.resolveCursorList then cursorList = rerollService.resolveCursorList() end
+    local cursorOnList = false
+    if cursorList then
+        local destEntries = (cursorList == "aug") and rerollService.getAugList() or rerollService.getMythicalList()
+        cursorOnList = rerollService.isCursorIdInList(destEntries)
+    end
+    local addDisabled = not hasCursor or not cursorList or cursorOnList or (ctx.uiState.pendingRerollAdd ~= nil)
     local rollDisabled = combinedCount < ITEMS_REQUIRED or isMovingFromBank
 
     ImGui.SameLine()
@@ -108,20 +115,30 @@ local function renderTabContent(ctx, track, rerollService)
     else
         theme.PushKeepButton(false)
     end
-    local addLabel = "Add (from Cursor)##" .. track
-    if ImGui.Button(addLabel, ImVec2(120, 0)) then
-        if isAug then rerollService.addAugFromCursor() else rerollService.addMythicalFromCursor() end
-        if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
-        if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
-        if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
-        if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
+    local addLabel = "Add to Reroll (from Cursor)##" .. track
+    if ImGui.Button(addLabel, ImVec2(170, 0)) then
+        -- Re-check the disable gate on click (styled-disabled buttons still emit clicks), same as Roll/Sync.
+        if not addDisabled then
+            if cursorList == "aug" then rerollService.addAugFromCursor() else rerollService.addMythicalFromCursor() end
+            if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
+            if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
+            if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
+            if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
+        end
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        if not hasCursor then ImGui.Text("Place an item on your cursor first.") end
-        if hasCursor and cursorOnList then ImGui.Text("This item is already on the list.") end
-        if hasCursor and not cursorValid and not isAug then ImGui.Text("Cursor item must be a Mythical (name starts with Mythical).") end
-        if cursorValid and not cursorOnList then ImGui.Text("Add cursor item to the list.") end
+        if not hasCursor then
+            ImGui.Text("Place an item on your cursor first.")
+        elseif not cursorList then
+            ImGui.Text("Cursor item is not reroll-eligible (needs an augment or a Mythical-prefixed item).")
+        elseif cursorOnList then
+            ImGui.Text("This item is already on the list.")
+        elseif ctx.uiState.pendingRerollAdd then
+            ImGui.Text("Another add is in progress.")
+        else
+            ImGui.Text(string.format("Auto-routes by item: adds the cursor item to the %s list, whichever tab is active.", (cursorList == "mythical") and "mythical" or "augment"))
+        end
         ImGui.EndTooltip()
     end
     theme.PopButtonColors()
@@ -363,24 +380,33 @@ local function renderTabContent(ctx, track, rerollService)
             sorted = sc.result
         end
 
-        for i, entry in ipairs(sorted) do
+        -- One id -> item map per frame (first match wins, like the old per-row linear scans)
+        local invById, bankById = {}, {}
+        for _, inv in ipairs(inventoryItems) do
+            local iid = inv.id or inv.ID
+            if iid and not invById[iid] then invById[iid] = inv end
+        end
+        for _, bn in ipairs(bankList) do
+            local bid = bn.id or bn.ID
+            if bid and not bankById[bid] then bankById[bid] = bn end
+        end
+
+        local clipper = ImGuiListClipper.new()
+        clipper:Begin(#sorted)
+        while clipper:Step() do
+        for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+            local entry = sorted[i]
+            if not entry then goto continue end
             ImGui.TableNextRow()
             local inInv = inInvSet[entry.id] == true
             local inBank = inBankSet[entry.id] == true
             -- Row ID must include index so duplicate list entries (same item twice) get unique ImGui IDs
             local rowId = "reroll_" .. track .. "_" .. tostring(i) .. "_" .. tostring(entry.id)
-            -- Resolve inv/bank item for tooltip and shared context menu
-            local invItem, bankItem, tipItem, tipSource = nil, nil, nil, nil
-            for _, inv in ipairs(inventoryItems) do
-                if (inv.id or inv.ID) == entry.id then invItem = inv; break end
-            end
-            if not invItem then
-                for _, bn in ipairs(bankList) do
-                    if (bn.id or bn.ID) == entry.id then bankItem = bn; break end
-                end
-            end
-            tipItem = invItem or bankItem
-            tipSource = invItem and "inv" or "bank"
+            -- Resolve inv/bank item for tooltip and shared context menu (id map, not linear scan)
+            local invItem = invById[entry.id]
+            local bankItem = (not invItem) and bankById[entry.id] or nil
+            local tipItem = invItem or bankItem
+            local tipSource = invItem and "inv" or "bank"
             local menuItem = { name = entry.name, id = entry.id, type = isAug and AUGMENT_TYPE or nil }
             if tipItem then menuItem.bag = tipItem.bag; menuItem.slot = tipItem.slot; menuItem.inKeep = tipItem.inKeep; menuItem.inJunk = tipItem.inJunk end
 
@@ -451,6 +477,8 @@ local function renderTabContent(ctx, track, rerollService)
             else
                 theme.TextMuted("\xe2\x80\x94")
             end
+            ::continue::
+        end
         end
         ImGui.EndTable()
     end
@@ -468,7 +496,8 @@ local function renderTabContent(ctx, track, rerollService)
             if name:sub(1, #prefix) == prefix then table.insert(invFiltered, it) end
         end
     end
-    local listIds = listIdSet(list)
+    -- Prefer the service's generation-cached id set; fall back to a per-frame build.
+    local listIds = (rerollService.getListIdSet and rerollService.getListIdSet(list)) or listIdSet(list)
     local pendingIds = pendingIdSet or {}
 
     ImGui.Spacing()

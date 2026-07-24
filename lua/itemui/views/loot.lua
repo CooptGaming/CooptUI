@@ -79,8 +79,7 @@ function LootView.render(ctx)
             local lootStatusText = it.lootReason or (it.willLoot and "Loot" or "Skip")
             local lootStatusColor = it.willLoot and ctx.theme.ToVec4(ctx.theme.Colors.Success) or ctx.theme.ToVec4(ctx.theme.Colors.Error)
             if lootStatusText == "Epic" then
-                lootStatusText = "EpicQuest"
-                lootStatusColor = ctx.theme.ToVec4(ctx.theme.Colors.EpicQuest or ctx.theme.Colors.Muted)
+                lootStatusText, lootStatusColor = ctx.formatSellStatus("Epic", false, ctx.theme)
             end
             ImGui.TextColored(lootStatusColor, lootStatusText)
             ImGui.TableNextColumn()

@@ -593,28 +593,40 @@ sub AddToEpicChunks(string list)
     /if (${epicChunkIdx} == 1) {
         /if (${epicExact.Length} > 0 && ${Math.Calc[${epicExact.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 2
         /if (${epicChunkIdx} == 1) {
-            /if (${epicExact.Length} > 0) /varset epicExact ${epicExact}/${list}
-            /else /varset epicExact ${list}
+            /if (${epicExact.Length} > 0) {
+                /varset epicExact ${epicExact}/${list}
+            } else {
+                /varset epicExact ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 2) {
         /if (${epicExact2.Length} > 0 && ${Math.Calc[${epicExact2.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 3
         /if (${epicChunkIdx} == 2) {
-            /if (${epicExact2.Length} > 0) /varset epicExact2 ${epicExact2}/${list}
-            /else /varset epicExact2 ${list}
+            /if (${epicExact2.Length} > 0) {
+                /varset epicExact2 ${epicExact2}/${list}
+            } else {
+                /varset epicExact2 ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 3) {
         /if (${epicExact3.Length} > 0 && ${Math.Calc[${epicExact3.Length}+1+${list.Length}]} > 2040) /varset epicChunkIdx 4
         /if (${epicChunkIdx} == 3) {
-            /if (${epicExact3.Length} > 0) /varset epicExact3 ${epicExact3}/${list}
-            /else /varset epicExact3 ${list}
+            /if (${epicExact3.Length} > 0) {
+                /varset epicExact3 ${epicExact3}/${list}
+            } else {
+                /varset epicExact3 ${list}
+            }
         }
     }
     /if (${epicChunkIdx} == 4) {
         /if (${epicExact4.Length} > 0 && ${Math.Calc[${epicExact4.Length}+1+${list.Length}]} > 2040) /return
-        /if (${epicExact4.Length} > 0) /varset epicExact4 ${epicExact4}/${list}
-        /else /varset epicExact4 ${list}
+        /if (${epicExact4.Length} > 0) {
+            /varset epicExact4 ${epicExact4}/${list}
+        } else {
+            /varset epicExact4 ${list}
+        }
     }
 /return
 
@@ -624,10 +636,7 @@ sub AddToEpicChunks(string list)
 sub ProcessSellItem(int bag, int slot, string reason)
     /varcalc sellCount ${sellCount}+1
     /varcalc totalValue ${totalValue}+${itemValue}
-    
-    | Log the sale
-    /call LogItem "sell" "${itemName}" ${itemValue} "${reason}"
-    
+
     /if (${doConfirm}) {
         | totalToSell already set by count pass; only update soldCount and WriteProgress after each sell
         /echo [SELLING] ${itemName} x${stackCount} - ${reason}
@@ -682,6 +691,8 @@ sub ProcessSellItem(int bag, int slot, string reason)
             /call LogFailedItem "${itemName}"
         } else {
             /varcalc soldCount ${soldCount}+1
+            | Log the sale (only after verified sale - slot is empty; preview/dry runs never log)
+            /call LogItem "sell" "${itemName}" ${itemValue} "${reason}"
             /if (${pluginLoaded}) /squelch /cooptui ipc send sell_item "${itemName}|${itemValue}|${stackCount}"
         }
         /call WriteProgress

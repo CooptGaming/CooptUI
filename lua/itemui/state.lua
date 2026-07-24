@@ -12,7 +12,7 @@ local C = constants.buildC(CoopVersion.ITEMUI)
 
 -- Scalars
 local isOpen, shouldDraw, terminate = true, false, false
-local transferStampPath, lastTransferStamp = nil, 0
+local transferStampPath = nil
 local lastInventoryWindowState, lastBankWindowState, lastMerchantState, lastLootWindowState = false, false, false, false
 local statsTabPrimeState, statsTabPrimeAt = nil, 0
 local statsTabPrimedThisSession = false
@@ -175,6 +175,9 @@ local scanState = {
     lastScanState = { invOpen = false, bankOpen = false, merchOpen = false, lootOpen = false },
     lastBagFingerprints = {},
     nextAcquiredSeq = 1,
+    --- Session floor for the Inventory "NEW" badge: stamped once at startup (snapshot restore
+    --- or after the initial scan); items with acquiredSeq >= this were acquired this session.
+    sessionStartAcquiredSeq = nil,
     lastGetChangedBagsTime = 0,
     inventoryBagsDirty = false,
     --- Task 6.3: set when computeAndAttachSellStatus runs; cleared when a scan updates item lists. Used to skip redundant status computation.
@@ -188,7 +191,6 @@ return {
     shouldDraw = shouldDraw,
     terminate = terminate,
     transferStampPath = transferStampPath,
-    lastTransferStamp = lastTransferStamp,
     lastInventoryWindowState = lastInventoryWindowState,
     lastBankWindowState = lastBankWindowState,
     lastMerchantState = lastMerchantState,

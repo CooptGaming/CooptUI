@@ -12,40 +12,47 @@ local function bagSlotKey(item)
     return (item and (item.bag or 0)) .. ":" .. (item and (item.slot or 0) or 0)
 end
 
---- Return true if a should sort before b (same contract as comparator used in full sort).
-local function lessThan(Sort, viewName, sortKey, sortDir, a, b)
-    if not a or not b then return false end
+--- Build "a sorts before b" predicate for this view/key/dir (same contract as comparator used in full sort).
+--- Hoisted so comparator/key setup runs once per build instead of once per binary-search probe.
+local function makeLessThan(Sort, viewName, sortKey, sortDir)
     local dir = sortDir or ImGuiSortDirection.Ascending
     if viewName == "Sell" and type(sortKey) == "number" and sortKey >= 3 and sortKey <= 7 then
         local comp = Sort.makeComparator and Sort.makeComparator(Sort.getSellSortVal, sortKey, dir, { 5, 6 })
-        return comp and comp(a, b)
+        return function(a, b)
+            if not a or not b then return false end
+            return comp and comp(a, b)
+        end
     end
     local keyStr = type(sortKey) == "string" and sortKey or "Name"
     local isNumeric = Sort.isNumericColumn and Sort.isNumericColumn(keyStr)
-    local av = Sort.getSortValByKey and Sort.getSortValByKey(a, keyStr, viewName) or ""
-    local bv = Sort.getSortValByKey and Sort.getSortValByKey(b, keyStr, viewName) or ""
-    if isNumeric then
-        local an, bn = tonumber(av) or 0, tonumber(bv) or 0
-        if an ~= bn then
-            if dir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+    return function(a, b)
+        if not a or not b then return false end
+        local av = Sort.getSortValByKey and Sort.getSortValByKey(a, keyStr, viewName) or ""
+        local bv = Sort.getSortValByKey and Sort.getSortValByKey(b, keyStr, viewName) or ""
+        if isNumeric then
+            local an, bn = tonumber(av) or 0, tonumber(bv) or 0
+            if an ~= bn then
+                if dir == ImGuiSortDirection.Ascending then return an < bn else return an > bn end
+            end
+        else
+            local as, bs = tostring(av or ""), tostring(bv or "")
+            if as ~= bs then
+                if dir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
+            end
         end
-    else
-        local as, bs = tostring(av or ""), tostring(bv or "")
-        if as ~= bs then
-            if dir == ImGuiSortDirection.Ascending then return as < bs else return as > bs end
-        end
+        local ta = (a.bag or 0) * 1000 + (a.slot or 0)
+        local tb = (b.bag or 0) * 1000 + (b.slot or 0)
+        if dir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
     end
-    local ta = (a.bag or 0) * 1000 + (a.slot or 0)
-    local tb = (b.bag or 0) * 1000 + (b.slot or 0)
-    if dir == ImGuiSortDirection.Ascending then return ta < tb else return ta > tb end
 end
 
---- Binary search: return lowest index i such that lessThan(newItem, cache.sorted[i]) (insert before i).
+--- Binary search: return lowest index i such that newItem sorts before sorted[i] (insert before i).
 local function binarySearchInsertIndex(Sort, viewName, sortKey, sortDir, sorted, newItem)
+    local lessThan = makeLessThan(Sort, viewName, sortKey, sortDir)
     local lo, hi = 1, #sorted + 1
     while lo < hi do
         local mid = math.floor((lo + hi) / 2)
-        if lessThan(Sort, viewName, sortKey, sortDir, newItem, sorted[mid]) then
+        if lessThan(newItem, sorted[mid]) then
             hi = mid
         else
             lo = mid + 1
@@ -148,17 +155,23 @@ function M.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, 
         end
     end
 
-    -- Recompute: full sort filtered in place and update cache
-    if viewName == "Sell" and type(sortKey) == "number" and sortKey >= 3 and sortKey <= 7 then
-        local comp = Sort.makeComparator and Sort.makeComparator(Sort.getSellSortVal, sortKey, dir, { 5, 6 })
-        if comp then
-            table.sort(filtered, comp)
+    -- Recompute: full sort filtered in place and update cache (Schwartzian: keys computed once per item, not per comparison)
+    do
+        local isNumeric, decorated
+        if viewName == "Sell" and type(sortKey) == "number" and sortKey >= 3 and sortKey <= 7 then
+            isNumeric = (sortKey == 5 or sortKey == 6)  -- Value, Stack (same as numericCols {5, 6} in makeComparator path)
+            if Sort.getSellSortVal then
+                decorated = {}
+                for i, item in ipairs(filtered) do
+                    decorated[i] = { item = item, key = Sort.getSellSortVal(item, sortKey) }
+                end
+            end
+        else
+            local keyStr = type(sortKey) == "string" and sortKey or "Name"
+            isNumeric = Sort.isNumericColumn and Sort.isNumericColumn(keyStr)
+            decorated = Sort.precomputeKeys and Sort.precomputeKeys(filtered, keyStr, viewName)
         end
-    else
-        local keyStr = type(sortKey) == "string" and sortKey or "Name"
-        local isNumeric = Sort.isNumericColumn and Sort.isNumericColumn(keyStr)
-        local decorated = Sort.precomputeKeys and Sort.precomputeKeys(filtered, keyStr, viewName)
-        if decorated then
+        if decorated and Sort.undecorate then
             table.sort(decorated, function(a, b)
                 local av, bv = a.key, b.key
                 if isNumeric then

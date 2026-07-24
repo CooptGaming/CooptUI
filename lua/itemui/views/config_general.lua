@@ -7,11 +7,35 @@ local mq = require('mq')
 require('ImGui')
 
 local ConfigFilters = require('itemui.views.config_filters')
+local events = require('itemui.core.events')
 
 local KEYBIND_DEBOUNCE_MS = 800
 local registry = require('itemui.core.registry')
 
 local ConfigGeneral = {}
+
+-- Debounced numeric InputText (same idea as the keybind debounce below): the in-progress
+-- text is held per field and the parsed number is returned once, after ~500ms idle or when
+-- the field loses focus after an edit — so typing "500" doesn't apply 5, then 50, then 500
+-- (three INI writes + cache invalidations). Returns nil while no value is ready to apply.
+local VALUE_DEBOUNCE_MS = 500
+local numericFieldPending = {}  -- [inputId] = { text = in-progress text, at = ms of last edit }
+
+local function debouncedNumericInput(id, currentValue)
+    local pend = numericFieldPending[id]
+    local buf = pend and pend.text or tostring(currentValue)
+    local txt, changed = ImGui.InputText(id, buf, ImGuiInputTextFlags.CharsDecimal)
+    if changed then
+        pend = { text = txt, at = mq.gettime() }
+        numericFieldPending[id] = pend
+    end
+    local deactivated = ImGui.IsItemDeactivatedAfterEdit and ImGui.IsItemDeactivatedAfterEdit()
+    if pend and (deactivated or (mq.gettime() - pend.at) >= VALUE_DEBOUNCE_MS) then
+        numericFieldPending[id] = nil
+        return tonumber(pend.text)
+    end
+    return nil
+end
 
 function ConfigGeneral.render(ctx)
     local uiState = ctx.uiState
@@ -241,12 +265,10 @@ function ConfigGeneral.render(ctx)
             layoutConfig.ItemUIToggleKey = raw
             scheduleLayoutSave()
             filterState.keybindDebounceAt = mq.gettime()
-            filterState.keybindDebounceValue = raw
         end
         -- Debounce: apply bind only after user stops typing (avoids errors on each keystroke)
         if filterState.keybindDebounceAt and (mq.gettime() - filterState.keybindDebounceAt) >= KEYBIND_DEBOUNCE_MS then
             filterState.keybindDebounceAt = nil
-            filterState.keybindDebounceValue = nil
             if ctx.applyItemUIToggleBind then
                 ctx.applyItemUIToggleBind()
                 local key = ctx.getItemUIToggleKeyDisplay and ctx.getItemUIToggleKeyDisplay()
@@ -318,9 +340,7 @@ function ConfigGeneral.render(ctx)
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("1 platinum = 1000 copper"); ImGui.EndTooltip() end
         ImGui.Text("Min value (single)")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        local vs = tostring(configSellValues.minSell)
-        vs, _ = ImGui.InputText("Min value (single)##SellMin", vs, ImGuiInputTextFlags.CharsDecimal)
-        local n = tonumber(vs)
+        local n = debouncedNumericInput("Min value (single)##SellMin", configSellValues.minSell)
         if n and n ~= configSellValues.minSell then
             configSellValues.minSell = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValue", tostring(configSellValues.minSell))
@@ -330,9 +350,7 @@ function ConfigGeneral.render(ctx)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minSell))
         ImGui.Text("Min value (stack)")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        vs = tostring(configSellValues.minStack)
-        vs, _ = ImGui.InputText("Min value (stack)##SellStack", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
+        n = debouncedNumericInput("Min value (stack)##SellStack", configSellValues.minStack)
         if n and n ~= configSellValues.minStack then
             configSellValues.minStack = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValueStack", tostring(configSellValues.minStack))
@@ -342,9 +360,7 @@ function ConfigGeneral.render(ctx)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minStack) .. "/unit")
         ImGui.Text("Max keep value")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        vs = tostring(configSellValues.maxKeep)
-        vs, _ = ImGui.InputText("Max keep value##SellKeep", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
+        n = debouncedNumericInput("Max keep value##SellKeep", configSellValues.maxKeep)
         if n and n ~= configSellValues.maxKeep then
             configSellValues.maxKeep = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "maxKeepValue", tostring(configSellValues.maxKeep))
@@ -360,7 +376,7 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         local function lootFlag(name, key, tooltip)
             local v = ImGui.Checkbox(name, configLootFlags[key])
-            if v ~= configLootFlags[key] then configLootFlags[key] = v; config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+            if v ~= configLootFlags[key] then configLootFlags[key] = v; config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateLootConfigCache(); events.emit(events.EVENTS.CONFIG_LOOT_CHANGED) end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
         end
         lootFlag("Enable loot clickies", "lootClickies", "Loot wearable items with clicky effects")
@@ -391,29 +407,38 @@ function ConfigGeneral.render(ctx)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), tostring(configLootFlags.lootDelayTicks or 3))
         ImGui.Spacing()
         ImGui.Text("Value thresholds (copper)")
-        local vs, n  -- declared once; the value-threshold input fields below reuse these (were accidental globals)
+        local n  -- declared once; the value-threshold input fields below reuse it (was an accidental global)
         ImGui.Text("Min value (non-stack)")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootValues.minLoot)
-        vs, _ = ImGui.InputText("Min loot value##LootMin", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
-        if n and n ~= configLootValues.minLoot then configLootValues.minLoot = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
+        n = debouncedNumericInput("Min loot value##LootMin", configLootValues.minLoot)
+        if n and n ~= configLootValues.minLoot then
+            configLootValues.minLoot = math.max(0, math.floor(n))
+            config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot))
+            invalidateLootConfigCache()
+            events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+        end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minLoot))
         ImGui.Text("Min value (stack)")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootValues.minStack)
-        vs, _ = ImGui.InputText("Min stack value##LootStack", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
-        if n and n ~= configLootValues.minStack then configLootValues.minStack = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
+        n = debouncedNumericInput("Min stack value##LootStack", configLootValues.minStack)
+        if n and n ~= configLootValues.minStack then
+            configLootValues.minStack = math.max(0, math.floor(n))
+            config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack))
+            invalidateLootConfigCache()
+            events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+        end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.minStack) .. "/unit")
         ImGui.Text("Tribute override (0=off)")
         ImGui.SameLine(180); ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootValues.tributeOverride)
-        vs, _ = ImGui.InputText("Tribute override##LootTrib", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
-        if n and n ~= configLootValues.tributeOverride then configLootValues.tributeOverride = math.max(0, math.floor(n)); config.writeLootINIValue("loot_value.ini", "Settings", "tributeOverride", tostring(configLootValues.tributeOverride)) end
+        n = debouncedNumericInput("Tribute override##LootTrib", configLootValues.tributeOverride)
+        if n and n ~= configLootValues.tributeOverride then
+            configLootValues.tributeOverride = math.max(0, math.floor(n))
+            config.writeLootINIValue("loot_value.ini", "Settings", "tributeOverride", tostring(configLootValues.tributeOverride))
+            invalidateLootConfigCache()
+            events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+        end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configLootValues.tributeOverride))
         ImGui.Spacing()
@@ -425,9 +450,7 @@ function ConfigGeneral.render(ctx)
         if v ~= configLootSorting.enableWeightSort then configLootSorting.enableWeightSort = v; config.writeLootINIValue("loot_sorting.ini", "Settings", "enableWeightSort", v and "TRUE" or "FALSE") end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Sort inventory by weight when looting"); ImGui.EndTooltip() end
         ImGui.SetNextItemWidth(120)
-        vs = tostring(configLootSorting.minWeight)
-        vs, _ = ImGui.InputText("Weight threshold##LootWt", vs, ImGuiInputTextFlags.CharsDecimal)
-        n = tonumber(vs)
+        n = debouncedNumericInput("Weight threshold##LootWt", configLootSorting.minWeight)
         if n and n ~= configLootSorting.minWeight then configLootSorting.minWeight = math.max(0, math.floor(n)); config.writeLootINIValue("loot_sorting.ini", "Settings", "minWeight", tostring(configLootSorting.minWeight)) end
         ImGui.SameLine(); ImGui.Text("Weight threshold (tenths)")
         ImGui.SameLine()

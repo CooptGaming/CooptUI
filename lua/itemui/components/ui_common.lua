@@ -17,8 +17,10 @@ local M = {}
 --- @return ImVec4 color for ImGui.TextColored or PushStyleColor(ImGuiCol.Text, color)
 function M.getSellStatusNameColor(ctx, item)
     if not ctx or not item then return ImVec4(1, 1, 1, 1) end
+    -- Fall back to a live status computation only when willSell is unknown.
+    -- Stored rows persist inKeep only when true, so nil inKeep just means "not kept".
     local willSell, inKeep = item.willSell, item.inKeep
-    if willSell == nil or inKeep == nil then
+    if willSell == nil then
         local ok, st, ws, k = pcall(function()
             if ctx.getSellStatusForItem then
                 local statusText, w, inKeepVal, inJunkVal = ctx.getSellStatusForItem(item)
@@ -336,10 +338,11 @@ function M.renderItemContextMenu(ctx, item, opts)
         end
     end
 
-    -- Reroll lists: Augment List / Mythical List
-    local isMythicalEligible = nameKey:sub(1, 8) == "Mythical"
+    -- Reroll list: single Add entry, destination auto-resolved by the item
+    -- (Mythical name prefix -> mythical list, augments -> aug list; nil = not eligible).
     local rerollService = ctx.rerollService
-    if rerollService and nameKey ~= "" and (isAugment or isMythicalEligible) then
+    local resolvedList = ctx.resolveRerollList and ctx.resolveRerollList(item.name, item.type) or nil
+    if rerollService and nameKey ~= "" and resolvedList then
         local augList = rerollService.getAugList and rerollService.getAugList() or {}
         local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
         local itemId = item.id or item.ID
@@ -348,33 +351,28 @@ function M.renderItemContextMenu(ctx, item, opts)
             for _, e in ipairs(augList) do if e.id == itemId then onAugList = true; break end end
             for _, e in ipairs(mythicalList) do if e.id == itemId then onMythicalList = true; break end end
         end
+        local onResolvedList
+        if resolvedList == "mythical" then onResolvedList = onMythicalList else onResolvedList = onAugList end
         ImGui.Separator()
-        if isAugment then
-            if onAugList then
-                if ImGui.MenuItem("Remove from Augment List") then
-                    if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
-                end
-            else
-                if ImGui.MenuItem("Add to Augment List") then
-                    if ctx.requestAddToRerollList then
-                        local payload = (source == "bank") and { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" } or item
-                        ctx.requestAddToRerollList("aug", payload)
-                    end
+        if not onResolvedList then
+            local addLabel = (resolvedList == "mythical") and "Add to Reroll List (Mythical)" or "Add to Reroll List (Aug)"
+            if ImGui.MenuItem(addLabel) then
+                if ctx.requestAddToRerollList then
+                    local payload = (source == "bank") and { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" } or item
+                    ctx.requestAddToRerollList(resolvedList, payload)
                 end
             end
         end
-        if isMythicalEligible then
-            if onMythicalList then
-                if ImGui.MenuItem("Remove from Mythical List") then
-                    if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
-                end
-            else
-                if ImGui.MenuItem("Add to Mythical List") then
-                    if ctx.requestAddToRerollList then
-                        local payload = (source == "bank") and { bag = item.bag, slot = item.slot, id = itemId, name = item.name, source = "bank" } or item
-                        ctx.requestAddToRerollList("mythical", payload)
-                    end
-                end
+        -- Removes stay per-list: membership by id makes the correct list unambiguous
+        -- (an item can sit on either list from before auto-routing).
+        if onAugList then
+            if ImGui.MenuItem("Remove from Reroll List (Aug)") then
+                if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("aug", itemId) end
+            end
+        end
+        if onMythicalList then
+            if ImGui.MenuItem("Remove from Reroll List (Mythical)") then
+                if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList("mythical", itemId) end
             end
         end
     end

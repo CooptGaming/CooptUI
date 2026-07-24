@@ -32,8 +32,9 @@ bool LootScanner::IsLootWindowOpen() {
   return pLootWnd && pLootWnd->IsVisible();
 }
 
-// Native lore duplicate check: search PC inventory + bank for an item with
-// the same name. Uses FindItemByNamePred for O(n) scan — no TLO calls.
+// Native lore duplicate check: search PC inventory (only — matches the Lua
+// check) for an item with the same name. Uses FindItemByNamePred for O(n)
+// scan — no TLO calls.
 bool LootScanner::HasLoreDuplicate(const std::string& itemName) const {
   if (!pLocalPC || itemName.empty()) return false;
 

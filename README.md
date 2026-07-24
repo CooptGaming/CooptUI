@@ -10,7 +10,7 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 
 ## What You Get
 
-**Main window (Inventory Companion)** — See all your bags in one list. Sort, search, and filter. Click an item to pick it up; shift+click to move to bank when the bank is open. When you open a merchant, the same window switches to Sell mode: each item shows Sell / Keep / Junk buttons and whether it will be sold. One button sells everything marked as junk.
+**Main window (Inventory Companion)** — See all your bags in one list. Sort, search, and filter — including newest-first (the **Newest** button sorts by most recently looted, and fresh loot gets a **NEW** badge). Click an item to pick it up; shift+click to move to bank when the bank is open. When you open a merchant, the same window switches to Sell mode: each item shows Sell / Keep / Junk buttons and whether it will be sold. One button sells everything marked as junk.
 
 **Bank** — Separate window for your bank. Live when the bank is open (move items with shift+click). When the bank is closed, you still see your last snapshot.
 
@@ -22,11 +22,11 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 
 **AA (Alternate Advancement)** — Browse and train AAs by tab (General, Archetype, Class, Special). Export/import profiles.
 
-**Loot window** — Pops up when you run auto-loot. Shows what’s being looted, session totals, and asks you to take or pass on special (e.g. mythical) drops.
+**Loot window** — Pops up when you run auto-loot. Shows what’s being looted, session totals, and asks you to take or pass on special (e.g. mythical) drops. Right-click any looted or skipped item to add an “always loot” or “never loot” rule on the spot.
 
-**Reroll** — Works with server reroll lists (`!auglist` / `!mythicallist`). See what you have, add from cursor, remove, or roll.
+**Reroll** — Works with server reroll lists (`!auglist` / `!mythicallist`). See what you have, add from cursor (auto-routes to the aug or mythical list by item), remove, or roll.
 
-**Auto Sell** — At a merchant, one command sells everything that matches your “junk” rules. Your keep lists and epic/valuable protection are respected.
+**Auto Sell** — At a merchant, one command sells everything that matches your “junk” rules. Your keep lists and epic/valuable protection are respected. A **Preview** button shows exactly what would sell (and why) before you commit.
 
 **Auto Loot** — Loots corpses using your rules (value, types, always-loot and never-loot lists). Lore items are checked so you don’t grab duplicates.
 

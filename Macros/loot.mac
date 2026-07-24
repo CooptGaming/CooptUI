@@ -91,6 +91,10 @@ Sub Main
 /declare slotIdx int outer 1
 /declare slotCount int outer 0
 /declare slotNum string outer
+| Decision reasons carried to pass 2 (pipe-delimited, parallel to slotsToLoot) so accounting
+| (LogItem + IPC loot_item) runs at actual loot time, not decide time
+/declare slotsToLootReasons string outer
+/declare lootReason string outer
 
 | Session caches: fast-skip/fast-loot by name for rest of run (cleared at START LOOTING)
 | Format: pipe-delimited (e.g. "|Name1|Name2|"). Chunked to avoid 2048-char limit.
@@ -260,6 +264,9 @@ Sub Main
     /call WaitForMythicalDecision
     /if (${mythicalDecisionResult.Equal[loot]}) {
         /varset lootName ${pauseAlertItemName}
+        /varset itemValue ${Corpse.Item[1].Value}
+        /varset itemTribute ${Corpse.Item[1].Tribute}
+        /varset lootReason Mythical test (chose Take)
         /call AddSlotToLootList 1
         /call LootItemWithSound 1
     }
@@ -330,6 +337,8 @@ Sub Main
 /declare progressRunning int outer 1
 /ini "${configPath}/loot_progress.ini" Protocol Version 1
 /ini "${configPath}/loot_progress.ini" Progress line "1##0##${totalCorpses}##"
+| Heartbeat (epoch ms): lets the UI treat a running=1 line as stale after an aborted run (crash, /endmacro)
+/ini "${configPath}/loot_progress.ini" Progress heartbeat ${Time.MillisecondsSinceEpoch}
 /if (${pluginLoaded}) {
     /squelch /cooptui ipc send loot_start "${totalCorpses}"
     /echo [Loot] IPC streaming ON (CoOptUI plugin)
@@ -363,6 +372,8 @@ Sub Main
     | --- Check for free inventory ---
     /if (!${Me.FreeInventory}) {
         /echo Your Inventory is full!!
+        | Normal cleanup (progress running=0, session/skip INIs, IPC loot_end) so UI doesn't see a stale running lock
+        /call FinishLooting
         /end
     }
     
@@ -432,6 +443,7 @@ Sub Main
     
     | --- Pass 1: Evaluate all items, build list of slots to loot (no delays) ---
     /varset slotsToLoot
+    /varset slotsToLootReasons
     /varset decideOnly TRUE
     /for lootslot 1 to ${loottotal}
         /if (!${Window[LootWnd].Open}) {
@@ -450,6 +462,10 @@ Sub Main
             /varset slotNum ${slotsToLoot.Token[${slotIdx},/]}
             /if (${slotNum.Length} > 0 && ${Corpse.Item[${slotNum}].ID}) {
                 /varset lootName ${Corpse.Item[${slotNum}].Name}
+                | Capture value/tribute/reason before looting (slot is empty after) for accounting in LootItemWithSound
+                /varset itemValue ${Corpse.Item[${slotNum}].Value}
+                /varset itemTribute ${Corpse.Item[${slotNum}].Tribute}
+                /varset lootReason ${slotsToLootReasons.Token[${slotIdx},|]}
                 /varset lastLootAttemptName ${lootName}
                 /call LootItemWithSound ${slotNum}
                 /doevents
@@ -476,6 +492,7 @@ Sub Main
     | --- One progress update per corpse for CoOpt UI Loot UI (single line: running##corpsesLooted##totalCorpses##currentCorpse) ---
     /varcalc corpsesLooted ${corpsesLooted}+1
     /ini "${configPath}/loot_progress.ini" Progress line "1##${corpsesLooted}##${totalCorpses}##${currentCorpseName}"
+    /ini "${configPath}/loot_progress.ini" Progress heartbeat ${Time.MillisecondsSinceEpoch}
     /if (${pluginLoaded}) /squelch /cooptui ipc send loot_progress "${corpsesLooted}|${totalCorpses}|${currentCorpseName}"
     
     | --- Target next corpse so next iteration does not wait on /tar ---
@@ -539,7 +556,7 @@ sub EvaluateItem(int slot)
     | SESSION CACHE: fast-loot if we already looted this name this run |
     | =========================================== |
     /if (${lootedNamesThisSession.Find[|${lootName}|]}) {
-        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /varset lootReason Session cache
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -548,7 +565,7 @@ sub EvaluateItem(int slot)
         /return
     }
     /if (${lootedNamesThisSession2.Length} > 0 && ${lootedNamesThisSession2.Find[|${lootName}|]}) {
-        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /varset lootReason Session cache
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -557,7 +574,7 @@ sub EvaluateItem(int slot)
         /return
     }
     /if (${lootedNamesThisSession3.Length} > 0 && ${lootedNamesThisSession3.Find[|${lootName}|]}) {
-        /call LogItem "loot" "${lootName}" ${itemValue} "Session cache" ${itemTribute}
+        /varset lootReason Session cache
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -669,6 +686,7 @@ sub EvaluateItem(int slot)
             /call WaitForMythicalDecision
             /if (${mythicalDecisionResult.Equal[loot]}) {
                 /if (${lootVerbose}) /echo Looting Mythical (you chose Loot): ${pauseAlertItemName}
+                /varset lootReason Mythical (chose Loot)
                 /call AddSlotToLootList ${slot}
             }
             | Clear INI so UI hides the alert card
@@ -707,7 +725,7 @@ sub EvaluateItem(int slot)
     /goto :AfterEpicCheck
 :LootEpicItem
     /if (${lootVerbose}) /echo LOOTING (Epic quest item): ${lootName}
-    /call LogItem "loot" "${lootName}" ${itemValue} "Epic quest item" ${itemTribute}
+    /varset lootReason Epic quest item
     /if (${decideOnly}) {
         /call AddSlotToLootList ${slot}
         /return
@@ -749,7 +767,7 @@ sub EvaluateItem(int slot)
     | =========================================== |
     /if (${tributeOverride} > 0 && ${itemTribute} >= ${tributeOverride}) {
         /if (${lootVerbose}) /echo LOOTING (tribute override): ${lootName} (Tribute: ${itemTribute})
-        /call LogItem "loot" "${lootName}" ${itemValue} "tribute override" ${itemTribute}
+        /varset lootReason tribute override
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -764,7 +782,7 @@ sub EvaluateItem(int slot)
     /if (${alwaysLootExact.Length} > 0) /call CheckFilterList "${alwaysLootExact}" "${lootName}" FALSE TRUE
     /if (${shouldLoot}) {
         /if (${lootVerbose}) /echo LOOTING (always loot exact): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot exact" ${itemTribute}
+        /varset lootReason always loot exact
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -779,7 +797,7 @@ sub EvaluateItem(int slot)
     /if (${alwaysLootContains.Length} > 0) /call CheckFilterList "${alwaysLootContains}" "${lootName}" FALSE FALSE
     /if (${shouldLoot}) {
         /if (${lootVerbose}) /echo LOOTING (always loot keyword): ${lootName}
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot keyword" ${itemTribute}
+        /varset lootReason always loot keyword
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -794,7 +812,7 @@ sub EvaluateItem(int slot)
     /if (${alwaysLootTypes.Length} > 0) /call CheckFilterList "${alwaysLootTypes}" "${lootType}" FALSE TRUE
     /if (${shouldLoot}) {
         /if (${lootVerbose}) /echo LOOTING (always loot type): ${lootName} (Type: ${lootType})
-        /call LogItem "loot" "${lootName}" ${itemValue} "always loot type" ${itemTribute}
+        /varset lootReason always loot type
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -835,7 +853,7 @@ sub EvaluateItem(int slot)
     | --- Loot if any condition passed ---
     /if (${shouldLoot}) {
         /if (${lootVerbose}) /echo LOOTING (value/flag check): ${lootName} (Value: ${itemValue})
-        /call LogItem "loot" "${lootName}" ${itemValue} "value/flag check" ${itemTribute}
+        /varset lootReason value/flag check
         /if (${decideOnly}) {
             /call AddSlotToLootList ${slot}
             /return
@@ -911,8 +929,10 @@ sub AddToLootedSessionCache
 sub AddSlotToLootList(int slot)
     /if (${slotsToLoot.Length} == 0) {
         /varset slotsToLoot ${slot}
+        /varset slotsToLootReasons ${lootReason}
     } else {
         /varset slotsToLoot ${slotsToLoot}/${slot}
+        /varset slotsToLootReasons ${slotsToLootReasons}|${lootReason}
     }
 /return
 
@@ -938,13 +958,19 @@ sub CheckFilterList(string filterList, string matchValue, bool isSkipList, bool 
     /if (${filterList.Count[/]} == 0) {
         /if (${isExactMatch}) {
             /if (${matchValue.Equal[${filterList}]}) {
-                /if (${isSkipList}) /varset skipItem TRUE
-                /else /varset shouldLoot TRUE
+                /if (${isSkipList}) {
+                    /varset skipItem TRUE
+                } else {
+                    /varset shouldLoot TRUE
+                }
             }
         } else {
             /if (${matchValue.Find[${filterList}]}) {
-                /if (${isSkipList}) /varset skipItem TRUE
-                /else /varset shouldLoot TRUE
+                /if (${isSkipList}) {
+                    /varset skipItem TRUE
+                } else {
+                    /varset shouldLoot TRUE
+                }
             }
         }
         /return
@@ -1121,6 +1147,8 @@ sub LootItemWithSound(int slot)
     /call LootItem ${slot}
     | --- Add to session loot cache so we fast-loot same name on later corpses (skip if lore dup) ---
     /if (!${loreDupDetected}) /call AddToLootedSessionCache
+    | --- Accounting (LogItem: receipts + IPC loot_item) only after verified pickup: corpse slot now empty ---
+    /if (!${loreDupDetected} && !${Corpse.Item[${slot}].ID}) /call LogItem "loot" "${lootName}" ${itemValue} "${lootReason}" ${itemTribute}
 /return
 
 | ================================================= |
@@ -1216,6 +1244,7 @@ sub FinishLooting
     /varset progressRunning 0
     /ini "${configPath}/loot_progress.ini" Protocol Version 1
     /ini "${configPath}/loot_progress.ini" Progress line "0##${corpsesLooted}##${totalCorpses}##"
+    /ini "${configPath}/loot_progress.ini" Progress heartbeat ${Time.MillisecondsSinceEpoch}
     
     | IPC: send loot_end FIRST so Lua UI gets the finish signal immediately (before any INI writes)
     /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"

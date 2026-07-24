@@ -336,7 +336,6 @@ function BankView.render(ctx)
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                             ImGui.OpenPopup("ItemContextBankIcon_" .. rid)
                         end
-                        ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                     elseif colKey == "Status" then
                         local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
@@ -345,7 +344,9 @@ function BankView.render(ctx)
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Bank"))
                     end
                 end
-                
+                -- Once per row (not per column): the Name column opens this popup too,
+                -- and the Icon column is hidden by default.
+                ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                 ImGui.PopID()
                 ::bank_continue::
             end

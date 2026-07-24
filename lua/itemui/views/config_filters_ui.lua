@@ -16,6 +16,28 @@ local filterConflictData = nil
 local DEFAULT_PROTECT_KEYWORDS = { "Legendary", "Mythical", "Script", "Epic", "Fabled", "Heirloom" }
 local DEFAULT_PROTECT_TYPES = { "Food", "Gem", "Augment", "Quest" }
 
+-- Static filter-form tables (hoisted so they are not rebuilt every frame)
+local TYPE_NAMES = {"Full name", "Keyword", "Item type"}
+local TYPE_KEYS = {"exact", "contains", "types"}
+local TYPE_LABELS = {"Must match whole item name", "Item name contains this text", "e.g. Armor, Weapon"}
+local FILTER_PLACEHOLDERS = {"e.g. Rusty Dagger", "e.g. Epic", "e.g. Armor, Weapon"}
+
+-- Filter entry table cache (per section): built + sorted entries are rebuilt only when a
+-- list changes (generation bumped by add/remove in this file, or entry count changed by
+-- another view) or the sort/show selection changes — not every frame.
+local filterListGeneration = 0
+local entryCache = { sell = nil, valuable = nil, loot = nil }
+
+local function bumpFilterListGeneration()
+    filterListGeneration = filterListGeneration + 1
+end
+
+local function countDefEntries(def)
+    if not def then return 0 end
+    local list = def[5][def[1]]
+    return list and #list or 0
+end
+
 function M.renderBreadcrumb(ctx, tabLabel, sectionLabel)
     local t = ctx.theme
     ImGui.TextColored(t.ToVec4(t.Colors.Muted), string.format("You are here: %s > %s", tabLabel, sectionLabel))
@@ -46,11 +68,19 @@ function M.loadDefaultProtectList(ctx)
         if not found then list[#list + 1] = typ; cfg.writeListValue("sell_protected_types.ini", "Items", "types", cfg.joinList(list)); added = added + 1 end
     end
     invSell()
+    bumpFilterListGeneration()
     setMsg(added > 0 and string.format("Added %d default protect entries", added) or "Default protect list already loaded")
 end
 
 local function renderFilterConflictModal(ctx)
-    if filterConflictData and not ImGui.IsPopupOpen("FilterConflict##ItemUI") then
+    -- Click sites run inside the FiltersContent child window (different ImGui ID stack), so
+    -- they only set filterConflictData; the popup is opened here, at the same scope where
+    -- BeginPopupModal/IsPopupOpen run, or the IDs would never match and the modal never shows.
+    if filterConflictData and not filterConflictData.opened then
+        ImGui.OpenPopup("FilterConflict##ItemUI")
+        filterConflictData.opened = true
+    end
+    if filterConflictData and filterConflictData.opened and not ImGui.IsPopupOpen("FilterConflict##ItemUI") then
         filterConflictData = nil
     end
     if not filterConflictData or not ImGui.BeginPopupModal("FilterConflict##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then return end
@@ -78,6 +108,7 @@ local function renderFilterConflictModal(ctx)
         elseif d.section == "valuable" then ok = actions.performValuableFilterAdd(ctx, d.typeKey, d.value)
         else ok = actions.performLootFilterAdd(ctx, d.targetId, d.typeKey, d.value) end
         if ok then
+            bumpFilterListGeneration()
             if d.section == "sell" then filterState.sellFilterInputValue = ""
             elseif d.section == "valuable" then filterState.valuableFilterInputValue = ""
             else filterState.lootFilterInputValue = "" end
@@ -99,6 +130,7 @@ local function renderFilterConflictModal(ctx)
         if d.section == "sell" then ok = actions.performSellFilterAdd(ctx, d.targetId, d.typeKey, d.value)
         elseif d.section == "valuable" then ok = actions.performValuableFilterAdd(ctx, d.typeKey, d.value)
         else ok = actions.performLootFilterAdd(ctx, d.targetId, d.typeKey, d.value) end
+        bumpFilterListGeneration()
         if ok then
             if d.section == "sell" then filterState.sellFilterInputValue = ""
             elseif d.section == "valuable" then filterState.valuableFilterInputValue = ""
@@ -118,10 +150,6 @@ local function renderFilterConflictModal(ctx)
 end
 
 local function renderFilterSection(ctx, section, targetsTable, targetId, typeMode, inputValue, editTarget, listShow, setTargetId, setTypeMode, setInputValue, setEditTarget, setListShow, checkConflicts, performAdd, removeFromList)
-    local typeNames = {"Full name", "Keyword", "Item type"}
-    local typeKeys = {"exact", "contains", "types"}
-    local typeLabels = {"Must match whole item name", "Item name contains this text", "e.g. Armor, Weapon"}
-    local filterPlaceholders = {"e.g. Rusty Dagger", "e.g. Epic", "e.g. Armor, Weapon"}
     local filterState = ctx.filterState
     local hasItemOnCursor = ctx.hasItemOnCursor
     local config = ctx.config
@@ -166,20 +194,20 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
 
     ImGui.SameLine()
     ImGui.SetNextItemWidth(85)
-    if ImGui.BeginCombo("##Type" .. section, typeNames[typeMode + 1], ImGuiComboFlags.None) then
+    if ImGui.BeginCombo("##Type" .. section, TYPE_NAMES[typeMode + 1], ImGuiComboFlags.None) then
         for _, a in ipairs(available) do
-            if ImGui.Selectable(typeNames[a.idx + 1], typeMode == a.idx) then setTypeMode(a.idx) end
+            if ImGui.Selectable(TYPE_NAMES[a.idx + 1], typeMode == a.idx) then setTypeMode(a.idx) end
         end
         ImGui.EndCombo()
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(typeLabels[typeMode + 1]); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(TYPE_LABELS[typeMode + 1]); ImGui.EndTooltip() end
 
     ImGui.SetNextItemWidth(-200)
     local submitted
     if section == "sell" then
-        filterState.sellFilterInputValue, submitted = ImGui.InputTextWithHint("##FilterInputSell", filterPlaceholders[typeMode + 1], filterState.sellFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
+        filterState.sellFilterInputValue, submitted = ImGui.InputTextWithHint("##FilterInputSell", FILTER_PLACEHOLDERS[typeMode + 1], filterState.sellFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
     else
-        filterState.lootFilterInputValue, submitted = ImGui.InputTextWithHint("##FilterInputLoot", filterPlaceholders[typeMode + 1], filterState.lootFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
+        filterState.lootFilterInputValue, submitted = ImGui.InputTextWithHint("##FilterInputLoot", FILTER_PLACEHOLDERS[typeMode + 1], filterState.lootFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
     end
 
     ImGui.SameLine()
@@ -214,7 +242,7 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
     local addClicked = ImGui.Button("Add item##" .. section, ImVec2(80, 0))
     local val = (section == "sell" and filterState.sellFilterInputValue or filterState.lootFilterInputValue or ""):match("^%s*(.-)%s*$")
     if (addClicked or submitted) and val ~= "" then
-        local typeKey = typeKeys[typeMode + 1]
+        local typeKey = TYPE_KEYS[typeMode + 1]
         local def = target[typeKey]
         if def then
             local listKey, _, _, _, lists = def[1], def[2], def[3], def[4], def[5]
@@ -224,10 +252,12 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
             if not found then
                 local conflicts = checkConflicts(target.id, typeKey, val)
                 if #conflicts > 0 then
-                    filterConflictData = { section = section, targetId = target.id, typeKey = typeKey, value = val, conflicts = conflicts }
-                    ImGui.OpenPopup("FilterConflict##ItemUI")
+                    -- No OpenPopup here: this runs inside the FiltersContent child, a different
+                    -- ID stack than the modal. renderFilterConflictModal opens it (opened flag).
+                    filterConflictData = { section = section, targetId = target.id, typeKey = typeKey, value = val, conflicts = conflicts, opened = false }
                 else
                     if performAdd(target.id, typeKey, val) then
+                        bumpFilterListGeneration()
                         if section == "sell" then filterState.sellFilterInputValue = "" else filterState.lootFilterInputValue = "" end
                         setStatusMessage("Added to " .. target.label)
                     end
@@ -239,15 +269,14 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
 end
 
 function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
-    targets.refresh(ctx)
+    -- targets.refresh(ctx) is NOT called here: the config_filters facade already refreshes
+    -- once per frame before delegating (config_filters.lua renderFiltersSection).
     renderFilterConflictModal(ctx)
 
     local filterState = ctx.filterState
     local theme = ctx.theme
     local config = ctx.config
     local scheduleLayoutSave = ctx.scheduleLayoutSave
-    local invalidateSellConfigCache = ctx.invalidateSellConfigCache
-    local invalidateLootConfigCache = ctx.invalidateLootConfigCache
     local setStatusMessage = ctx.setStatusMessage
     local hasItemOnCursor = ctx.hasItemOnCursor
 
@@ -301,24 +330,6 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         local FILTER_BADGE = constants.UI.FILTER_BADGE_WIDTH
         local FILTER_LIST_W = constants.UI.FILTER_LIST_WIDTH
         local FILTER_X_W = constants.UI.FILTER_X_BUTTON_WIDTH
-        local sellEntries = {}
-        for _, t in ipairs(SELL_FILTER_TARGETS) do
-            if filterState.sellFilterListShow ~= "all" and filterState.sellFilterListShow ~= t.id then goto sell_collect_cont end
-            local function collectEntries(kind, def)
-                if not def then return end
-                local listKey, iniFile, iniKey, writeFn, lists = def[1], def[2], def[3], def[4], def[5]
-                local list = lists[listKey]
-                local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
-                for i = 1, #list do
-                    local it = list[i]
-                    sellEntries[#sellEntries + 1] = { listLabel = t.label, typeBadge = badge, value = it, targetId = t.id, typeKey = kind, list = list, listIndex = i, iniFile = iniFile, iniKey = iniKey, writeFn = writeFn }
-                end
-            end
-            collectEntries("exact", t.exact)
-            collectEntries("contains", t.contains)
-            collectEntries("types", t.types)
-            ::sell_collect_cont::
-        end
         if ImGui.BeginTable("SellFiltersTable", 4, ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollX + ImGuiTableFlags.SizingStretchProp + ImGuiTableFlags.Sortable) then
             ImGui.TableSetupColumn("List", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), FILTER_LIST_W, 0)
             ImGui.TableSetupColumn("Type", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), FILTER_BADGE, 1)
@@ -334,15 +345,46 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 sortSpecs.SpecsDirty = false
             end
             ImGui.TableHeadersRow()
-            table.sort(sellEntries, function(a, b)
-                local av, bv
-                if filterState.sellFilterSortColumn == 0 then av, bv = a.listLabel or "", b.listLabel or ""
-                elseif filterState.sellFilterSortColumn == 1 then av, bv = a.typeBadge or "", b.typeBadge or ""
-                else av, bv = a.value or "", b.value or "" end
-                av, bv = tostring(av):lower(), tostring(bv):lower()
-                if filterState.sellFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
-            end)
-            for _, e in ipairs(sellEntries) do
+            local entryCount = 0
+            for _, t in ipairs(SELL_FILTER_TARGETS) do
+                entryCount = entryCount + countDefEntries(t.exact) + countDefEntries(t.contains) + countDefEntries(t.types)
+            end
+            local cache = entryCache.sell
+            if not cache or cache.generation ~= filterListGeneration or cache.count ~= entryCount
+                or cache.show ~= filterState.sellFilterListShow
+                or cache.sortColumn ~= filterState.sellFilterSortColumn
+                or cache.sortDirection ~= filterState.sellFilterSortDirection then
+                local sellEntries = {}
+                for _, t in ipairs(SELL_FILTER_TARGETS) do
+                    if filterState.sellFilterListShow ~= "all" and filterState.sellFilterListShow ~= t.id then goto sell_collect_cont end
+                    local function collectEntries(kind, def)
+                        if not def then return end
+                        local listKey, _, _, _, lists = def[1], def[2], def[3], def[4], def[5]
+                        local list = lists[listKey]
+                        local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
+                        for i = 1, #list do
+                            sellEntries[#sellEntries + 1] = { listLabel = t.label, typeBadge = badge, value = list[i], targetId = t.id, typeKey = kind, listIndex = i }
+                        end
+                    end
+                    collectEntries("exact", t.exact)
+                    collectEntries("contains", t.contains)
+                    collectEntries("types", t.types)
+                    ::sell_collect_cont::
+                end
+                table.sort(sellEntries, function(a, b)
+                    local av, bv
+                    if filterState.sellFilterSortColumn == 0 then av, bv = a.listLabel or "", b.listLabel or ""
+                    elseif filterState.sellFilterSortColumn == 1 then av, bv = a.typeBadge or "", b.typeBadge or ""
+                    else av, bv = a.value or "", b.value or "" end
+                    av, bv = tostring(av):lower(), tostring(bv):lower()
+                    if filterState.sellFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
+                end)
+                cache = { generation = filterListGeneration, count = entryCount, show = filterState.sellFilterListShow,
+                          sortColumn = filterState.sellFilterSortColumn, sortDirection = filterState.sellFilterSortDirection,
+                          entries = sellEntries }
+                entryCache.sell = cache
+            end
+            for _, e in ipairs(cache.entries) do
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Info), e.listLabel)
@@ -353,11 +395,11 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 ImGui.TableNextColumn()
                 ImGui.PushID("sell" .. e.targetId .. e.typeKey .. e.listIndex)
                 if ImGui.Button("X##Sell", ImVec2(-1, 0)) then
-                    table.remove(e.list, e.listIndex)
-                    e.writeFn(e.iniFile, "Items", e.iniKey, config.joinList(e.list))
-                    invalidateSellConfigCache()
-                    filterState.sellFilterEditTarget = { targetId = e.targetId, typeKey = e.typeKey, value = e.value }
-                    setStatusMessage("Removed; form filled for edit")
+                    if actions.removeFromSellFilterList(ctx, e.targetId, e.typeKey, e.value) then
+                        bumpFilterListGeneration()
+                        filterState.sellFilterEditTarget = { targetId = e.targetId, typeKey = e.typeKey, value = e.value }
+                        setStatusMessage("Removed; form filled for edit")
+                    end
                 end
                 ImGui.PopID()
             end
@@ -368,25 +410,22 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         theme.TextWrappedHeaderAlt("Valuable items are never sold and always looted. Shared between sell.mac and loot.mac.")
         ImGui.Spacing()
 
-        local typeNames = {"Full name", "Keyword", "Item type"}
-        local typeKeys = {"exact", "contains", "types"}
-        local filterPlaceholders = {"e.g. Rusty Dagger", "e.g. Epic", "e.g. Armor, Weapon"}
         if filterState.valuableFilterEditTarget then
             filterState.valuableFilterTypeMode = (filterState.valuableFilterEditTarget.typeKey == "exact" and 0) or (filterState.valuableFilterEditTarget.typeKey == "contains" and 1) or 2
             filterState.valuableFilterInputValue = filterState.valuableFilterEditTarget.value or ""
             filterState.valuableFilterEditTarget = nil
         end
         ImGui.SetNextItemWidth(85)
-        if ImGui.BeginCombo("##ValuableType", typeNames[filterState.valuableFilterTypeMode + 1], ImGuiComboFlags.None) then
+        if ImGui.BeginCombo("##ValuableType", TYPE_NAMES[filterState.valuableFilterTypeMode + 1], ImGuiComboFlags.None) then
             for i = 0, 2 do
-                if ImGui.Selectable(typeNames[i + 1], filterState.valuableFilterTypeMode == i) then filterState.valuableFilterTypeMode = i end
+                if ImGui.Selectable(TYPE_NAMES[i + 1], filterState.valuableFilterTypeMode == i) then filterState.valuableFilterTypeMode = i end
             end
             ImGui.EndCombo()
         end
         ImGui.SameLine()
         ImGui.SetNextItemWidth(-200)
         local submitted
-        filterState.valuableFilterInputValue, submitted = ImGui.InputTextWithHint("##ValuableInput", filterPlaceholders[filterState.valuableFilterTypeMode + 1], filterState.valuableFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
+        filterState.valuableFilterInputValue, submitted = ImGui.InputTextWithHint("##ValuableInput", FILTER_PLACEHOLDERS[filterState.valuableFilterTypeMode + 1], filterState.valuableFilterInputValue or "", ImGuiInputTextFlags.EnterReturnsTrue)
         ImGui.SameLine()
         do
             local hc = hasItemOnCursor()
@@ -418,7 +457,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         local addClicked = ImGui.Button("Add item##Valuable", ImVec2(80, 0))
         local val = (filterState.valuableFilterInputValue or ""):match("^%s*(.-)%s*$")
         if (addClicked or submitted) and val ~= "" then
-            local typeKey = typeKeys[filterState.valuableFilterTypeMode + 1]
+            local typeKey = TYPE_KEYS[filterState.valuableFilterTypeMode + 1]
             local def = v[typeKey]
             if def then
                 local listKey, _, _, _, lists = def[1], def[2], def[3], def[4], def[5]
@@ -428,10 +467,12 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 if not found then
                     local conflicts = actions.checkValuableFilterConflicts(ctx, typeKey, val)
                     if #conflicts > 0 then
-                        filterConflictData = { section = "valuable", targetId = "valuable", typeKey = typeKey, value = val, conflicts = conflicts }
-                        ImGui.OpenPopup("FilterConflict##ItemUI")
+                        -- No OpenPopup here: this runs inside the FiltersContent child, a different
+                        -- ID stack than the modal. renderFilterConflictModal opens it (opened flag).
+                        filterConflictData = { section = "valuable", targetId = "valuable", typeKey = typeKey, value = val, conflicts = conflicts, opened = false }
                     else
                         if actions.performValuableFilterAdd(ctx, typeKey, val) then
+                            bumpFilterListGeneration()
                             filterState.valuableFilterInputValue = ""
                             setStatusMessage("Added to " .. v.label)
                         end
@@ -443,20 +484,6 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
 
         local FILTER_BADGE = constants.UI.FILTER_BADGE_WIDTH
         local FILTER_X_W = constants.UI.FILTER_X_BUTTON_WIDTH
-        local valuableEntries = {}
-        local function collectValuableEntries(kind, def)
-            if not def then return end
-            local listKey, iniFile, iniKey, writeFn, lists = def[1], def[2], def[3], def[4], def[5]
-            local list = lists[listKey]
-            local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
-            for i = 1, #list do
-                local it = list[i]
-                valuableEntries[#valuableEntries + 1] = { typeBadge = badge, value = it, typeKey = kind, list = list, listIndex = i, iniFile = iniFile, iniKey = iniKey, writeFn = writeFn }
-            end
-        end
-        collectValuableEntries("exact", v.exact)
-        collectValuableEntries("contains", v.contains)
-        collectValuableEntries("types", v.types)
         if ImGui.BeginTable("ValuableFiltersTable", 3, ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollX + ImGuiTableFlags.SizingStretchProp + ImGuiTableFlags.Sortable) then
             ImGui.TableSetupColumn("Type", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), FILTER_BADGE, 0)
             ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 1, 1)
@@ -471,14 +498,37 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 sortSpecs.SpecsDirty = false
             end
             ImGui.TableHeadersRow()
-            table.sort(valuableEntries, function(a, b)
-                local av, bv
-                if filterState.valuableFilterSortColumn == 0 then av, bv = a.typeBadge or "", b.typeBadge or ""
-                else av, bv = a.value or "", b.value or "" end
-                av, bv = tostring(av):lower(), tostring(bv):lower()
-                if filterState.valuableFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
-            end)
-            for _, e in ipairs(valuableEntries) do
+            local entryCount = countDefEntries(v.exact) + countDefEntries(v.contains) + countDefEntries(v.types)
+            local cache = entryCache.valuable
+            if not cache or cache.generation ~= filterListGeneration or cache.count ~= entryCount
+                or cache.sortColumn ~= filterState.valuableFilterSortColumn
+                or cache.sortDirection ~= filterState.valuableFilterSortDirection then
+                local valuableEntries = {}
+                local function collectValuableEntries(kind, def)
+                    if not def then return end
+                    local listKey, _, _, _, lists = def[1], def[2], def[3], def[4], def[5]
+                    local list = lists[listKey]
+                    local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
+                    for i = 1, #list do
+                        valuableEntries[#valuableEntries + 1] = { typeBadge = badge, value = list[i], typeKey = kind, listIndex = i }
+                    end
+                end
+                collectValuableEntries("exact", v.exact)
+                collectValuableEntries("contains", v.contains)
+                collectValuableEntries("types", v.types)
+                table.sort(valuableEntries, function(a, b)
+                    local av, bv
+                    if filterState.valuableFilterSortColumn == 0 then av, bv = a.typeBadge or "", b.typeBadge or ""
+                    else av, bv = a.value or "", b.value or "" end
+                    av, bv = tostring(av):lower(), tostring(bv):lower()
+                    if filterState.valuableFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
+                end)
+                cache = { generation = filterListGeneration, count = entryCount,
+                          sortColumn = filterState.valuableFilterSortColumn, sortDirection = filterState.valuableFilterSortDirection,
+                          entries = valuableEntries }
+                entryCache.valuable = cache
+            end
+            for _, e in ipairs(cache.entries) do
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Header), e.typeBadge)
@@ -487,11 +537,13 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 ImGui.TableNextColumn()
                 ImGui.PushID("valuable" .. e.typeKey .. e.listIndex)
                 if ImGui.Button("X##Valuable", ImVec2(-1, 0)) then
-                    table.remove(e.list, e.listIndex)
-                    e.writeFn(e.iniFile, "Items", e.iniKey, config.joinList(e.list))
-                    invalidateSellConfigCache()
-                    filterState.valuableFilterEditTarget = { targetId = "valuable", typeKey = e.typeKey, value = e.value }
-                    setStatusMessage("Removed; form filled for edit")
+                    -- removeFromValuableFilterList handles INI write + sell AND loot cache
+                    -- invalidation + event emission (the old inline remove missed the loot side).
+                    if actions.removeFromValuableFilterList(ctx, e.typeKey, e.value) then
+                        bumpFilterListGeneration()
+                        filterState.valuableFilterEditTarget = { targetId = "valuable", typeKey = e.typeKey, value = e.value }
+                        setStatusMessage("Removed; form filled for edit")
+                    end
                 end
                 ImGui.PopID()
             end
@@ -525,24 +577,6 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
         local FILTER_BADGE = constants.UI.FILTER_BADGE_WIDTH
         local FILTER_LIST_W = constants.UI.FILTER_LIST_WIDTH
         local FILTER_X_W = constants.UI.FILTER_X_BUTTON_WIDTH
-        local lootEntries = {}
-        for _, t in ipairs(LOOT_FILTER_TARGETS) do
-            if filterState.lootFilterListShow ~= "all" and filterState.lootFilterListShow ~= t.id then goto loot_collect_cont end
-            local function collectEntries(kind, def)
-                if not def then return end
-                local listKey, iniFile, iniKey, writeFn, lists = def[1], def[2], def[3], def[4], def[5]
-                local list = lists[listKey]
-                local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
-                for i = 1, #list do
-                    local it = list[i]
-                    lootEntries[#lootEntries + 1] = { listLabel = t.label, typeBadge = badge, value = it, targetId = t.id, typeKey = kind, list = list, listIndex = i, iniFile = iniFile, iniKey = iniKey, writeFn = writeFn }
-                end
-            end
-            collectEntries("exact", t.exact)
-            collectEntries("contains", t.contains)
-            collectEntries("types", t.types)
-            ::loot_collect_cont::
-        end
         if ImGui.BeginTable("LootFiltersTable", 4, ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollX + ImGuiTableFlags.SizingStretchProp + ImGuiTableFlags.Sortable) then
             ImGui.TableSetupColumn("List", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), FILTER_LIST_W, 0)
             ImGui.TableSetupColumn("Type", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), FILTER_BADGE, 1)
@@ -558,15 +592,46 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 sortSpecs.SpecsDirty = false
             end
             ImGui.TableHeadersRow()
-            table.sort(lootEntries, function(a, b)
-                local av, bv
-                if filterState.lootFilterSortColumn == 0 then av, bv = a.listLabel or "", b.listLabel or ""
-                elseif filterState.lootFilterSortColumn == 1 then av, bv = a.typeBadge or "", b.typeBadge or ""
-                else av, bv = a.value or "", b.value or "" end
-                av, bv = tostring(av):lower(), tostring(bv):lower()
-                if filterState.lootFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
-            end)
-            for _, e in ipairs(lootEntries) do
+            local entryCount = 0
+            for _, t in ipairs(LOOT_FILTER_TARGETS) do
+                entryCount = entryCount + countDefEntries(t.exact) + countDefEntries(t.contains) + countDefEntries(t.types)
+            end
+            local cache = entryCache.loot
+            if not cache or cache.generation ~= filterListGeneration or cache.count ~= entryCount
+                or cache.show ~= filterState.lootFilterListShow
+                or cache.sortColumn ~= filterState.lootFilterSortColumn
+                or cache.sortDirection ~= filterState.lootFilterSortDirection then
+                local lootEntries = {}
+                for _, t in ipairs(LOOT_FILTER_TARGETS) do
+                    if filterState.lootFilterListShow ~= "all" and filterState.lootFilterListShow ~= t.id then goto loot_collect_cont end
+                    local function collectEntries(kind, def)
+                        if not def then return end
+                        local listKey, _, _, _, lists = def[1], def[2], def[3], def[4], def[5]
+                        local list = lists[listKey]
+                        local badge = (kind == "exact" and "[name]") or (kind == "contains" and "[keyword]") or "[type]"
+                        for i = 1, #list do
+                            lootEntries[#lootEntries + 1] = { listLabel = t.label, typeBadge = badge, value = list[i], targetId = t.id, typeKey = kind, listIndex = i }
+                        end
+                    end
+                    collectEntries("exact", t.exact)
+                    collectEntries("contains", t.contains)
+                    collectEntries("types", t.types)
+                    ::loot_collect_cont::
+                end
+                table.sort(lootEntries, function(a, b)
+                    local av, bv
+                    if filterState.lootFilterSortColumn == 0 then av, bv = a.listLabel or "", b.listLabel or ""
+                    elseif filterState.lootFilterSortColumn == 1 then av, bv = a.typeBadge or "", b.typeBadge or ""
+                    else av, bv = a.value or "", b.value or "" end
+                    av, bv = tostring(av):lower(), tostring(bv):lower()
+                    if filterState.lootFilterSortDirection == ImGuiSortDirection.Ascending then return av < bv else return av > bv end
+                end)
+                cache = { generation = filterListGeneration, count = entryCount, show = filterState.lootFilterListShow,
+                          sortColumn = filterState.lootFilterSortColumn, sortDirection = filterState.lootFilterSortDirection,
+                          entries = lootEntries }
+                entryCache.loot = cache
+            end
+            for _, e in ipairs(cache.entries) do
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Info), e.listLabel)
@@ -577,12 +642,11 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                 ImGui.TableNextColumn()
                 ImGui.PushID("loot" .. e.targetId .. e.typeKey .. e.listIndex)
                 if ImGui.Button("X##Loot", ImVec2(-1, 0)) then
-                    table.remove(e.list, e.listIndex)
-                    e.writeFn(e.iniFile, "Items", e.iniKey, config.joinList(e.list))
-                    invalidateSellConfigCache()
-                    invalidateLootConfigCache()
-                    filterState.lootFilterEditTarget = { targetId = e.targetId, typeKey = e.typeKey, value = e.value }
-                    setStatusMessage("Removed; form filled for edit")
+                    if actions.removeFromLootFilterList(ctx, e.targetId, e.typeKey, e.value) then
+                        bumpFilterListGeneration()
+                        filterState.lootFilterEditTarget = { targetId = e.targetId, typeKey = e.typeKey, value = e.value }
+                        setStatusMessage("Removed; form filled for edit")
+                    end
                 end
                 ImGui.PopID()
             end

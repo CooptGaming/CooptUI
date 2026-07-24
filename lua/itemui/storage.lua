@@ -213,9 +213,13 @@ local SELL_CACHE_CHUNK_LEN = 1700
 -- Chunked so each [Items] key is under SELL_CACHE_CHUNK_LEN chars (avoids buffer overflow in macro).
 -- Path: Macros/sell_config/Chars/<CharName>/sell_cache.ini
 -- Format: [Meta] savedAt=... chunks=N ; [Count] count=M ; [Items] 1=name1/name2/... 2=name3/...
+-- A computed-but-empty to-sell set writes an EMPTY cache (count=0, chunks=0): sell.mac treats the
+-- cache as terminal when count > 0, so a stale file would sell items the user has since added to
+-- Keep. count=0 leaves the macro's useSellCache FALSE, falling back to full config rules.
 local function writeSellCache(items)
     if not items or #items == 0 then return false end
-    -- Guard: skip writing if no items have willSell computed (prevents empty/stale cache)
+    -- Guard: skip writing if no items have willSell computed. A list that never went through
+    -- sell-status computation must not clobber a good cache with partial data.
     local hasComputed = false
     for _, it in ipairs(items) do
         if it.willSell ~= nil then hasComputed = true; break end
@@ -232,9 +236,9 @@ local function writeSellCache(items)
             end
         end
     end
-    if #toSell == 0 then return false end
 
-    -- Build chunks (slash-delimited names, each chunk under SELL_CACHE_CHUNK_LEN)
+    -- Build chunks (slash-delimited names, each chunk under SELL_CACHE_CHUNK_LEN).
+    -- Empty toSell produces zero chunks -> empty cache file (see note above).
     local chunks = {}
     local current = {}
     local currentLen = 0
@@ -282,30 +286,6 @@ local function saveBank(items)
     if not path then return false end
     local content = buildBankContent(items, os.time())
     return file_safe.safeWrite(path, content)
-end
-
--- Merge stored filter status (inKeep, inJunk) into live items by matching name
--- Returns merged items (live items with stored filter status applied where matched)
-local function mergeFilterStatus(liveItems, storedItems)
-    if not liveItems then return {} end
-    if not storedItems or #storedItems == 0 then return liveItems end
-    local byName = {}
-    for _, it in ipairs(storedItems) do
-        local n = (it.name or ""):match("^%s*(.-)%s*$")
-        if n ~= "" then byName[n] = it end
-    end
-    local result = {}
-    for _, it in ipairs(liveItems) do
-        local dup = {}
-        for k, v in pairs(it) do dup[k] = v end
-        local stored = byName[(it.name or ""):match("^%s*(.-)%s*$")]
-        if stored and (stored.inKeep ~= nil or stored.inJunk ~= nil) then
-            if stored.inKeep ~= nil then dup.inKeep = stored.inKeep end
-            if stored.inJunk ~= nil then dup.inJunk = stored.inJunk end
-        end
-        result[#result + 1] = dup
-    end
-    return result
 end
 
 -- Session cache: once a character folder is confirmed to exist, skip all I/O on subsequent calls.
@@ -365,7 +345,6 @@ return {
     loadBank = loadBank,
     saveInventory = saveInventory,
     saveBank = saveBank,
-    mergeFilterStatus = mergeFilterStatus,
     ensureCharFolderExists = ensureCharFolderExists,
     writeSellCache = writeSellCache,
 }

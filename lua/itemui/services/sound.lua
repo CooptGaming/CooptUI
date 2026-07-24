@@ -86,15 +86,17 @@ function M.fileExistsInSoundsDir(filename)
     if tryOpen("sounds\\") then return true end
     if tryOpen("sounds/") then return true end
     -- 2) EverQuest TLO path (if available)
-    pcall(function()
+    local ok, found = pcall(function()
         local p = mq.TLO.EverQuest and mq.TLO.EverQuest.Path and mq.TLO.EverQuest.Path()
         if p and p ~= "" then
             local root = p:gsub("/", "\\"):gsub("\\+$", "")
             if tryOpen(root .. "\\sounds\\") then return true end
         end
+        return false
     end)
+    if ok and found then return true end
     -- 3) MacroQuest path (walk up to find sounds/ directory)
-    pcall(function()
+    ok, found = pcall(function()
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then
             local path = p:gsub("/", "\\"):gsub("\\+$", "")
@@ -105,7 +107,9 @@ function M.fileExistsInSoundsDir(filename)
                 path = parent
             end
         end
+        return false
     end)
+    if ok and found then return true end
     return false
 end
 

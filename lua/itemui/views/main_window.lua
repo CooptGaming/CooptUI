@@ -23,6 +23,7 @@ local RerollView = require('itemui.views.reroll')
 local aa_data = require('itemui.services.aa_data')
 local registry = require('itemui.core.registry')
 local diagnostics = require('itemui.core.diagnostics')
+local events = require('itemui.core.events')
 local tutorial = require('itemui.views.tutorial')
 
 local function buildViewContext()
@@ -98,27 +99,34 @@ local function renderInventoryContent(refs)
     end
 end
 
-local function renderLootWindow(refs)
-    local ctx = buildViewContext()
-    local uiState = refs.uiState
-    local config = refs.config
-    ctx.runLootCurrent = function()
+-- Loot-window callbacks are built once (creating ~14 closures per frame churned garbage)
+-- and read the current refs through the lootCbRefs upvalue, which renderLootWindow
+-- refreshes before assigning the stable references onto the ctx proxy each frame.
+local lootCbRefs
+local lootCallbacks
+
+local function buildLootCallbacks()
+    local cb = {}
+    cb.runLootCurrent = function()
+        local uiState = lootCbRefs.uiState
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
-            refs.recordCompanionWindowOpened("loot")
+            lootCbRefs.recordCompanionWindowOpened("loot")
         end
         mq.cmd('/macro loot current')
     end
-    ctx.runLootAll = function()
+    cb.runLootAll = function()
+        local uiState = lootCbRefs.uiState
         if not uiState.suppressWhenLootMac then
             uiState.lootUIOpen = true
             uiState.lootRunFinished = false
-            refs.recordCompanionWindowOpened("loot")
+            lootCbRefs.recordCompanionWindowOpened("loot")
         end
         mq.cmd('/macro loot')
     end
-    ctx.clearLootUIMythicalAlert = function()
+    cb.clearLootUIMythicalAlert = function()
+        local uiState, config = lootCbRefs.uiState, lootCbRefs.config
         uiState.lootMythicalAlert = nil
         uiState.lootMythicalDecisionStartAt = nil
         uiState.lootMythicalFeedback = nil
@@ -130,14 +138,16 @@ local function renderLootWindow(refs)
             mq.cmdf('/ini "%s" Alert itemLink ""', path)
         end
     end
-    ctx.setMythicalDecision = function(decision)
+    cb.setMythicalDecision = function(decision)
         if decision ~= "loot" and decision ~= "skip" then return end
+        local config = lootCbRefs.config
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if path and path ~= "" then
             mq.cmdf('/ini "%s" Alert decision "%s"', path, decision)
         end
     end
-    ctx.mythicalTake = function()
+    cb.mythicalTake = function()
+        local uiState, config = lootCbRefs.uiState, lootCbRefs.config
         local alert = uiState.lootMythicalAlert
         if not alert then return end
         local name = alert.itemName or ""
@@ -146,7 +156,7 @@ local function renderLootWindow(refs)
         if grouped and (name ~= "" or link) then
             if link then mq.cmdf('/g Taking %s — looting.', link) else mq.cmdf('/g Taking %s — looting.', name) end
         end
-        ctx.setMythicalDecision("loot")
+        cb.setMythicalDecision("loot")
         uiState.lootMythicalFeedback = { message = "You chose: Take", showUntil = mq.gettime() + 2000 }
         uiState.lootMythicalAlert = nil
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
@@ -156,7 +166,8 @@ local function renderLootWindow(refs)
             mq.cmdf('/ini "%s" Alert itemLink ""', path)
         end
     end
-    ctx.mythicalPass = function()
+    cb.mythicalPass = function()
+        local uiState, config = lootCbRefs.uiState, lootCbRefs.config
         local alert = uiState.lootMythicalAlert
         if not alert then return end
         local name = alert.itemName or ""
@@ -165,7 +176,7 @@ local function renderLootWindow(refs)
         if grouped and (name ~= "" or link) then
             if link then mq.cmdf('/g Passing on %s — someone else can loot.', link) else mq.cmdf('/g Passing on %s — someone else can loot.', name) end
         end
-        ctx.setMythicalDecision("skip")
+        cb.setMythicalDecision("skip")
         uiState.lootMythicalFeedback = { message = "Passed - left on corpse for group.", showUntil = mq.gettime() + 2000 }
         uiState.lootMythicalAlert = nil
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
@@ -175,15 +186,16 @@ local function renderLootWindow(refs)
             mq.cmdf('/ini "%s" Alert itemLink ""', path)
         end
     end
-    ctx.setMythicalCopyName = function(name)
+    cb.setMythicalCopyName = function(name)
         if name and name ~= "" then print(string.format("\ay[CoOpt UI]\ax Mythical item name: %s", name)) end
     end
-    ctx.setMythicalCopyLink = function(link)
+    cb.setMythicalCopyLink = function(link)
         if not link or link == "" then return end
         if ImGui and ImGui.SetClipboardText then ImGui.SetClipboardText(link) end
         print(string.format("\ay[CoOpt UI]\ax Mythical item link copied to clipboard (or see console)."))
     end
-    ctx.clearLootUIState = function()
+    cb.clearLootUIState = function()
+        local uiState = lootCbRefs.uiState
         uiState.lootRunLootedList = {}
         uiState.lootRunLootedItems = {}
         uiState.lootRunCorpsesLooted = 0
@@ -198,26 +210,38 @@ local function renderLootWindow(refs)
         uiState.lootRunBestItemName = ""
         uiState.lootRunBestItemValue = 0
     end
-    ctx.loadLootHistory = function()
-        if not uiState.lootHistory then refs.loadLootHistoryFromFile() end
+    cb.loadLootHistory = function()
+        local uiState = lootCbRefs.uiState
+        if not uiState.lootHistory then lootCbRefs.loadLootHistoryFromFile() end
         if not uiState.lootHistory then uiState.lootHistory = {} end
     end
-    ctx.loadSkipHistory = function()
-        if not uiState.skipHistory then refs.loadSkipHistoryFromFile() end
+    cb.loadSkipHistory = function()
+        local uiState = lootCbRefs.uiState
+        if not uiState.skipHistory then lootCbRefs.loadSkipHistoryFromFile() end
         if not uiState.skipHistory then uiState.skipHistory = {} end
     end
-    ctx.clearLootHistory = function()
+    cb.clearLootHistory = function()
+        local uiState, config = lootCbRefs.uiState, lootCbRefs.config
         uiState.lootHistory = {}
         local path = config.getLootConfigFile and config.getLootConfigFile("loot_history.ini")
         if path and path ~= "" then mq.cmdf('/ini "%s" History count 0', path) end
-        refs.lootLoopRefs.saveHistoryAt = 0
+        lootCbRefs.lootLoopRefs.saveHistoryAt = 0
     end
-    ctx.clearSkipHistory = function()
+    cb.clearSkipHistory = function()
+        local uiState, config = lootCbRefs.uiState, lootCbRefs.config
         uiState.skipHistory = {}
         local path = config.getLootConfigFile and config.getLootConfigFile("skip_history.ini")
         if path and path ~= "" then mq.cmdf('/ini "%s" Skip count 0', path) end
-        refs.lootLoopRefs.saveSkipAt = 0
+        lootCbRefs.lootLoopRefs.saveSkipAt = 0
     end
+    return cb
+end
+
+local function renderLootWindow(refs)
+    local ctx = buildViewContext()
+    lootCbRefs = refs
+    if not lootCallbacks then lootCallbacks = buildLootCallbacks() end
+    for name, fn in pairs(lootCallbacks) do ctx[name] = fn end
     LootUIView.render(ctx)
 end
 
@@ -254,7 +278,6 @@ function M.render(refs)
             local w, h = nil, nil
             if curView == "Inventory" then w, h = layoutConfig.WidthInventory, layoutConfig.Height
             elseif curView == "Sell" then w, h = layoutConfig.WidthSell, layoutConfig.Height
-            elseif curView == "Loot" then w, h = layoutConfig.WidthLoot or layoutDefaults.WidthLoot, layoutConfig.Height
             end
             if w and h and w > 0 and h > 0 then
                 local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
@@ -294,7 +317,12 @@ function M.render(refs)
             refs.setShouldDraw(false)
             uiState.welcomeSkippedThisSession = false
             uiState.configWindowOpen = false
+            -- Match /itemui hide semantics: mark user-closed so the main loop's bank/merchant
+            -- auto-show doesn't re-open the hub next tick, and close the game windows too.
+            uiState.userClosedViaKeybind = true
             refs.closeGameInventoryIfOpen()
+            refs.closeGameBankIfOpen()
+            refs.closeGameMerchantIfOpen()
             ImGui.End()
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
@@ -326,7 +354,10 @@ function M.render(refs)
                     uiState.welcomeSkippedThisSession = false
                     refs.setOpen(false)
                     uiState.configWindowOpen = false
+                    -- Match /itemui hide semantics (see X-close above).
+                    uiState.userClosedViaKeybind = true
                     refs.closeGameInventoryIfOpen()
+                    refs.closeGameBankIfOpen()
                     refs.closeGameMerchantIfOpen()
                     ImGui.End()
                     if uiState.lootUIOpen then renderLootWindow(refs) end
@@ -438,7 +469,9 @@ function M.render(refs)
                 if registry.isOpen(mod.id) then
                     refs.recordCompanionWindowOpened(mod.id)
                     if mod.id == "aa" and aa_data.shouldRefresh() then aa_data.refresh() end
-                    if mod.id == "bank" and bankOnline and refs.maybeScanBank then refs.maybeScanBank(bankOnline) end
+                    -- Defer the bank scan to the main loop (runDeferredScans); scans must not
+                    -- run inside the ImGui callback.
+                    if mod.id == "bank" and bankOnline then uiState.deferredBankScanRequested = true end
                     if mod.id == "config" then uiState.configNeedsLoad = true end
                     local msg = (mod.id == "aa" and "Alt Advancement window opened") or (mod.id == "reroll" and "Reroll Companion opened") or (mod.label .. " opened")
                     setStatusMessage(msg)
@@ -457,7 +490,6 @@ function M.render(refs)
                 local w, h = ImGui.GetWindowSize()
                 if curView == "Inventory" then layoutConfig.WidthInventory = w; layoutConfig.Height = h
                 elseif curView == "Sell" then layoutConfig.WidthSell = w; layoutConfig.Height = h
-                elseif curView == "Loot" then layoutConfig.WidthLoot = w; layoutConfig.Height = h
                 end
                 saveLayoutToFile()
             end
@@ -569,6 +601,13 @@ function M.render(refs)
                 ImGui.Spacing()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
             elseif uiState.setupStep == 11 then
+                local invalidateLootConfigCache = refs.invalidateLootConfigCache or function() end
+                -- After each loot INI write: drop the cached loot rules and notify subscribers
+                -- (mirrors the config views: invalidate + emit CONFIG_LOOT_CHANGED).
+                local function notifyLootConfigChanged()
+                    invalidateLootConfigCache()
+                    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+                end
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Loot rules")
                 ImGui.Separator()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "When looting (e.g. /doloot), items matching these rules will be picked up.")
@@ -578,6 +617,7 @@ function M.render(refs)
                     if v ~= configLootFlags[key] then
                         configLootFlags[key] = v
                         if config and config.writeLootINIValue then config.writeLootINIValue("loot_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
+                        notifyLootConfigChanged()
                     end
                     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
                 end
@@ -595,6 +635,7 @@ function M.render(refs)
                 if n and n >= 0 and n ~= (configLootValues.minLoot or 0) then
                     configLootValues.minLoot = math.floor(n)
                     if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValue", tostring(configLootValues.minLoot)) end
+                    notifyLootConfigChanged()
                 end
                 ImGui.Text("Min value (stack)")
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Stackable items worth less per unit are skipped."); ImGui.EndTooltip() end
@@ -607,6 +648,7 @@ function M.render(refs)
                 if nStack and nStack >= 0 and nStack ~= (configLootValues.minStack or 0) then
                     configLootValues.minStack = math.floor(nStack)
                     if config and config.writeLootINIValue then config.writeLootINIValue("loot_value.ini", "Settings", "minLootValueStack", tostring(configLootValues.minStack)) end
+                    notifyLootConfigChanged()
                 end
                 ImGui.Spacing()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Additional settings can be found in the Settings window.")
@@ -633,9 +675,8 @@ function M.render(refs)
                 q[#q + 1] = payload
                 uiState.pendingScriptConsumeQueue = q
             end
-            if uiState.quantityPickerSubmitPending ~= nil then
-                local qty = uiState.quantityPickerSubmitPending
-                uiState.quantityPickerSubmitPending = nil
+            -- Single submit path for Enter, Set, and Max (they differ only in qty source and action tag).
+            local function applyQuantity(qty, actionTag)
                 local pickup = uiState.pendingQuantityPickup
                 if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
                     if pickup and pickup.intent == "script_consume" then
@@ -644,7 +685,7 @@ function M.render(refs)
                             totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
                         })
                     else
-                        uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
+                        uiState.pendingQuantityAction = { action = actionTag, qty = qty, pickup = pickup }
                     end
                     uiState.pendingQuantityPickup = nil
                     uiState.pendingQuantityPickupTimeoutAt = nil
@@ -652,6 +693,11 @@ function M.render(refs)
                 else
                     setStatusMessage(string.format("Invalid quantity (1-%d)", pickup and pickup.maxQty or 1))
                 end
+            end
+            if uiState.quantityPickerSubmitPending ~= nil then
+                local qty = uiState.quantityPickerSubmitPending
+                uiState.quantityPickerSubmitPending = nil
+                applyQuantity(qty, "set")
             else
                 ImGui.Separator()
                 ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Warning), "Quantity Picker")
@@ -670,40 +716,13 @@ function M.render(refs)
                 end
                 ImGui.SameLine()
                 if ImGui.Button("Set", ImVec2(60, 0)) then
-                    local qty = tonumber(uiState.quantityPickerValue)
-                    local pickup = uiState.pendingQuantityPickup
-                    if qty and qty > 0 and qty <= (pickup and pickup.maxQty or 0) then
-                        if pickup and pickup.intent == "script_consume" then
-                            enqueueScriptConsume({
-                                bag = pickup.bag, slot = pickup.slot, source = pickup.source,
-                                totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                            })
-                        else
-                            uiState.pendingQuantityAction = { action = "set", qty = qty, pickup = pickup }
-                        end
-                        uiState.pendingQuantityPickup = nil
-                        uiState.pendingQuantityPickupTimeoutAt = nil
-                        uiState.quantityPickerValue = ""
-                    else
-                        setStatusMessage(string.format("Invalid quantity (1-%d)", pickup and pickup.maxQty or 1))
-                    end
+                    applyQuantity(tonumber(uiState.quantityPickerValue), "set")
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up this quantity"); ImGui.EndTooltip() end
                 ImGui.SameLine()
                 if ImGui.Button("Max", ImVec2(50, 0)) then
                     local pickup = uiState.pendingQuantityPickup
-                    local qty = pickup and pickup.maxQty or 1
-                    if pickup and pickup.intent == "script_consume" then
-                        enqueueScriptConsume({
-                            bag = pickup.bag, slot = pickup.slot, source = pickup.source,
-                            totalToConsume = qty, consumedSoFar = 0, nextClickAt = 0, itemName = pickup.itemName
-                        })
-                    else
-                        uiState.pendingQuantityAction = { action = "max", qty = qty, pickup = pickup }
-                    end
-                    uiState.pendingQuantityPickup = nil
-                    uiState.pendingQuantityPickupTimeoutAt = nil
-                    uiState.quantityPickerValue = ""
+                    applyQuantity(pickup and pickup.maxQty or 1, "max")
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Pick up maximum quantity"); ImGui.EndTooltip() end
                 ImGui.SameLine()
@@ -880,12 +899,8 @@ function M.render(refs)
         else
             uiState.equipmentLastRefreshAt = nil
         end
-        if uiState.deferredInventoryScanAt and mq.gettime() >= uiState.deferredInventoryScanAt then
-            local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
-            local invOpen = (invWnd and invWnd.Open and invWnd.Open()) or false
-            if refs.maybeScanInventory then refs.maybeScanInventory(invOpen) end
-            uiState.deferredInventoryScanAt = nil
-        end
+        -- uiState.deferredInventoryScanAt is consumed by the main loop (runDeferredScans),
+        -- not here: scans must not run inside the ImGui callback.
         -- Equipment rendered via registry.getDrawableModules()
         -- Bank rendered via registry.getDrawableModules()
         -- Augments rendered via registry.getDrawableModules()

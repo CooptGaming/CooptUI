@@ -13,6 +13,70 @@ local ItemDisplayView = require('itemui.views.item_display')
 
 local SellView = {}
 
+-- Sell Preview (dry run): modal listing exactly what Auto Sell would sell and the
+-- rule behind each decision, so config mistakes surface before the macro runs.
+-- Pure read of sellItems' attached status — no macro interaction.
+function SellView.renderSellPreviewModal(ctx)
+    ImGui.SetNextWindowSize(ImVec2(560, 420), ImGuiCond.FirstUseEver)
+    if not ImGui.BeginPopupModal("Sell Preview##ItemUI", nil, ImGuiWindowFlags.None) then
+        return
+    end
+    local toSell, totalValue = {}, 0
+    for _, it in ipairs(ctx.sellItems) do
+        if it.willSell then
+            toSell[#toSell + 1] = it
+            totalValue = totalValue + (it.totalValue or it.value or 0)
+        end
+    end
+    if #toSell == 0 then
+        ctx.theme.TextSuccess("Nothing would be sold.")
+        ImGui.TextWrapped("Every item is protected or kept under the current rules. Adjust Junk lists or protection flags in Settings to mark items for sale.")
+    else
+        ctx.theme.TextInfo(string.format("%d item%s would be sold for %s total:",
+            #toSell, #toSell == 1 and "" or "s",
+            (ItemUtils.formatValue and ItemUtils.formatValue(totalValue)) or (tostring(totalValue) .. "c")))
+        local tableFlags = ImGuiTableFlags.BordersOuter + ImGuiTableFlags.BordersInnerH + ImGuiTableFlags.ScrollY + ImGuiTableFlags.RowBg
+        if ImGui.BeginChild("SellPreviewList", ImVec2(-1, -40), true) then
+            if ImGui.BeginTable("SellPreviewTable", 4, tableFlags) then
+                ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch, 0, 0)
+                ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 40, 1)
+                ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, 80, 2)
+                ImGui.TableSetupColumn("Why", ImGuiTableColumnFlags.WidthFixed, 110, 3)
+                ImGui.TableSetupScrollFreeze(0, 1)
+                ImGui.TableHeadersRow()
+                local clipper = ImGuiListClipper.new()
+                clipper:Begin(#toSell)
+                while clipper:Step() do
+                    for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+                        local it = toSell[i]
+                        if it then
+                            ImGui.TableNextRow()
+                            ImGui.TableNextColumn()
+                            ImGui.Text(it.name or "")
+                            ImGui.TableNextColumn()
+                            ImGui.Text(tostring(it.stackSize or 1))
+                            ImGui.TableNextColumn()
+                            local v = it.totalValue or it.value or 0
+                            ImGui.Text((ItemUtils.formatValue and ItemUtils.formatValue(v)) or tostring(v))
+                            ImGui.TableNextColumn()
+                            local st, sc = ctx.formatSellStatus(it.sellReason, true, ctx.theme)
+                            ImGui.TextColored(sc, st)
+                        end
+                    end
+                end
+                clipper:End()
+                ImGui.EndTable()
+            end
+        end
+        ImGui.EndChild()
+        ctx.theme.TextMuted("Keep/protected items are excluded. Use Keep/Junk in the Sell view to adjust an item's rules.")
+    end
+    if ImGui.Button("Close##SellPreview", ImVec2(100, 0)) then
+        ImGui.CloseCurrentPopup()
+    end
+    ImGui.EndPopup()
+end
+
 -- Module interface: render sell view content
 -- Params: context table containing all necessary state and functions from init.lua
 function SellView.render(ctx, simulateSellView)
@@ -20,7 +84,6 @@ function SellView.render(ctx, simulateSellView)
     if #ctx.sellItems == 0 then
         local invWnd = mq.TLO and mq.TLO.Window and mq.TLO.Window("InventoryWindow")
         local invO = (invWnd and invWnd.Open and invWnd.Open()) or false
-        local bankO = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
         local merchO = (ctx.isMerchantWindowOpen and ctx.isMerchantWindowOpen()) or false
         ctx.maybeScanInventory(invO); ctx.maybeScanSellItems(merchO)
     end
@@ -36,6 +99,12 @@ function SellView.render(ctx, simulateSellView)
         end
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(simulateSellView and "Simulated view - Auto Sell disabled" or "Run /macro sell confirm to sell marked items"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("Preview##SellPreview", ImVec2(70, 0)) then
+        ImGui.OpenPopup("Sell Preview##ItemUI")
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Dry run: list exactly what Auto Sell would sell, and why"); ImGui.EndTooltip() end
+    SellView.renderSellPreviewModal(ctx)
     if not simulateSellView then
         ImGui.SameLine()
         ctx.theme.TextMuted("/macro sell confirm")
@@ -135,6 +204,7 @@ function SellView.render(ctx, simulateSellView)
     
     -- Cache once per frame to avoid TLO/string work per row
     local hasCursor = ctx.hasItemOnCursor()
+    local bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
     local searchLower = (ctx.uiState.searchFilterInv or ""):lower()
     
     -- Pre-filter the list BEFORE clipping (fixes scrollbar and clipper behavior)
@@ -293,7 +363,7 @@ function SellView.render(ctx, simulateSellView)
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                     ImGui.OpenPopup("ItemContextSellIcon_" .. rid)
                 end
-                ctx.renderItemContextMenu(ctx, item, { source = "sell", popupId = "ItemContextSellIcon_" .. rid, bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false, hasCursor = hasCursor })
+                ctx.renderItemContextMenu(ctx, item, { source = "sell", popupId = "ItemContextSellIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
                 -- Column 2: Sell Keep Junk buttons
                 ImGui.TableNextColumn()
                 ctx.theme.PushDeleteButton()

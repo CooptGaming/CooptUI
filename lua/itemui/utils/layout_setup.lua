@@ -40,13 +40,8 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.HeightLoot = layoutConfig.HeightLoot or layoutDefaults.HeightLoot
     layoutDefaults.LootWindowX = layoutConfig.LootWindowX or layoutDefaults.LootWindowX
     layoutDefaults.LootWindowY = layoutConfig.LootWindowY or layoutDefaults.LootWindowY
-    if uiState.bankWindowOpen and uiState.bankWindowShouldDraw then
-        layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
-        layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
-    else
-        layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
-        layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
-    end
+    layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
+    layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
     layoutDefaults.WidthAugmentsPanel = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel
     layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
     layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
@@ -111,8 +106,8 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             end
         end
 
-        local ok, err = pcall(function()
-            local f = io.open(path, "w")
+        local function writeDefaultsFile(targetPath)
+            local f = io.open(targetPath, "w")
             if not f then error("io.open write failed") end
             for _, line in ipairs(lines) do
                 f:write(line .. "\n")
@@ -179,7 +174,21 @@ local function layout_setup_captureCurrentLayoutAsDefault()
                 f:write(view .. "=" .. table.concat(visibleCols, "/") .. "\n")
             end
             f:close()
+        end
+        -- Crash-safe write: stream to .tmp then swap in (remove + rename; os.rename does not
+        -- overwrite existing files on Windows). On tmp/swap failure fall back to the direct
+        -- write so behavior never regresses.
+        local ok, err = pcall(function()
+            local tmpPath = path .. ".tmp"
+            writeDefaultsFile(tmpPath)
+            os.remove(path)  -- may not exist yet; result intentionally ignored
+            local renamed, renameErr = os.rename(tmpPath, path)
+            if not renamed then error("os.rename failed: " .. tostring(renameErr)) end
         end)
+        if not ok then
+            pcall(os.remove, path .. ".tmp")  -- best-effort cleanup of orphaned tmp
+            ok, err = pcall(writeDefaultsFile, path)
+        end
         if not ok and print then
             print(string.format("\ar[CoOpt UI]\ax captureCurrentLayoutAsDefault write failed: %s", tostring(err)))
         end
@@ -240,6 +249,12 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.RerollWindowX = layoutDefaults.RerollWindowX or 0
     layoutConfig.RerollWindowY = layoutDefaults.RerollWindowY or 0
     if sortState then
+        sortState.invColumn = "Name"
+        sortState.invDirection = ImGuiSortDirection.Ascending
+        sortState.sellColumn = "Name"
+        sortState.sellDirection = ImGuiSortDirection.Ascending
+        sortState.bankColumn = "Name"
+        sortState.bankDirection = ImGuiSortDirection.Ascending
         sortState.aaColumn = "Title"
         sortState.aaDirection = ImGuiSortDirection.Ascending
         sortState.aaTab = 1
@@ -247,6 +262,9 @@ local function layout_setup_resetLayoutToDefault()
     uiState.alignToContext = (layoutDefaults.AlignToContext == 1)
     uiState.uiLocked = (layoutDefaults.UILocked == 1)
     uiState.suppressWhenLootMac = (layoutDefaults.SuppressWhenLootMac == 1)
+    uiState.enableRealTimeLoot = ((layoutDefaults.EnableRealTimeLoot or 0) == 1)
+    uiState.enableLootHistory = ((layoutDefaults.EnableLootHistory or 0) == 1)
+    uiState.enableSkipHistory = ((layoutDefaults.EnableSkipHistory or 0) == 1)
     uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end

@@ -104,7 +104,6 @@ local DESCRIPTIVE_FIELDS = {
     "norent", "magic", "prestige", "tradeskills",
     "requiredLevel", "recommendedLevel", "instrumentType", "instrumentMod",
     "class", "race", "deity",
-    "class", "race", "deity",
 }
 local DESCRIPTIVE_FIELDS_SET = {}
 for _, f in ipairs(DESCRIPTIVE_FIELDS) do DESCRIPTIVE_FIELDS_SET[f] = true end
@@ -422,7 +421,8 @@ function M.getItemSpellId(item, prop)
     if item[key] ~= nil then return item[key] or 0 end
     local src = rawget(item, "source") or "inv"
     local slotItem = M.getItemTLO(item.bag, item.slot, src)
-    if not slotItem then item[key] = 0; return 0 end
+    -- TLO unavailable (e.g. zoning): return default without caching so next access retries (same convention as _statsPending)
+    if not slotItem then return 0 end
     local sock = rawget(item, "socketIndex")
     if sock and slotItem.Item then
         local ok, si = pcall(function() return slotItem.Item(sock) end)

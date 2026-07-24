@@ -205,7 +205,7 @@ function M.advance(now)
     local sellMacState = deps.sellMacState
     local timing = batchState.timing
     local sellRetries = (timing.sellRetries or 4)
-    local timeoutSec = (timing.sellMaxTimeoutSeconds or 60) * 1000
+    local timeoutMs = (timing.sellMaxTimeoutSeconds or 60) * 1000
 
     -- Merchant closed: abort batch
     if not deps.isMerchantWindowOpen() then
@@ -274,7 +274,7 @@ function M.advance(now)
     local pack = Me and Me.Inventory and Me.Inventory("pack" .. bagNum)
 
     -- Per-item timeout
-    if (now - cur.itemStartedAt) >= timeoutSec then
+    if (now - cur.itemStartedAt) >= timeoutMs then
         failCurrentItem(batchState, sellMacState)
         return
     end

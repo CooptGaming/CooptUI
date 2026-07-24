@@ -86,33 +86,14 @@ local function _getTierData(tier)
     else error('Invalid tier: ' .. tostring(tier)) end
 end
 
---- Promote entry to higher tier
-local function _promote(key, entry, toTier)
-    local tierData = _getTierData(toTier)
-
-    -- Remove from current tier
-    if entry.tier == 'L1' then Cache._L1[key] = nil
-    elseif entry.tier == 'L2' then Cache._L2[key] = nil
-    elseif entry.tier == 'L3' then Cache._L3[key] = nil
-    end
-
-    -- Add to new tier
-    entry.tier = toTier
-    entry.timestamp = mq.gettime()  -- Reset timestamp
-    tierData[key] = entry
-
-    if Cache._debug then
-        print(string.format('[Cache] PROMOTE: %s -> %s', key, toTier))
-    end
-end
-
 --- Evict least recently used entry
 local function _evictLRU(tierData)
     local oldestKey, oldestTime = nil, math.huge
 
     for key, entry in pairs(tierData) do
-        if entry.timestamp < oldestTime then
-            oldestTime = entry.timestamp
+        local lastAccess = entry.lastAccess or entry.timestamp
+        if lastAccess < oldestTime then
+            oldestTime = lastAccess
             oldestKey = key
         end
     end
@@ -124,6 +105,32 @@ local function _evictLRU(tierData)
         if Cache._debug then
             print(string.format('[Cache] EVICT: %s', oldestKey))
         end
+    end
+end
+
+--- Promote entry to higher tier
+local function _promote(key, entry, toTier)
+    local tierData = _getTierData(toTier)
+
+    -- Remove from current tier
+    if entry.tier == 'L1' then Cache._L1[key] = nil
+    elseif entry.tier == 'L2' then Cache._L2[key] = nil
+    elseif entry.tier == 'L3' then Cache._L3[key] = nil
+    end
+
+    -- Evict from target tier if at capacity
+    local config = Cache._config[toTier]
+    if _countKeys(tierData) >= config.maxSize then
+        _evictLRU(tierData)
+    end
+
+    -- Add to new tier
+    entry.tier = toTier
+    entry.timestamp = mq.gettime()  -- Reset timestamp
+    tierData[key] = entry
+
+    if Cache._debug then
+        print(string.format('[Cache] PROMOTE: %s -> %s', key, toTier))
     end
 end
 
@@ -155,6 +162,7 @@ function Cache.get(key)
     local entry = Cache._L1[key]
     if entry and not _isExpired(entry, Cache._config.L1.ttl) then
         entry.hits = entry.hits + 1
+        entry.lastAccess = mq.gettime()
         Cache._stats.hits = Cache._stats.hits + 1
 
         if Cache._debug then
@@ -168,6 +176,7 @@ function Cache.get(key)
     entry = Cache._L2[key]
     if entry and not _isExpired(entry, Cache._config.L2.ttl) then
         entry.hits = entry.hits + 1
+        entry.lastAccess = mq.gettime()
         Cache._stats.hits = Cache._stats.hits + 1
 
         -- Promote to L1 if frequently accessed
@@ -186,6 +195,7 @@ function Cache.get(key)
     entry = Cache._L3[key]
     if entry then  -- L3 has no TTL
         entry.hits = entry.hits + 1
+        entry.lastAccess = mq.gettime()
         Cache._stats.hits = Cache._stats.hits + 1
 
         if Cache._debug then
@@ -219,9 +229,11 @@ function Cache.set(key, value, options)
     local ttl = options.ttl
 
     -- Create entry
+    local now = mq.gettime()
     local entry = {
         value = value,
-        timestamp = mq.gettime(),
+        timestamp = now,
+        lastAccess = now,
         hits = 0,
         tier = tier,
     }

@@ -4,7 +4,6 @@
     Part of CoOpt UI — EverQuest EMU Companion
 --]]
 
-local mq = require('mq')
 local events = require('itemui.core.events')
 
 local M = {}
@@ -71,42 +70,18 @@ function M.willItemBeSold(itemData)
     return deps.rules.willItemBeSold(itemData, deps.perfCache.sellConfigCache)
 end
 
---- Refresh stored-inv-by-name cache if missing or older than TTL.
---- Only apply stored inKeep/inJunk when the item is in the exact keep or junk list (filters stale keyword-derived overrides).
---- Also exposed as M.refreshStoredInvByName() for scan.lua to reuse cached lookup.
-local function refreshStoredInvByNameIfNeeded()
-    if deps.perfCache.storedInvByName and (mq.gettime() - (deps.perfCache.storedInvByNameTime or 0)) <= deps.C.STORED_INV_CACHE_TTL_MS then
-        return
-    end
-    local stored, _ = deps.storage.loadInventory()
-    deps.perfCache.storedInvByName = {}
-    if stored and #stored > 0 then
-        if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
-        for _, it in ipairs(stored) do
-            local n = (it.name or ""):match("^%s*(.-)%s*$")
-            if n == "" then goto continue end
-            local entry = {}
-            if it.inKeep ~= nil and M.isInKeepList(n) then entry.inKeep = it.inKeep end
-            if it.inJunk ~= nil and M.isInJunkList(n) then entry.inJunk = it.inJunk end
-            if entry.inKeep ~= nil or entry.inJunk ~= nil then
-                deps.perfCache.storedInvByName[n] = entry
-            end
-            ::continue::
-        end
-    end
-    deps.perfCache.storedInvByNameTime = mq.gettime()
-end
-
---- Public: refresh and return the storedInvByName cache (for scan.lua to reuse)
+--- Deprecated no-op. The stored-inv-by-name override cache was removed: it stored entries only
+--- when the item was in the exact Keep/Junk list but applied them only when the item was NOT in
+--- that list (self-canceling), and its refresh cost a full storage.loadInventory() disk parse
+--- every 2s. Kept as a stub because app.lua wires getStoredInvByName to this function.
 function M.refreshStoredInvByName()
-    refreshStoredInvByNameIfNeeded()
-    return deps.perfCache.storedInvByName
+    return nil
 end
 
 --- Single source of truth for granular flag computation.
 --- Call this to set all granular + summary flags on an item from current config lists.
 --- Uses normalized name key (trimmed) so Keep/Junk list lookups match INI/stored keys after rescans.
-function M.attachGranularFlags(item, storedByName)
+function M.attachGranularFlags(item)
     local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
     item.inKeepExact = M.isInKeepList(nameKey)
     item.inJunkExact = M.isInJunkList(nameKey)
@@ -114,15 +89,6 @@ function M.attachGranularFlags(item, storedByName)
     item.inJunkContains = M.isInJunkContainsList(nameKey)
     item.inKeepType = M.isKeptByType(item.type)
     item.isProtectedType = M.isProtectedType(item.type)
-    -- Apply stored overrides only when item is in neither exact list (config list always wins).
-    -- This keeps Keep/Junk button decisions persistent across rescans and stored-inv refresh.
-    if storedByName and not item.inKeepExact and not item.inJunkExact then
-        local storedItem = storedByName[nameKey]
-        if storedItem then
-            if storedItem.inKeep ~= nil then item.inKeepExact = storedItem.inKeep end
-            if storedItem.inJunk ~= nil then item.inJunkExact = storedItem.inJunk end
-        end
-    end
     item.inKeep = item.inKeepExact or item.inKeepContains or item.inKeepType
     item.inJunk = item.inJunkExact or item.inJunkContains
     item.isProtected = item.isProtectedType
@@ -132,9 +98,8 @@ end
 function M.computeAndAttachSellStatus(items)
     if not items or #items == 0 then return end
     if not deps.perfCache.sellConfigCache then M.loadSellConfigCache() end
-    refreshStoredInvByNameIfNeeded()
     for _, item in ipairs(items) do
-        M.attachGranularFlags(item, deps.perfCache.storedInvByName)
+        M.attachGranularFlags(item)
         local willSell, reason = M.willItemBeSold(item)
         item.willSell = willSell
         item.sellReason = reason or ""
@@ -146,8 +111,7 @@ function M.getSellStatusForItem(item)
     if not item then return "", false end
     local tmp = {}
     for k, v in pairs(item) do tmp[k] = v end
-    refreshStoredInvByNameIfNeeded()
-    M.attachGranularFlags(tmp, deps.perfCache.storedInvByName)
+    M.attachGranularFlags(tmp)
     local ws, reason = M.willItemBeSold(tmp)
     return reason or "", ws, tmp.inKeep, tmp.inJunk
 end

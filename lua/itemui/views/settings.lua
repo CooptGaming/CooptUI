@@ -5,7 +5,6 @@
     Renamed from views/config.lua to avoid confusion with root config.lua (INI utilities).
 --]]
 
-local mq = require('mq')
 require('ImGui')
 
 local context = require('itemui.context')
@@ -50,13 +49,22 @@ local function renderConfigWindow(ctx)
     if state.configNeedsLoad then loadConfigCache(); state.configNeedsLoad = false end
     if not uiState._firstRunChecked then
         uiState._firstRunChecked = true
-        local flagsPath = config.getConfigFile and config.getConfigFile("sell_flags.ini")
-        if flagsPath then
-            local f = io.open(flagsPath, "r")
-            if not f then
-                ConfigFilters.loadDefaultProtectList(ctx)
-                ctx.setStatusMessage("Welcome! Default protection loaded.")
-            else f:close() end
+        -- First-run default protection, keyed on a persistent marker in the onboarding INI.
+        -- (The old sell_flags.ini-existence heuristic was dead: the welcome env check
+        -- generates that file before Settings ever opens.) Seed only when the user has no
+        -- keep keywords, so real config is never stomped; then mark seeded either way.
+        local seeded = config.readINIValue and config.readINIValue("coopui_onboarding.ini", "Onboarding", "defaults_seeded", "FALSE")
+        if seeded ~= "TRUE" then
+            local keepContains = ctx.configSellLists and ctx.configSellLists.keepContains
+            if keepContains then
+                if #keepContains == 0 then
+                    ConfigFilters.loadDefaultProtectList(ctx)
+                    ctx.setStatusMessage("Welcome! Default protection loaded.")
+                end
+                if config.writeINIValue then
+                    config.writeINIValue("coopui_onboarding.ini", "Onboarding", "defaults_seeded", "TRUE")
+                end
+            end
         end
     end
 
@@ -69,7 +77,9 @@ local function renderConfigWindow(ctx)
         local path = config.CONFIG_PATH
         if path and path ~= "" then
             path = path:gsub("/", "\\")
-            mq.cmd(string.format('/execute explorer.exe "%s"', path))
+            -- Single launcher (the old extra mq.cmd('/execute ...') opened Explorer twice;
+            -- /execute is not a verified command in this MQ setup). os.execute causes a
+            -- brief render-thread hitch, but no main-loop deferral is reachable from here.
             os.execute(('start "" "%s"'):format(path))
             ctx.setStatusMessage("Opened config folder")
         else ctx.setStatusMessage("Config path not available") end

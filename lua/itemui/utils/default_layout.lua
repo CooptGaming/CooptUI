@@ -34,7 +34,9 @@ function M.getBundledDefaultLayoutPath()
 end
 
 --- True if user has an existing layout (itemui_layout.ini exists and has content).
---- Hardened: .bak with content => true; file unreadable => true; file missing or empty/whitespace => false.
+--- Hardened: .bak with content => true; file present but unreadable => true (treat as
+--- "layout exists" so a first-run apply never overwrites a layout we merely could not read);
+--- file missing or empty/whitespace => false.
 function M.hasExistingLayout()
     local path = config.getConfigFile(LAYOUT_INI)
     if not path or path == "" then return false end
@@ -44,9 +46,11 @@ function M.hasExistingLayout()
     if bakContent and #bakContent:gsub("%s", "") > 0 then
         return true
     end
-    local f = io.open(path, "r")
+    local f, openErr = io.open(path, "r")
     if not f then
-        return false
+        -- Missing file => no layout (first-run apply proceeds). Any other open failure
+        -- (locked, permission denied) => the file exists but is unreadable => true.
+        return not (openErr and tostring(openErr):lower():find("no such file", 1, true))
     end
     local content = f:read("*all")
     f:close()
@@ -130,9 +134,16 @@ function M.applyBundledDefaultLayout()
         local configDir = root .. "\\config"
         local overlayPath = configDir .. "\\" .. OVERLAY_INI
         local overlayContent = file_safe.safeReadAll(overlayPath) or ""
-        overlayContent = overlayContent:gsub("%s+$", "") .. "\n\n" .. snippetContent:gsub("^%s+", ""):gsub("%s+$", "")
-        if not file_safe.safeWrite(overlayPath, overlayContent) then
-            -- Non-fatal: layout INI is already applied; overlay is best-effort
+        local trimmedSnippet = snippetContent:gsub("^%s+", ""):gsub("%s+$", "")
+        -- Skip when the snippet block is already present verbatim (repeat apply/revert would
+        -- otherwise grow the overlay INI each time). Deliberately not a header-only check:
+        -- ImGui rewrites this file with the user's live window positions under the same
+        -- headers, and Revert relies on re-appending so the bundled defaults win again.
+        if not overlayContent:find(trimmedSnippet, 1, true) then
+            overlayContent = overlayContent:gsub("%s+$", "") .. "\n\n" .. trimmedSnippet
+            if not file_safe.safeWrite(overlayPath, overlayContent) then
+                -- Non-fatal: layout INI is already applied; overlay is best-effort
+            end
         end
     end
     -- Write version marker from manifest

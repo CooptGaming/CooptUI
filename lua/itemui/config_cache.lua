@@ -85,8 +85,14 @@ local function addToKeepList(itemName)
         local t = item:match("^%s*(.-)%s*$")
         if t ~= itemName then table.insert(items, t) else found = true end
     end
-    if found then config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", table.concat(items, "/")) end
-    config.writeListValue("sell_keep_exact.ini", "Items", "exact", current == "" and itemName or (current .. "/" .. itemName))
+    local sellLists = cache.sell.lists
+    if found then
+        config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", table.concat(items, "/"))
+        if sellLists and sellLists.junkExact then sellLists.junkExact = items end
+    end
+    local newValue = current == "" and itemName or (current .. "/" .. itemName)
+    config.writeListValue("sell_keep_exact.ini", "Items", "exact", newValue)
+    if sellLists and sellLists.keepExact then sellLists.keepExact = config.parseList(newValue) end
     events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Added to Keep list")
     return true
@@ -103,8 +109,14 @@ local function addToJunkList(itemName)
         local t = item:match("^%s*(.-)%s*$")
         if t ~= itemName then table.insert(items, t) else found = true end
     end
-    if found then config.writeListValue("sell_keep_exact.ini", "Items", "exact", table.concat(items, "/")) end
-    config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", current == "" and itemName or (current .. "/" .. itemName))
+    local sellLists = cache.sell.lists
+    if found then
+        config.writeListValue("sell_keep_exact.ini", "Items", "exact", table.concat(items, "/"))
+        if sellLists and sellLists.keepExact then sellLists.keepExact = items end
+    end
+    local newValue = current == "" and itemName or (current .. "/" .. itemName)
+    config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", newValue)
+    if sellLists and sellLists.junkExact then sellLists.junkExact = config.parseList(newValue) end
     events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Added to Always sell list")
     return true
@@ -122,6 +134,8 @@ local function removeFromKeepList(itemName)
     end
     if not found then return false end
     config.writeListValue("sell_keep_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
+    local sellLists = cache.sell.lists
+    if sellLists and sellLists.keepExact then sellLists.keepExact = items end
     events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Removed from Keep list")
     return true
@@ -139,6 +153,8 @@ local function removeFromJunkList(itemName)
     end
     if not found then return false end
     config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
+    local sellLists = cache.sell.lists
+    if sellLists and sellLists.junkExact then sellLists.junkExact = items end
     events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     opts.setStatusMessage("Removed from Always sell list")
     return true
@@ -177,6 +193,27 @@ local function removeFromLootSkipList(itemName)
     if lootLists and lootLists.skipExact then lootLists.skipExact = newList end
     events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
     opts.setStatusMessage("Removed from Never loot list")
+    return true
+end
+
+local function isInLootAlwaysList(itemName)
+    if not itemName then return false end
+    local list = config.parseList(config.readLootListValue("loot_always_exact.ini", "Items", "exact", ""))
+    for _, s in ipairs(list) do if s == itemName then return true end end
+    return false
+end
+
+local function addToLootAlwaysList(itemName)
+    itemName = config.sanitizeItemName(itemName)
+    if not itemName then opts.setStatusMessage("Invalid item name"); return false end
+    if isInLootAlwaysList(itemName) then opts.setStatusMessage("Already in Always loot list"); return false end
+    local list = config.parseList(config.readLootListValue("loot_always_exact.ini", "Items", "exact", ""))
+    list[#list + 1] = itemName
+    config.writeLootListValue("loot_always_exact.ini", "Items", "exact", config.joinList(list))
+    local lootLists = cache.loot.lists
+    if lootLists and lootLists.alwaysExact then lootLists.alwaysExact = list end
+    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+    opts.setStatusMessage("Added to Always loot list")
     return true
 end
 
@@ -311,6 +348,8 @@ M.removeFromJunkList = removeFromJunkList
 M.isInLootSkipList = isInLootSkipList
 M.addToLootSkipList = addToLootSkipList
 M.removeFromLootSkipList = removeFromLootSkipList
+M.isInLootAlwaysList = isInLootAlwaysList
+M.addToLootAlwaysList = addToLootAlwaysList
 M.createAugmentListAPI = createAugmentListAPI
 M.createConsumablesAPI = createConsumablesAPI
 

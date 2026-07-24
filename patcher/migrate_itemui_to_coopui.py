@@ -15,7 +15,15 @@ def _log(log_cb: Callable[[str], None] | None, msg: str) -> None:
 
 
 def _old_layout_exists(root: str) -> bool:
-    """Return True if the old layout is present (itemui kernel file exists)."""
+    """Return True if the old layout is present (itemui kernel file exists).
+
+    Guard: the CURRENT shipping layout is lua/itemui/ plus the shared core in
+    lua/coopui/ (version.lua, core/, utils/). If lua/coopui/version.lua exists,
+    this is the current layout — never report it as the old one, or a caller
+    would migrate (and clobber) a healthy install.
+    """
+    if os.path.isfile(os.path.join(root, "lua", "coopui", "version.lua")):
+        return False
     wiring = os.path.join(root, "lua", "itemui", "wiring.lua")
     app = os.path.join(root, "lua", "itemui", "app.lua")
     return os.path.isfile(wiring) or os.path.isfile(app)

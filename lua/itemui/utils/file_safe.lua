@@ -8,19 +8,34 @@ local diagnostics_ok, diagnostics = pcall(require, 'itemui.core.diagnostics')
 local M = {}
 
 --- Write content to path. Returns true on success, false on error (logs once).
+--- Crash-safe: writes to path..".tmp" then swaps it in (remove + rename; os.rename does not
+--- overwrite existing files on Windows). If the tmp/swap path fails for any reason, falls back
+--- to a direct truncate-in-place write so behavior never regresses.
 function M.safeWrite(path, content)
     if not path or type(path) ~= "string" or path == "" then
         return false
     end
     content = content or ""
-    local ok, err = pcall(function()
-        local f = io.open(path, "w")
+    local function writeTo(target)
+        local f = io.open(target, "w")
         if not f then
             error("io.open failed")
         end
         f:write(content)
         f:close()
+    end
+    local tmpPath = path .. ".tmp"
+    local okTmp = pcall(function()
+        writeTo(tmpPath)
+        os.remove(path)  -- may not exist yet; result intentionally ignored
+        local renamed, renameErr = os.rename(tmpPath, path)
+        if not renamed then
+            error("os.rename failed: " .. tostring(renameErr))
+        end
     end)
+    if okTmp then return true end
+    pcall(os.remove, tmpPath)  -- best-effort cleanup of orphaned tmp
+    local ok, err = pcall(writeTo, path)
     if not ok then
         if print then
             print(string.format("\ar[CoOpt UI]\ax safeWrite failed: %s", path))

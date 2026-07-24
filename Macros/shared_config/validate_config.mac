@@ -16,18 +16,19 @@ Sub Main
     /declare sellPath string local ${MacroQuest.Path}/Macros/sell_config
     
     /declare errors int local 0
-    /declare warnings int local 0
-    
+    | outer: incremented/read inside CheckConflicts (local would be out of scope there)
+    /declare warnings int outer 0
+
     | Validate shared configs
     /echo Checking shared_config/...
     /call ValidateFile "${sharedPath}/valuable_exact.ini" "Items" "exact"
-    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
-    
+    /if (${Macro.Return} == 1) /varcalc errors ${errors}+1
+
     /call ValidateFile "${sharedPath}/valuable_contains.ini" "Items" "contains"
-    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
-    
+    /if (${Macro.Return} == 1) /varcalc errors ${errors}+1
+
     /call ValidateFile "${sharedPath}/valuable_types.ini" "Items" "types"
-    /if (${Macro.Return} == 0) /varcalc errors ${errors}+1
+    /if (${Macro.Return} == 1) /varcalc errors ${errors}+1
     
     | Validate loot configs
     /echo Checking loot_config/...

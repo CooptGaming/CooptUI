@@ -13,8 +13,10 @@ import customtkinter as ctk
 from PIL import Image
 
 from config import load as load_config, save as save_config, add_recent_path
-from installer import smart_install
-from migrate_itemui_to_coopui import migrate_itemui_to_coopui, ensure_env_after_patch
+from installer import is_macroquest_running, smart_install
+# NOTE: the itemui→coopui tree rename is postponed — the patcher must NOT auto-migrate.
+# migrate_itemui_to_coopui.migrate_itemui_to_coopui stays available for manual use only.
+from migrate_itemui_to_coopui import ensure_env_after_patch
 from path_finder import find_mq_installations
 from updater import (
     check_for_default_config,
@@ -297,20 +299,12 @@ class MainView(ctk.CTkFrame):
         self._bottom_spacer.pack(fill="both", expand=True)
 
         # Start update check
-        self._run_migration_and_check()
+        self._start_update_check()
 
-    def _run_migration_and_check(self):
-        """Run migration, then check for updates."""
-        def _migrate_log(line: str):
-            self.after(0, lambda: self.app.set_status(line[:80]))
-
-        migrate_ok, migrate_msg = migrate_itemui_to_coopui(self.mq_root, log_callback=_migrate_log)
-        if not migrate_ok:
-            self.app.set_status(migrate_msg or "Migration failed.", error=True)
-            return
-
+    def _start_update_check(self):
+        """Show installed version, then check for updates."""
         installed = get_installed_version(self.mq_root)
-        ver_text = f"Valid install"
+        ver_text = "Valid install"
         if installed:
             ver_text += f" · CoOpt UI v{installed}"
         self.valid_label.configure(text=f"  {ver_text}", text_color=SUCCESS_GREEN)
@@ -318,36 +312,34 @@ class MainView(ctk.CTkFrame):
         threading.Thread(target=self._check_updates, daemon=True).start()
 
     def _check_updates(self):
-        to_update, manifest_version, err = check_for_updates(
-            REPO_BASE_URL, self.mq_root, MANIFEST_PATH
-        )
-        installed_version = get_installed_version(self.mq_root)
-
-        # Try to extract changelog from manifest
-        changelog = []
         try:
-            import json
-            import urllib.request
-            manifest_url = f"{REPO_BASE_URL.rstrip('/')}/{MANIFEST_PATH}"
-            req = urllib.request.Request(manifest_url)
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="replace"))
-            changelog = data.get("changelog", [])
-        except Exception:
-            pass
+            to_update, manifest_version, changelog, err = check_for_updates(
+                REPO_BASE_URL, self.mq_root, MANIFEST_PATH
+            )
+            installed_version = get_installed_version(self.mq_root)
 
-        if err:
-            self.after(0, lambda: self._on_check_done(to_update, [], err, manifest_version, installed_version, changelog))
-            return
+            if err:
+                self.after(0, lambda: self._on_check_done(to_update, [], err, manifest_version, installed_version, changelog))
+                return
 
-        to_install_defaults, default_err = check_for_default_config(
-            REPO_BASE_URL, self.mq_root, DEFAULT_CONFIG_MANIFEST_PATH
-        )
-        combined_err = default_err if default_err else None
-        self.after(0, lambda: self._on_check_done(
-            to_update, to_install_defaults or [], combined_err,
-            manifest_version, installed_version, changelog
-        ))
+            # The default-config manifest is optional — a failure here must not block
+            # the main update flow. Surface it as a status note and continue.
+            to_install_defaults, default_err = check_for_default_config(
+                REPO_BASE_URL, self.mq_root, DEFAULT_CONFIG_MANIFEST_PATH
+            )
+            if default_err:
+                note = f"Note: {default_err} Skipping default config this run."
+                self.after(0, lambda: self.app.set_status(note))
+                to_install_defaults = []
+            self.after(0, lambda: self._on_check_done(
+                to_update, to_install_defaults or [], None,
+                manifest_version, installed_version, changelog
+            ))
+        except Exception as e:
+            # Never let the worker die silently — the UI would sit on
+            # "Checking for updates..." forever with no console to see the traceback.
+            msg = f"Unexpected error while checking for updates: {e}"
+            self.after(0, lambda: self._on_check_done([], [], msg, None, None, []))
 
     def _on_check_done(
         self,
@@ -418,7 +410,11 @@ class MainView(ctk.CTkFrame):
     def _on_patch(self):
         if self._patch_in_progress or (not self.files_to_update and not self.files_to_install_defaults):
             return
+        if is_macroquest_running():
+            self.app.set_status("Close MacroQuest and EverQuest, then retry.", error=True)
+            return
         self._patch_in_progress = True
+        self.app.in_progress = True
         self.app.set_primary_button("Updating...", None, enabled=False, color=ORANGE)
 
         # Show progress UI
@@ -451,43 +447,64 @@ class MainView(ctk.CTkFrame):
             self.after(0, update)
 
         def run():
-            done = 0
-            if self.files_to_update:
-                success, message = patch(
-                    self.files_to_update, REPO_BASE_URL, self.mq_root,
-                    progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
-                )
-                if not success:
-                    self.after(0, lambda: self._on_patch_done(False, message))
-                    return
-                done = len(self.files_to_update)
-            if self.files_to_install_defaults:
-                success, message = install_default_config(
-                    self.files_to_install_defaults, REPO_BASE_URL, self.mq_root,
-                    progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
-                )
-                self.after(0, lambda: self._on_patch_done(success, message))
-            else:
-                self.after(0, lambda: self._on_patch_done(True, "Update complete."))
+            try:
+                done = 0
+                skipped: list[str] = []
+                message = "Update complete."
+                if self.files_to_update:
+                    success, message, skipped = patch(
+                        self.files_to_update, REPO_BASE_URL, self.mq_root,
+                        progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
+                    )
+                    if not success:
+                        self.after(0, lambda: self._on_patch_done(False, message, skipped))
+                        return
+                    done = len(self.files_to_update)
+                if self.files_to_install_defaults:
+                    success, message = install_default_config(
+                        self.files_to_install_defaults, REPO_BASE_URL, self.mq_root,
+                        progress_callback=lambda c, t, p: progress_cb(done + c, total_ops, p),
+                    )
+                    self.after(0, lambda: self._on_patch_done(success, message, skipped))
+                else:
+                    self.after(0, lambda: self._on_patch_done(True, message, skipped))
+            except Exception as e:
+                # An uncaught exception here (e.g. a dropped connection mid-read) would
+                # kill the thread and leave the UI stuck on "Updating..." forever.
+                msg = f"Update failed unexpectedly: {e}"
+                self.after(0, lambda: self._on_patch_done(False, msg))
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _on_patch_done(self, success: bool, message: str):
+    def _on_patch_done(self, success: bool, message: str, skipped: list[str] | None = None):
         self._patch_in_progress = False
+        self.app.in_progress = False
         self.progress_bar.set(1.0 if success else self.progress_bar.get())
 
         if success:
             ensure_env_after_patch(self.mq_root)
-            # Post-patch verification
+            # Post-patch verification. Files skipped as 404 (removed from repo) were
+            # never downloaded, so they must not count as verification failures.
             if self.files_to_update:
-                all_ok, failed = verify_installation(self.files_to_update, self.mq_root)
+                skipped_set = {p.replace("\\", "/") for p in (skipped or [])}
+                to_verify = [
+                    e for e in self.files_to_update
+                    if (e.get("path") or "").replace("\\", "/") not in skipped_set
+                ]
+                all_ok, failed = verify_installation(to_verify, self.mq_root)
                 if not all_ok:
-                    message = (
-                        f"Update complete but {len(failed)} file(s) failed verification. "
+                    # Verification failure is a FAILURE: no green banner, no version
+                    # stamp, and a Retry that re-checks so the user can run it again.
+                    fail_msg = (
+                        f"{len(failed)} file(s) failed verification after the update. "
                         f"Check permissions or antivirus: {', '.join(failed[:3])}"
                     )
-                else:
-                    message += " All files verified."
+                    self.update_title.configure(text="Update verification failed")
+                    self.update_subtitle.configure(text=fail_msg, text_color=ERROR_RED)
+                    self.progress_label.configure(text=fail_msg)
+                    self.app.set_primary_button("Retry", self._retry_check, enabled=True, color=ORANGE)
+                    return
+                message += " All files verified."
             if self.manifest_version:
                 write_installed_version(self.mq_root, self.manifest_version)
             self.files_to_update = []
@@ -511,7 +528,11 @@ class MainView(ctk.CTkFrame):
         instance — and repairs/refreshes an existing one."""
         if self._patch_in_progress:
             return
+        if is_macroquest_running():
+            self.app.set_status("Close MacroQuest and EverQuest, then retry.", error=True)
+            return
         self._patch_in_progress = True
+        self.app.in_progress = True
         self.app.set_primary_button("Installing...", None, enabled=False, color=ORANGE)
         self.full_install_btn.configure(state="disabled")
         self.update_title.configure(text="Full Install / Repair")
@@ -545,13 +566,18 @@ class MainView(ctk.CTkFrame):
             self.after(0, update)
 
         def run():
-            success, message = smart_install(self.mq_root, progress_cb)
+            try:
+                success, message = smart_install(self.mq_root, progress_cb)
+            except Exception as e:
+                # Keep the UI alive even if the installer raises something unexpected.
+                success, message = False, f"Install failed unexpectedly: {e}"
             self.after(0, lambda: self._on_full_install_done(success, message))
 
         threading.Thread(target=run, daemon=True).start()
 
     def _on_full_install_done(self, success: bool, message: str):
         self._patch_in_progress = False
+        self.app.in_progress = False
         self.full_install_btn.configure(state="normal")
         if success:
             ensure_env_after_patch(self.mq_root)
@@ -569,6 +595,11 @@ class MainView(ctk.CTkFrame):
             self.app.set_primary_button("Retry", self._on_full_install, enabled=True, color=ORANGE)
 
     def _on_change_folder(self):
+        # Switching views destroys this MainView under a live worker thread —
+        # a silent mid-patch abort. Refuse while an operation is running.
+        if self.app.in_progress:
+            self.app.set_status("Please wait for the current update/install to finish.")
+            return
         self.app.show_setup()
 
 
@@ -584,6 +615,10 @@ class PatcherApp(ctk.CTk):
         self.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.resizable(True, True)
         self.config = load_config()
+        # True while an update / full install / fresh install thread is running.
+        # Guards Change-folder, Close and window-close from aborting a live worker.
+        self.in_progress = False
+        self.protocol("WM_DELETE_WINDOW", self._on_close_request)
 
         # --- Header bar (navy) — packed first (top) ---
         self.header = ctk.CTkFrame(self, fg_color=NAVY, height=50, corner_radius=0)
@@ -630,7 +665,7 @@ class PatcherApp(ctk.CTk):
             self.footer, text="Close",
             font=ctk.CTkFont(weight="bold"),
             fg_color="#555555", hover_color="#666666",
-            command=self.destroy, width=80,
+            command=self._on_close_request, width=80,
         )
         self.close_btn.pack(side="right", padx=16, pady=10)
 
@@ -664,6 +699,14 @@ class PatcherApp(ctk.CTk):
                 self.show_main(saved_root, save=False)
                 return
         self.show_setup()
+
+    def _on_close_request(self):
+        """Close button / window X: ignore while a worker thread is mid-operation,
+        so the app can't exit under a half-applied update or install."""
+        if self.in_progress:
+            self.set_status("An update/install is running — please wait for it to finish.", error=True)
+            return
+        self.destroy()
 
     def set_status(self, text: str, error: bool = False):
         """Update the inline status label."""
@@ -701,11 +744,15 @@ class PatcherApp(ctk.CTk):
 
     def show_main(self, mq_root: str, save: bool = True):
         """Show the Main update view for a validated MQ root."""
+        saved_ok = True
         if save:
             self.config = add_recent_path(self.config, mq_root)
-            save_config(self.config)
+            saved_ok = save_config(self.config)
         self._clear_body()
         self.set_status("")
+        if not saved_ok:
+            # Non-blocking: patching still works, the folder just won't be remembered.
+            self.set_status("Warning: could not save settings — this folder won't be remembered next launch.")
         view = MainView(self.body, self, mq_root)
         view.pack(fill="both", expand=True)
 
@@ -740,6 +787,7 @@ class PatcherApp(ctk.CTk):
         detail_label.pack(fill="x", padx=24)
 
         self.set_primary_button("Installing...", None, enabled=False)
+        self.in_progress = True
 
         def run():
             def progress_cb(msg: str, frac: float):
@@ -753,17 +801,25 @@ class PatcherApp(ctk.CTk):
             # (MacroQuest + Mono + E3 + plugin + CoOpt UI), and lays it down — building a new
             # instance from scratch in an empty folder, or safely overlaying onto an existing
             # MacroQuest while keeping the user's config.
-            success, message = smart_install(target_dir, progress_cb)
+            try:
+                success, message = smart_install(target_dir, progress_cb)
+            except Exception as e:
+                # Keep the UI alive even if the installer raises something unexpected.
+                success, message = False, f"Install failed unexpectedly: {e}"
             if not success:
                 self.after(0, lambda: self._fresh_install_error(message))
                 return
 
-            self.after(0, lambda: self.show_main(target_dir))
+            def finish():
+                self.in_progress = False
+                self.show_main(target_dir)
+            self.after(0, finish)
 
         threading.Thread(target=run, daemon=True).start()
 
     def _fresh_install_error(self, message: str):
         """Handle fresh install failure."""
+        self.in_progress = False
         self.set_status(message, error=True)
         self.set_primary_button("Back", self.show_setup, enabled=True, color=NAVY)
 

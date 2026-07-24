@@ -47,6 +47,10 @@ function LayoutColumns.applyColumnVisibilityFromParsed(parsed)
     end
 end
 
+-- getFixedColumns is called every frame by the Inventory/Bank views; memoize its
+-- result per view and invalidate on any mutation of the fixed column order.
+local fixedColumnsMemo = { Inventory = nil, Bank = nil }
+
 --- Toggle a column in the fixed list (Inventory/Bank). Adds if not present, removes if present. Returns new state (true = in list, false = removed).
 function LayoutColumns.toggleFixedColumn(view, colKey)
     if view ~= "Inventory" and view ~= "Bank" then return nil end
@@ -56,6 +60,7 @@ function LayoutColumns.toggleFixedColumn(view, colKey)
     for i, k in ipairs(list) do
         if k == colKey then found = i; break end
     end
+    fixedColumnsMemo[view] = nil
     if found then
         if #list <= 1 then return true end
         table.remove(list, found)
@@ -81,11 +86,15 @@ end
 --- Get fixed column list for Inventory/Bank (ordered; used for fixed-display mode). Returns array of colDefs.
 function LayoutColumns.getFixedColumns(view)
     if view ~= "Inventory" and view ~= "Bank" then return {} end
+    local ordered = layoutConfig.fixedColumnOrder and layoutConfig.fixedColumnOrder[view] or {}
+    local memo = fixedColumnsMemo[view]
+    if memo and memo.src == ordered and memo.len == #ordered then
+        return memo.result
+    end
     local colDefByKey = {}
     for _, colDef in ipairs(availableColumns[view] or {}) do
         colDefByKey[colDef.key] = colDef
     end
-    local ordered = layoutConfig.fixedColumnOrder and layoutConfig.fixedColumnOrder[view] or {}
     local result = {}
     for _, colKey in ipairs(ordered) do
         local colDef = colDefByKey[colKey]
@@ -96,6 +105,7 @@ function LayoutColumns.getFixedColumns(view)
             if colDef.default then table.insert(result, colDef) end
         end
     end
+    fixedColumnsMemo[view] = { src = ordered, len = #ordered, result = result }
     return result
 end
 

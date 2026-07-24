@@ -121,6 +121,9 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.RerollWindowX then layoutDefaults.RerollWindowX = tonumber(d.RerollWindowX) or layoutDefaults.RerollWindowX end
     if d.RerollWindowY then layoutDefaults.RerollWindowY = tonumber(d.RerollWindowY) or layoutDefaults.RerollWindowY end
     if d.SuppressWhenLootMac then layoutDefaults.SuppressWhenLootMac = setBool(d.SuppressWhenLootMac) and 1 or 0 end
+    if d.EnableRealTimeLoot ~= nil then layoutDefaults.EnableRealTimeLoot = setBool(d.EnableRealTimeLoot) and 1 or 0 end
+    if d.EnableLootHistory ~= nil then layoutDefaults.EnableLootHistory = setBool(d.EnableLootHistory) and 1 or 0 end
+    if d.EnableSkipHistory ~= nil then layoutDefaults.EnableSkipHistory = setBool(d.EnableSkipHistory) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
     if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
@@ -204,8 +207,8 @@ function LayoutUtils.saveLayoutToFileImmediate()
         end
     end
 
-    local ok, err = pcall(function()
-        local f = io.open(path, "w")
+    local function writeLayoutFile(targetPath)
+        local f = io.open(targetPath, "w")
         if not f then error("io.open write failed") end
         for _, line in ipairs(lines) do
             f:write(line .. "\n")
@@ -299,7 +302,21 @@ function LayoutUtils.saveLayoutToFileImmediate()
             f:write(view .. "=" .. table.concat(visibleCols, "/") .. "\n")
         end
         f:close()
+    end
+    -- Crash-safe write: stream to .tmp then swap in (remove + rename; os.rename does not
+    -- overwrite existing files on Windows). On tmp/swap failure fall back to the direct
+    -- write so behavior never regresses.
+    local ok, err = pcall(function()
+        local tmpPath = path .. ".tmp"
+        writeLayoutFile(tmpPath)
+        os.remove(path)  -- may not exist yet; result intentionally ignored
+        local renamed, renameErr = os.rename(tmpPath, path)
+        if not renamed then error("os.rename failed: " .. tostring(renameErr)) end
     end)
+    if not ok then
+        pcall(os.remove, path .. ".tmp")  -- best-effort cleanup of orphaned tmp
+        ok, err = pcall(writeLayoutFile, path)
+    end
     if not ok then
         if print then print(string.format("\ar[CoOpt UI]\ax saveLayoutToFileImmediate failed: %s", tostring(err))) end
         diagnostics.recordError("Layout", "Save layout to file failed", err)
@@ -421,8 +438,8 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
         layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "shift+q")
         local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
-        -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
-        filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
+        -- Tabs 1-5 (5 = Advanced); legacy 10-12 map to 1
+        filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 5) and ct or 1
         local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
         filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
         local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")
@@ -484,6 +501,7 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.WidthInventory = LayoutUtils.loadLayoutValue(layout, "WidthInventory", layoutDefaults.WidthInventory)
     layoutConfig.Height = LayoutUtils.loadLayoutValue(layout, "Height", layoutDefaults.Height)
     layoutConfig.WidthSell = LayoutUtils.loadLayoutValue(layout, "WidthSell", layoutDefaults.WidthSell)
+    layoutConfig.WidthLoot = LayoutUtils.loadLayoutValue(layout, "WidthLoot", layoutDefaults.WidthLoot)
     layoutConfig.WidthBankPanel = LayoutUtils.loadLayoutValue(layout, "WidthBankPanel", layoutDefaults.WidthBankPanel)
     layoutConfig.HeightBank = LayoutUtils.loadLayoutValue(layout, "HeightBank", layoutDefaults.HeightBank)
     layoutConfig.BankWindowX = LayoutUtils.loadLayoutValue(layout, "BankWindowX", layoutDefaults.BankWindowX)
@@ -532,8 +550,8 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
     layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "shift+q")
     local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
-    -- Tabs 1-4 only; legacy 5 or 10-12 map to 1
-    filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 4) and ct or 1
+    -- Tabs 1-5 (5 = Advanced); legacy 10-12 map to 1
+    filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 5) and ct or 1
     local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
     filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
         local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")

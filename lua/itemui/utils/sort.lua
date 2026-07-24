@@ -141,13 +141,13 @@ local function tieBreak(a, b, dir)
 end
 
 function Sort.makeComparator(getValFunc, col, dir, numericCols)
+    local isNumeric = false
+    for _, nc in ipairs(numericCols) do
+        if col == nc then isNumeric = true; break end
+    end
     return function(a, b)
         if not a or not b then return false end
         local av, bv = getValFunc(a, col), getValFunc(b, col)
-        local isNumeric = false
-        for _, nc in ipairs(numericCols) do
-            if col == nc then isNumeric = true; break end
-        end
         if isNumeric then
             local an, bn = tonumber(av) or 0, tonumber(bv) or 0
             if an ~= bn then

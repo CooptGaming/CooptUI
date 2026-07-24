@@ -27,6 +27,22 @@ function InventoryView.render(ctx, bankOpen)
     if ImGui.Button("X##InvSearchClear2", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
     ImGui.SameLine()
+    if ImGui.Button("Newest##Inv", ImVec2(55, 0)) then
+        -- Toggle newest-first sort (hidden Acquired column); restore Name sort on second click.
+        if ctx.sortState.invColumn ~= "Acquired" then
+            ctx.sortState.invColumn = "Acquired"
+            ctx.sortState.invDirection = ImGuiSortDirection.Descending
+        else
+            ctx.sortState.invColumn = "Name"
+            ctx.sortState.invDirection = ImGuiSortDirection.Ascending
+        end
+        -- Persist exactly like a header sort-spec change (see sort handler below);
+        -- the sort cache revalidates via sortKey/sortDir in getSortedList.
+        ctx.scheduleLayoutSave()
+        ctx.flushLayoutSave()
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Sort by most recently looted; click again to restore Name"); ImGui.EndTooltip() end
+    ImGui.SameLine()
     ctx.renderRefreshButton(ctx, "Refresh##Inv", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
     ctx.theme.TextMuted(string.format("Last: %s", os.date("%H:%M:%S", ctx.perfCache.lastScanTimeInv/1000)))
@@ -172,9 +188,12 @@ function InventoryView.render(ctx, bankOpen)
         
         local hasCursor = ctx.hasItemOnCursor()
         local lp = ctx.uiState.lastPickup
+        -- Session floor for the "NEW" badge (nil until stamped at startup; see app.lua main)
+        local sessionFloor = ctx.getSessionStartAcquiredSeq and ctx.getSessionStartAcquiredSeq()
+        local searchLower = (ctx.uiState.searchFilterInv or ""):lower()
         local filtered = {}
         for _, it in ipairs(ctx.inventoryItems) do
-            if ctx.uiState.searchFilterInv == "" or (it.name or ""):lower():find((ctx.uiState.searchFilterInv or ""):lower(), 1, true) then
+            if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
                 if not ctx.shouldHideRowForCursor(it, "inv") then
                     table.insert(filtered, it)
                 end
@@ -220,6 +239,14 @@ function InventoryView.render(ctx, bankOpen)
                     if colKey == "Name" then
                         local dn = item.name or ""
                         if (item.stackSize or 1) > 1 then dn = dn .. string.format(" (x%d)", item.stackSize) end
+                        -- "NEW" badge for items acquired since UI start. Rendered before the
+                        -- Selectable: the Selectable spans the rest of the column (SameLine after
+                        -- it would clip), and it must stay the last item for the click handlers
+                        -- below. Plain colored text — no interactive widget, so no ID concerns.
+                        if sessionFloor and item.acquiredSeq and item.acquiredSeq >= sessionFloor then
+                            ctx.theme.TextSuccess("NEW")
+                            ImGui.SameLine()
+                        end
                         ImGui.Selectable(dn, false, ImGuiSelectableFlags.None, ImVec2(0,0))
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
                             if ImGui.GetIO().KeyShift and bankOpen then
@@ -308,7 +335,6 @@ function InventoryView.render(ctx, bankOpen)
                         if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                             ImGui.OpenPopup("ItemContextInv_" .. rid)
                         end
-                        ctx.renderItemContextMenu(ctx, item, { source = "inv", popupId = "ItemContextInv_" .. rid, bankOpen = bankOpen or (ctx.uiState and ctx.uiState.bankOpen) or false, hasCursor = hasCursor })
                     elseif colKey == "Status" then
                         local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
@@ -316,6 +342,9 @@ function InventoryView.render(ctx, bankOpen)
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Inventory"))
                     end
                 end
+                -- Once per row (not per column): the Name column opens this popup too,
+                -- and the Icon column is hidden by default.
+                ctx.renderItemContextMenu(ctx, item, { source = "inv", popupId = "ItemContextInv_" .. rid, bankOpen = bankOpen or (ctx.uiState and ctx.uiState.bankOpen) or false, hasCursor = hasCursor })
                 ImGui.PopID()
             ::continue::
             end

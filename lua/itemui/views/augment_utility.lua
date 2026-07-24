@@ -34,6 +34,17 @@ local optimizeCache = {
     steps = nil,
     canOptimize = false,
 }
+-- True while the optimize queue is draining; used to detect completion and invalidate caches.
+local optimizeWasRunning = false
+-- Cache for the compatible-candidate list + scores (mirrors optimizeCache's key pattern):
+-- the full scan + per-candidate scoring runs only when the key changes, not every frame.
+local candidateCache = {
+    key = nil,        -- itemId|bag|slot|source|slotIdx|bankOpen|usable|search|inv/bank signature
+    candCount = 0,    -- pre-search candidate count (header + empty-state messages)
+    list = nil,       -- search-filtered, scored, rank-ordered candidates
+    sortKey = nil,    -- column-sort cache key
+    sorted = nil,     -- column-sorted copy for table display
+}
 function AugmentUtilityView.getState()
     return state
 end
@@ -150,6 +161,18 @@ function AugmentUtilityView.render(ctx)
     state.augmentUtilitySlotIndex = slotIdx
     ImGui.Spacing()
 
+    -- Phase 2: detect optimize-queue completion (main_loop drains steps then clears the queue).
+    -- On completion, invalidate the plan + candidate caches: slots are now filled and augments
+    -- consumed, but the cache keys alone would not change.
+    local runningQueue = ctx.uiState.optimizeQueue
+    if runningQueue and runningQueue.steps and #runningQueue.steps > 0 then
+        optimizeWasRunning = true
+    elseif optimizeWasRunning then
+        optimizeWasRunning = false
+        optimizeCache.itemId = nil
+        candidateCache.key = nil
+    end
+
     -- Phase 2: Build optimize plan (cached — only recompute when item/slot/bank/usable changes).
     local optimizeSteps = {}
     local canOptimize = false
@@ -217,20 +240,60 @@ function AugmentUtilityView.render(ctx)
         ctx.theme.TextWarning("getCompatibleAugments not available.")
         ImGui.Spacing()
     else
-        local entry = { bag = bag, slot = slot, source = source, item = targetItem }
         local onlyShowUsable = (state.augmentUtilityOnlyShowUsable ~= false)
-        -- Apply socket type + augment restrictions + (when on) class/race/deity/level in one place so list is strict before ranking
-        local canUseFilter = onlyShowUsable and function(i)
-            local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
-            return info and info.canUse
-        end or nil
-        -- List is already restricted to: fits slot, restrictions, equipment slot, and (when on) class/race/deity/level
-        local candidates = ctx.getCompatibleAugments(entry, slotIdx, { canUseFilter = canUseFilter })
-        local filteredByUse = candidates
+        local bankOpenAU = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
+        local candItemId = targetItem.id or targetItem.ID or 0
+        local searchLower = (state.searchFilterAugmentUtility or ""):lower()
+        -- Candidate cache (same key signals as optimizeCache + search text). Inventory/bank
+        -- signature = count + first-item identity: scans refill the tables in place with fresh
+        -- item objects, so identity changes even when counts do not.
+        local invItemsAU = ctx.inventoryItems or {}
+        local bankItemsAU = ctx.bankItems or {}
+        local candKey = string.format("%s|%s|%s|%s|%d|%s|%s|%d|%s|%d|%s|%s",
+            tostring(candItemId), tostring(bag), tostring(slot), tostring(source), slotIdx,
+            tostring(bankOpenAU), tostring(onlyShowUsable),
+            #invItemsAU, tostring(invItemsAU[1]), #bankItemsAU, tostring(bankItemsAU[1]),
+            searchLower)
+        if candidateCache.key ~= candKey then
+            local entry = { bag = bag, slot = slot, source = source, item = targetItem }
+            -- Apply socket type + augment restrictions + (when on) class/race/deity/level in one place so list is strict before ranking
+            local canUseFilter = onlyShowUsable and function(i)
+                local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
+                return info and info.canUse
+            end or nil
+            -- List is already restricted to: fits slot, restrictions, equipment slot, and (when on) class/race/deity/level
+            local candidates = ctx.getCompatibleAugments(entry, slotIdx, { canUseFilter = canUseFilter }) or {}
+            local rebuilt = {}
+            for _, cand in ipairs(candidates) do
+                if searchLower == "" or (cand.name or ""):lower():find(searchLower, 1, true) then
+                    rebuilt[#rebuilt + 1] = cand
+                end
+            end
+            -- Score each candidate, then assign rank position (1 = best). scoreAugment takes
+            -- parent coordinates and resolves the parent item TLO itself; with this cache that
+            -- happens once per rebuild instead of once per candidate every frame.
+            local parentContext = { bag = bag, slot = slot, source = source }
+            local rankConfig = augmentRanking.getDefaultConfig()
+            for _, cand in ipairs(rebuilt) do
+                local s = augmentRanking.scoreAugment(cand, parentContext, ctx, rankConfig)
+                cand._rankScore = (type(s) == "number") and s or 0
+            end
+            table.sort(rebuilt, function(a, b) return (a._rankScore or 0) > (b._rankScore or 0) end)
+            for i, cand in ipairs(rebuilt) do
+                cand._rankPosition = i
+            end
+            candidateCache.key = candKey
+            candidateCache.candCount = #candidates
+            candidateCache.list = rebuilt
+            candidateCache.sortKey = nil
+            candidateCache.sorted = nil
+        end
+        local filtered = candidateCache.list or {}
+        local candCount = candidateCache.candCount or 0
 
         ctx.theme.TextHeader("Compatible augments")
         ImGui.SameLine()
-        ctx.theme.TextInfo(string.format("(%d)", #filteredByUse))
+        ctx.theme.TextInfo(string.format("(%d)", candCount))
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Only augments that fit this slot and pass all qualifications (restrictions, equipment slot, class/race/deity/level) are listed.")
@@ -260,31 +323,11 @@ function AugmentUtilityView.render(ctx)
         end
         ImGui.Separator()
 
-        local searchLower = (state.searchFilterAugmentUtility or ""):lower()
-        local filtered = {}
-        for _, cand in ipairs(filteredByUse) do
-            if searchLower == "" or (cand.name or ""):lower():find(searchLower, 1, true) then
-                filtered[#filtered + 1] = cand
-            end
-        end
-
-        -- Score each candidate, then assign rank position (1 = best)
-        local parentContext = { bag = bag, slot = slot, source = source }
-        local rankConfig = augmentRanking.getDefaultConfig()
-        for _, cand in ipairs(filtered) do
-            local s = augmentRanking.scoreAugment(cand, parentContext, ctx, rankConfig)
-            cand._rankScore = (type(s) == "number") and s or 0
-        end
-        table.sort(filtered, function(a, b) return (a._rankScore or 0) > (b._rankScore or 0) end)
-        for i, cand in ipairs(filtered) do
-            cand._rankPosition = i
-        end
-
         if ImGui.BeginChild("##AugmentUtilityList", ImVec2(0, -72), true) then
             if #filtered == 0 then
-                if #candidates == 0 then
+                if candCount == 0 then
                     ctx.theme.TextMuted("No compatible augments in inventory or bank.")
-                elseif onlyShowUsable and #filteredByUse == 0 then
+                elseif onlyShowUsable and candCount == 0 then
                     ctx.theme.TextMuted("No augments you can use in this slot.")
                     ImGui.TextWrapped("Uncheck \"Only show usable by me\" to see all compatible augments (e.g. for another character).")
                 else
@@ -322,30 +365,39 @@ function AugmentUtilityView.render(ctx)
                         if not c or not c.clicky or c.clicky <= 0 then return "" end
                         return (ctx.getSpellName and ctx.getSpellName(c.clicky)) or ""
                     end
+                    local rows = filtered
                     if sortCol == 1 or sortCol == 2 or sortCol == 3 then
-                        table.sort(filtered, function(a, b)
-                            local av, bv
-                            if sortCol == 1 then
-                                av = (a._rankPosition or 9999)
-                                bv = (b._rankPosition or 9999)
-                                if asc then return av < bv else return av > bv end
-                            elseif sortCol == 2 then
-                                av = (a.name or ""):lower()
-                                bv = (b.name or ""):lower()
-                                if asc then return av < bv else return av > bv end
-                            else
-                                av = getClickyName(a):lower()
-                                bv = getClickyName(b):lower()
-                                if asc then return av < bv else return av > bv end
-                            end
-                        end)
+                        local sortKey = string.format("%d|%s|%s", sortCol, tostring(sortDir), candidateCache.key or "")
+                        if candidateCache.sortKey ~= sortKey or not candidateCache.sorted then
+                            local sorted = {}
+                            for i = 1, #filtered do sorted[i] = filtered[i] end
+                            table.sort(sorted, function(a, b)
+                                local av, bv
+                                if sortCol == 1 then
+                                    av = (a._rankPosition or 9999)
+                                    bv = (b._rankPosition or 9999)
+                                    if asc then return av < bv else return av > bv end
+                                elseif sortCol == 2 then
+                                    av = (a.name or ""):lower()
+                                    bv = (b.name or ""):lower()
+                                    if asc then return av < bv else return av > bv end
+                                else
+                                    av = getClickyName(a):lower()
+                                    bv = getClickyName(b):lower()
+                                    if asc then return av < bv else return av > bv end
+                                end
+                            end)
+                            candidateCache.sortKey = sortKey
+                            candidateCache.sorted = sorted
+                        end
+                        rows = candidateCache.sorted
                     end
 
                     local clipper = ImGuiListClipper.new()
-                    clipper:Begin(#filtered)
+                    clipper:Begin(#rows)
                     while clipper:Step() do
                         for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-                            local cand = filtered[i]
+                            local cand = rows[i]
                             if not cand then goto continue end
                             local rid = "au_" .. tostring(cand.bag or 0) .. "_" .. tostring(cand.slot or 0) .. "_" .. (cand.source or "inv")
                             ImGui.PushID(rid)
@@ -480,11 +532,19 @@ function AugmentUtilityView.render(ctx)
     ImGui.Spacing()
     ctx.theme.TextHeader("Fill empty slots")
     ImGui.SameLine()
-    if not canOptimize then ImGui.BeginDisabled() end
-    if ImGui.Button("Fill with best##AU", ImVec2(100, 0)) and canOptimize then
-        ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = optimizeSteps, total = #optimizeSteps }
+    local optimizeRunning = ctx.uiState.optimizeQueue ~= nil
+    local fillDisabled = not canOptimize or optimizeRunning
+    if fillDisabled then ImGui.BeginDisabled() end
+    if ImGui.Button("Fill with best##AU", ImVec2(100, 0)) and not fillDisabled then
+        -- Copy the steps into the queue: main_loop drains the queue with table.remove, and
+        -- handing it optimizeCache.steps directly would hollow out the cached plan.
+        local queueSteps = {}
+        for i, st in ipairs(optimizeSteps) do
+            queueSteps[i] = { slotIndex = st.slotIndex, augmentItem = st.augmentItem }
+        end
+        ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = queueSteps, total = #queueSteps }
     end
-    if not canOptimize then ImGui.EndDisabled() end
+    if fillDisabled then ImGui.EndDisabled() end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
         if canOptimize then
@@ -495,8 +555,8 @@ function AugmentUtilityView.render(ctx)
         end
         ImGui.EndTooltip()
     end
-    -- Phase 3.1: progress while Optimize is running
-    if ctx.uiState.optimizeQueue and ctx.uiState.optimizeQueue.steps and ctx.uiState.optimizeQueue.total then
+    -- Phase 3.1: progress while Optimize is running (total > 0, not just truthy)
+    if ctx.uiState.optimizeQueue and ctx.uiState.optimizeQueue.steps and (ctx.uiState.optimizeQueue.total or 0) > 0 then
         local oq = ctx.uiState.optimizeQueue
         ImGui.SameLine()
         ctx.theme.TextInfo(string.format("Optimizing %d/%d", #oq.steps, oq.total))

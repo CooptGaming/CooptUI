@@ -22,6 +22,7 @@ end
 
 local CACHE_TTL = constants.TIMING.STATS_CACHE_TTL_MS
 local cachedStats = nil
+local cachedScriptData = nil
 local cacheTime = 0
 
 -- ============================================================================
@@ -149,46 +150,51 @@ local function refreshStats()
     local Me = mq.TLO and mq.TLO.Me
     if not Me then return nil end
 
-    return {
-        playerName = (Me.Name and Me.Name()) or "?",
-        playerLevel = (Me.Level and Me.Level()) or 0,
-        classStr = getClassDisplayString(Me),
-        hp = Me.CurrentHPs() or 0,
-        maxHP = Me.MaxHPs() or 0,
-        mana = Me.CurrentMana() or 0,
-        maxMana = Me.MaxMana() or 0,
-        endur = Me.CurrentEndurance() or 0,
-        maxEndur = Me.MaxEndurance() or 0,
-        exp = Me.PctExp() or 0,
-        aaPointsTotal = Me.AAPointsTotal() or 0,
-        haste = Me.Haste() or 0,
-        isMoving = Me.Moving() or false,
-        movementSpeed = (Me.Moving() and Me.Moving()) and math.floor((Me.Speed() or 0) + 0.5) or 0,
-        platinum = Me.Platinum() or 0,
-        gold = Me.Gold() or 0,
-        silver = Me.Silver() or 0,
-        copper = Me.Copper() or 0,
-        str = Me.STR() or 0,
-        sta = Me.STA() or 0,
-        int = Me.INT() or 0,
-        wis = Me.WIS() or 0,
-        dex = Me.DEX() or 0,
-        cha = Me.CHA() or 0,
-        magicResist = Me.svMagic() or 0,
-        fireResist = Me.svFire() or 0,
-        coldResist = Me.svCold() or 0,
-        diseaseResist = Me.svDisease() or 0,
-        poisonResist = Me.svPoison() or 0,
-        corruptionResist = Me.svCorruption() or 0,
-        displayedAC = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentArmorClass") or
-                      getWindowText("InventoryWindow/IW_ACNumber") or "N/A",
-        displayedATK = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentAttack") or
-                       getWindowText("InventoryWindow/IW_ATKNumber") or "N/A",
-        displayedWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentWeight") or
-                          getWindowText("InventoryWindow/IW_CurrentWeight") or "N/A",
-        displayedMaxWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_MaxWeight") or
-                             getWindowText("InventoryWindow/IW_MaxWeight") or "N/A",
-    }
+    -- Platform rule: guard every TLO access. Me members can fail while zoning, dead, or on
+    -- character select, so the whole stats-table build runs in pcall and returns nil on
+    -- failure (the render caller already tolerates a nil stats table).
+    local ok, stats = pcall(function()
+        return {
+            playerName = (Me.Name and Me.Name()) or "?",
+            playerLevel = (Me.Level and Me.Level()) or 0,
+            classStr = getClassDisplayString(Me),
+            hp = Me.CurrentHPs() or 0,
+            maxHP = Me.MaxHPs() or 0,
+            mana = Me.CurrentMana() or 0,
+            maxMana = Me.MaxMana() or 0,
+            endur = Me.CurrentEndurance() or 0,
+            maxEndur = Me.MaxEndurance() or 0,
+            exp = Me.PctExp() or 0,
+            aaPointsTotal = Me.AAPointsTotal() or 0,
+            haste = Me.Haste() or 0,
+            movementSpeed = Me.Moving() and math.floor((Me.Speed() or 0) + 0.5) or 0,
+            platinum = Me.Platinum() or 0,
+            gold = Me.Gold() or 0,
+            silver = Me.Silver() or 0,
+            copper = Me.Copper() or 0,
+            str = Me.STR() or 0,
+            sta = Me.STA() or 0,
+            int = Me.INT() or 0,
+            wis = Me.WIS() or 0,
+            dex = Me.DEX() or 0,
+            cha = Me.CHA() or 0,
+            magicResist = Me.svMagic() or 0,
+            fireResist = Me.svFire() or 0,
+            coldResist = Me.svCold() or 0,
+            diseaseResist = Me.svDisease() or 0,
+            poisonResist = Me.svPoison() or 0,
+            corruptionResist = Me.svCorruption() or 0,
+            displayedAC = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentArmorClass") or
+                          getWindowText("InventoryWindow/IW_ACNumber") or "N/A",
+            displayedATK = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentAttack") or
+                           getWindowText("InventoryWindow/IW_ATKNumber") or "N/A",
+            displayedWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_CurrentWeight") or
+                              getWindowText("InventoryWindow/IW_CurrentWeight") or "N/A",
+            displayedMaxWeight = getWindowText("InventoryWindow/IW_StatPage/IWS_MaxWeight") or
+                                 getWindowText("InventoryWindow/IW_MaxWeight") or "N/A",
+        }
+    end)
+    return ok and stats or nil
 end
 
 -- ============================================================================
@@ -198,6 +204,11 @@ end
 function M.render()
     local now = mq.gettime()
     if not cachedStats or (now - cacheTime) > CACHE_TTL then
+        -- Script counts do a full inventory scan + table builds; refresh them on the TTL
+        -- cadence instead of every frame (and not on the per-frame retry while stats are nil).
+        if not cachedScriptData or (now - cacheTime) > CACHE_TTL then
+            cachedScriptData = getScriptCountsFromInventory(deps and deps.inventoryItems)
+        end
         cachedStats = refreshStats()
         cacheTime = now
     end
@@ -335,7 +346,7 @@ function M.render()
     ImGui.SameLine()
     if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/st show') end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
-    local scriptData = getScriptCountsFromInventory(deps.inventoryItems)
+    local scriptData = cachedScriptData or getScriptCountsFromInventory(deps and deps.inventoryItems)
     ImGui.SetWindowFontScale(0.85)
     ImGui.Text("")
     ImGui.SameLine(48)

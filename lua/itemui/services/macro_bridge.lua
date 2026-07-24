@@ -68,7 +68,7 @@ local MacroBridge = {
             failedCount = 0,
             startTime = 0,
             endTime = 0,
-            lastProgressFileReadTime = 0  -- for file-based fallback when macro name not detected
+            lastProgressFileReadTime = 0  -- throttle for sell_progress.ini reads in getSellProgress
         },
         loot = {
             running = false,
@@ -254,46 +254,42 @@ function MacroBridge.getSmoothedProgress()
     return MacroBridge.state.sell.smoothedFrac
 end
 
--- Get current sell progress data (read from INI when sell macro running so progress bar gets fresh data every frame).
--- File-based fallback: when live macro check fails, read INI periodically; if total>0 and current<total, treat as running so progress bar shows.
+-- Get current sell progress data (INI read throttled to 150ms; smoothing still advances every call).
+-- Not running: static result. (File-based idle fallback removed as dead code: the only caller,
+-- views/sell.lua, gates the progress bar on isSellMacroRunning(), so file-derived "running" was never rendered.)
 function MacroBridge.getSellProgress()
     local liveRunning = isMacroRunning("sell")
     if liveRunning then
         MacroBridge.state.sell.running = true
-        local progress = readSellProgress()
-        if progress then
-            MacroBridge.state.sell.progress = progress
-            local targetFrac = (progress.total > 0) and math.min(1, math.max(0, progress.current / progress.total)) or 0
-            local lerpSpeed = 0.35
-            MacroBridge.state.sell.smoothedFrac = MacroBridge.state.sell.smoothedFrac + (targetFrac - MacroBridge.state.sell.smoothedFrac) * lerpSpeed
-            MacroBridge.state.sell.smoothedFrac = math.min(1, math.max(0, MacroBridge.state.sell.smoothedFrac))
-        end
-    else
-        -- Fallback: show bar from file when macro name not detected (e.g. different MQ2 or invocation)
         local t = os.clock() * 1000
         if (t - (MacroBridge.state.sell.lastProgressFileReadTime or 0)) >= 150 then
             MacroBridge.state.sell.lastProgressFileReadTime = t
             local progress = readSellProgress()
-            if progress and progress.total > 0 then
+            if progress then
                 MacroBridge.state.sell.progress = progress
-                if progress.current < progress.total then
-                    MacroBridge.state.sell.running = true
-                    local targetFrac = math.min(1, math.max(0, progress.current / progress.total))
-                    local lerpSpeed = 0.35
-                    MacroBridge.state.sell.smoothedFrac = MacroBridge.state.sell.smoothedFrac + (targetFrac - MacroBridge.state.sell.smoothedFrac) * lerpSpeed
-                    MacroBridge.state.sell.smoothedFrac = math.min(1, math.max(0, MacroBridge.state.sell.smoothedFrac))
-                else
-                    MacroBridge.state.sell.running = false
-                end
             end
         end
+        local progress = MacroBridge.state.sell.progress
+        local targetFrac = (progress.total > 0) and math.min(1, math.max(0, progress.current / progress.total)) or 0
+        local lerpSpeed = 0.35
+        MacroBridge.state.sell.smoothedFrac = MacroBridge.state.sell.smoothedFrac + (targetFrac - MacroBridge.state.sell.smoothedFrac) * lerpSpeed
+        MacroBridge.state.sell.smoothedFrac = math.min(1, math.max(0, MacroBridge.state.sell.smoothedFrac))
+        return {
+            running = true,
+            total = progress.total,
+            current = progress.current,
+            remaining = progress.remaining,
+            smoothedFrac = MacroBridge.state.sell.smoothedFrac,
+            failedItems = MacroBridge.state.sell.failedItems,
+            failedCount = MacroBridge.state.sell.failedCount
+        }
     end
     return {
-        running = MacroBridge.state.sell.running,
-        total = MacroBridge.state.sell.progress.total,
-        current = MacroBridge.state.sell.progress.current,
-        remaining = MacroBridge.state.sell.progress.remaining,
-        smoothedFrac = MacroBridge.state.sell.smoothedFrac,
+        running = false,
+        total = 0,
+        current = 0,
+        remaining = 0,
+        smoothedFrac = 0,
         failedItems = MacroBridge.state.sell.failedItems,
         failedCount = MacroBridge.state.sell.failedCount
     }
@@ -649,7 +645,16 @@ function MacroBridge.resetStats()
     log("Statistics reset")
 end
 
--- Read loot_progress.ini Progress/line; return true if first field is "1" (macro running). Used for file-based loot finish detection.
+-- Loot heartbeat staleness: loot.mac writes Progress/heartbeat (${Time.MillisecondsSinceEpoch}) alongside
+-- each Progress/line update. If running=1 but the heartbeat value has not changed for LOOT_HEARTBEAT_STALE_MS
+-- of wall time, treat the macro as not running (recovers from aborted runs -- crash or /endmacro -- that left
+-- running=1 forever and wedged the Loot UI). Missing heartbeat key (older macro version) keeps legacy behavior.
+local LOOT_HEARTBEAT_STALE_MS = 30000
+local lootHeartbeatLast = nil
+local lootHeartbeatChangedAt = 0
+
+-- Read loot_progress.ini Progress/line; return true if first field is "1" (macro running) and the heartbeat
+-- (when present) is not stale. Used for file-based loot finish detection.
 local function readLootProgressRunning()
     local getLootConfigFile = MacroBridge.config.getLootConfigFile
     if not getLootConfigFile then
@@ -663,12 +668,21 @@ local function readLootProgressRunning()
     local line = config.safeIniValueByPath(progPath, "Progress", "line", "")
     if not line or line == "" then return false end
     local running = (line .. "##"):match("^(.-)##")
-    return running == "1"
+    if running ~= "1" then return false end
+    local heartbeat = config.safeIniValueByPath(progPath, "Progress", "heartbeat", "")
+    if not heartbeat or heartbeat == "" then return true end  -- older macro: no heartbeat, no staleness recovery
+    local now = os.clock() * 1000
+    if heartbeat ~= lootHeartbeatLast then
+        lootHeartbeatLast = heartbeat
+        lootHeartbeatChangedAt = now
+        return true
+    end
+    return (now - lootHeartbeatChangedAt) <= LOOT_HEARTBEAT_STALE_MS
 end
 
 -- Poll for macro state changes (throttled)
 -- Call this from main loop
--- Uses file-based fallback: if Macro.Name() doesn't match "sell", we still detect running from sell_progress.ini (total>0, current<total)
+-- Loot uses a file-based fallback: if Macro.Name() doesn't match "loot", running is detected from loot_progress.ini (heartbeat-stale aware)
 function MacroBridge.poll()
     local now = os.clock() * 1000  -- ms
     
@@ -688,6 +702,9 @@ function MacroBridge.poll()
         MacroBridge.state.sell.running = true
         MacroBridge.state.sell.startTime = now
         MacroBridge.state.sell.smoothedFrac = 0
+        -- New run: reset failed items so IPC sell_failed entries don't accumulate across runs
+        MacroBridge.state.sell.failedItems = {}
+        MacroBridge.state.sell.failedCount = 0
         emit('sell:started', { startTime = now })
         log("Sell macro started")
         
@@ -791,9 +808,10 @@ function MacroBridge.poll()
     local wasLootRunning = MacroBridge.state.loot.lastRunning
     
     if lootRunning then
-        -- Update loot progress cache when loot macro is running (same throttle as poll)
+        -- Update loot progress cache when loot macro is running (same throttle as poll).
+        -- Skip when plugin IPC is available: drainIPCFast already streams loot_progress, so this INI read would duplicate it.
         local getLootConfigFile = MacroBridge.config.getLootConfigFile
-        if getLootConfigFile then
+        if getLootConfigFile and not MacroBridge.isIPCAvailable() then
             local progPath = getLootConfigFile("loot_progress.ini")
             if progPath and progPath ~= "" then
                 local cfg = require('itemui.config')

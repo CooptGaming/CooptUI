@@ -2,8 +2,9 @@
     Augments View - Pop-out window (like Bank)
 
     Shows all items of type "Augmentation" in a compact table for quick review.
-    Filter section: Add to Aug List / Add to Mythical List (reroll companion lists).
-    Columns: Icon (hover = full stats) | Name | Effects | Value | Add to Aug List | Add to Mythical List
+    Reroll integration: one "Reroll" button per row that auto-routes to the right list
+    (Mythical-prefixed augments -> mythical list, everything else -> aug list).
+    Columns: Icon (hover = full stats) | Name | Effects | Value | Reroll
 --]]
 
 local mq = require('mq')
@@ -28,6 +29,13 @@ end
 local AUGMENT_TYPE = "Augmentation"
 local AUGMENTS_WINDOW_WIDTH = 560
 local AUGMENTS_WINDOW_HEIGHT = 500
+
+-- Keyed caches (mirror aa.lua's sortCache): list + filter + sort rebuilt only when inputs change.
+-- Inventory signature = count + first-item identity: scan.lua refills inventoryItems in place
+-- with fresh item tables each scan, so the identity changes even when the count does not.
+local augCache = { key = nil, list = {} }       -- type-filtered augmentations
+local filterCache = { key = nil, list = {} }    -- search-filtered
+local sortCache = { key = nil, list = {} }      -- sorted rows for display
 
 --- Build a single-line effects string (only non-empty: Clicky, Worn, Proc, Focus, Spell)
 local function getEffectsLine(ctx, item)
@@ -101,14 +109,21 @@ function AugmentsView.render(ctx)
         end
     end
 
-    -- Filter to augmentations only
-    local augments = {}
-    for _, it in ipairs(ctx.inventoryItems or {}) do
-        local t = (it.type or ""):match("^%s*(.-)%s*$")
-        if t == AUGMENT_TYPE then
-            table.insert(augments, it)
+    -- Filter to augmentations only (cached until inventory rescans or count changes)
+    local invItems = ctx.inventoryItems or {}
+    local augKey = string.format("%d|%s", #invItems, tostring(invItems[1]))
+    if augCache.key ~= augKey then
+        local rebuilt = {}
+        for _, it in ipairs(invItems) do
+            local t = (it.type or ""):match("^%s*(.-)%s*$")
+            if t == AUGMENT_TYPE then
+                table.insert(rebuilt, it)
+            end
         end
+        augCache.key = augKey
+        augCache.list = rebuilt
     end
+    local augments = augCache.list
 
     ctx.theme.TextHeader("Augmentations")
     ImGui.SameLine()
@@ -125,12 +140,18 @@ function AugmentsView.render(ctx)
     ImGui.Separator()
 
     local searchLower = (state.searchFilterAugments or ""):lower()
-    local filtered = {}
-    for _, it in ipairs(augments) do
-        if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
-            table.insert(filtered, it)
+    local filterKey = searchLower .. "|" .. augKey
+    if filterCache.key ~= filterKey then
+        local rebuilt = {}
+        for _, it in ipairs(augments) do
+            if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
+                table.insert(rebuilt, it)
+            end
         end
+        filterCache.key = filterKey
+        filterCache.list = rebuilt
     end
+    local filtered = filterCache.list
 
     if #filtered == 0 then
         if #augments == 0 then
@@ -142,9 +163,9 @@ function AugmentsView.render(ctx)
         return
     end
 
-    -- Compact table: Icon (stats on hover) | Name | Effects | Value | [Add to Aug List | Add to Mythical List when Reroll enabled]
+    -- Compact table: Icon (stats on hover) | Name | Effects | Value | [Reroll when Reroll enabled]
     local showRerollColumns = registry.isEnabled("reroll")
-    local nCols = showRerollColumns and 6 or 4
+    local nCols = showRerollColumns and 5 or 4
     local tableFlagsAug = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("ItemUI_Augments", nCols, tableFlagsAug) then
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)   -- Icon (not sortable)
@@ -152,8 +173,7 @@ function AugmentsView.render(ctx)
         ImGui.TableSetupColumn("Effects", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
         ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 3)
         if showRerollColumns then
-            ImGui.TableSetupColumn("Add to Aug List", ImGuiTableColumnFlags.WidthFixed, 100, 4)
-            ImGui.TableSetupColumn("Add to Mythical List", ImGuiTableColumnFlags.WidthFixed, 120, 5)
+            ImGui.TableSetupColumn("Reroll", ImGuiTableColumnFlags.WidthFixed, 100, 4)
         end
         ImGui.TableSetupScrollFreeze(1, 1)
         ImGui.TableHeadersRow()
@@ -172,66 +192,70 @@ function AugmentsView.render(ctx)
         if not showRerollColumns and sortCol > 3 then sortCol = 1 end
         local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
+        local rows = filtered
         if sortCol >= 1 and sortCol <= 3 then
-            -- Pre-compute sort keys to avoid repeated getEffectsLine calls in comparator
-            if sortCol == 2 then
-                for _, it in ipairs(filtered) do
-                    it._sortEffects = it._sortEffects or getEffectsLine(ctx, it):lower()
+            local sortKey = string.format("%d|%s|%s", sortCol, tostring(sortDir), filterKey)
+            if sortCache.key ~= sortKey then
+                local sorted = {}
+                for i = 1, #filtered do sorted[i] = filtered[i] end
+                -- Pre-compute sort keys to avoid repeated getEffectsLine calls in comparator
+                if sortCol == 2 then
+                    for _, it in ipairs(sorted) do
+                        it._sortEffects = it._sortEffects or getEffectsLine(ctx, it):lower()
+                    end
                 end
+                table.sort(sorted, function(a, b)
+                    local av, bv
+                    if sortCol == 1 then
+                        av, bv = (a.name or ""):lower(), (b.name or ""):lower()
+                        if asc then return av < bv else return av > bv end
+                    elseif sortCol == 2 then
+                        av, bv = a._sortEffects or "", b._sortEffects or ""
+                        if asc then return av < bv else return av > bv end
+                    else
+                        av = tonumber(a.totalValue) or 0
+                        bv = tonumber(b.totalValue) or 0
+                        if asc then return av < bv else return av > bv end
+                    end
+                end)
+                sortCache.key = sortKey
+                sortCache.list = sorted
             end
-            table.sort(filtered, function(a, b)
-                local av, bv
-                if sortCol == 1 then
-                    av, bv = (a.name or ""):lower(), (b.name or ""):lower()
-                    if asc then return av < bv else return av > bv end
-                elseif sortCol == 2 then
-                    av, bv = a._sortEffects or "", b._sortEffects or ""
-                    if asc then return av < bv else return av > bv end
-                else
-                    av = tonumber(a.totalValue) or 0
-                    bv = tonumber(b.totalValue) or 0
-                    if asc then return av < bv else return av > bv end
-                end
-            end)
+            rows = sortCache.list
         end
 
         local hasCursor = ctx.hasItemOnCursor()
 
-        -- Build lookup tables for reroll lists once (not per-row)
+        -- Build lookup tables for reroll lists once (not per-row).
+        -- ID-only matching per reroll_service policy: same-name-different-id items are common,
+        -- and name matching would wrongly block unrelated items.
         local rerollService = ctx.rerollService
-        local augListById, augListByName = {}, {}
-        local mythListById, mythListByName = {}, {}
+        local augListById = {}
+        local mythListById = {}
         if showRerollColumns and rerollService then
             local augList = rerollService.getAugList and rerollService.getAugList() or {}
             local mythicalList = rerollService.getMythicalList and rerollService.getMythicalList() or {}
             for _, e in ipairs(augList) do
                 if e.id then augListById[e.id] = true end
-                local n = (e.name or ""):match("^%s*(.-)%s*$")
-                if n ~= "" then augListByName[n] = true end
             end
             for _, e in ipairs(mythicalList) do
                 if e.id then mythListById[e.id] = true end
-                local n = (e.name or ""):match("^%s*(.-)%s*$")
-                if n ~= "" then mythListByName[n] = true end
             end
         end
 
         local clipper = ImGuiListClipper.new()
-        clipper:Begin(#filtered)
+        clipper:Begin(#rows)
         while clipper:Step() do
             for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-                local item = filtered[i]
+                local item = rows[i]
                 if not item then goto continue end
                 ImGui.TableNextRow()
                 local rid = "aug_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
 
-                local nameKey = (item.name or ""):match("^%s*(.-)%s*$")
                 local itemId = item.id or item.ID
-                local onAugList = (itemId and augListById[itemId]) or augListByName[nameKey] or false
-                local onMythicalList = (itemId and mythListById[itemId]) or mythListByName[nameKey] or false
-                local mythicalPrefix = "Mythical"
-                local isMythicalEligible = nameKey:sub(1, #mythicalPrefix) == mythicalPrefix
+                local onAugList = (itemId and augListById[itemId]) or false
+                local onMythicalList = (itemId and mythListById[itemId]) or false
 
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()
@@ -282,42 +306,34 @@ function AugmentsView.render(ctx)
                 ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
 
                 if showRerollColumns then
-                    -- Column: Add to Aug List (reroll companion list; augments only)
+                    -- Column: Reroll (single add button; destination auto-resolved:
+                    -- Mythical-prefixed augments -> mythical list, everything else -> aug list)
                     ImGui.TableNextColumn()
-                    local augDisabled = onAugList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "aug")
-                    if augDisabled then
+                    local destList = (ctx.resolveRerollList and ctx.resolveRerollList(item.name, AUGMENT_TYPE)) or "aug"
+                    local onDestList
+                    if destList == "mythical" then onDestList = onMythicalList else onDestList = onAugList end
+                    local rerollDisabled = onDestList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == destList)
+                    if rerollDisabled then
                         ctx.theme.PushKeepButton(true)
                     else
                         ctx.theme.PushKeepButton(false)
                     end
-                    if ImGui.Button("Aug List##" .. rid, ImVec2(90, 0)) then
-                        if not onAugList and ctx.requestAddToRerollList then
-                            ctx.requestAddToRerollList("aug", item)
+                    if ImGui.Button("Reroll##" .. rid, ImVec2(90, 0)) then
+                        -- Match the full disable condition (incl. pendingRerollAdd) so a
+                        -- double-click can't queue a duplicate server add.
+                        if not rerollDisabled and ctx.requestAddToRerollList then
+                            ctx.requestAddToRerollList(destList, item)
                         end
                     end
                     if ImGui.IsItemHovered() then
                         ImGui.BeginTooltip()
-                        if onAugList then ImGui.Text("Already on augment reroll list.") else ImGui.Text("Add to augment reroll list (!augadd).") end
-                        ImGui.EndTooltip()
-                    end
-                    ctx.theme.PopButtonColors()
-
-                    -- Column: Add to Mythical List (reroll companion list; items whose name starts with Mythical)
-                    ImGui.TableNextColumn()
-                    local mythicalDisabled = not isMythicalEligible or onMythicalList or (ctx.uiState.pendingRerollAdd and ctx.uiState.pendingRerollAdd.list == "mythical")
-                    if mythicalDisabled then
-                        ctx.theme.PushKeepButton(true)
-                    else
-                        ctx.theme.PushKeepButton(false)
-                    end
-                    if ImGui.Button("Mythical List##" .. rid, ImVec2(110, 0)) then
-                        if isMythicalEligible and not onMythicalList and ctx.requestAddToRerollList then
-                            ctx.requestAddToRerollList("mythical", item)
+                        if onDestList then
+                            ImGui.Text((destList == "mythical") and "Already on mythical reroll list." or "Already on augment reroll list.")
+                        elseif destList == "mythical" then
+                            ImGui.Text("Add to mythical reroll list (!mythicaladd) — auto-routed by the Mythical name prefix.")
+                        else
+                            ImGui.Text("Add to augment reroll list (!augadd).")
                         end
-                    end
-                    if ImGui.IsItemHovered() then
-                        ImGui.BeginTooltip()
-                        if not isMythicalEligible then ImGui.Text("Item name must start with Mythical.") elseif onMythicalList then ImGui.Text("Already on mythical reroll list.") else ImGui.Text("Add to mythical reroll list (!mythicaladd).") end
                         ImGui.EndTooltip()
                     end
                     ctx.theme.PopButtonColors()

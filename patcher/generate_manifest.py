@@ -5,10 +5,15 @@ Writes release_manifest.json at repo root (so raw URL is .../main/release_manife
 Uses same "replace on update" list as build-release.ps1 / RELEASE_AND_DEPLOYMENT.md.
 """
 
-import hashlib
 import json
 import os
 import re
+
+# Hashing (CRLF→LF normalization + sha256) is shared with the patcher's updater so
+# manifest hashes always match what clients compute. The generator only runs at build
+# time from source (sys.path[0] is patcher/), so importing updater here is safe and
+# does not affect the frozen exe.
+from updater import _sha256_file
 
 # Repo root (parent of patcher/)
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -74,10 +79,9 @@ def _collect_release_paths():
         p = os.path.join(REPO_ROOT, "resources", "UIFiles", "Default", name)
         if os.path.isfile(p):
             paths.append(f"resources/UIFiles/Default/{name}")
-    # config: CoOpt UI bind definitions only (MQ2CustomBinds plugin reads this)
-    cb = os.path.join(REPO_ROOT, "config", "MQ2CustomBinds.txt")
-    if os.path.isfile(cb):
-        paths.append("config/MQ2CustomBinds.txt")
+    # NOTE: config/MQ2CustomBinds.txt is deliberately NOT in the release manifest —
+    # users add their own binds to it, and the update path must never overwrite it.
+    # It ships as a create-if-missing entry via generate_default_config_manifest.py.
     return sorted(paths)
 
 
@@ -108,27 +112,6 @@ def _read_changelog() -> list[str]:
     return entries
 
 
-_TEXT_EXTS = frozenset({
-    '.lua', '.mac', '.ini', '.txt', '.cfg', '.xml', '.json', '.md',
-    '.py', '.ps1', '.bat', '.cmd', '.sh', '.csv', '.html', '.htm',
-    '.yml', '.yaml', '.toml', '.reg', '.config',
-})
-
-
-def _sha256_file(file_path: str) -> str:
-    """Hash file contents, normalizing CRLF→LF for text files.
-
-    GitHub raw serves LF-normalized content, so manifest hashes must
-    match what the patcher downloads regardless of local line endings.
-    """
-    with open(file_path, "rb") as f:
-        content = f.read()
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext in _TEXT_EXTS:
-        content = content.replace(b"\r\n", b"\n")
-    return hashlib.sha256(content).hexdigest()
-
-
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Generate release_manifest.json")
@@ -142,11 +125,15 @@ def main():
         full = os.path.join(REPO_ROOT, path.replace("/", os.sep))
         if os.path.isfile(full):
             h = _sha256_file(full)
+            if not h:
+                raise RuntimeError(f"Could not hash {path} — aborting manifest generation.")
             files.append({"path": path, "hash": h})
 
     # Include MQ2CoOptUI.dll as a release-asset download (not in git repo)
     if args.plugin_dll and os.path.isfile(args.plugin_dll):
         h = _sha256_file(args.plugin_dll)
+        if not h:
+            raise RuntimeError(f"Could not hash {args.plugin_dll} — aborting manifest generation.")
         entry = {"path": "plugins/MQ2CoOptUI.dll", "hash": h}
         if args.release_tag:
             entry["url"] = (

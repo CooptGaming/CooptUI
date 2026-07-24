@@ -5,6 +5,7 @@ Also reads/writes installed version for patcher users (Macros/coopui_installed_v
 """
 
 import hashlib
+import http.client
 import json
 import os
 import urllib.error
@@ -49,7 +50,7 @@ def check_for_updates(
     repo_base_url: str,
     root_path: str,
     manifest_path: str = "release_manifest.json",
-) -> tuple[list[dict], str | None, str | None]:
+) -> tuple[list[dict], str | None, list[str], str | None]:
     """
     Fetch manifest from repo, compare each file to local; return list of entries that need update.
 
@@ -58,8 +59,9 @@ def check_for_updates(
     manifest_path: path to manifest in repo (e.g. "release_manifest.json" or "patcher/release_manifest.json")
 
     Returns:
-        (list of manifest file entries to update, manifest version string or None, error_message or None)
-        Each entry is a dict with "path" and "hash".
+        (list of manifest file entries to update, manifest version string or None,
+         changelog entries, error_message or None)
+        Each file entry is a dict with "path" and "hash".
     """
     manifest_url = _raw_url(repo_base_url, manifest_path)
     try:
@@ -68,24 +70,31 @@ def check_for_updates(
             data = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return [], None, (
+            return [], None, [], (
                 "Manifest not found (404). Check that release_manifest.json is in the repo "
                 "and that the repo URL and branch in patcher.py are correct."
             )
-        return [], None, "Could not reach GitHub. Check your connection."
-    except (urllib.error.URLError, OSError):
-        return [], None, "Could not reach GitHub. Check your connection."
+        if e.code in (403, 429):
+            return [], None, [], (
+                f"GitHub is rate-limiting requests (HTTP {e.code}). Wait a few minutes and retry."
+            )
+        return [], None, [], f"Could not reach GitHub (HTTP {e.code}). Check your connection."
+    except (http.client.HTTPException, urllib.error.URLError, OSError):
+        return [], None, [], "Could not reach GitHub. Check your connection."
 
     try:
         manifest = json.loads(data)
     except json.JSONDecodeError:
-        return [], None, "Update list from repo is not valid JSON. Check release_manifest.json format."
+        return [], None, [], "Update list from repo is not valid JSON. Check release_manifest.json format."
 
     files = manifest.get("files")
     if not isinstance(files, list):
-        return [], None, "Update list has no 'files' array. Check release_manifest.json format."
+        return [], None, [], "Update list has no 'files' array. Check release_manifest.json format."
 
     version = (manifest.get("version") or "").strip() or None
+    changelog = manifest.get("changelog") or []
+    if not isinstance(changelog, list):
+        changelog = []
 
     to_update: list[dict] = []
     for entry in files:
@@ -100,7 +109,7 @@ def check_for_updates(
         if local_hash != expected_hash:
             to_update.append(entry)
 
-    return to_update, version, None
+    return to_update, version, changelog, None
 
 
 def get_installed_version(root_path: str) -> str | None:
@@ -132,17 +141,19 @@ def patch(
     repo_base_url: str,
     root_path: str,
     progress_callback: Callable[[int, int, str], None] | None = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[str]]:
     """
     Download each file from raw GitHub and write to root_path. Creates parent dirs as needed.
     Skips files that return 404 (e.g. removed from repo) instead of failing the whole patch.
 
     progress_callback(current_1based_index, total, path_or_message)
-    Returns (success, message). Message is user-friendly.
+    Returns (success, message, skipped_paths). Message is user-friendly; skipped_paths
+    lists repo paths (forward-slash) skipped because the repo no longer has them (404),
+    so callers can exclude them from post-patch verification.
     """
     total = len(files_to_download)
     if total == 0:
-        return True, "Nothing to update."
+        return True, "Nothing to update.", []
 
     skipped: list[str] = []
 
@@ -169,22 +180,38 @@ def patch(
                 if progress_callback:
                     progress_callback(i + 1, total, f"(skipped: {path_norm})")
                 continue
-            return False, "Could not reach GitHub. Check your connection."
-        except (urllib.error.URLError, OSError):
-            return False, "Could not reach GitHub. Check your connection."
+            if e.code in (403, 429):
+                return False, (
+                    f"GitHub is rate-limiting requests (HTTP {e.code}). "
+                    "Wait a few minutes and retry."
+                ), skipped
+            return False, f"Could not reach GitHub (HTTP {e.code}). Check your connection.", skipped
+        except (http.client.HTTPException, urllib.error.URLError, OSError):
+            return False, "Could not reach GitHub. Check your connection.", skipped
 
+        # Atomic write: download to <target>.tmp, then os.replace so a crash mid-write
+        # can never leave a truncated target file (e.g. a half-written DLL).
+        tmp_path = local_path + ".tmp"
         try:
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with open(local_path, "wb") as f:
+            with open(tmp_path, "wb") as f:
                 f.write(content)
+            os.replace(tmp_path, local_path)
         except OSError:
-            return False, f"Could not write to {path_norm}. Check permissions."
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return False, (
+                f"Could not write to {path_norm}. Check permissions. "
+                "If MacroQuest is running, close it and retry."
+            ), skipped
 
     if progress_callback:
         progress_callback(total, total, "Done")
     if skipped:
-        return True, f"Update complete. (Skipped {len(skipped)} file(s) no longer in repo.)"
-    return True, "Update complete."
+        return True, f"Update complete. (Skipped {len(skipped)} file(s) no longer in repo.)", skipped
+    return True, "Update complete.", skipped
 
 
 def verify_installation(
@@ -226,7 +253,7 @@ def check_for_default_config(
         if e.code == 404:
             return [], None  # No default config manifest is OK; skip install-only
         return [], "Could not reach GitHub (default config)."
-    except (urllib.error.URLError, OSError):
+    except (http.client.HTTPException, urllib.error.URLError, OSError):
         return [], "Could not reach GitHub (default config)."
 
     try:
@@ -285,8 +312,13 @@ def install_default_config(
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return False, f"Default config not found: {repo_path}"
-            return False, "Could not reach GitHub."
-        except (urllib.error.URLError, OSError):
+            if e.code in (403, 429):
+                return False, (
+                    f"GitHub is rate-limiting requests (HTTP {e.code}). "
+                    "Wait a few minutes and retry."
+                )
+            return False, f"Could not reach GitHub (HTTP {e.code})."
+        except (http.client.HTTPException, urllib.error.URLError, OSError):
             return False, "Could not reach GitHub."
 
         try:

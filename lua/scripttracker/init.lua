@@ -49,6 +49,11 @@ local SCRIPT_DEFS = {
     { suffix = "Rebirthed Memories", tier = "Legendary ", aa = 5 },
 }
 
+-- Precompute full item names once ("<tier>Script of <suffix>") so scans don't concat per item per def
+for _, def in ipairs(SCRIPT_DEFS) do
+    def.fullName = def.tier .. "Script of " .. def.suffix
+end
+
 -- State
 local isOpen = true
 local shouldDraw = false
@@ -66,7 +71,8 @@ local FINGERPRINT_CHECK_MS = 300  -- when pinned, check for inventory change eve
 -- Fingerprint (lightweight inventory change detection)
 -- ============================================================================
 
---- Build a cheap signature of inventory that changes when items are added/removed.
+--- Build a cheap signature of inventory that changes when items are added/removed
+--- or when a stack size changes (loot merging into a stack, partial consume).
 --- Used when pinned to trigger a full scan only when something actually changed.
 local function buildInventoryFingerprint()
     local parts = {}
@@ -76,7 +82,11 @@ local function buildInventoryFingerprint()
         if pack and pack.Container() then
             for slotNum = 1, pack.Container() do
                 local item = pack.Item(slotNum)
-                if item and item.ID() and item.ID() > 0 then count = count + 1 end
+                if item and item.ID() and item.ID() > 0 then
+                    local stack = item.Stack() or 1
+                    if stack < 1 then stack = 1 end
+                    count = count + stack
+                end
             end
         end
         parts[#parts + 1] = string.format("b%d:%d", bagNum, count)
@@ -119,8 +129,7 @@ local function scanScripts()
                     if stack < 1 then stack = 1 end
 
                     for _, def in ipairs(SCRIPT_DEFS) do
-                        local fullName = def.tier .. "Script of " .. def.suffix
-                        if name == fullName then
+                        if name == def.fullName then
                             local key = getScriptKey(def.suffix, def.tier)
                             scriptCounts[key] = (scriptCounts[key] or 0) + stack
                             totalAA = totalAA + (def.aa * stack)
@@ -143,17 +152,7 @@ end
 local function renderUI()
     if not shouldDraw then return end
 
-    -- When pinned, rescan only when inventory actually changes (trigger-based, no fixed timer)
-    if pinned then
-        local now = mq.gettime()
-        if now - lastFingerprintCheck >= FINGERPRINT_CHECK_MS then
-            lastFingerprintCheck = now
-            local currentFp = buildInventoryFingerprint()
-            if currentFp ~= lastFingerprint then
-                scanScripts()
-            end
-        end
-    end
+    -- Pinned fingerprint polling lives in main()'s loop (no TLO walking during render)
 
     local windowFlags = bit32.bor(ImGuiWindowFlags.NoCollapse, ImGuiWindowFlags.AlwaysAutoResize)
     if pinned then
@@ -295,6 +294,17 @@ local function main()
     while not terminate do
         mq.delay(shouldDraw and 100 or 500)
         mq.doevents()
+        -- When pinned, rescan only when inventory actually changes (trigger-based, no fixed timer)
+        if pinned and shouldDraw then
+            local now = mq.gettime()
+            if now - lastFingerprintCheck >= FINGERPRINT_CHECK_MS then
+                lastFingerprintCheck = now
+                local currentFp = buildInventoryFingerprint()
+                if currentFp ~= lastFingerprint then
+                    scanScripts()
+                end
+            end
+        end
     end
 
     mq.imgui.destroy('ScriptTracker')

@@ -1,23 +1,40 @@
 --[[ tooltip_render.lua: ImGui rendering for item tooltips. Requires api from item_tooltip. ]]
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
+local tooltip_data = require('itemui.utils.tooltip_data')
 local M = {}
 
--- All numeric fields from STAT_TLO_MAP that augments can contribute to.
--- String-only fields (baneDMGType, dmgBonusType) are excluded.
-local STAT_MERGE_FIELDS = {
-    "ac", "hp", "mana", "endurance",
-    "str", "sta", "agi", "dex", "int", "wis", "cha",
-    "attack", "accuracy", "avoidance", "shielding", "haste",
-    "damage", "itemDelay", "dmgBonus",
-    "spellDamage", "strikeThrough", "damageShield", "combatEffects",
-    "dotShielding", "hpRegen", "manaRegen", "enduranceRegen",
-    "spellShield", "damageShieldMitigation", "stunResist", "clairvoyance", "healAmount",
-    "heroicSTR", "heroicSTA", "heroicAGI", "heroicDEX", "heroicINT", "heroicWIS", "heroicCHA",
-    "svMagic", "svFire", "svCold", "svPoison", "svDisease", "svCorruption",
-    "heroicSvMagic", "heroicSvFire", "heroicSvCold", "heroicSvDisease", "heroicSvPoison", "heroicSvCorruption",
-    "luck", "purity", "baneDMG", "skillModValue", "skillModMax",
-}
+-- All numeric fields augments can contribute to (single definition in tooltip_data,
+-- shared with prepareTooltipContent's cached augStats merge).
+local STAT_MERGE_FIELDS = tooltip_data.STAT_MERGE_FIELDS
+
+-- Containers (outer Columns set / column child windows) currently open inside
+-- renderItemDisplayContent. Lets renderStatsTooltip's pcall handler rebalance the ImGui
+-- stack after a mid-render error — otherwise the caller's EndTooltip mismatches and
+-- crashes the client. Counters rather than flags because aug-slot hover tooltips re-enter
+-- renderItemDisplayContent; snapshot/delta close means nested recovery never closes an
+-- outer invocation's containers.
+local openCounts = { child = 0, columns = 0 }
+
+--- Snapshot the open-container counters before pcall'ing render content.
+--- Returns child, columns — pass both to closeOpenContainers on failure.
+function M.getOpenCounts()
+    return openCounts.child, openCounts.columns
+end
+
+--- Error recovery only: close containers opened since the (child0, cols0) snapshot.
+--- Children first (they are opened after the outer Columns set), then Columns.
+function M.closeOpenContainers(child0, cols0)
+    child0, cols0 = child0 or 0, cols0 or 0
+    while openCounts.child > child0 do
+        openCounts.child = openCounts.child - 1
+        if ImGui.EndChild then pcall(ImGui.EndChild) end
+    end
+    while openCounts.columns > cols0 do
+        openCounts.columns = openCounts.columns - 1
+        pcall(ImGui.Columns, 1)
+    end
+end
 
 function M.renderItemDisplayContent(item, ctx, opts, api)
     if not item then return end
@@ -50,19 +67,26 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         local ok, sockIt = pcall(function() return it.Item(opts.socketIndex) end)
         if ok and sockIt then it = sockIt end
     end
-    local itValid = it and it.ID and it.ID() ~= 0
-    -- Build augStats: sum all numeric stats contributed by filled standard aug slots.
+    local itId = it and it.ID and it.ID()
+    local itValid = (tonumber(itId) or 0) ~= 0
+    -- augStats: sum of all numeric stats contributed by filled standard aug slots.
     -- Matches in-game "Augmented" item display: shows base + all aug contributions combined.
     -- Only for the parent item (not when showing an aug's own tooltip via socketIndex).
-    local augStats = {}
-    if not opts.socketIndex and parentIt and bag ~= nil and slot ~= nil and source and (item.augSlots or 0) > 0 then
-        for socketIndex = 1, item.augSlots do
-            local augItem = api.getSocketItemStats(parentIt, bag, slot, source, socketIndex)
-            if augItem then
-                for _, field in ipairs(STAT_MERGE_FIELDS) do
-                    local v = tonumber(augItem[field])
-                    if v and v ~= 0 then
-                        augStats[field] = (augStats[field] or 0) + v
+    -- Prefer the scan-invalidated entry prepareTooltipContent cached (avoids re-walking
+    -- socket TLOs every hovered frame); fall back to live compute when absent.
+    local cachedTip = tooltip_data.getCachedTooltipEntry(item, opts)
+    local augStats = cachedTip and cachedTip.augStats
+    if not augStats then
+        augStats = {}
+        if not opts.socketIndex and parentIt and bag ~= nil and slot ~= nil and source and (item.augSlots or 0) > 0 then
+            for socketIndex = 1, item.augSlots do
+                local augItem = api.getSocketItemStats(parentIt, bag, slot, source, socketIndex)
+                if augItem then
+                    for _, field in ipairs(STAT_MERGE_FIELDS) do
+                        local v = tonumber(augItem[field])
+                        if v and v ~= 0 then
+                            augStats[field] = (augStats[field] or 0) + v
+                        end
                     end
                 end
             end
@@ -101,41 +125,35 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.PopStyleColor()
     end
 
-    local effectKeys = {"Clicky", "Worn", "Proc", "Focus", "Spell"}
-    local function addEffectsFromItem(ef, it, keys)
-        if not ctx or not ctx.getItemSpellId or not ctx.getSpellName then return end
-        for _, key in ipairs(keys) do
-            local id = ctx.getItemSpellId(it, key)
-            if id and id > 0 then
-                local spellName = ctx.getSpellName(id)
-                if spellName and spellName ~= "" then
-                    local desc = (ctx.getSpellDescription and ctx.getSpellDescription(id)) or ""
-                    local castTime = (key == "Clicky" and ctx.getSpellCastTime and ctx.getSpellCastTime(id)) or nil
-                    local recastTime = (key == "Clicky" and ctx.getSpellRecastTime and ctx.getSpellRecastTime(id)) or nil
-                    ef[#ef + 1] = { key = key, spellId = id, spellName = spellName, desc = desc, castTime = castTime, recastTime = recastTime }
-                end
-            end
-        end
-    end
+    -- Effect building shared with tooltip_data (single definition); prefer caller-supplied
+    -- effects, then the cached entry, then live compute.
     if opts.effects then
         effects = opts.effects
+    elseif cachedTip and cachedTip.effects then
+        effects = cachedTip.effects
     elseif ctx and ctx.getItemSpellId and ctx.getSpellName then
         effects = {}
-        addEffectsFromItem(effects, item, effectKeys)
+        tooltip_data.addEffectsFromItem(ctx, effects, item, tooltip_data.EFFECT_KEYS)
         if parentIt and bag and slot and source and not opts.socketIndex and (item.augSlots or 0) > 0 then
             for socketIndex = 1, math.min(5, item.augSlots or 0) do
                 local socketItem = api.getSocketItemStats(parentIt, bag, slot, source, socketIndex)
-                if socketItem then addEffectsFromItem(effects, socketItem, effectKeys) end
+                if socketItem then tooltip_data.addEffectsFromItem(ctx, effects, socketItem, tooltip_data.EFFECT_KEYS) end
             end
         end
     end
 
     local colW = (opts.tooltipColWidth and opts.tooltipColWidth > 0) and opts.tooltipColWidth or api.tooltip_layout.TOOLTIP_COL_WIDTH
+    -- Track the outer Columns set and the two column children in openCounts so a mid-render
+    -- error can be recovered (closeOpenContainers). The transient 3-column sets further down
+    -- live inside the child windows and need no tracking: EndChild tolerates an active
+    -- legacy column set (the happy path itself ends child 1 with one still open).
     ImGui.Columns(2, "##TooltipCols", false)
+    openCounts.columns = openCounts.columns + 1
     ImGui.SetColumnWidth(0, colW)
     ImGui.SetColumnWidth(1, colW)
     if ImGui.BeginChild then
         ImGui.BeginChild("##TooltipCol1", ImVec2(colW, 0), false)
+        openCounts.child = openCounts.child + 1
     end
 
     -- ---- Column 1: Header (name, ID, type) then Class, Race, Slot, Deity, Ornament, Container, Item info, All Stats, Augmentation slots ----
@@ -418,7 +436,13 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
     end
 
     -- ---- Augmentation slots (own section in column 1: between All Stats and Item effects) ----
-    local augLines = itValid and api.getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and api.getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
+    -- Prefer cached slot rows (false = computed-and-none); live TLO walk only without a cache entry.
+    local augLines
+    if cachedTip and cachedTip.augLines ~= nil then
+        augLines = cachedTip.augLines or nil
+    else
+        augLines = itValid and api.getAugmentSlotLinesFromIt(it, item.augSlots) or ((bag ~= nil and slot ~= nil and source) and api.getAugmentSlotLines(bag, slot, source, item.augSlots) or nil)
+    end
     if augLines and #augLines > 0 then
         ImGui.Spacing()
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Augmentation slots (standard)")
@@ -493,10 +517,14 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.Spacing()
     end
 
-    if ImGui.EndChild then ImGui.EndChild() end
+    if ImGui.EndChild then
+        ImGui.EndChild()
+        openCounts.child = openCounts.child - 1
+    end
     ImGui.NextColumn()
     if ImGui.BeginChild then
         ImGui.BeginChild("##TooltipCol2", ImVec2(colW, 0), false)
+        openCounts.child = openCounts.child + 1
     end
 
     -- ---- Column 2: Item effects, Item information, Spell Info blocks, Value & Tribute ----
@@ -615,8 +643,12 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.Text(tostring(item.tribute))
     end
 
-    if ImGui.EndChild then ImGui.EndChild() end
+    if ImGui.EndChild then
+        ImGui.EndChild()
+        openCounts.child = openCounts.child - 1
+    end
     ImGui.Columns(1)
+    openCounts.columns = openCounts.columns - 1
     end
 
 return M

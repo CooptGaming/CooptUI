@@ -13,6 +13,41 @@ local constants = require('itemui.constants')
 local diagnostics = require('itemui.core.diagnostics')
 local LootUIView = {}
 
+-- Per-frame render memos (invalidated by source-list identity/length changes)
+local namesFallbackMemo = { src = nil, len = 0, rows = nil }
+local normalizedNamesMemo = { src = nil, len = 0, best = nil, names = nil }
+
+-- Quick loot rules: Name cell as a selectable with a right-click menu feeding the
+-- always/never loot lists. MUST be called inside a per-row ImGui.PushID scope —
+-- item names repeat across rows, and the row id is what keeps the Selectable and
+-- popup ids unique (v1 of this feature triggered ImGui id conflicts without it).
+local function renderNameCellWithLootMenu(ctx, theme, name, nameColor)
+    name = name or ""
+    if nameColor then ImGui.PushStyleColor(ImGuiCol.Text, nameColor) end
+    ImGui.Selectable(name, false, ImGuiSelectableFlags.None, ImVec2(0, 0))
+    if nameColor then ImGui.PopStyleColor() end
+    if name ~= "" and ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+        ImGui.OpenPopup("LootRuleCtx")
+    end
+    if ImGui.BeginPopup("LootRuleCtx") then
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), name)
+        ImGui.Separator()
+        if ctx.addToLootAlwaysList and ImGui.MenuItem("Always loot this") then
+            ctx.addToLootAlwaysList(name)
+        end
+        if ctx.addToLootSkipList and ImGui.MenuItem("Never loot this") then
+            ctx.addToLootSkipList(name)
+        end
+        if ctx.isInLootSkipList and ctx.removeFromLootSkipList and ctx.isInLootSkipList(name) then
+            if ImGui.MenuItem("Remove from Never-loot list") then
+                ctx.removeFromLootSkipList(name)
+            end
+        end
+        ImGui.EndPopup()
+    end
+end
+
+
 -- Per 4.2 state ownership: all Loot UI companion state
 local state = {
     lootUIOpen = false,
@@ -43,6 +78,7 @@ end
 function LootUIView.closeAndClearState(ctx)
     if ctx and ctx.clearLootUIState then ctx.clearLootUIState() end
 end
+
 
 --- Render the Loot UI window. Context must have: uiState, theme, layoutConfig, runLootCurrent, runLootAll, clearLootUIMythicalAlert, clearLootUIState.
 function LootUIView.render(ctx)
@@ -359,15 +395,21 @@ function LootUIView.render(ctx)
             ImGui.Separator()
         end
 
-        -- Looted list (current run; persists until next run with items)
+        -- Looted list (current run; persists until next run with items).
+        -- The names-only fallback conversion is memoized: rebuilt when the source list
+        -- or its length changes, not every frame.
         local itemsForTable = state.lootRunLootedItems and #state.lootRunLootedItems > 0 and state.lootRunLootedItems
-            or (state.lootRunLootedList and #state.lootRunLootedList > 0 and (function()
+        if not itemsForTable and state.lootRunLootedList and #state.lootRunLootedList > 0 then
+            local src, len = state.lootRunLootedList, #state.lootRunLootedList
+            if namesFallbackMemo.src ~= src or namesFallbackMemo.len ~= len then
                 local t = {}
-                for _, name in ipairs(state.lootRunLootedList) do
-                    t[#t+1] = { name = name, value = 0, statusText = "—", willSell = false }
+                for _, name in ipairs(src) do
+                    t[#t+1] = { name = name, value = 0, statusText = "\xe2\x80\x94", willSell = false }
                 end
-                return t
-            end)())
+                namesFallbackMemo.src, namesFallbackMemo.len, namesFallbackMemo.rows = src, len, t
+            end
+            itemsForTable = namesFallbackMemo.rows
+        end
         if itemsForTable and #itemsForTable > 0 then
             local n = #itemsForTable
             local totalVal = state.lootRunTotalValue or 0
@@ -397,12 +439,18 @@ function LootUIView.render(ctx)
                     ImGui.TableSetupScrollFreeze(0, 1)
                     ImGui.TableHeadersRow()
                     local normalizedBestName = state.lootRunBestItemName and item_name.normalizeItemName(state.lootRunBestItemName) or nil
-                    -- Pre-compute normalized names to avoid per-row string ops inside the render loop
+                    -- Normalized names memo: full-list normalization only when the list or best-name changes
                     local normalizedRowNames = {}
                     if normalizedBestName then
-                        for i, row in ipairs(itemsForTable) do
-                            normalizedRowNames[i] = item_name.normalizeItemName(row.name)
+                        local m = normalizedNamesMemo
+                        if m.src ~= itemsForTable or m.len ~= #itemsForTable or m.best ~= normalizedBestName then
+                            local names = {}
+                            for i, row in ipairs(itemsForTable) do
+                                names[i] = item_name.normalizeItemName(row.name)
+                            end
+                            m.src, m.len, m.best, m.names = itemsForTable, #itemsForTable, normalizedBestName, names
                         end
+                        normalizedRowNames = m.names
                     end
                     local clipper = ImGuiListClipper.new()
                     clipper:Begin(#itemsForTable)
@@ -414,11 +462,11 @@ function LootUIView.render(ctx)
                             ImGui.TableNextColumn()
                             ImGui.Text(tostring(i))
                             ImGui.TableNextColumn()
-                            if normalizedBestName and normalizedRowNames[i] == normalizedBestName then
-                                ImGui.TextColored(theme.ToVec4(theme.Colors.Header), row.name or "")
-                            else
-                                ImGui.Text(row.name or "")
-                            end
+                            local bestColor = (normalizedBestName and normalizedRowNames[i] == normalizedBestName)
+                                and theme.ToVec4(theme.Colors.Header) or nil
+                            ImGui.PushID(i)
+                            renderNameCellWithLootMenu(ctx, theme, row.name, bestColor)
+                            ImGui.PopID()
                             ImGui.TableNextColumn()
                             local valStr = (ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0)
                             ImGui.Text(valStr)
@@ -460,17 +508,26 @@ function LootUIView.render(ctx)
                         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 90, 3)
                         ImGui.TableSetupScrollFreeze(0, 1)
                         ImGui.TableHeadersRow()
-                        for i, row in ipairs(hist) do
-                            ImGui.TableNextRow()
-                            ImGui.TableNextColumn()
-                            ImGui.Text(tostring(i))
-                            ImGui.TableNextColumn()
-                            ImGui.Text(row.name or "")
-                            ImGui.TableNextColumn()
-                            ImGui.Text((ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0))
-                            ImGui.TableNextColumn()
-                            local st, sc = ctx.formatSellStatus(row.statusText, row.willSell, theme)
-                            ImGui.TextColored(sc, st)
+                        local clipper = ImGuiListClipper.new()
+                        clipper:Begin(#hist)
+                        while clipper:Step() do
+                            for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+                                local row = hist[i]
+                                if row then
+                                    ImGui.TableNextRow()
+                                    ImGui.TableNextColumn()
+                                    ImGui.Text(tostring(i))
+                                    ImGui.TableNextColumn()
+                                    ImGui.PushID(i)
+                                    renderNameCellWithLootMenu(ctx, theme, row.name, nil)
+                                    ImGui.PopID()
+                                    ImGui.TableNextColumn()
+                                    ImGui.Text((ItemUtils.formatValue and ItemUtils.formatValue(row.value or 0)) or tostring(row.value or 0))
+                                    ImGui.TableNextColumn()
+                                    local st, sc = ctx.formatSellStatus(row.statusText, row.willSell, theme)
+                                    ImGui.TextColored(sc, st)
+                                end
+                            end
                         end
                         ImGui.EndTable()
                     end
@@ -503,14 +560,23 @@ function LootUIView.render(ctx)
                         ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.WidthFixed, constants.UI.LOOT_TABLE_COL_REASON_WIDTH, 2)
                         ImGui.TableSetupScrollFreeze(0, 1)
                         ImGui.TableHeadersRow()
-                        for i, row in ipairs(sk) do
-                            ImGui.TableNextRow()
-                            ImGui.TableNextColumn()
-                            ImGui.Text(tostring(i))
-                            ImGui.TableNextColumn()
-                            ImGui.Text(row.name or "")
-                            ImGui.TableNextColumn()
-                            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), row.reason or "")
+                        local clipper = ImGuiListClipper.new()
+                        clipper:Begin(#sk)
+                        while clipper:Step() do
+                            for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+                                local row = sk[i]
+                                if row then
+                                    ImGui.TableNextRow()
+                                    ImGui.TableNextColumn()
+                                    ImGui.Text(tostring(i))
+                                    ImGui.TableNextColumn()
+                                    ImGui.PushID(i)
+                                    renderNameCellWithLootMenu(ctx, theme, row.name, nil)
+                                    ImGui.PopID()
+                                    ImGui.TableNextColumn()
+                                    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), row.reason or "")
+                                end
+                            end
                         end
                         ImGui.EndTable()
                     end
@@ -520,6 +586,7 @@ function LootUIView.render(ctx)
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "No skip history yet. Items skipped by loot.mac will appear here.")
             end
         end
+
 
         -- Close button
         if ImGui.Button("Close", ImVec2(80, 0)) then

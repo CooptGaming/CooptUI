@@ -232,7 +232,7 @@ function M.setWindowState(id, windowOpen, windowShouldDraw)
         -- state writes (e.g. augment utility opened from item display tooltip click)
         -- are correctly tracked by getMostRecentlyOpenedCompanion.
         M.recordOpened(id)
-    elseif not windowOpen then
+    elseif wasOpen and not windowOpen then
         m.openedAt = nil
         if companionWindowOpenedAt then
             companionWindowOpenedAt[id] = nil

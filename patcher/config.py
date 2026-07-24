@@ -12,8 +12,6 @@ CONFIG_FILENAME = "patcher_config.json"
 DEFAULTS = {
     "mq_root": "",
     "recent_paths": [],
-    "window_x": None,
-    "window_y": None,
 }
 
 

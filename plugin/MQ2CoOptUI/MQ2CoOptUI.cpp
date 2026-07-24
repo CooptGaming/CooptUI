@@ -170,7 +170,7 @@ class MQ2CoOptUIType : public MQ2Type {
       return true;
     case CoOptUIMembers::Debug:
       Dest.Type = datatypes::pBoolType;
-      Dest.Set(false);
+      Dest.Set(cooptui::core::Config::Instance().GetDebugLevel() > 0);
       return true;
     case CoOptUIMembers::Inventory:
       Dest.Type = pCoOptUIInventoryType;
@@ -243,11 +243,12 @@ static void CmdStatus() {
 
   auto& re = cooptui::rules::RulesEngine::Instance();
   if (re.IsLoaded()) {
-    cooptui::core::Log(0, "  Rules: keep=%zu junk=%zu alwaysLoot=%zu skipLoot=%zu epicSell=%zu",
+    cooptui::core::Log(0, "  Rules: keep=%zu junk=%zu alwaysLoot=%zu skipLoot=%zu epicSell=%zu reroll=%zu",
                        re.GetKeepSetSize(), re.GetJunkSetSize(),
-                       re.GetAlwaysLootSize(), re.GetSkipLootSize(), re.GetEpicSellSize());
+                       re.GetAlwaysLootSize(), re.GetSkipLootSize(), re.GetEpicSellSize(),
+                       re.GetRerollIdCount());
   } else {
-    cooptui::core::Log(0, "  Rules: not loaded");
+    cooptui::core::Log(0, "  Rules: not loaded (reroll=%zu)", re.GetRerollIdCount());
   }
 }
 
@@ -395,13 +396,15 @@ static void CoOptUICommand(PlayerClient* pChar, const char* szLine) {
   }
   if (strncmp(szLine, "scan inv", 8) == 0 && (szLine[8] == '\0' || szLine[8] == ' ')) {
     uint64_t t0 = cooptui::core::MonotonicUs();
-    const auto& items = cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
+    cooptui::scanners::InventoryScanner::Instance().Scan(/*force=*/true);
     // Attach sell status to the live cache copy
     cooptui::rules::RulesEngine::Instance().AttachSellStatus(
         cooptui::core::CacheManager::Instance().GetInventoryMut());
     uint64_t elapsed = cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs());
     cooptui::core::CacheManager::Instance().RecordInventoryScanMs(elapsed);
-    // Count items flagged for sell
+    // Count items flagged for sell from the attached cache copy (the scanner's
+    // own vector never receives willSell flags).
+    const auto& items = cooptui::core::CacheManager::Instance().GetInventory();
     int sellCount = 0;
     for (const auto& it : items) { if (it.willSell) ++sellCount; }
     cooptui::core::Log(0, "Inventory scan: %zu items in %llu ms (%d will sell)",
@@ -538,7 +541,6 @@ PLUGIN_API void OnPulse() {
   static uint64_t s_lastEventCheckMs = 0;
   static bool s_wasBankOpen = false;
   static bool s_wasLootOpen = false;
-  static uint64_t s_lastInvFingerprint = 0;
 
   uint64_t now = GetTickCount64();
   if (now - s_lastEventCheckMs < 100) return;
@@ -554,6 +556,19 @@ PLUGIN_API void OnPulse() {
     cooptui::core::CacheManager::Instance().IncrementBankVersion();
     cooptui::core::Log(1, "OnPulse: bank opened, auto-scanned %zu items",
                        cooptui::core::CacheManager::Instance().GetBankCount());
+  } else if (bankOpen) {
+    // Bank still open: catch in-game drag deposits/withdrawals. The scanner's
+    // fingerprint check keeps this cheap when nothing changed; a full rescan
+    // only runs on change. Throttled at the same 100ms cadence as above.
+    uint64_t t0 = cooptui::core::MonotonicUs();
+    cooptui::scanners::BankScanner::Instance().Scan(/*force=*/false);
+    cooptui::core::CacheManager::Instance().RecordBankScanMs(
+        cooptui::core::ElapsedMsFromUs(t0, cooptui::core::MonotonicUs()));
+    if (cooptui::scanners::BankScanner::Instance().HasChanged()) {
+      cooptui::core::CacheManager::Instance().IncrementBankVersion();
+      cooptui::core::Log(1, "OnPulse: bank changed while open, rescanned %zu items",
+                         cooptui::core::CacheManager::Instance().GetBankCount());
+    }
   }
   s_wasBankOpen = bankOpen;
 
@@ -581,8 +596,6 @@ PLUGIN_API void OnPulse() {
       cooptui::core::CacheManager::Instance().IncrementInventoryVersion();
       // Fix 2: Sell status is Lua's domain. C++ scan only; Lua attaches status on next scanInventory.
       cooptui::core::CacheManager::Instance().IncrementSellVersion();
-      // Bump inventory fingerprint stored in scanner
-      s_lastInvFingerprint = cooptui::core::CacheManager::Instance().GetInventoryVersion();
       cooptui::core::Log(1, "OnPulse: inventory changed, version=%u",
                          cooptui::core::CacheManager::Instance().GetInventoryVersion());
     }
@@ -641,6 +654,7 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   mod["hasInventoryChanged"] = items_table["hasInventoryChanged"];
   mod["scanLootItems"] = loot_table["scanLootItems"];
   mod["scanSellItems"] = items_table["scanSellItems"];
+  mod["setRerollIds"] = items_table["setRerollIds"];
 
   // Version counter aliases: maybeScan* polls these to skip rescans when cache is fresh.
   mod["getInventoryVersion"] = items_table["getInventoryVersion"];

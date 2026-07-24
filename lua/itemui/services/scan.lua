@@ -86,6 +86,52 @@ local function updateFingerprintsForBags(bagList)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- acquiredSeq preservation: keep each item's "first seen" stamp across rescans.
+-- Position (bag:slot) match wins; else an unambiguous-id match covers items that
+-- merely moved slots; else the row gets a fresh stamp (genuinely first sight).
+-- ---------------------------------------------------------------------------
+
+--- Build preservation maps from rows about to be discarded: bag:slot -> seq, plus
+--- id -> seq for ids that appear exactly once (same-id stacks are ambiguous; skipped).
+local function buildAcquiredMaps(oldRows)
+    local bySlot, byId, dupIds = {}, {}, {}
+    for _, it in ipairs(oldRows) do
+        if it.acquiredSeq then
+            bySlot[it.bag .. ":" .. it.slot] = it.acquiredSeq
+            local id = it.id or it.ID
+            if id and not dupIds[id] then
+                if byId[id] ~= nil then
+                    byId[id] = nil
+                    dupIds[id] = true
+                else
+                    byId[id] = it.acquiredSeq
+                end
+            end
+        end
+    end
+    return bySlot, byId
+end
+
+--- Stamp acquiredSeq on rows that lack one: same-position match first, else
+--- unambiguous-id match, else a new sequence number. Rows that already carry a
+--- stamp (e.g. untouched bags during a targeted rescan) are left alone.
+local function assignAcquiredSeq(rows, bySlot, byId)
+    local scanState = env.scanState
+    for _, it in ipairs(rows) do
+        if not it.acquiredSeq then
+            local id = it.id or it.ID
+            local seq = bySlot[it.bag .. ":" .. it.slot]
+            if not seq and id then seq = byId[id] end
+            if not seq then
+                seq = scanState.nextAcquiredSeq
+                scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
+            end
+            it.acquiredSeq = seq
+        end
+    end
+end
+
 -- Inventory scan. Optional skipAugmentIndex: when true, do not call buildAugmentIndex (caller will build once after scanBank).
 function M.scanInventory(skipAugmentIndex)
     local t0 = mq.gettime()
@@ -94,11 +140,9 @@ function M.scanInventory(skipAugmentIndex)
     env.invalidateSortCache("inv")
     env.invalidateTimerReadyCache()
     if env.perfCache.loreHaveCache then env.perfCache.loreHaveCache = {} end
-    -- Preserve acquiredSeq by bag:slot before clear (full scan rebuilds new item refs)
-    local acquiredMap = {}
-    for _, it in ipairs(inventoryItems) do
-        if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
-    end
+    -- Preserve acquiredSeq before clear (full scan rebuilds new item refs):
+    -- bag:slot map plus unambiguous-id map so items that merely moved slots keep their stamp.
+    local acquiredBySlot, acquiredById = buildAcquiredMaps(inventoryItems)
     -- Clear and repopulate
     for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
     local coopui = tryCoopUIPlugin()
@@ -112,13 +156,7 @@ function M.scanInventory(skipAugmentIndex)
                 end
             end
             local scanState = env.scanState
-            for _, it in ipairs(inventoryItems) do
-                it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
-                if not it.acquiredSeq then
-                    it.acquiredSeq = scanState.nextAcquiredSeq
-                    scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
-                end
-            end
+            assignAcquiredSeq(inventoryItems, acquiredBySlot, acquiredById)
             local scanMs = mq.gettime() - t0
             env.perfCache.lastScanTimeInv = mq.gettime()
             local now = mq.gettime()
@@ -131,7 +169,10 @@ function M.scanInventory(skipAugmentIndex)
             if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
                 print(string.format("\ag[CoOpt UI Profile]\ax scanInventory: scan=%d ms (plugin) (%d items)", scanMs, #inventoryItems))
             end
-            scanState.lastInventoryFingerprint = buildInventoryFingerprint()
+            -- Perf: skip the TLO fingerprint rebuild on the plugin path (~200 TLO evals per scan).
+            -- The plugin version counter drives change detection here; lastBagFingerprints stays
+            -- stale and is rebuilt by the first TLO-fallback flow that needs it (getChangedBags /
+            -- rescanInventoryBags update the affected bags before comparing).
             if env.invalidateTooltipCache then env.invalidateTooltipCache() end
             if not skipAugmentIndex and env.buildAugmentIndex then env.buildAugmentIndex() end
             return
@@ -157,13 +198,7 @@ function M.scanInventory(skipAugmentIndex)
         end
     end
     local scanState = env.scanState
-    for _, it in ipairs(inventoryItems) do
-        it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
-        if not it.acquiredSeq then
-            it.acquiredSeq = scanState.nextAcquiredSeq
-            scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
-        end
-    end
+    assignAcquiredSeq(inventoryItems, acquiredBySlot, acquiredById)
     local scanMs = mq.gettime() - t0
     env.perfCache.lastScanTimeInv = mq.gettime()
     local now = mq.gettime()
@@ -249,23 +284,14 @@ function M.processIncrementalScan()
     -- Phase 2: Swap items into inventoryItems + assign acquiredSeq (one frame)
     if ist.phase == "finalize" then
         local inventoryItems = env.inventoryItems
-        local acquiredMap = {}
-        for _, it in ipairs(inventoryItems) do
-            if it.acquiredSeq then acquiredMap[it.bag .. ":" .. it.slot] = it.acquiredSeq end
-        end
+        -- Preserve acquiredSeq (bag:slot + unambiguous-id) before the swap, same as scanInventory.
+        local acquiredBySlot, acquiredById = buildAcquiredMaps(inventoryItems)
         env.scanState.sellStatusAttachedAt = nil
         for i = #inventoryItems, 1, -1 do inventoryItems[i] = nil end
         for _, it in ipairs(ist.newItems) do
             inventoryItems[#inventoryItems + 1] = it
         end
-        local scanState = env.scanState
-        for _, it in ipairs(inventoryItems) do
-            it.acquiredSeq = acquiredMap[it.bag .. ":" .. it.slot]
-            if not it.acquiredSeq then
-                it.acquiredSeq = scanState.nextAcquiredSeq
-                scanState.nextAcquiredSeq = scanState.nextAcquiredSeq + 1
-            end
-        end
+        assignAcquiredSeq(inventoryItems, acquiredBySlot, acquiredById)
         ist.newItems = {}
         ist.seen = {}
         ist.sellStatusIdx = 1
@@ -289,17 +315,14 @@ function M.processIncrementalScan()
             ist.phase = "done"
             return false
         end
-        -- Ensure config cache + storedInvByName are warm (one-time per scan)
+        -- Ensure config cache is warm (one-time per scan)
         if ist.sellStatusIdx == 1 then
             if env.loadSellConfigCache then env.loadSellConfigCache() end
-            -- Warm the storedInvByName cache once; getStoredInvByName refreshes it
-            if env.getStoredInvByName then ist._storedInvByName = env.getStoredInvByName() end
         end
-        local storedInvByName = ist._storedInvByName or (env.perfCache and env.perfCache.storedInvByName) or nil
         local endIdx = math.min(ist.sellStatusIdx + SELL_STATUS_PER_FRAME - 1, #inventoryItems)
         for i = ist.sellStatusIdx, endIdx do
             local item = inventoryItems[i]
-            attachFlags(item, storedInvByName)
+            attachFlags(item)
             local sell, reason = willBeSold(item)
             item.willSell = sell
             item.sellReason = reason or ""
@@ -307,7 +330,6 @@ function M.processIncrementalScan()
         ist.sellStatusIdx = endIdx + 1
         if ist.sellStatusIdx > #inventoryItems then
             env.scanState.sellStatusAttachedAt = mq.gettime()
-            ist._storedInvByName = nil
             ist.phase = "done"
         end
         return false
@@ -344,12 +366,16 @@ local function targetedRescanBags(changedBags)
     -- Build O(1) lookup set for changed bag numbers
     local changedSet = {}
     for _, bagNum in ipairs(changedBags) do changedSet[bagNum] = true end
-    -- Remove items from changed bags in-place (backward iteration)
+    -- Remove items from changed bags in-place (backward iteration), keeping the removed rows
+    -- so their acquiredSeq stamps survive the rescan (bag:slot + unambiguous-id, same as full scan).
+    local removedRows = {}
     for i = #inventoryItems, 1, -1 do
         if changedSet[inventoryItems[i].bag] then
+            removedRows[#removedRows + 1] = inventoryItems[i]
             table.remove(inventoryItems, i)
         end
     end
+    local acquiredBySlot, acquiredById = buildAcquiredMaps(removedRows)
     -- Append rescanned items for changed bags
     local Me = mq.TLO and mq.TLO.Me
     for _, bagNum in ipairs(changedBags) do
@@ -360,13 +386,14 @@ local function targetedRescanBags(changedBags)
                 local item = pack.Item and pack.Item(slotNum)
                 local it = buildItemFromMQ(item, bagNum, slotNum)
                 if it then
-                    it.acquiredSeq = env.scanState.nextAcquiredSeq
-                    env.scanState.nextAcquiredSeq = env.scanState.nextAcquiredSeq + 1
                     inventoryItems[#inventoryItems + 1] = it
                 end
             end
         end
     end
+    -- Rows from untouched bags already carry a stamp and are skipped; only the freshly
+    -- rescanned rows get slot/id-preserved or new stamps.
+    assignAcquiredSeq(inventoryItems, acquiredBySlot, acquiredById)
     local scanMs = mq.gettime() - t0
     if debugModule.isProfileEnabled() and scanMs >= debugModule.getProfileThresholdMs() then
         print(string.format("\ag[CoOpt UI Profile]\ax targetedRescan: %d ms (%d bags, %d items)", scanMs, #changedBags, #inventoryItems))
@@ -445,9 +472,12 @@ function M.scanBank(skipAugmentIndex)
                 end
             elseif (slot.ID and slot.ID()) and slot.ID() > 0 then
                 -- Single-item bank slot; ItemSlot/ItemSlot2 0-based -> 1-based (see docs/ITEM_INDEX_BASE.md)
+                -- Bank slot convention: 1-based; 1 = item directly in bank slot (matches C++ plugin scanner).
+                -- ItemSlot2 is -1 for a top-level item, so clamp negative to 0 before the +1 conversion.
                 local islot = (slot.ItemSlot and slot.ItemSlot()) or (bagNum - 1)
                 local islot2 = (slot.ItemSlot2 and slot.ItemSlot2()) or 0
-                local it = buildItemFromMQ(slot, (islot or (bagNum - 1)) + 1, (islot2 or 0) + 1, "bank")
+                if islot2 < 0 then islot2 = 0 end
+                local it = buildItemFromMQ(slot, (islot or (bagNum - 1)) + 1, islot2 + 1, "bank")
                 if it then table.insert(bankItems, it) end
             end
         end
@@ -481,6 +511,9 @@ function M.ensureBankCacheFromStorage()
                 table.insert(env.bankCache, it)
             end
             env.perfCache.lastBankCacheTime = os.time()
+            -- Attach sell status at load (rare path) so stored bank rows carry willSell/inKeep
+            -- and views don't fall back to per-frame per-row status computation.
+            if env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(env.bankCache) end
         end
     end
 end
@@ -529,8 +562,6 @@ function M.scanSellItems()
     local sellItems = env.sellItems
     local inventoryItems = env.inventoryItems
     local willItemBeSold = env.willItemBeSold
-    -- Reuse cached stored-inv-by-name (2s TTL) instead of full disk read per scan
-    local storedByName = env.getStoredInvByName and env.getStoredInvByName() or {}
     -- Build into a local temp table (not visible to render callback)
     local newItems = {}
     for _, item in ipairs(inventoryItems) do
@@ -538,7 +569,7 @@ function M.scanSellItems()
         local dup = {}
         for k, v in pairs(item) do dup[k] = v end
         -- Use single source of truth for granular flags (fixes augment bug)
-        env.attachGranularFlags(dup, storedByName)
+        env.attachGranularFlags(dup)
         local ws, reason = willItemBeSold(dup)
         dup.willSell, dup.sellReason = ws, reason
         newItems[#newItems + 1] = dup
@@ -560,6 +591,11 @@ function M.loadSnapshotsFromDisk()
         for i = #env.inventoryItems, 1, -1 do env.inventoryItems[i] = nil end
         for _, it in ipairs(invItems) do table.insert(env.inventoryItems, it) end
         if nextSeq then env.scanState.nextAcquiredSeq = nextSeq end
+        -- Session floor for the Inventory "NEW" badge: stamp once, right after the persisted
+        -- counter is restored, so only items acquired after UI start read as new.
+        if not env.scanState.sessionStartAcquiredSeq then
+            env.scanState.sessionStartAcquiredSeq = env.scanState.nextAcquiredSeq
+        end
         -- Fix 4: After load from disk (e.g. post-zone), attach sell status so UI never shows "—"
         if env.computeAndAttachSellStatus then
             env.computeAndAttachSellStatus(env.inventoryItems)
@@ -575,6 +611,9 @@ function M.loadSnapshotsFromDisk()
             table.insert(env.bankCache, it)
         end
         env.perfCache.lastBankCacheTime = bankSavedAt or 0
+        -- Attach sell status at load (rare path) so stored bank rows carry willSell/inKeep
+        -- and views don't fall back to per-frame per-row status computation.
+        if env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(env.bankCache) end
         loaded = true
     end
     return loaded
@@ -721,24 +760,20 @@ function M.scanLootItems()
             local attuneable = it.Attuneable and it.Attuneable() or false
             local wornSlots = env.getWornSlotsStringFromTLO and env.getWornSlotsStringFromTLO(it) or ""
             local augSlots = env.getAugSlotsCountFromTLO and env.getAugSlotsCountFromTLO(it) or 0
+            -- TLO members are userdata (never functions): evaluate with () and nil-guard each step.
             local clicky = 0
-            if it.Clicky and it.Clicky.Spell then
-                local spellId = it.Clicky.Spell.ID
-                if type(spellId) == "function" then spellId = spellId() end
-                if spellId and type(spellId) == "number" and spellId > 0 then
-                    local effType = it.Clicky.EffectType
-                    if type(effType) == "function" then effType = effType() end
-                    local isClicky = false
-                    if type(effType) == "string" then
-                        isClicky = effType:find("Click", 1, true) ~= nil
-                    elseif type(effType) == "number" then
-                        isClicky = (effType == 1 or effType == 4 or effType == 5)
-                    end
-                    if isClicky then clicky = spellId end
+            local spellId = it.Clicky and it.Clicky.Spell and it.Clicky.Spell.ID and it.Clicky.Spell.ID()
+            if spellId and type(spellId) == "number" and spellId > 0 then
+                local effType = it.Clicky.EffectType and it.Clicky.EffectType()
+                local isClicky = false
+                if type(effType) == "string" then
+                    isClicky = effType:find("Click", 1, true) ~= nil
+                elseif type(effType) == "number" then
+                    isClicky = (effType == 1 or effType == 4 or effType == 5)
                 end
+                if isClicky then clicky = spellId end
             end
-            local nodrop = false
-            if it.NoDrop then nodrop = (type(it.NoDrop) == "function" and it.NoDrop()) or (it.NoDrop == true) end
+            local nodrop = (it.NoDrop and it.NoDrop()) or false
             local itemData = { slot = i, id = itId, name = name, type = itemType, value = value, totalValue = value * stackSize,
                 stackSize = stackSize, tribute = tribute, lore = lore, quest = quest, collectible = collectible,
                 heirloom = heirloom, attuneable = attuneable, augSlots = augSlots, clicky = clicky, wornSlots = wornSlots, nodrop = nodrop }

@@ -48,12 +48,14 @@ function Columns.getColumnKeyByIndex(view, index)
     return nil
 end
 
+-- Numeric column keys (module-level constant; set for O(1) lookup)
+local NUMERIC_COLUMN_KEYS = {}
+for _, key in ipairs({"Value", "Weight", "Bag", "Slot", "Stack", "StackSizeMax", "ID", "Icon", "AugSlots", "Container", "Size", "SizeCapacity", "Tribute", "RequiredLevel", "RecommendedLevel", "InstrumentMod", "Acquired"}) do
+    NUMERIC_COLUMN_KEYS[key] = true
+end
+
 function Columns.isNumericColumn(colKey)
-    local numericKeys = {"Value", "Weight", "Bag", "Slot", "Stack", "StackSizeMax", "ID", "Icon", "AugSlots", "Container", "Size", "SizeCapacity", "Tribute", "RequiredLevel", "RecommendedLevel", "InstrumentMod", "Acquired"}
-    for _, key in ipairs(numericKeys) do
-        if colKey == key then return true end
-    end
-    return false
+    return NUMERIC_COLUMN_KEYS[colKey] == true
 end
 
 function Columns.getCellDisplayText(item, colKey, view)

@@ -118,12 +118,18 @@ function M.handleCommand(...)
         print("\ag[ItemUI]\ax Reroll Companion opened.")
     elseif cmd == "exit" or cmd == "quit" or cmd == "unload" then
         if deps.storage then deps.storage.ensureCharFolderExists() end
-        if deps.sellItems and #deps.sellItems > 0 then
-            deps.storage.saveInventory(deps.sellItems)
-            deps.storage.writeSellCache(deps.sellItems)
-        elseif deps.inventoryItems and #deps.inventoryItems > 0 then
+        -- Inventory store: prefer inventoryItems — its rows serialize real stat values, while
+        -- sellItems rows are flat copies whose lazy stat fields serialize as defaults (zeroed
+        -- snapshots). Sell cache keeps its old source: the sell list when present.
+        if deps.inventoryItems and #deps.inventoryItems > 0 then
             if deps.computeAndAttachSellStatus then deps.computeAndAttachSellStatus(deps.inventoryItems) end
             deps.storage.saveInventory(deps.inventoryItems)
+        elseif deps.sellItems and #deps.sellItems > 0 then
+            deps.storage.saveInventory(deps.sellItems)
+        end
+        if deps.sellItems and #deps.sellItems > 0 then
+            deps.storage.writeSellCache(deps.sellItems)
+        elseif deps.inventoryItems and #deps.inventoryItems > 0 then
             deps.storage.writeSellCache(deps.inventoryItems)
         end
         if (deps.bankItems and #deps.bankItems > 0) or (deps.bankCache and #deps.bankCache > 0) then

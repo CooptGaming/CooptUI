@@ -67,12 +67,26 @@ end
 
 --- Write epic item set to shared_config/epic_items_resolved.ini for the macro (chunk1..chunk4, each <= MAX_INI_CHUNK_LEN).
 --- Macro reads these chunks into epicExact, epicExact2, etc. so it does not need to read 15+ class INIs.
+--- Skips the write when content is unchanged (called on every cache load, so most calls are no-ops).
+local lastEpicResolvedWritten = nil
 local function writeEpicResolvedToIni(set)
     if not set or not writeSharedINIValue then return end
     local list = {}
     for name, _ in pairs(set) do list[#list + 1] = name end
     table.sort(list)
     local full = table.concat(list, "/")
+    if lastEpicResolvedWritten == nil then
+        -- First call this session: seed from the existing INI so an unchanged config skips the rewrite.
+        -- If the INI is empty/unreadable, leave nil so this first call always writes.
+        local parts = {}
+        for i = 1, 4 do
+            local v = readSharedINIValue("epic_items_resolved.ini", "Items", "chunk" .. i, "")
+            if v ~= "" then parts[#parts + 1] = v end
+        end
+        local existing = table.concat(parts, "/")
+        if existing ~= "" then lastEpicResolvedWritten = existing end
+    end
+    if lastEpicResolvedWritten == full then return end
     local chunks = {}
     for i = 1, 4 do chunks[i] = "" end
     local idx, pos = 1, 1
@@ -91,6 +105,7 @@ local function writeEpicResolvedToIni(set)
     for i = 1, 4 do
         writeSharedINIValue("epic_items_resolved.ini", "Items", "chunk" .. i, chunks[i] or "")
     end
+    lastEpicResolvedWritten = full
 end
 
 -- ============================================================================
@@ -100,16 +115,16 @@ end
 --- Build sell config cache from INI. Call once per scan.
 --- @return table|nil Cache with keepSet, junkSet, keepContainsList, keepTypeSet, protectedTypeSet, flags, values
 local function loadSellConfigCache()
-    local sharedValuableExact = readSharedINIValue("valuable_exact.ini", "Items", "exact", "")
-    local sharedValuableContains = readSharedINIValue("valuable_contains.ini", "Items", "contains", "")
-    local sharedValuableTypes = readSharedINIValue("valuable_types.ini", "Items", "types", "")
-    local keepExact = readINIValue("sell_keep_exact.ini", "Items", "exact", "")
-    local keepContains = readINIValue("sell_keep_contains.ini", "Items", "contains", "")
-    local keepTypes = readINIValue("sell_keep_types.ini", "Items", "types", "")
+    local sharedValuableExact = readSharedListValue("valuable_exact.ini", "Items", "exact", "")
+    local sharedValuableContains = readSharedListValue("valuable_contains.ini", "Items", "contains", "")
+    local sharedValuableTypes = readSharedListValue("valuable_types.ini", "Items", "types", "")
+    local keepExact = readListValue("sell_keep_exact.ini", "Items", "exact", "")
+    local keepContains = readListValue("sell_keep_contains.ini", "Items", "contains", "")
+    local keepTypes = readListValue("sell_keep_types.ini", "Items", "types", "")
     local junkExact = readListValue("sell_always_sell_exact.ini", "Items", "exact", "")
     local junkContains = readListValue("sell_always_sell_contains.ini", "Items", "contains", "")
     local protectedTypes = readListValue("sell_protected_types.ini", "Items", "types", "")
-    local augmentAlwaysSellExact = readINIValue("sell_augment_always_sell_exact.ini", "Items", "exact", "")
+    local augmentAlwaysSellExact = readListValue("sell_augment_always_sell_exact.ini", "Items", "exact", "")
     local skipExact = readLootListValue("loot_skip_exact.ini", "Items", "exact", "")
     local augmentSkipExact = readLootListValue("loot_augment_skip_exact.ini", "Items", "exact", "")
 
@@ -184,8 +199,10 @@ local function loadSellConfigCache()
         end
     end
 
+    -- protectedTypes stays out of keepTypeSet: it has its own step (ProtectedType) after KeepType,
+    -- so willItemBeSold reports the distinct reasons sell.mac does (Keep Type vs Protected Type).
     cache.keepTypeSet = {}
-    for _, str in ipairs({ sharedValuableTypes, keepTypes, protectedTypes }) do
+    for _, str in ipairs({ sharedValuableTypes, keepTypes }) do
         for pt in (str or ""):gmatch("([^/]+)") do
             local t = pt:match("^%s*(.-)%s*$")
             if isValidFilterEntry(t) then cache.keepTypeSet[t] = true end
@@ -273,7 +290,17 @@ local function willItemBeSold(itemData, cache)
     -- Reroll List protection layer: items on aug or mythical reroll list must never be sold (by ID only;
     -- name matching removed because same-name-different-ID items are common on EQEmu servers).
     if cfg.rerollListIdSet and itemData.id and cfg.rerollListIdSet[itemData.id] then return false, "RerollList" end
-    -- Step 0a: Augment overrides (highest priority sell rules)
+    -- Step 1: NoDrop
+    if (cfg.protectNoDrop ~= false) and itemData.nodrop then return false, "NoDrop" end
+    -- Step 2: NoTrade
+    if (cfg.protectNoTrade ~= false) and itemData.notrade then return false, "NoTrade" end
+    -- Step 3: Epic
+    local epicKey = itemData.name and normalizeItemName(itemData.name) or ""
+    if cfg.epicItemSet and epicKey ~= "" and cfg.epicItemSet[epicKey] then return false, "Epic" end
+    -- Step 4: Keep exact
+    if itemData.inKeepExact then return false, "Keep" end
+    -- Steps 4a-4c: Never-loot/augment sell triggers. Deliberately after the protections above
+    -- (NoDrop/NoTrade/Epic/Keep beat never-loot clearing), at the tier where sell.mac runs alwaysSellExact.
     local itemType = (itemData.type or ""):match("^%s*(.-)%s*$")
     if itemType == "Augmentation" and cfg.augmentAlwaysSellSet and itemData.name and cfg.augmentAlwaysSellSet[itemData.name] then
         return true, "AugmentAlwaysSell"
@@ -284,16 +311,6 @@ local function willItemBeSold(itemData, cache)
     if cfg.neverLootSellSet and itemData.name and cfg.neverLootSellSet[itemData.name] then
         return true, "NeverLoot"
     end
-
-    -- Step 1: NoDrop
-    if (cfg.protectNoDrop ~= false) and itemData.nodrop then return false, "NoDrop" end
-    -- Step 2: NoTrade
-    if (cfg.protectNoTrade ~= false) and itemData.notrade then return false, "NoTrade" end
-    -- Step 3: Epic
-    local epicKey = itemData.name and normalizeItemName(itemData.name) or ""
-    if cfg.epicItemSet and epicKey ~= "" and cfg.epicItemSet[epicKey] then return false, "Epic" end
-    -- Step 4: Keep exact
-    if itemData.inKeepExact then return false, "Keep" end
     -- Step 5: Always-sell exact
     if itemData.inJunkExact then return true, "Junk" end
     -- Step 6: Keep contains
@@ -354,8 +371,8 @@ local function loadLootConfigCache()
     local cache = {
         minLootValue = tonumber(readLootINIValue("loot_value.ini", "Settings", "minLootValue", "999")) or 999,
         minLootValueStack = tonumber(readLootINIValue("loot_value.ini", "Settings", "minLootValueStack", "200")) or 200,
-        tributeOverride = tonumber(readLootINIValue("loot_value.ini", "Settings", "tributeOverride", "0")) or 0,
-        lootClickies = readLootINIValue("loot_flags.ini", "Settings", "lootClickies", "FALSE") == "TRUE",
+        tributeOverride = tonumber(readLootINIValue("loot_value.ini", "Settings", "tributeOverride", "1000")) or 1000,
+        lootClickies = readLootINIValue("loot_flags.ini", "Settings", "lootClickies", "TRUE") == "TRUE",
         lootQuest = readLootINIValue("loot_flags.ini", "Settings", "lootQuest", "FALSE") == "TRUE",
         lootCollectible = readLootINIValue("loot_flags.ini", "Settings", "lootCollectible", "FALSE") == "TRUE",
         lootHeirloom = readLootINIValue("loot_flags.ini", "Settings", "lootHeirloom", "FALSE") == "TRUE",
@@ -434,7 +451,7 @@ local function shouldItemBeLooted(itemData, cache)
     local tribute = itemData.tribute or 0
     local isStackable = (itemData.stackSize or 1) > 1
 
-    -- Skip lists (highest priority)
+    -- Skip lists (the epic check above deliberately runs first: intentional parity with loot.mac)
     if cache.skipExactSet and cache.skipExactSet[name] then return false, "SkipExact" end
     if cache.skipContainsList then
         for _, kw in ipairs(cache.skipContainsList) do
@@ -466,7 +483,7 @@ local function shouldItemBeLooted(itemData, cache)
     if value >= minVal then return true, "Value" end
 
     -- Flag checks
-    if cache.lootClickies and itemData.clicky and itemData.wornSlots then return true, "Clicky" end
+    if cache.lootClickies and (itemData.clicky or 0) > 0 and (itemData.wornSlots or "") ~= "" then return true, "Clicky" end
     if cache.lootQuest and itemData.quest then return true, "Quest" end
     if cache.lootCollectible and itemData.collectible then return true, "Collectible" end
     if cache.lootHeirloom and itemData.heirloom then return true, "Heirloom" end

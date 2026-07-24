@@ -2,7 +2,9 @@
 
 #include <mq/Plugin.h>
 #include <sol/sol.hpp>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "eqlib/game/Constants.h"
 #include "eqlib/game/Globals.h"
@@ -15,6 +17,7 @@
 #include "../core/ItemDataPopulate.h"
 #include "../core/ItemDataToTable.h"
 #include "../core/Logger.h"
+#include "../rules/RulesEngine.h"
 #include "../scanners/BankScanner.h"
 #include "../scanners/InventoryScanner.h"
 #include "../scanners/SellScanner.h"
@@ -145,6 +148,20 @@ void registerLua(sol::state_view L, sol::table& table) {
 
   table.set_function("hasInventoryChanged", []() -> bool {
     return scanners::InventoryScanner::Instance().HasChanged();
+  });
+
+  // Reroll-list protection: Lua pushes the current reroll item ids (array of
+  // integer ids) so native sell/loot evaluation never touches those items.
+  // Replace-all semantics; returns the number of ids applied.
+  table.set_function("setRerollIds", [](sol::table ids) -> size_t {
+    std::vector<int32_t> out;
+    out.reserve(ids.size());
+    for (size_t i = 1; i <= ids.size(); ++i) {
+      sol::optional<int32_t> id = ids.get<sol::optional<int32_t>>(i);
+      if (id && *id > 0) out.push_back(*id);
+    }
+    rules::RulesEngine::Instance().SetRerollIds(out);
+    return rules::RulesEngine::Instance().GetRerollIdCount();
   });
 
   // Version counters: Lua polls these to detect cache staleness without re-scanning.

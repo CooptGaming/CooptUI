@@ -136,21 +136,39 @@ local function phase2_periodicPersist(now)
     if (now - scanState.lastPersistSaveTime) >= C.PERSIST_SAVE_INTERVAL_MS then
         local charName = (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) or ""
         if charName ~= "" then
-            storage.ensureCharFolderExists()
-            if #sellItems > 0 then
-                storage.saveInventory(sellItems)
-                storage.writeSellCache(sellItems)
-            elseif #inventoryItems > 0 then
-                if not scanState.sellStatusAttachedAt then
-                    computeAndAttachSellStatus(inventoryItems)
-                    scanState.sellStatusAttachedAt = now
+            -- Skip stores unchanged since the last persist: inventory via scan fingerprint,
+            -- bank via last bank scan time (scan.lua keeps no bank fingerprint). Explicit
+            -- mutations save directly; this pass is only the crash-recovery net.
+            local invChanged = scanState.lastInventoryFingerprint ~= scanState.lastPersistedInvFingerprint
+            local bankChanged = scanState.lastScanTimeBank ~= scanState.lastPersistedBankScanTime
+            if invChanged or bankChanged then storage.ensureCharFolderExists() end
+            if invChanged then
+                -- Inventory store: prefer inventoryItems — its rows serialize real stat values.
+                -- sellItems rows are flat pairs() copies whose lazy stat fields serialize as
+                -- defaults, so persisting them writes zeroed snapshots.
+                if #inventoryItems > 0 then
+                    if not scanState.sellStatusAttachedAt then
+                        computeAndAttachSellStatus(inventoryItems)
+                        scanState.sellStatusAttachedAt = now
+                    end
+                    storage.saveInventory(inventoryItems)
+                elseif #sellItems > 0 then
+                    storage.saveInventory(sellItems)
                 end
-                storage.saveInventory(inventoryItems)
-                storage.writeSellCache(inventoryItems)
+                -- Sell cache: keep fed from the sell list when present (live merchant rows).
+                if #sellItems > 0 then
+                    storage.writeSellCache(sellItems)
+                elseif #inventoryItems > 0 then
+                    storage.writeSellCache(inventoryItems)
+                end
+                scanState.lastPersistedInvFingerprint = scanState.lastInventoryFingerprint
             end
-            local bankToSave = (isBankWindowOpen() and bankItems and #bankItems > 0) and bankItems or bankCache
-            if bankToSave and #bankToSave > 0 then
-                storage.saveBank(bankToSave)
+            if bankChanged then
+                local bankToSave = (isBankWindowOpen() and bankItems and #bankItems > 0) and bankItems or bankCache
+                if bankToSave and #bankToSave > 0 then
+                    storage.saveBank(bankToSave)
+                end
+                scanState.lastPersistedBankScanTime = scanState.lastScanTimeBank
             end
             scanState.lastPersistSaveTime = now
         end
@@ -202,6 +220,40 @@ local function phase4_sellMacroFinish(now)
     sellMacState.lastRunning = sellMacRunning
 end
 
+-- Read loot_mythical_alert.ini into uiState.lootMythicalAlert. Returns false after a single
+-- INI read when no alert item is present (callers decide whether to clear existing state).
+-- forceOpen: open the Loot UI even when the decision is already made (loot-finish behavior);
+-- otherwise only a pending decision opens it (poll behavior).
+local function readMythicalAlert(alertPath, forceOpen)
+    local uiState, config = d.uiState, d.config
+    local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
+    if not itemName or itemName == "" then return false end
+    local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
+    local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+    local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
+    uiState.lootMythicalAlert = {
+        itemName = itemName,
+        corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
+        decision = decision,
+        itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
+        timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
+        iconId = tonumber(iconStr) or 0
+    }
+    if decision == "pending" then
+        if not prevName or prevName ~= itemName then
+            uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
+            soundService.play("mythical_alert")
+        end
+    else
+        uiState.lootMythicalDecisionStartAt = nil
+    end
+    if forceOpen or decision == "pending" then
+        uiState.lootUIOpen = true
+        d.recordCompanionWindowOpened("loot")
+    end
+    return true
+end
+
 -- Phase 5: Loot macro management (progress, mythical alerts, session, deferred scan; via macro bridge)
 -- Use bridge running state (includes file-based fallback from loot_progress.ini) so we detect finish and populate tables/history even when Macro.Name() doesn't match
 local function phase5_lootMacro(now)
@@ -232,30 +284,7 @@ local function phase5_lootMacro(now)
         lootLoopRefs.pendingSessionAt = now
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
-            local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-            if itemName and itemName ~= "" then
-                local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                uiState.lootMythicalAlert = {
-                    itemName = itemName,
-                    corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                    decision = decision,
-                    itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                    timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                    iconId = tonumber(iconStr) or 0
-                }
-                if decision == "pending" then
-                    if not prevName or prevName ~= itemName then
-                        uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
-                        soundService.play("mythical_alert")
-                    end
-                else
-                    uiState.lootMythicalDecisionStartAt = nil
-                end
-                uiState.lootUIOpen = true
-                d.recordCompanionWindowOpened("loot")
-            end
+            readMythicalAlert(alertPath, true)
         end
     end
     -- ========================================================================
@@ -386,7 +415,9 @@ local function phase5_lootMacro(now)
                             if raw and raw ~= "" then
                                 local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
                                 local name = item_name.normalizeItemName(rawName or raw)
-                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                                if name ~= "" then
+                                    table.insert(uiState.skipHistory, { name = name, reason = reason or "" })
+                                end
                             end
                         end
                     else
@@ -395,7 +426,9 @@ local function phase5_lootMacro(now)
                             if raw and raw ~= "" then
                                 local rawName, reason = raw:match("^([^%^]*)%^?(.*)$")
                                 local name = item_name.normalizeItemName(rawName or raw)
-                                if name ~= "" then table.insert(uiState.skipHistory, { name = name, reason = reason or "" }) end
+                                if name ~= "" then
+                                    table.insert(uiState.skipHistory, { name = name, reason = reason or "" })
+                                end
                             end
                         end
                     end
@@ -433,39 +466,12 @@ local function phase5_lootMacro(now)
             uiState.lootRunCurrentCorpse = current or ""
         end
         -- Read mythical alert whenever we poll (macro running or Loot UI open) so test mode and in-run pause both show and wait.
-        -- Task 6.2: short-circuit when itemName empty and lootMythicalAlert already nil to avoid 5 INI reads per poll.
+        -- Task 6.2: readMythicalAlert bails after 1 INI read when no alert; only clear when one was showing.
         local alertPath = config.getLootConfigFile and config.getLootConfigFile("loot_mythical_alert.ini")
         if alertPath and alertPath ~= "" then
-            local itemName = config.safeIniValueByPath(alertPath, "Alert", "itemName", "")
-            if (not itemName or itemName == "") and not uiState.lootMythicalAlert then
-                -- Skip: no mythical item and already nil
-            else
-                if itemName and itemName ~= "" then
-                    local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
-                    local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
-                    local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
-                    uiState.lootMythicalAlert = {
-                        itemName = itemName,
-                        corpseName = config.safeIniValueByPath(alertPath, "Alert", "corpseName", "") or "",
-                        decision = decision,
-                        itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
-                        timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-                        iconId = tonumber(iconStr) or 0
-                    }
-                    if decision == "pending" then
-                        if not prevName or prevName ~= itemName then
-                            uiState.lootMythicalDecisionStartAt = os.time and os.time() or 0
-                            soundService.play("mythical_alert")
-                        end
-                        uiState.lootUIOpen = true
-                        d.recordCompanionWindowOpened("loot")
-                    else
-                        uiState.lootMythicalDecisionStartAt = nil
-                    end
-                else
-                    uiState.lootMythicalAlert = nil
-                    uiState.lootMythicalDecisionStartAt = nil
-                end
+            if not readMythicalAlert(alertPath, false) and uiState.lootMythicalAlert then
+                uiState.lootMythicalAlert = nil
+                uiState.lootMythicalDecisionStartAt = nil
             end
         end
     end
@@ -612,6 +618,12 @@ end
 local function handleAugmentConfirmationTimeouts(now)
     local uiState, augmentOps, hasItemOnCursor, setStatusMessage = d.uiState, d.augmentOps, d.hasItemOnCursor, d.setStatusMessage
     if not uiState then return end
+    -- Everything below is gated on these flags; skip the two game-window TLO lookups
+    -- when no augment insert/remove confirmation is in flight.
+    if not (uiState.waitingForInsertConfirmation or uiState.waitingForRemoveConfirmation
+        or uiState.waitingForInsertCursorClear or uiState.waitingForRemoveCursorPopulated) then
+        return
+    end
     local T = constants.TIMING
     local AUGMENT_CURSOR_CLEAR_TIMEOUT_MS    = T.AUGMENT_CURSOR_CLEAR_TIMEOUT_MS
     local AUGMENT_CURSOR_POPULATED_TIMEOUT_MS = T.AUGMENT_CURSOR_POPULATED_TIMEOUT_MS
@@ -806,7 +818,13 @@ local function handleMoveAction(now)
                 pm.nextIndex = idx + 1
             end
         end
-        if pm.nextIndex and pm.nextIndex > #items then
+        -- Fire the roll only after every move has been issued AND the move machine has drained.
+        -- Stack moves set pendingMoveAction (possibly by the moveBankToInv call just above), so
+        -- firing on the same tick would let the server count fewer items than required and
+        -- reject the roll; leave pendingRerollBankMoves armed and finish on a later tick.
+        -- Re-check pendingRerollBankMoves: the cancel branches above clear it (bank closed,
+        -- move failed) and the roll must not fire after a cancel.
+        if uiState.pendingRerollBankMoves and pm.nextIndex and pm.nextIndex > #items and not uiState.pendingMoveAction then
             uiState.pendingRerollBankMoves = nil
             if d.rerollService then
                 if pm.list == "aug" then
@@ -922,6 +940,23 @@ local function runDeferredScans(now, ws)
     if deferredScanNeeded.inventory then maybeScanInventory(ws.invOpen); deferredScanNeeded.inventory = false end
     if deferredScanNeeded.bank then maybeScanBank(ws.bankOpen); deferredScanNeeded.bank = false end
     if deferredScanNeeded.sell then maybeScanSellItems(ws.merchOpen); deferredScanNeeded.sell = false end
+    -- Render-side scan requests: views set these flags instead of scanning inside the ImGui
+    -- callback; the main loop performs the scan within a tick.
+    if uiState.deferredBankScanRequested then
+        uiState.deferredBankScanRequested = nil
+        maybeScanBank(ws.bankOpen)
+    end
+    if uiState.deferredInventoryScanAt and now >= uiState.deferredInventoryScanAt then
+        uiState.deferredInventoryScanAt = nil
+        maybeScanInventory(ws.invOpen)
+    end
+    -- AA data rebuild (up to ~2000 AltAbility TLO probes) runs here, never in render;
+    -- aaDataRefreshedAt feeds the AA view's sort-cache key so rows refresh on completion.
+    if uiState.aaRefreshRequested then
+        uiState.aaRefreshRequested = nil
+        if d.refreshAA then d.refreshAA() end
+        uiState.aaDataRefreshedAt = now
+    end
     -- MASTER_PLAN 2.6: targeted rescan for bags that had _statsPending (e.g. ID was 0 during batch)
     if uiState.pendingStatRescanBags and next(uiState.pendingStatRescanBags) and rescanInventoryBags then
         local bags = {}
@@ -931,12 +966,12 @@ local function runDeferredScans(now, ws)
     end
     if perfCache.sellConfigPendingRefresh then
         if perfCache.sellConfigCache then sellStatusService.invalidateSellConfigCache() end
-        if not scanState.sellStatusAttachedAt then
-            computeAndAttachSellStatus(inventoryItems)
-            if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
-            if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
-            scanState.sellStatusAttachedAt = now
-        end
+        -- Config changed, so attached statuses are stale by definition: recompute even when
+        -- sellStatusAttachedAt is set (debounced + event-driven, so this is rare).
+        computeAndAttachSellStatus(inventoryItems)
+        if sellItems and #sellItems > 0 then computeAndAttachSellStatus(sellItems) end
+        if bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+        scanState.sellStatusAttachedAt = now
         perfCache.sellConfigPendingRefresh = false
     end
 end
@@ -1073,7 +1108,7 @@ local function handleAutoShowHide(now, ws)
         deferredScanNeeded.inventory = invOpen
         deferredScanNeeded.sell = true
     end
-    if bankOpen and not shouldDraw and not uiState.userClosedViaKeybind then
+    if bankOpen and not shouldDraw and not uiState.userClosedViaKeybind and not (lootOpen or lootMacRunning) then
         setShouldDraw(true)
         setOpen(true)
         loadLayoutConfig()
@@ -1421,18 +1456,35 @@ local function phase8b_pendingRerollAdd(now)
     end
 end
 
--- Phase 8c: After augment roll confirm — poll for item on cursor, print name/link, autoinv, then refresh inventory.
+-- Phase 8c: After augment roll confirm — poll for the roll reward on cursor, print name/link,
+-- autoinv, then refresh inventory. Guards so a user picking up an item during the watch window
+-- is never broadcast: a user-initiated pickup (lastPickup set) leaves the watcher armed, and
+-- only an Augmentation-type cursor item (the roll reward) is announced. Anything still on the
+-- cursor at timeout is stowed via /autoinv without the guild announce.
 local AUG_ROLL_COMPLETE_TIMEOUT_MS = 15000
 local function phase8c_pendingAugRollComplete(now)
     local uiState, hasItemOnCursor = d.uiState, d.hasItemOnCursor
     if not uiState.pendingAugRollComplete then return end
     if uiState.pendingAugRollCompleteAt and (now - uiState.pendingAugRollCompleteAt) > AUG_ROLL_COMPLETE_TIMEOUT_MS then
+        if hasItemOnCursor() then
+            uiState.lastPickup.bag, uiState.lastPickup.slot, uiState.lastPickup.source = nil, nil, nil
+            mq.cmd("/autoinv")
+            local delayMs = (constants.TIMING and constants.TIMING.DEFERRED_SCAN_DELAY_MS) or 120
+            uiState.deferredInventoryScanAt = now + delayMs
+        end
         uiState.pendingAugRollComplete = nil
         uiState.pendingAugRollCompleteAt = nil
         if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
         return
     end
     if not hasItemOnCursor() then return end
+    -- User-initiated pickup in flight (lastPickup set by ItemUI pickup paths): leave the
+    -- cursor alone and keep the watcher armed until the reward shows up or the window ends.
+    local lp = uiState.lastPickup
+    if lp and (lp.bag ~= nil or lp.slot ~= nil) then return end
+    -- The roll reward is an augment; never announce anything else mid-window.
+    local cursorType = mq.TLO and mq.TLO.Cursor and mq.TLO.Cursor.Type and mq.TLO.Cursor.Type()
+    if cursorType ~= "Augmentation" then return end
     local itemOps = d.itemOps
     local name = (itemOps and itemOps.getCursorItemName and itemOps.getCursorItemName()) or (mq.TLO.Cursor and mq.TLO.Cursor.Name and mq.TLO.Cursor.Name()) or ""
     if name and name ~= "" then
@@ -1481,8 +1533,8 @@ end
 --   [pre_clear_pickup → pre_clear_settle] × N slots → pickup → settle_pickup → settle_place → wait_autoinv → done
 --   pre_clear phases iterate ea.preClearSlots (e.g. {"offhand","mainhand"} for primary-only items).
 --   Each slot: pick up via /itemnotify, wait for cursor, /autoinventory if needed, advance to next.
---   settle_place polls cursor each tick: accepts attunement dialog, detects cursor-clear success,
---   or autoinventories a displaced item → wait_autoinv.
+--   settle_place polls cursor each tick: accepts attunement dialog (attuneable equips only),
+--   detects cursor-clear success, or autoinventories a displaced item → wait_autoinv.
 local EQUIP_SETTLE_PICKUP_MS    = 200   -- Reduced from 350; wait after issuing pickup before checking cursor
 local EQUIP_PICKUP_TIMEOUT_MS   = 3000  -- give up if item never reaches cursor
 local EQUIP_PRE_CLEAR_SETTLE_MS     = 200   -- Reduced from 350; wait after /itemnotify <slot> before checking cursor
@@ -1584,7 +1636,8 @@ local function phaseEquipAction(now)
     end
 
     -- SETTLE_PLACE: per-tick poll after placing item on slot.
-    --   • Accept attunement confirmation dialog if it appears.
+    --   • Accept attunement confirmation dialog if it appears (attuneable equips only;
+    --     otherwise leave the dialog to the user and end the FSM).
     --   • Cursor clear → equip succeeded, done.
     --   • Cursor still has item after 400 ms → displaced item; autoinventory → wait_autoinv.
     --   • Safety timeout at EQUIP_PLACE_TIMEOUT_MS.
@@ -1600,15 +1653,22 @@ local function phaseEquipAction(now)
         end
         -- Enforce minimum settle before doing anything
         if elapsed < EQUIP_MIN_SETTLE_PLACE_MS then return end
-        -- Check for attunement confirmation dialog and accept it
+        -- Check for a confirmation dialog. Only auto-accept the attunement prompt for
+        -- equips flagged attuneable (set from the item row in ui_common's equip path);
+        -- any other dialog during a non-attuneable equip is not ours to answer.
         local dlgOpen = false
         do
             local ok, dlg = pcall(function() return mq.TLO.Window and mq.TLO.Window("ConfirmationDialogBox") end)
             dlgOpen = ok and dlg and dlg.Open and dlg.Open()
         end
         if dlgOpen then
-            mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
-            -- Stay in settle_place; cursor will clear once the game processes the equip
+            if ea.attuneable then
+                mq.cmd('/notify ConfirmationDialogBox CD_Yes_Button leftmouseup')
+                -- Stay in settle_place; cursor will clear once the game processes the equip
+                return
+            end
+            if setStatus then setStatus("Confirmation dialog open — check it (" .. (ea.name or "") .. ").") end
+            uiState.pendingEquipAction = nil
             return
         end
         -- Check cursor state
@@ -1669,6 +1729,9 @@ function M.init(deps)
 end
 
 function M.tick(now)
+    -- The cursor cache is only refreshed by the hub render; clear it each tick so main-loop
+    -- consumers fall through to the live check while the window is hidden or collapsed.
+    if d.uiState then d.uiState.hasItemOnCursorThisFrame = nil end
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)

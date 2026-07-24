@@ -13,11 +13,15 @@ M.TOOLTIP_PADDING = 20
 M.CHARS_PER_LINE_NAME = 48
 M.CHARS_PER_LINE_DESC = 52
 
+-- Single source of truth for these helpers; tooltip_data requires this module and re-exports them
+-- (this module must not require tooltip_data — that would create a require cycle).
 local SIZE_NAMES = { [1] = "SMALL", [2] = "MEDIUM", [3] = "LARGE", [4] = "GIANT" }
+M.SIZE_NAMES = SIZE_NAMES
 local function formatSize(item)
     if not item or not item.size then return nil end
     return SIZE_NAMES[item.size] or tostring(item.size)
 end
+M.formatSize = formatSize
 
 --- Attribute line: "Label: base" or "Label: base+heroic"
 local function attrLine(base, heroic, label)
@@ -26,6 +30,7 @@ local function attrLine(base, heroic, label)
     if h > 0 then return string.format("%s: %d+%d", label, b, h) end
     return string.format("%s: %d", label, b)
 end
+M.attrLine = attrLine
 
 --- Build a compact list of only non-nil values (so row count = longest column's value count).
 function M.compactCol(c)

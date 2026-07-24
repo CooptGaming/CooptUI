@@ -18,12 +18,11 @@ local registry = require('itemui.core.registry')
 local CharacterStats = require('itemui.components.character_stats')
 
 -- Phase 3: Filter system modules
-local searchbar = require('itemui.components.searchbar')
-local filtersComponent = require('itemui.components.filters')
 local ui_common = require('itemui.components.ui_common')
 
 -- Phase 5: Macro integration service
 local macroBridge = require('itemui.services.macro_bridge')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 local scanService = require('itemui.services.scan')
 local sellStatusService = require('itemui.services.sell_status')
 local itemOps = require('itemui.services.item_ops')
@@ -69,7 +68,7 @@ local C = state.C
 local isOpen, shouldDraw, terminate = state.isOpen, state.shouldDraw, state.terminate
 local inventoryItems, bankItems, lootItems = state.inventoryItems, state.bankItems, state.lootItems
 local equipmentCache = state.equipmentCache
-local transferStampPath, lastTransferStamp = state.transferStampPath, state.lastTransferStamp
+local transferStampPath = state.transferStampPath
 local lastInventoryWindowState, lastBankWindowState, lastMerchantState, lastLootWindowState = state.lastInventoryWindowState, state.lastBankWindowState, state.lastMerchantState, state.lastLootWindowState
 local statsTabPrimeState, statsTabPrimeAt = state.statsTabPrimeState, state.statsTabPrimeAt
 local statsTabPrimedThisSession = state.statsTabPrimedThisSession
@@ -83,6 +82,31 @@ do
         pendingRerollBankMoves = true,
         pendingAugRollComplete = true,
         pendingAugRollCompleteAt = true
+    }
+    -- Shared by __index and __newindex; hoisted so proxied field access does not
+    -- allocate these tables on every lookup (they are hit many times per frame).
+    local lootUIKeys = {
+        lootUIOpen = true, lootRunCorpsesLooted = true, lootRunTotalCorpses = true, lootRunCurrentCorpse = true,
+        lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
+        lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
+        lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
+        corpseLootedHidden = true,
+    }
+    local itemOpsKeys = {
+        pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
+        pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
+        pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
+        cursorActionQueue = true,
+        lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
+        hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
+    }
+    local augmentOpsKeys = {
+        pendingRemoveAugment = true, pendingInsertAugment = true,
+        waitingForRemoveConfirmation = true, waitingForInsertConfirmation = true,
+        waitingForInsertCursorClear = true, waitingForRemoveCursorPopulated = true,
+        insertCursorClearTimeoutAt = true, removeCursorPopulatedTimeoutAt = true,
+        insertConfirmationSetAt = true, removeConfirmationSetAt = true,
+        removeAllQueue = true, optimizeQueue = true,
     }
     setmetatable(uiState, {
         __index = function(t, k)
@@ -110,31 +134,8 @@ do
             if k == "configAdvancedMode" then return ConfigView.getState().configAdvancedMode end
             if k == "pendingLootRescan" then return LootView.getState().pendingLootRescan end
             if k == "pendingLootRemove" then return LootView.getState().pendingLootRemove end
-            local lootUIKeys = {
-                lootUIOpen = true, lootRunCorpsesLooted = true, lootRunTotalCorpses = true, lootRunCurrentCorpse = true,
-                lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
-                lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
-                lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
-                corpseLootedHidden = true,
-            }
             if lootUIKeys[k] then return LootUIView.getState()[k] end
-            local itemOpsKeys = {
-                pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
-                pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
-                cursorActionQueue = true,
-                lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
-                hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
-            }
             if itemOpsKeys[k] then return itemOps.getState()[k] end
-            local augmentOpsKeys = {
-                pendingRemoveAugment = true, pendingInsertAugment = true,
-                waitingForRemoveConfirmation = true, waitingForInsertConfirmation = true,
-                waitingForInsertCursorClear = true, waitingForRemoveCursorPopulated = true,
-                insertCursorClearTimeoutAt = true, removeCursorPopulatedTimeoutAt = true,
-                insertConfirmationSetAt = true, removeConfirmationSetAt = true,
-                removeAllQueue = true, optimizeQueue = true,
-            }
             if augmentOpsKeys[k] then return augmentOps.getState()[k] end
             return rawget(t, k)
         end,
@@ -158,31 +159,8 @@ do
             if k == "configAdvancedMode" then ConfigView.getState().configAdvancedMode = v; return end
             if k == "pendingLootRescan" then LootView.getState().pendingLootRescan = v; return end
             if k == "pendingLootRemove" then LootView.getState().pendingLootRemove = v; return end
-            local lootUIKeys = {
-                lootUIOpen = true, lootRunCorpsesLooted = true, lootRunTotalCorpses = true, lootRunCurrentCorpse = true,
-                lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
-                lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
-                lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
-                corpseLootedHidden = true,
-            }
             if lootUIKeys[k] then LootUIView.getState()[k] = v; return end
-            local itemOpsKeys = {
-                pendingDestroy = true, pendingDestroyAction = true, destroyQuantityValue = true, destroyQuantityMax = true,
-                pendingMoveAction = true, quantityPickerValue = true, quantityPickerMax = true, quantityPickerSubmitPending = true,
-                pendingQuantityPickup = true, pendingQuantityPickupTimeoutAt = true, pendingQuantityAction = true, pendingScriptConsume = true, pendingScriptConsumeQueue = true,
-                cursorActionQueue = true,
-                lastPickup = true, lastPickupSetThisFrame = true, lastPickupClearedAt = true, activationGuardUntil = true,
-                hadItemOnCursorLastFrame = true, hasItemOnCursorThisFrame = true,
-            }
             if itemOpsKeys[k] then itemOps.getState()[k] = v; return end
-            local augmentOpsKeys = {
-                pendingRemoveAugment = true, pendingInsertAugment = true,
-                waitingForRemoveConfirmation = true, waitingForInsertConfirmation = true,
-                waitingForInsertCursorClear = true, waitingForRemoveCursorPopulated = true,
-                insertCursorClearTimeoutAt = true, removeCursorPopulatedTimeoutAt = true,
-                insertConfirmationSetAt = true, removeConfirmationSetAt = true,
-                removeAllQueue = true, optimizeQueue = true,
-            }
             if augmentOpsKeys[k] then augmentOps.getState()[k] = v; return end
             rawset(t, k, v)
         end,
@@ -346,7 +324,7 @@ local scanState = state.scanState
 -- Invalidate stored-inv cache when we save; pass nextAcquiredSeq so acquired order persists (must be after scanState)
 do
     local _saveInv = storage.saveInventory
-    storage.saveInventory = function(items) _saveInv(items, scanState.nextAcquiredSeq); perfCache.storedInvByName = nil end
+    storage.saveInventory = function(items) _saveInv(items, scanState.nextAcquiredSeq) end
 end
 local deferredScanNeeded = state.deferredScanNeeded
 
@@ -443,6 +421,8 @@ removeFromJunkList = config_cache.removeFromJunkList
 isInLootSkipList = config_cache.isInLootSkipList
 addToLootSkipList = config_cache.addToLootSkipList
 removeFromLootSkipList = config_cache.removeFromLootSkipList
+local addToLootAlwaysList = config_cache.addToLootAlwaysList
+local isInLootAlwaysList = config_cache.isInLootAlwaysList
 augmentListAPI = config_cache.createAugmentListAPI()
 loadConfigCache()  -- Populate cache at startup (views/registry use configSellFlags, configLootLists, etc.)
 
@@ -493,9 +473,8 @@ do
         isInJunkContainsList = function(n) return sellStatusService.isInJunkContainsList(n) end,
         isProtectedType = isProtectedType,
         willItemBeSold = willItemBeSold,
-        attachGranularFlags = function(item, storedByName) sellStatusService.attachGranularFlags(item, storedByName) end,
+        attachGranularFlags = function(item) sellStatusService.attachGranularFlags(item) end,
         rules = rules,
-        getStoredInvByName = function() return sellStatusService.refreshStoredInvByName() end,
         getRerollListProtection = function() return rerollService.getRerollListProtection() end,
     }
     scanService.init(scanEnv)
@@ -511,22 +490,27 @@ local function maybeScanSellItems(merchOpen) scanService.maybeScanSellItems(merc
 local function maybeScanLootItems(lootOpen) scanService.maybeScanLootItems(lootOpen) end
 
 -- Equipment cache: refresh when Equipment Companion window is visible (Phase 2). Slots 0-22; cache index = slotIndex + 1.
-local function refreshEquipmentCache()
+-- The periodic (400ms) refresh path only pays the full rebuild for slots whose item ID
+-- changed; unchanged slots keep their pre-warmed cache entry (~23 ID reads vs ~2000 field reads).
+local function refreshEquipmentCache(force)
     for slotIndex = 0, 22 do
         local it = itemHelpers.getItemTLO(0, slotIndex, "equipped")
         local ok, id = pcall(function() return it and it.ID and it.ID() end)
         if not ok or not id or id == 0 then
             equipmentCache[slotIndex + 1] = nil
         else
-            local eqItem = buildItemFromMQ(it, 0, slotIndex, "equipped")
-            -- Pre-warm lazy fields while TLO is in scope so tooltip hover never re-fetches
-            if eqItem then
-                local _ = eqItem.ac           -- triggers full STAT_FIELDS batch load
-                _ = eqItem.requiredLevel      -- triggers full DESCRIPTIVE_FIELDS batch load
-                _ = eqItem.wornSlots          -- triggers wornSlots string build
-                _ = eqItem.augSlots           -- triggers augSlots count
+            local cached = equipmentCache[slotIndex + 1]
+            if force or not cached or cached.id ~= id then
+                local eqItem = buildItemFromMQ(it, 0, slotIndex, "equipped")
+                -- Pre-warm lazy fields while TLO is in scope so tooltip hover never re-fetches
+                if eqItem then
+                    local _ = eqItem.ac           -- triggers full STAT_FIELDS batch load
+                    _ = eqItem.requiredLevel      -- triggers full DESCRIPTIVE_FIELDS batch load
+                    _ = eqItem.wornSlots          -- triggers wornSlots string build
+                    _ = eqItem.augSlots           -- triggers augSlots count
+                end
+                equipmentCache[slotIndex + 1] = eqItem
             end
-            equipmentCache[slotIndex + 1] = eqItem
         end
     end
 end
@@ -544,6 +528,19 @@ itemOps.init({
     maybeScanInventory = maybeScanInventory,
     rescanInventoryBags = rescanInventoryBags,
 })
+-- Mirror the reroll id set into the C++ plugin so its rule ladders apply
+-- RerollList protection too (the plugin never parses reroll files itself).
+-- No-op when the plugin is absent or predates setRerollIds.
+local function pushRerollIdsToPlugin()
+    local plug = coopuiPlugin and coopuiPlugin.getPlugin and coopuiPlugin.getPlugin()
+    if not (plug and plug.setRerollIds) then return end
+    local prot = rerollService.getRerollListProtection and rerollService.getRerollListProtection()
+    local ids = {}
+    if prot and prot.idSet then
+        for id in pairs(prot.idSet) do ids[#ids + 1] = id end
+    end
+    pcall(plug.setRerollIds, ids)
+end
 rerollService.init({
     setStatusMessage = setStatusMessage,
     getRerollListStoragePath = function()
@@ -556,8 +553,10 @@ rerollService.init({
         if sellStatusService and sellStatusService.invalidateSellConfigCache then sellStatusService.invalidateSellConfigCache() end
         if computeAndAttachSellStatus and inventoryItems and #inventoryItems > 0 then computeAndAttachSellStatus(inventoryItems) end
         if computeAndAttachSellStatus and bankItems and #bankItems > 0 then computeAndAttachSellStatus(bankItems) end
+        pushRerollIdsToPlugin()
     end,
 })
+pushRerollIdsToPlugin()  -- cover the init-time loadFromFile()
 augmentOps.init({
     setStatusMessage = setStatusMessage,
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
@@ -707,11 +706,24 @@ local sortColumnsAPI = {
     simpleHash = columns.simpleHash,
 }
 
+-- Hover tooltips call this every frame. Memoize the built stat table per slot and
+-- reuse it while the slot still holds the same item ID: one TLO ID read per frame
+-- instead of a full ~85-field stat batch. The short TTL bounds staleness for
+-- same-ID mutations (augment inserts, charges) between scans.
+local tooltipStatsMemo = {}
+local TOOLTIP_STATS_TTL_MS = 1500
 local function getItemStatsForTooltipRef(item, source)
     if not item or item.slot == nil then return item end
     local bag = (item.bag ~= nil) and item.bag or 0
     local it = itemHelpers.getItemTLO(bag, item.slot, source or "inv")
     if not it or not it.ID or it.ID() == 0 then return item end
+    local liveId = it.ID()
+    local memoKey = (source or "inv") .. ":" .. bag .. ":" .. item.slot
+    local nowMs = mq.gettime()
+    local memo = tooltipStatsMemo[memoKey]
+    if memo and memo.id == liveId and (nowMs - memo.at) < TOOLTIP_STATS_TTL_MS then
+        return memo.built
+    end
     local built = itemHelpers.buildItemFromMQ(it, bag, item.slot, source or "inv")
     -- For equipped items: eagerly load all lazy fields while the TLO is in scope.
     -- Equipment slot TLO is less reliable at tooltip render time (frame-level timing);
@@ -915,6 +927,8 @@ context.init({
         uiState.destroyQuantityMax = 1
     end,
     getSkipConfirmDelete = function() return not uiState.confirmBeforeDelete end,
+    -- Session floor for the Inventory "NEW" badge: items with acquiredSeq >= this were first seen after UI start (nil until stamped).
+    getSessionStartAcquiredSeq = function() return scanState.sessionStartAcquiredSeq end,
     -- Config list APIs
     addToKeepList = addToKeepList, removeFromKeepList = removeFromKeepList,
     addToJunkList = addToJunkList, removeFromJunkList = removeFromJunkList,
@@ -922,8 +936,11 @@ context.init({
     consumables = config_cache.createConsumablesAPI(),
     requestAddToRerollList = requestAddToRerollList,
     removeFromRerollList = removeFromRerollList,
+    -- Single source of truth for reroll routing (Mythical prefix -> "mythical", augments -> "aug", else nil)
+    resolveRerollList = rerollService.resolveListForItem,
     addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
     isInLootSkipList = isInLootSkipList,
+    addToLootAlwaysList = addToLootAlwaysList, isInLootAlwaysList = isInLootAlwaysList,
     -- Sort/columns (Phase 3: shared sort+cache helper)
     sortColumns = sortColumnsAPI,
     getSortedList = function(cache, filtered, sortKey, sortDir, validity, viewName, sortCols)
@@ -1140,7 +1157,11 @@ commands.init({
 })
 local handleCommand = commands.handleCommand
 
-local function buildMainLoopDeps()
+-- Split in two halves: LuaJIT (MQ2Lua) caps a FUNCTION at 60 upvalues, and a single
+-- builder referencing every dep exceeds it (each distinct outer local = 1 upvalue).
+-- Keep the halves balanced when adding deps — new entries go in whichever half
+-- references fewer locals.
+local function buildMainLoopDepsState()
     return {
         uiState = uiState,
         layoutConfig = layoutConfig,
@@ -1177,46 +1198,52 @@ local function buildMainLoopDeps()
         setStatsTabPrimeAt = function(v) statsTabPrimeAt = v end,
         getStatsTabPrimedThisSession = function() return statsTabPrimedThisSession end,
         setStatsTabPrimedThisSession = function(v) statsTabPrimedThisSession = v end,
-        clearLootItems = clearLootItems,
-        setStatusMessage = setStatusMessage,
-        storage = storage,
-        computeAndAttachSellStatus = computeAndAttachSellStatus,
-        isBankWindowOpen = isBankWindowOpen,
-        runSellMacro = runSellMacro,
-        getSellMode = getSellMode,
-        runSellMacroLegacy = runSellMacroLegacy,
-        sellBatch = sellBatch,
-        config = config,
-        loadLootHistoryFromFile = loadLootHistoryFromFile,
-        loadSkipHistoryFromFile = loadSkipHistoryFromFile,
-        getSellStatusForItem = getSellStatusForItem,
-        processSellQueue = processSellQueue,
-        itemOps = itemOps,
-        augmentOps = augmentOps,
-        hasItemOnCursor = hasItemOnCursor,
-        hasItemOnCursorWithTLOFallback = function() return itemOps.hasItemOnCursorWithTLOFallback() end,
-        maybeScanInventory = maybeScanInventory,
-        maybeScanBank = maybeScanBank,
-        maybeScanSellItems = maybeScanSellItems,
-        sellStatusService = sellStatusService,
-        flushLayoutSave = flushLayoutSave,
-        loadLayoutConfig = loadLayoutConfig,
-        recordCompanionWindowOpened = recordCompanionWindowOpened,
-        isMerchantWindowOpen = isMerchantWindowOpen,
-        isLootWindowOpen = isLootWindowOpen,
-        invalidateSortCache = invalidateSortCache,
-        scanInventory = scanInventory,
-        scanBank = scanBank,
-        scanSellItems = scanSellItems,
-        rescanInventoryBags = rescanInventoryBags,
-        refreshActiveItemDisplayTab = refreshActiveItemDisplayTab,
-        saveLayoutToFileImmediate = saveLayoutToFileImmediate,
-        removeItemFromCursor = removeItemFromCursor,
-        pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end,
-        invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end,
-        invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end,
-        rerollService = rerollService,
     }
+end
+
+local function buildMainLoopDeps()
+    local d = buildMainLoopDepsState()
+    d.clearLootItems = clearLootItems
+    d.setStatusMessage = setStatusMessage
+    d.storage = storage
+    d.computeAndAttachSellStatus = computeAndAttachSellStatus
+    d.isBankWindowOpen = isBankWindowOpen
+    d.runSellMacro = runSellMacro
+    d.getSellMode = getSellMode
+    d.runSellMacroLegacy = runSellMacroLegacy
+    d.sellBatch = sellBatch
+    d.config = config
+    d.loadLootHistoryFromFile = loadLootHistoryFromFile
+    d.loadSkipHistoryFromFile = loadSkipHistoryFromFile
+    d.getSellStatusForItem = getSellStatusForItem
+    d.processSellQueue = processSellQueue
+    d.itemOps = itemOps
+    d.augmentOps = augmentOps
+    d.hasItemOnCursor = hasItemOnCursor
+    d.hasItemOnCursorWithTLOFallback = function() return itemOps.hasItemOnCursorWithTLOFallback() end
+    d.maybeScanInventory = maybeScanInventory
+    d.maybeScanBank = maybeScanBank
+    d.maybeScanSellItems = maybeScanSellItems
+    d.sellStatusService = sellStatusService
+    d.flushLayoutSave = flushLayoutSave
+    d.loadLayoutConfig = loadLayoutConfig
+    d.recordCompanionWindowOpened = recordCompanionWindowOpened
+    d.isMerchantWindowOpen = isMerchantWindowOpen
+    d.isLootWindowOpen = isLootWindowOpen
+    d.invalidateSortCache = invalidateSortCache
+    d.scanInventory = scanInventory
+    d.scanBank = scanBank
+    d.scanSellItems = scanSellItems
+    d.rescanInventoryBags = rescanInventoryBags
+    d.refreshActiveItemDisplayTab = refreshActiveItemDisplayTab
+    d.refreshAA = function() return require('itemui.services.aa_data').refresh() end
+    d.saveLayoutToFileImmediate = saveLayoutToFileImmediate
+    d.removeItemFromCursor = removeItemFromCursor
+    d.pickupFromSlot = function(bag, slot, source) return itemOps.pickupFromSlot(bag, slot, source) end
+    d.invalidateSellConfigCache = function() sellStatusService.invalidateSellConfigCache() end
+    d.invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end
+    d.rerollService = rerollService
+    return d
 end
 
 -- Path written by patcher after successful update; used for display version so patcher users show same version.
@@ -1282,14 +1309,31 @@ local function main()
     end
     local charName = mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name() or ""
     if charName ~= "" then storage.ensureCharFolderExists() end
-    -- First-run per character: apply bundled default layout if no existing layout OR first ItemUI launch for this char.
-    -- Ensures correct default size and unpinned state on clean install (patcher creates minimal layout that appears small/pinned).
-    if charName ~= "" and (not defaultLayout.hasExistingLayout() or not defaultLayout.hasFirstLayoutAppliedForChar(charName)) then
+    -- First-run default layout. The marker is ACCOUNT-scoped (beside the shared layout INI):
+    -- the old per-character marker re-applied the bundled default on every new alt's first
+    -- launch, clobbering the account-shared customized layout. Legacy per-char markers
+    -- migrate to the account marker so existing installs don't re-trigger.
+    local firstLayoutMarkerPath = config.getConfigFile("coopui_first_layout.ini")
+    local function writeAccountLayoutMarker()
+        local mf = io.open(firstLayoutMarkerPath, "w")
+        if mf then mf:write("[FirstRun]\napplied=1\n"); mf:close() end
+    end
+    local firstLayoutDone = false
+    do
+        local mf = io.open(firstLayoutMarkerPath, "r")
+        if mf then mf:close(); firstLayoutDone = true end
+    end
+    if not firstLayoutDone and charName ~= "" and defaultLayout.hasFirstLayoutAppliedForChar(charName) then
+        writeAccountLayoutMarker()
+        firstLayoutDone = true
+    end
+    if charName ~= "" and (not defaultLayout.hasExistingLayout() or not firstLayoutDone) then
         local ok, err = defaultLayout.applyBundledDefaultLayout()
         if ok then
             defaultLayoutAppliedThisRun = true
             if perfCache then perfCache.layoutCached = nil; perfCache.layoutNeedsReload = true end
             uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
+            writeAccountLayoutMarker()
             defaultLayout.markFirstLayoutAppliedForChar(charName)
         elseif err and err ~= "" then
             if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
@@ -1321,18 +1365,26 @@ local function main()
     local invO = (invWnd and invWnd.Open and invWnd.Open()) or false
     local bankO, merchO = isBankWindowOpen(), isMerchantWindowOpen()
     maybeScanInventory(invO); maybeScanBank(bankO); maybeScanSellItems(merchO)
+    -- Session floor for the Inventory "NEW" badge: everything present after the initial scan is
+    -- pre-session; items stamped later (looted this session) badge as new. Stamp once — the
+    -- snapshot-restore path (scan.loadSnapshotsFromDisk) also stamps when it runs first.
+    if not scanState.sessionStartAcquiredSeq then
+        scanState.sessionStartAcquiredSeq = scanState.nextAcquiredSeq
+    end
     -- Initial persist save so data survives if game closes before first periodic save.
     -- Skip inventory save when scanInventory() already persisted (lastPersistSaveTime set) to avoid double save on startup.
     if charName ~= "" then
         storage.ensureCharFolderExists()
         if scanState.lastPersistSaveTime == 0 then
-            if #sellItems > 0 then
-                storage.saveInventory(sellItems)
-                storage.writeSellCache(sellItems)
-            elseif #inventoryItems > 0 then
+            -- Snapshot from inventoryItems when available: sellItems rows are flat pairs()
+            -- copies whose lazy stat fields serialize as defaults (zeroed snapshot).
+            if #inventoryItems > 0 then
                 computeAndAttachSellStatus(inventoryItems)
                 storage.saveInventory(inventoryItems)
                 storage.writeSellCache(inventoryItems)
+            elseif #sellItems > 0 then
+                storage.saveInventory(sellItems)
+                storage.writeSellCache(sellItems)
             end
         end
         local bankInit = (bankO and bankItems and #bankItems > 0) and bankItems or bankCache

@@ -169,13 +169,17 @@ function ItemTooltip.renderItemDisplayContent(item, ctx, opts)
 end
 
 --- Render full item tooltip matching in-game Item Display. Shows every property.
---- Runs content in pcall so binding/API errors do not leave tooltip stack inconsistent.
+--- Runs content in pcall; the pcall alone cannot rebalance the ImGui stack, so on failure
+--- any Columns/BeginChild the content left open are closed via tooltip_render's
+--- open-container tracking — otherwise the caller's EndTooltip mismatches and crashes.
 --- Caller must call BeginTooltip before and EndTooltip after.
 function ItemTooltip.renderStatsTooltip(item, ctx, opts)
     if not item then return end
     opts = opts or {}
+    local child0, cols0 = tooltip_render.getOpenCounts()
     local ok, err = pcall(function() ItemTooltip.renderItemDisplayContent(item, ctx, opts) end)
     if not ok then
+        tooltip_render.closeOpenContainers(child0, cols0)
         ImGui.Text("Item stats")
         local diagnostics = require('itemui.core.diagnostics')
         diagnostics.recordError("Item tooltip", "Tooltip render failed", err)

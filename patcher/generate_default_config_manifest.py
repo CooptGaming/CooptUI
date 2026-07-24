@@ -26,6 +26,9 @@ INSTALL_MAP = [
 DIRECT_CONFIG_FILES = [
     ("config/ingame.cfg", "config/ingame.cfg"),
     ("config/zoned.cfg", "config/zoned.cfg"),
+    # Users add their own keybinds to MQ2CustomBinds.txt, so it must never ship in the
+    # release manifest (which overwrites on hash mismatch) — defaults install once here.
+    ("config/MQ2CustomBinds.txt", "config/MQ2CustomBinds.txt"),
 ]
 
 

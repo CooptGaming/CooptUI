@@ -47,15 +47,35 @@ std::string RulesEngine::LootPath(const char* file) const {
 // INI helpers (Win32 — same as capabilities/ini.cpp pattern)
 // ---------------------------------------------------------------------------
 
+// Max INI value length — matches capabilities/ini.cpp kMaxProfileString.
+// The previous 4096-byte buffer truncated long hand-edited list values.
+static constexpr DWORD kMaxIniValueLen = 32767;
+
+// Guarded integer parse: returns defaultVal on empty or non-numeric input
+// (same pattern as core/Config.cpp getInt) so a hand-edited INI typo cannot
+// throw and abort config loading mid-way.
+static int ParseIntOr(const std::string& s, int defaultVal) {
+  if (s.empty()) return defaultVal;
+  try {
+    return std::stoi(s);
+  } catch (...) {
+    return defaultVal;
+  }
+}
+
 std::string RulesEngine::ReadIni(const std::string& path, const char* section,
                                   const char* key,
                                   const char* defaultVal) const {
   if (path.empty()) return defaultVal ? defaultVal : "";
-  char buf[4096] = {};
+  std::vector<char> buf(kMaxIniValueLen, '\0');
   DWORD len = GetPrivateProfileStringA(section, key, defaultVal ? defaultVal : "",
-                                       buf, static_cast<DWORD>(sizeof(buf)),
+                                       buf.data(), static_cast<DWORD>(buf.size()),
                                        path.c_str());
-  return std::string(buf, len);
+  std::string value(buf.data(), len);
+  // Present-but-empty keys (and the literal "NULL" the MQ Ini TLO produces)
+  // map to the default — matches the Lua reader (config.lua safeIniValueByPath).
+  if (value.empty() || value == "NULL") return defaultVal ? defaultVal : "";
+  return value;
 }
 
 // Read chunked list: key, key2, key3... up to 20 chunks, join with '/'.
@@ -64,7 +84,7 @@ std::string RulesEngine::ReadChunkedList(const std::string& path,
                                           const char* key) const {
   if (path.empty()) return "";
   std::string result;
-  char buf[4096] = {};
+  std::vector<char> buf(kMaxIniValueLen, '\0');
   char keyBuf[64] = {};
 
   for (int i = 1; i <= 20; ++i) {
@@ -74,11 +94,11 @@ std::string RulesEngine::ReadChunkedList(const std::string& path,
       snprintf(keyBuf, sizeof(keyBuf), "%s%d", key, i);
     }
     DWORD len = GetPrivateProfileStringA(section, keyBuf, "",
-                                         buf, static_cast<DWORD>(sizeof(buf)),
+                                         buf.data(), static_cast<DWORD>(buf.size()),
                                          path.c_str());
     if (len == 0) break;
     if (!result.empty()) result += '/';
-    result.append(buf, len);
+    result.append(buf.data(), len);
   }
   return result;
 }
@@ -215,10 +235,10 @@ void RulesEngine::LoadSellConfig() {
 
   // --- Values ---
   auto valIni = SellPath("sell_value.ini");
-  sell_.minSell  = std::stoi(ReadIni(valIni, "Settings", "minSellValue",          "50"));
-  sell_.minStack = std::stoi(ReadIni(valIni, "Settings", "minSellValueStack",     "10"));
-  sell_.maxKeep  = std::stoi(ReadIni(valIni, "Settings", "maxKeepValue",          "10000"));
-  sell_.tributeKeepOverride = std::stoi(ReadIni(valIni, "Settings", "tributeKeepOverride", "1000"));
+  sell_.minSell  = ParseIntOr(ReadIni(valIni, "Settings", "minSellValue",          "50"), 50);
+  sell_.minStack = ParseIntOr(ReadIni(valIni, "Settings", "minSellValueStack",     "10"), 10);
+  sell_.maxKeep  = ParseIntOr(ReadIni(valIni, "Settings", "maxKeepValue",          "10000"), 10000);
+  sell_.tributeKeepOverride = ParseIntOr(ReadIni(valIni, "Settings", "tributeKeepOverride", "1000"), 1000);
 
   // --- Keep sets ---
   ParseSlashList(ReadChunkedList(SharedPath("valuable_exact.ini"),    "Items", "exact"),   sell_.keepSet);
@@ -262,9 +282,9 @@ void RulesEngine::LoadLootConfig() {
 
   // --- Values ---
   auto valIni = LootPath("loot_value.ini");
-  loot_.minLootValue      = std::stoi(ReadIni(valIni, "Settings", "minLootValue",      "999"));
-  loot_.minLootValueStack = std::stoi(ReadIni(valIni, "Settings", "minLootValueStack", "200"));
-  loot_.tributeOverride   = std::stoi(ReadIni(valIni, "Settings", "tributeOverride",   "0"));
+  loot_.minLootValue      = ParseIntOr(ReadIni(valIni, "Settings", "minLootValue",      "999"), 999);
+  loot_.minLootValueStack = ParseIntOr(ReadIni(valIni, "Settings", "minLootValueStack", "200"), 200);
+  loot_.tributeOverride   = ParseIntOr(ReadIni(valIni, "Settings", "tributeOverride",   "0"), 0);
 
   // --- Flags ---
   auto flagIni = LootPath("loot_flags.ini");
@@ -318,7 +338,21 @@ void RulesEngine::Reload() {
                 sell_.epicItemSet.size());
     }
   } catch (const std::exception& ex) {
+    // A failed load must not masquerade as loaded: sets left half-populated
+    // here would otherwise be treated as authoritative by evaluation callers.
+    loaded_ = false;
     core::Log(0, "RulesEngine::Reload error: %s", ex.what());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reroll-list ids — fed from Lua at runtime (no file parsing here)
+// ---------------------------------------------------------------------------
+void RulesEngine::SetRerollIds(const std::vector<int32_t>& ids) {
+  rerollIdSet_.clear();
+  rerollIdSet_.reserve(ids.size());
+  for (int32_t id : ids) {
+    if (id > 0) rerollIdSet_.insert(id);
   }
 }
 
@@ -328,6 +362,10 @@ void RulesEngine::Reload() {
 std::pair<bool, std::string> RulesEngine::WillItemBeSold(
     const core::CoOptItemData& item) const {
   const auto& c = sell_;
+
+  // Reroll List protection layer: items on the aug/mythical reroll list must
+  // never be sold (by ID only) — mirrors Lua willItemBeSold (rules.lua:275).
+  if (item.id > 0 && rerollIdSet_.count(item.id))    return {false, "RerollList"};
 
   // Augment-only overrides (step 0a)
   std::string itemType = TrimStr(item.type);
@@ -393,6 +431,11 @@ std::pair<bool, std::string> RulesEngine::WillItemBeSold(
 std::pair<bool, std::string> RulesEngine::ShouldItemBeLooted(
     const core::CoOptItemData& item) const {
   if (!loaded_) return {false, "NoConfig"};
+
+  // Reroll List protection layer: items on the aug/mythical reroll list are
+  // never looted (by ID only) — mirrors Lua shouldItemBeLooted (rules.lua:424).
+  if (item.id > 0 && rerollIdSet_.count(item.id))    return {false, "RerollList"};
+
   const auto& c = loot_;
 
   std::string itemType = TrimStr(item.type);

@@ -4,6 +4,43 @@ All notable changes to CoOpt UI are documented here. The format is based on [Kee
 
 ## [Unreleased]
 
+### Added
+- **Unified "Add to Reroll"** — One action everywhere instead of separate aug-list / mythical-list buttons: the UI routes each item automatically (name starts with "Mythical" → mythical list, augments → aug list). Applies to the right-click item menu, the Augments Companion's per-row button, and the Reroll Companion's **Add to Reroll (from Cursor)** — which now adds to the correct list no matter which tab is active.
+- **"Recently looted" in the Inventory Companion** — New hidden-by-default **Acquired** column tracks when each item was first seen (stamps survive stack moves and reshuffles), a **Newest** button next to search sorts newest-first (click again to restore Name), and items looted since UI start show a green **NEW** badge by their name.
+- **Sell Preview (dry run)** — New **Preview** button next to Auto Sell opens a modal listing exactly what would be sold, with quantity, value, total, and the rule behind each decision — catch config mistakes before the macro runs.
+- **Quick loot rules** — Right-click any item name in the Loot window's looted list, Loot History, or Skip History → **Always loot this** / **Never loot this** (or undo a never-loot). Rules apply immediately to the real loot lists.
+
+### Fixed
+- **Sell rules: protections now always win.** Items on the never-loot list that were also NoDrop, epic, or on your Keep list could be sold ("sell to clear inventory" ran before protections). Protections (NoDrop → NoTrade → Epic → Keep) now run first, matching sell.mac's canonical order.
+- **Keep lists longer than ~2000 characters were silently truncated** for sell decisions (the UI showed items as Keep; the seller didn't). All keep/valuable/augment lists now read every chunk.
+- **Stale sell cache could sell newly-kept items** — when everything became protected, the old cache file survived and sell.mac's cache mode (which skips all rule checks) still sold from it. An empty computed list now writes an empty cache.
+- **Right-click item menu was dead with default columns** in Inventory and Bank (it only rendered when the hidden-by-default Icon column was enabled). The menu now works regardless of column setup.
+- **Settings changes now take effect immediately** — the deferred sell-status refresh after config changes was a no-op (Status column stayed stale until an unrelated rescan); loot flag/value changes never invalidated the loot rules cache; list adds via right-click could be erased by a later Filters-tab removal (stale cache write-back).
+- **Filter conflict dialog never opened** (ImGui popup ID scope) — adding a conflicting entry silently did nothing. The conflict-resolution dialog now appears.
+- **Macros: standalone `/else` lines never execute in MQ2** — epic protection loaded zero items in sell.mac's fallback mode, and single-entry always-loot lists never matched in loot.mac. All six sites converted to valid brace syntax.
+- **Loot receipts counted items that were never looted** (decisions were logged before the loot attempt; failed loots and lore-duplicate aborts inflated totals and history). Accounting now happens only after a verified pickup.
+- **Aborted loot runs no longer wedge the UI** — a bags-full abort (or crash) left `running=1` in the progress file forever, freezing the Loot window state and blocking inventory persistence. The macro now writes a heartbeat and finishes cleanly on inventory-full; the UI treats a 30s-stale heartbeat as not-running.
+- **UI can now be closed at the bank** — the X button and Escape were immediately overridden by the bank auto-show; also fixed the loot-window/bank flicker fight.
+- **AA window: training no longer fires from stray input** — pressing Enter (e.g. to chat) or double-clicking anywhere could spend AA points; both now require the window focused and the row actually hovered.
+- **Augment Utility "Fill with best" could stick at "Optimizing 0/0"** and re-run a stale plan against wrong slots after inventory changed; the plan is now copied, invalidated on completion, and the button disabled while running.
+- **Equip auto-confirm only answers the attunement dialog for attuneable items** (it previously clicked Yes on any confirmation dialog that appeared during the equip window).
+- **First launch on an alt no longer resets your customized layout** (the first-run marker is account-wide now, not per-character).
+- **Item tooltips can no longer crash the game on a mid-render error** (ImGui child/columns are rebalanced if a stat load fails while zoning); item-validity guards no longer fail open on nil IDs.
+- **Reroll list refresh no longer picks up stray guild chat** during the 6-second parse window ("meet at 5:30" could become a bogus list entry that then protected item ID 5).
+- **Roll after bank moves waits for the last move to finish** (stacked items could trigger the roll before the server saw all 10 items).
+- **Destroy now verifies the right item is on the cursor** before `/destroy` (a failed pickup could destroy whatever was actually held).
+- **Loot decisions on the no-plugin path**: clicky and NoDrop detection used checks that never fired (`lootClickies` was dead; NoDrop never flagged). Also fixed `lootClickies` treating every item as a clicky on the live-loot feed, and aligned loot defaults (tribute override 1000, clickies on) with loot.mac.
+- **Sound test button** reported valid sound files as missing when MQ's working directory wasn't the EQ root.
+- **ScriptTracker** now notices stack-size changes (looted scripts merging into stacks, partial consumes) instead of only slot-count changes.
+- **Layout round-trips**: Loot-view width survived cold starts, AA sort column persists, Settings remembers the Advanced tab, and layout files are written atomically (a crash mid-write can no longer blank your layout).
+- **Welcome wizard**: the environment checklist now expands when something failed (it collapsed exactly when you needed it), gained a Re-check button, and default sell protection actually seeds on first run.
+
+### Changed
+- **C++ plugin now enforces reroll-list protection natively** in both sell and loot rule ladders (ids pushed live from the UI). Previously the plugin's loot decisions could mark reroll-staged items as lootable.
+- **Bank view updates while the bank stays open** when the plugin is loaded (deposits/withdrawals by in-game drag were invisible until reopen).
+- **Performance** — major per-frame cost reductions across the UI: hover tooltips no longer rebuild full stat tables every frame (~85 TLO reads per hovered augment socket per frame eliminated), equipment refresh only rebuilds changed slots (~5,000 TLO evals/sec → ~60 while visible), the uiState proxy no longer allocates tables on every access, augment/candidate/filter/sort pipelines are cached instead of rebuilt per frame, history tables use clippers, sell progress polling is throttled, and idle-tick TLO window checks are skipped.
+- **Patcher hardening for public release** — removed a faulty auto-migration that corrupted the shared core on every install; network failures now show actionable errors instead of freezing; downloads write atomically; verification failures show as failures (with Retry) instead of green "complete"; user keybinds (`MQ2CustomBinds.txt`) and ScriptTracker settings are preserved; MacroQuest-running is detected before patching; full-install extraction shows progress and disk-space errors.
+
 ---
 
 ## [0.9.7] — 2026-06-16

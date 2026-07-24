@@ -74,7 +74,10 @@ local function buildSortKey(ctx, filtered)
     local dir = ctx.sortState.aaDirection or ImGuiSortDirection.Ascending
     local tab = ctx.sortState.aaTab or 1
     local cp = canPurchaseOnly and "1" or "0"
-    return string.format("%s|%d|%d|%s|%d|%s", col, dir, tab, searchTextApplied or "", #filtered, cp)
+    -- aaDataRefreshedAt: bumped by the main loop when a deferred AA rebuild completes,
+    -- so freshly rebuilt rows always miss the cache.
+    local rt = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
+    return string.format("%s|%d|%d|%s|%d|%s|%s", col, dir, tab, searchTextApplied or "", #filtered, cp, tostring(rt))
 end
 
 local function getSortedList(ctx, filtered)
@@ -290,15 +293,17 @@ function AAView.render(ctx)
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
 
-    -- Enter = Train selected (if trainable)
-    if ImGui.IsKeyPressed(ImGuiKey.Enter) and selectedAAName then
+    -- Enter = Train selected (if trainable). Gated to this window (incl. child regions) having
+    -- focus and no active widget, so Enter in another window or the search box can't train.
+    if ImGui.IsKeyPressed(ImGuiKey.Enter) and selectedAAName
+        and ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) and not ImGui.IsAnyItemActive() then
         local list = ctx.getAAList()
         local pointsSummary = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
         local aaPoints = pointsSummary.aaPoints or 0
         for _, aa in ipairs(list or {}) do
             if aa.name == selectedAAName and aa.canTrain and aaPoints >= (aa.cost or 0) and aa.nextIndex and aa.nextIndex > 0 then
                 mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                ctx.refreshAA()
+                ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
                 sortCache.key = ""
                 break
             end
@@ -329,9 +334,11 @@ function AAView.render(ctx)
         stepImport(ctx)
     end
 
-    -- Refresh on open if needed
+    -- Refresh on open if needed. Invalidate the sort cache: refresh rebuilds the AA row
+    -- objects but the cache key (col|dir|tab|search|count) may not change, serving stale rows.
     if ctx.shouldRefreshAA and ctx.shouldRefreshAA() then
-        ctx.refreshAA()
+        ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
+        sortCache.key = ""
     end
 
     -- Debounce search
@@ -422,7 +429,9 @@ function AAView.render(ctx)
                 if ImGui.Selectable((aa.name or ""), isSelected, ImGuiSelectableFlags.SpanAllColumns, ImVec2(0, 0)) then
                     selectedAAName = aa.name
                 end
-                if ImGui.IsItemHovered() then
+                -- Capture hover state of the row Selectable now: tooltip items below change "last item"
+                local rowHovered = ImGui.IsItemHovered()
+                if rowHovered then
                     ImGui.BeginTooltip()
                     ImGui.Text(aa.name or "")
                     if aa.description and aa.description ~= "" then ImGui.TextWrapped(aa.description) end
@@ -433,10 +442,10 @@ function AAView.render(ctx)
                     if ok and reqName and reqName ~= "" then ImGui.Text("Requires: " .. tostring(reqName)) end
                     ImGui.EndTooltip()
                 end
-                if ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) and isSelected and aa.canTrain and aaPoints >= (aa.cost or 0) then
+                if rowHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) and isSelected and aa.canTrain and aaPoints >= (aa.cost or 0) then
                     if aa.nextIndex and aa.nextIndex > 0 then
                         mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                        ctx.refreshAA()
+                        ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
                         sortCache.key = ""
                     end
                 end
@@ -491,7 +500,7 @@ function AAView.render(ctx)
         for _, aa in ipairs(ctx.getAAList()) do
             if aa.name == sel and aa.nextIndex and aa.nextIndex > 0 then
                 mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                ctx.refreshAA()
+                ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
                 sortCache.key = ""
 
                 break
