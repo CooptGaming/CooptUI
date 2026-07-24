@@ -44,14 +44,17 @@ local BTN_LOOT_ALL   = 'Coopt_LootAllBtn'
 local LOOT_STATUS    = 'Coopt_LootStatus'
 
 local ACTIONS_WND    = 'ActionsWindow'
--- launcher button -> action ("cmd:" issues a slash command, otherwise a registry id)
+-- launcher button -> action ("cmd:" issues a slash command, "lootui" toggles the
+-- Loot UI window flag, otherwise a registry module id)
 local ACTION_BUTTONS = {
-    { name = 'Coopt_ActUiBtn',     action = 'cmd:/itemui' },
-    { name = 'Coopt_ActBankBtn',   action = 'bank' },
-    { name = 'Coopt_ActAugBtn',    action = 'augments' },
-    { name = 'Coopt_ActUtilBtn',   action = 'augmentUtility' },
-    { name = 'Coopt_ActRerollBtn', action = 'reroll' },
-    { name = 'Coopt_ActAABtn',     action = 'aa' },
+    { name = 'Coopt_ActUiBtn',       action = 'cmd:/itemui' },
+    { name = 'Coopt_ActBankBtn',     action = 'bank' },
+    { name = 'Coopt_ActAugBtn',      action = 'augments' },
+    { name = 'Coopt_ActUtilBtn',     action = 'augmentUtility' },
+    { name = 'Coopt_ActRerollBtn',   action = 'reroll' },
+    { name = 'Coopt_ActAABtn',       action = 'aa' },
+    { name = 'Coopt_ActLootBtn',     action = 'lootui' },
+    { name = 'Coopt_ActSettingsBtn', action = 'config' },
 }
 
 local POLL_INTERVAL_MS   = 100
@@ -297,7 +300,7 @@ local function tickLoot(now)
 
     -- Optional: a corpse window opened by the USER starts a full rules-based
     -- loot run. The loot macro's own window churn is excluded by lootBusy().
-    if s.justOpened and d.uiState.nativeAutoLootOnCorpse and not lootBusy() and not sellBusy() then
+    if s.justOpened and d.uiState.nativeAutoLootOnCorpse == true and not lootBusy() and not sellBusy() then
         tryStartLoot(s, true, now, true)
     end
 
@@ -319,6 +322,12 @@ local function tickActions(now)
             local cmd = spec.action:match('^cmd:(.+)$')
             if cmd then
                 mq.cmd(cmd)
+            elseif spec.action == 'lootui' then
+                local uiState = d.uiState
+                uiState.lootUIOpen = not uiState.lootUIOpen
+                if uiState.lootUIOpen and d.recordCompanionWindowOpened then
+                    d.recordCompanionWindowOpened("loot")
+                end
             else
                 registry.toggleWindow(spec.action)
             end

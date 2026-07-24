@@ -46,6 +46,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
     layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
     layoutDefaults.AugmentsWindowY = layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY
+    layoutDefaults.WidthMythicalsPanel = layoutConfig.WidthMythicalsPanel or layoutDefaults.WidthMythicalsPanel
+    layoutDefaults.HeightMythicals = layoutConfig.HeightMythicals or layoutDefaults.HeightMythicals
+    layoutDefaults.MythicalsWindowX = layoutConfig.MythicalsWindowX or layoutDefaults.MythicalsWindowX
+    layoutDefaults.MythicalsWindowY = layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY
     layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
@@ -133,6 +137,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightAugments=" .. layoutDefaults.HeightAugments .. "\n")
             f:write("AugmentsWindowX=" .. layoutDefaults.AugmentsWindowX .. "\n")
             f:write("AugmentsWindowY=" .. layoutDefaults.AugmentsWindowY .. "\n")
+            f:write("WidthMythicalsPanel=" .. layoutDefaults.WidthMythicalsPanel .. "\n")
+            f:write("HeightMythicals=" .. layoutDefaults.HeightMythicals .. "\n")
+            f:write("MythicalsWindowX=" .. layoutDefaults.MythicalsWindowX .. "\n")
+            f:write("MythicalsWindowY=" .. layoutDefaults.MythicalsWindowY .. "\n")
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
@@ -221,6 +229,10 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightAugments = layoutDefaults.HeightAugments
     layoutConfig.AugmentsWindowX = layoutDefaults.AugmentsWindowX
     layoutConfig.AugmentsWindowY = layoutDefaults.AugmentsWindowY
+    layoutConfig.WidthMythicalsPanel = layoutDefaults.WidthMythicalsPanel
+    layoutConfig.HeightMythicals = layoutDefaults.HeightMythicals
+    layoutConfig.MythicalsWindowX = layoutDefaults.MythicalsWindowX
+    layoutConfig.MythicalsWindowY = layoutDefaults.MythicalsWindowY
     layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
     layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel

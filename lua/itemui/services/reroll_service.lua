@@ -272,6 +272,24 @@ local function onRerollAddConfirmation(line)
         pendingAddAckCallback()
         pendingAddAckId = nil
         pendingAddAckCallback = nil
+        return
+    end
+    -- Late/unmatched confirmation: the line itself proves the server added this id
+    -- (e.g. the ack slot already timed out or was re-armed for the next item). If the
+    -- id is still on a pending list, finish the bookkeeping here so the item cannot
+    -- stay stuck "pending" while actually being on the server list.
+    local listKind = (line:find("Mythical list added", 1, true) and "mythical")
+        or (line:find("Aug list added", 1, true) and "aug") or nil
+    if not listKind then return end
+    local plist = (listKind == "mythical") and pendingMythicalList or pendingAugList
+    local onPending = false
+    for _, e in ipairs(plist or {}) do
+        if e.id == id then onPending = true break end
+    end
+    if onPending then
+        local name = line:match("list added:%s*(.-)%s*%(id") or ""
+        M.removeFromPending(listKind, id)
+        M.addEntryToList(listKind, id, name)
     end
 end
 
@@ -717,6 +735,9 @@ end
 --- Start syncing pending list to server (one item per cycle). Call when in guild hall and pending non-empty.
 function M.startPendingSync(listKind)
     if listKind ~= "aug" and listKind ~= "mythical" then return end
+    -- One sync at a time: the add-ack is a single slot, and a second track's sync
+    -- would silently clobber the first (abandoning its remaining items as pending).
+    if state.pendingRerollSync then return end
     local entries = (listKind == "aug") and pendingAugList or pendingMythicalList
     if #entries == 0 then return end
     local copy = {}

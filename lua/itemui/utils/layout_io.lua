@@ -72,7 +72,8 @@ function M.loadLayoutValue(layout, key, default)
     local val = layout[key]
     if not val or val == "" then return default end
     if key == "AlignToContext" or key == "UILocked" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "ActivationGuardEnabled"
-        or key == "EnableRealTimeLoot" or key == "EnableLootHistory" or key == "EnableSkipHistory" then
+        or key == "EnableRealTimeLoot" or key == "EnableLootHistory" or key == "EnableSkipHistory"
+        or key == "NativeMerchantStrip" or key == "NativeAutoLootOnCorpse" then
         return (val == "1" or val == "true")
     end
     if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" or key == "AASortColumn" then return val end  -- string (column key)

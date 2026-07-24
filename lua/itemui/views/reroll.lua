@@ -504,6 +504,33 @@ local function renderTabContent(ctx, track, rerollService)
     if pendingCount and pendingCount > 0 then
         theme.TextHeader("Pending (sync in guild hall)")
         ImGui.Text(string.format("%d item(s) will be added to server list when you sync in guild hall.", pendingCount))
+        local plist = isAug and rerollService.getPendingAugList() or rerollService.getPendingMythicalList()
+        if plist and #plist > 0 and ImGui.BeginTable("RerollPending_" .. track, 3, ctx.uiState.tableFlags or 0) then
+            ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch, 0, 0)
+            ImGui.TableSetupColumn("Item ID", ImGuiTableColumnFlags.WidthFixed, 60, 1)
+            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70, 2)
+            ImGui.TableHeadersRow()
+            for pidx, pe in ipairs(plist) do
+                ImGui.PushID("RerollPending_" .. track .. "_" .. tostring(pidx))
+                ImGui.TableNextRow()
+                ImGui.TableNextColumn()
+                theme.TextWarning(pe.name or ("ID " .. tostring(pe.id)))
+                ImGui.TableNextColumn()
+                ImGui.Text(tostring(pe.id or "-"))
+                ImGui.TableNextColumn()
+                if ImGui.Button("Remove##RerollPending" .. tostring(pe.id), ImVec2(64, 0)) then
+                    rerollService.removeFromPending(track, pe.id)
+                end
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text("Remove from the pending list WITHOUT adding to the server list.")
+                    ImGui.Text("Use this to clear stuck items (already added, sold, in the bank, etc.).")
+                    ImGui.EndTooltip()
+                end
+                ImGui.PopID()
+            end
+            ImGui.EndTable()
+        end
         ImGui.Spacing()
     end
     theme.TextHeader(isAug and "In your inventory (augmentations)" or "In your inventory (mythicals)")

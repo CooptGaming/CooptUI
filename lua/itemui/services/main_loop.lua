@@ -1267,8 +1267,8 @@ end
 -- Hybrid fire-and-forget: optimistically add to cache, send command, put item back and free
 -- cursor immediately. Background ack listener rolls back on timeout (REROLL_BG_ACK_TIMEOUT_MS).
 -- Queue management is handled by phase0_cursorActionQueue — phase8b only drives the current action.
-local REROLL_ADD_PICKUP_TIMEOUT_MS = 800
-local REROLL_BG_ACK_TIMEOUT_MS = 5000  -- background ack timeout; longer is fine since it doesn't block UI
+local REROLL_ADD_PICKUP_TIMEOUT_MS = 1500
+local REROLL_BG_ACK_TIMEOUT_MS = 10000  -- background ack timeout; longer is fine since it doesn't block UI
 local _bgAckPending = {}  -- { { itemId, list, sentAt, syncState, itemName }, ... }
 
 local function phase8b_pendingRerollAdd(now)
@@ -1303,6 +1303,13 @@ local function phase8b_pendingRerollAdd(now)
     -- Skip items not in inventory (record as failed) and continue to next.
     if not uiState.pendingRerollAdd and rerollState.pendingRerollSync and hasItemOnCursor and not hasItemOnCursor() then
         local sync = rerollState.pendingRerollSync
+        -- Abort cleanly if we left the guild hall mid-sync: the server ignores the
+        -- commands elsewhere, so every remaining item would just time out.
+        if sync and rerollService.isInGuildHall and not rerollService.isInGuildHall() then
+            rerollState.pendingRerollSync = nil
+            sync = nil
+            if setStatusMessage then setStatusMessage("Sync stopped: left the guild hall. Remaining items stay pending.") end
+        end
         -- Advance past any items not found in inventory
         while sync and sync.nextIndex <= #(sync.entries or {}) do
             local idx = sync.nextIndex
@@ -1312,6 +1319,21 @@ local function phase8b_pendingRerollAdd(now)
             elseif not inventoryItems then
                 rerollState.pendingRerollSync = nil
                 break
+            elseif (function()
+                -- Already on the server list (e.g. a confirmation that arrived after a
+                -- previous run's timeout): clear it from pending instead of re-sending
+                -- an add the server would reject — the top stuck-pending cause.
+                local slist = (sync.list == "mythical") and (rerollService.getMythicalList and rerollService.getMythicalList())
+                    or (rerollService.getAugList and rerollService.getAugList())
+                for _, e in ipairs(slist or {}) do
+                    if e.id == entry.id then return true end
+                end
+                return false
+            end)() then
+                rerollService.removeFromPending(sync.list, entry.id)
+                sync.syncedCount = (sync.syncedCount or 0) + 1
+                sync.nextIndex = idx + 1
+                if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s already on list)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
             else
                 local bag, slot, src = nil, nil, "inv"
                 for _, inv in ipairs(inventoryItems) do
@@ -1358,6 +1380,22 @@ local function phase8b_pendingRerollAdd(now)
         local lb, ls = tonumber(lp and lp.bag) or (lp and lp.bag), tonumber(lp and lp.slot) or (lp and lp.slot)
         local pb, ps = tonumber(pending.bag) or pending.bag, tonumber(pending.slot) or pending.slot
         if hasCursor and lp and lb == pb and ls == ps and (lp.source or "") == (pending.source or "") then
+            -- Verify the RIGHT item is on the cursor before telling the server to add it:
+            -- a stale bag/slot (inventory shifted mid-sync) would otherwise add whatever
+            -- got picked up, and the id-matched confirmation would never arrive.
+            local cursorId = (mq.TLO and mq.TLO.Cursor and mq.TLO.Cursor.ID and tonumber(mq.TLO.Cursor.ID())) or nil
+            if pending.syncState and cursorId and pending.itemId and cursorId ~= pending.itemId then
+                if removeItemFromCursor then removeItemFromCursor() end
+                local sync = pending.syncState
+                sync.failedCount = (sync.failedCount or 0) + 1
+                local fi = sync.failedItems or {}
+                fi[#fi + 1] = { id = pending.itemId, name = pending.itemName or "", reason = "Wrong item on cursor" }
+                sync.failedItems = fi
+                sync.nextIndex = (sync.nextIndex or 0) + 1
+                uiState.pendingRerollAdd = nil
+                if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (wrong item on cursor, skipped)...", sync.nextIndex, sync.totalCount or 0)) end
+                return
+            end
             -- Send the add command (item is on the cursor).
             local cmd = (pending.list == "aug") and (constants.REROLL and constants.REROLL.COMMAND_AUG_ADD or "!augadd") or (constants.REROLL and constants.REROLL.COMMAND_MYTHICAL_ADD or "!mythicaladd")
             mq.cmd("/say " .. cmd)

@@ -923,11 +923,11 @@
 		<ScreenID>Coopt_ActUiBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
+			<X>6</X>
 			<Y>6</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -946,11 +946,11 @@
 		<ScreenID>Coopt_ActBankBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
-			<Y>28</Y>
+			<X>76</X>
+			<Y>6</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -969,11 +969,11 @@
 		<ScreenID>Coopt_ActAugBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
-			<Y>50</Y>
+			<X>6</X>
+			<Y>28</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -992,17 +992,17 @@
 		<ScreenID>Coopt_ActUtilBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
-			<Y>72</Y>
+			<X>76</X>
+			<Y>28</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
 		<TooltipReference>Open/close the CoOpt Augment Utility</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
-		<Text>Aug Utility</Text>
+		<Text>Aug Util</Text>
 		<TextColor>
 			<R>255</R>
 			<G>255</G>
@@ -1015,11 +1015,11 @@
 		<ScreenID>Coopt_ActRerollBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
-			<Y>94</Y>
+			<X>6</X>
+			<Y>50</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -1038,17 +1038,63 @@
 		<ScreenID>Coopt_ActAABtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>8</X>
-			<Y>116</Y>
+			<X>76</X>
+			<Y>50</Y>
 		</Location>
 		<Size>
-			<CX>102</CX>
+			<CX>66</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
 		<TooltipReference>Open/close the CoOpt AA Browser</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
 		<Text>AA</Text>
+		<TextColor>
+			<R>255</R>
+			<G>255</G>
+			<B>255</B>
+		</TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_ActLootBtn">
+		<ScreenID>Coopt_ActLootBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location>
+			<X>6</X>
+			<Y>72</Y>
+		</Location>
+		<Size>
+			<CX>66</CX>
+			<CY>20</CY>
+		</Size>
+		<Style_Transparent>false</Style_Transparent>
+		<TooltipReference>Open/close the CoOpt Loot UI (progress, history, mythical alerts)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Loot UI</Text>
+		<TextColor>
+			<R>255</R>
+			<G>255</G>
+			<B>255</B>
+		</TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_ActSettingsBtn">
+		<ScreenID>Coopt_ActSettingsBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location>
+			<X>76</X>
+			<Y>72</Y>
+		</Location>
+		<Size>
+			<CX>66</CX>
+			<CY>20</CY>
+		</Size>
+		<Style_Transparent>false</Style_Transparent>
+		<TooltipReference>Open/close CoOpt Settings</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Settings</Text>
 		<TextColor>
 			<R>255</R>
 			<G>255</G>
@@ -1082,6 +1128,8 @@
 			<Pieces>Coopt_ActUtilBtn</Pieces>
 			<Pieces>Coopt_ActRerollBtn</Pieces>
 			<Pieces>Coopt_ActAABtn</Pieces>
+			<Pieces>Coopt_ActLootBtn</Pieces>
+			<Pieces>Coopt_ActSettingsBtn</Pieces>
 	</Page>
 
 <!-- TabBox Brings all the Actions Pages Together -->
@@ -1114,7 +1162,8 @@
 			<Y>292</Y>
 		</Location>
 		<Size>
-			<CX>124</CX>
+			<!-- CoOpt: widened from 124 so the CoOpt tab and 2-column launchers fit -->
+			<CX>150</CX>
 			<CY>187</CY>
 		</Size>
 		<Text>Actions</Text>

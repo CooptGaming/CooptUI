@@ -41,6 +41,7 @@ function ItemTooltip.getCanUseInfo(item, source)
     local result = { canUse = true, reason = nil }
     if not item then return result end
     source = source or (item.source) or "inv"
+    local gameSaysUsable = false
 
     -- Primary: use game's built-in CanUse TLO property (catches all restrictions)
     if item.bag and item.slot and itemHelpers.getItemTLO then
@@ -64,7 +65,10 @@ function ItemTooltip.getCanUseInfo(item, source)
                     return result
                 end
                 if ok and canUse == true then
-                    return result  -- game says usable, trust it
+                    -- Game says usable for class/race/level — but the emu's DEITY
+                    -- restriction is not reflected in CanUse, so fall through and
+                    -- run only the deity check below (skip level/class/race).
+                    gameSaysUsable = true
                 end
             end
         end
@@ -95,7 +99,7 @@ function ItemTooltip.getCanUseInfo(item, source)
             end
         end
     end
-    if reqLevel and myLevel < reqLevel then
+    if not gameSaysUsable and reqLevel and myLevel < reqLevel then
         result.canUse = false
         result.reason = "Requires level " .. tostring(reqLevel)
         return result
@@ -124,6 +128,7 @@ function ItemTooltip.getCanUseInfo(item, source)
     end
     local myClass = Me.Class and tostring(Me.Class() or "") or ""
     local myRace = Me.Race and tostring(Me.Race() or "") or ""
+    if gameSaysUsable then return result end
     if clsStr and clsStr ~= "" and clsStr:lower() ~= "all" then
         if not listContains(clsStr, myClass) then
             result.canUse = false
@@ -139,6 +144,32 @@ function ItemTooltip.getCanUseInfo(item, source)
         end
     end
     return result
+end
+
+-- Cached wrapper for per-row rendering: results keyed by item id, invalidated when
+-- the character fingerprint (level/class/deity) changes. The fingerprint itself is
+-- re-read at most once per second so hot render paths cost one table lookup per row.
+local canUseCache = { fp = nil, fpAt = 0, byId = {} }
+function ItemTooltip.getCanUseInfoCached(item, source)
+    local id = item and (item.id or item.ID)
+    if not id then return ItemTooltip.getCanUseInfo(item, source) end
+    local now = mq.gettime and mq.gettime() or 0
+    if (now - (canUseCache.fpAt or 0)) > 1000 or canUseCache.fp == nil then
+        canUseCache.fpAt = now
+        local Me = mq.TLO and mq.TLO.Me
+        local fp = tostring(Me and Me.Level and Me.Level() or 0) .. "|"
+            .. tostring(Me and Me.Class and Me.Class() or "") .. "|"
+            .. tostring(Me and Me.Deity and Me.Deity() or "")
+        if fp ~= canUseCache.fp then
+            canUseCache.fp = fp
+            canUseCache.byId = {}
+        end
+    end
+    local hit = canUseCache.byId[id]
+    if hit ~= nil then return hit end
+    local info = ItemTooltip.getCanUseInfo(item, source)
+    canUseCache.byId[id] = info
+    return info
 end
 
 --- Render item display content (two-column layout: header/stats/augs in col1, effects/info/spell/value in col2).

@@ -247,11 +247,52 @@ end
 
 local M = {}
 
+-- Companion windows (bank, augments, reroll, AA, settings, ...) render from the
+-- registry regardless of whether the hub window is drawn, so native-UI launchers
+-- and keybinds can open them while the hub is hidden or collapsed.
+local function renderCompanions(refs, uiState)
+    if registry.shouldDraw("equipment") then
+        local now = mq.gettime()
+        local shouldRefresh = false
+        if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
+            uiState.equipmentDeferredRefreshAt = nil
+            shouldRefresh = true
+        elseif not uiState.equipmentLastRefreshAt or (now - uiState.equipmentLastRefreshAt) > constants.TIMING.EQUIPMENT_REFRESH_THROTTLE_MS then
+            shouldRefresh = true
+        end
+        if shouldRefresh and refs.refreshEquipmentCache then
+            refs.refreshEquipmentCache()
+            uiState.equipmentLastRefreshAt = now
+        end
+    else
+        uiState.equipmentLastRefreshAt = nil
+    end
+    local itemDisplayState = ItemDisplayView.getState()
+    if itemDisplayState.itemDisplayLocateRequest and itemDisplayState.itemDisplayLocateRequestAt then
+        local now = mq.gettime()
+        local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
+        if now - itemDisplayState.itemDisplayLocateRequestAt > clearMs then
+            itemDisplayState.itemDisplayLocateRequest = nil
+            itemDisplayState.itemDisplayLocateRequestAt = nil
+        end
+    end
+    for _, mod in ipairs(registry.getDrawableModules()) do
+        -- Isolate each companion window: a render error in one (e.g. reroll, bank,
+        -- augments) must not abort the loop and take down the rest of the ItemUI
+        -- render. Mirrors the pcall guard LootUIView.render already uses.
+        local ok, err = pcall(mod.render, refs)
+        if not ok then
+            if mq and mq.log then mq.log("ItemUI window '%s' render error: %s", tostring(mod.id), tostring(err)) end
+            diagnostics.recordError("Window:" .. tostring(mod.id), "render failed", err)
+        end
+    end
+end
+
 function M.render(refs)
     local shouldDraw = refs.getShouldDraw and refs.getShouldDraw()
     local isOpen = refs.getOpen and refs.getOpen()
     local uiState = refs.uiState
-    if not shouldDraw and not uiState.lootUIOpen then return end
+    if not shouldDraw and not uiState.lootUIOpen and #registry.getDrawableModules() == 0 then return end
     uiState.lastPickupSetThisFrame = false
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
     local layoutConfig = refs.layoutConfig or {}
@@ -324,6 +365,7 @@ function M.render(refs)
             refs.closeGameBankIfOpen()
             refs.closeGameMerchantIfOpen()
             ImGui.End()
+            renderCompanions(refs, uiState)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
@@ -360,6 +402,7 @@ function M.render(refs)
                     refs.closeGameBankIfOpen()
                     refs.closeGameMerchantIfOpen()
                     ImGui.End()
+                    renderCompanions(refs, uiState)
                     if uiState.lootUIOpen then renderLootWindow(refs) end
                     return
                 end
@@ -367,6 +410,7 @@ function M.render(refs)
         end
         if not winVis then
             ImGui.End()
+            renderCompanions(refs, uiState)
             if uiState.lootUIOpen then renderLootWindow(refs) end
             return
         end
@@ -881,50 +925,13 @@ function M.render(refs)
         end
         ImGui.End()
 
-        -- Config rendered via registry.getDrawableModules()
-
-        if registry.shouldDraw("equipment") then
-            local now = mq.gettime()
-            local shouldRefresh = false
-            if uiState.equipmentDeferredRefreshAt and now >= uiState.equipmentDeferredRefreshAt then
-                uiState.equipmentDeferredRefreshAt = nil
-                shouldRefresh = true
-            elseif not uiState.equipmentLastRefreshAt or (now - uiState.equipmentLastRefreshAt) > constants.TIMING.EQUIPMENT_REFRESH_THROTTLE_MS then
-                shouldRefresh = true
-            end
-            if shouldRefresh and refs.refreshEquipmentCache then
-                refs.refreshEquipmentCache()
-                uiState.equipmentLastRefreshAt = now
-            end
-        else
-            uiState.equipmentLastRefreshAt = nil
-        end
         -- uiState.deferredInventoryScanAt is consumed by the main loop (runDeferredScans),
         -- not here: scans must not run inside the ImGui callback.
-        -- Equipment rendered via registry.getDrawableModules()
-        -- Bank rendered via registry.getDrawableModules()
-        -- Augments rendered via registry.getDrawableModules()
-        -- Augment Utility rendered via registry.getDrawableModules()
-        -- Item Display rendered via registry.getDrawableModules()
-        local itemDisplayState = ItemDisplayView.getState()
-        if itemDisplayState.itemDisplayLocateRequest and itemDisplayState.itemDisplayLocateRequestAt then
-            local now = mq.gettime()
-            local clearMs = (constants.TIMING.ITEM_DISPLAY_LOCATE_CLEAR_SEC or 3) * 1000
-            if now - itemDisplayState.itemDisplayLocateRequestAt > clearMs then
-                itemDisplayState.itemDisplayLocateRequest = nil
-                itemDisplayState.itemDisplayLocateRequestAt = nil
-            end
-        end
-        for _, mod in ipairs(registry.getDrawableModules()) do
-            -- Isolate each companion window: a render error in one (e.g. reroll, bank,
-            -- augments) must not abort the loop and take down the rest of the ItemUI
-            -- render. Mirrors the pcall guard LootUIView.render already uses.
-            local ok, err = pcall(mod.render, refs)
-            if not ok then
-                if mq and mq.log then mq.log("ItemUI window '%s' render error: %s", tostring(mod.id), tostring(err)) end
-                diagnostics.recordError("Window:" .. tostring(mod.id), "render failed", err)
-            end
-        end
+        renderCompanions(refs, uiState)
+    end
+
+    if not shouldDraw then
+        renderCompanions(refs, uiState)
     end
 
     if uiState.lootUIOpen then

@@ -40,6 +40,7 @@ local LootView = require('itemui.views.loot')
 local ConfigView = require('itemui.views.settings')
 local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
+require('itemui.views.mythicals')  -- registers the Mythicals companion
 local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')

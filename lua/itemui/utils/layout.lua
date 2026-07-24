@@ -86,6 +86,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightAugments then layoutDefaults.HeightAugments = tonumber(d.HeightAugments) or layoutDefaults.HeightAugments end
     if d.AugmentsWindowX then layoutDefaults.AugmentsWindowX = tonumber(d.AugmentsWindowX) or layoutDefaults.AugmentsWindowX end
     if d.AugmentsWindowY then layoutDefaults.AugmentsWindowY = tonumber(d.AugmentsWindowY) or layoutDefaults.AugmentsWindowY end
+    if d.WidthMythicalsPanel then layoutDefaults.WidthMythicalsPanel = tonumber(d.WidthMythicalsPanel) or layoutDefaults.WidthMythicalsPanel end
+    if d.HeightMythicals then layoutDefaults.HeightMythicals = tonumber(d.HeightMythicals) or layoutDefaults.HeightMythicals end
+    if d.MythicalsWindowX then layoutDefaults.MythicalsWindowX = tonumber(d.MythicalsWindowX) or layoutDefaults.MythicalsWindowX end
+    if d.MythicalsWindowY then layoutDefaults.MythicalsWindowY = tonumber(d.MythicalsWindowY) or layoutDefaults.MythicalsWindowY end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -228,6 +232,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightAugments=" .. tostring(layoutConfig.HeightAugments or layoutDefaults.HeightAugments) .. "\n")
         f:write("AugmentsWindowX=" .. tostring(layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX) .. "\n")
         f:write("AugmentsWindowY=" .. tostring(layoutConfig.AugmentsWindowY or layoutDefaults.AugmentsWindowY) .. "\n")
+        f:write("WidthMythicalsPanel=" .. tostring(layoutConfig.WidthMythicalsPanel or layoutDefaults.WidthMythicalsPanel) .. "\n")
+        f:write("HeightMythicals=" .. tostring(layoutConfig.HeightMythicals or layoutDefaults.HeightMythicals) .. "\n")
+        f:write("MythicalsWindowX=" .. tostring(layoutConfig.MythicalsWindowX or layoutDefaults.MythicalsWindowX) .. "\n")
+        f:write("MythicalsWindowY=" .. tostring(layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY) .. "\n")
         f:write("ItemDisplayWindowX=" .. tostring(layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX) .. "\n")
         f:write("ItemDisplayWindowY=" .. tostring(layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY) .. "\n")
         f:write("WidthItemDisplayPanel=" .. tostring(layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel) .. "\n")
@@ -396,6 +404,10 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
         layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
         layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+        layoutConfig.WidthMythicalsPanel = LayoutUtils.loadLayoutValue(layout, "WidthMythicalsPanel", layoutDefaults.WidthMythicalsPanel)
+        layoutConfig.HeightMythicals = LayoutUtils.loadLayoutValue(layout, "HeightMythicals", layoutDefaults.HeightMythicals)
+        layoutConfig.MythicalsWindowX = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowX", layoutDefaults.MythicalsWindowX)
+        layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
         layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
         layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
         layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)
@@ -514,6 +526,10 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
     layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
     layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
+    layoutConfig.WidthMythicalsPanel = LayoutUtils.loadLayoutValue(layout, "WidthMythicalsPanel", layoutDefaults.WidthMythicalsPanel)
+    layoutConfig.HeightMythicals = LayoutUtils.loadLayoutValue(layout, "HeightMythicals", layoutDefaults.HeightMythicals)
+    layoutConfig.MythicalsWindowX = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowX", layoutDefaults.MythicalsWindowX)
+    layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
     layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
     layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
     layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)

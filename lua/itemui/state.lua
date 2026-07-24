@@ -76,6 +76,8 @@ do
     layoutDefaults.BankWindowY = 0
     layoutDefaults.AugmentsWindowX = 0
     layoutDefaults.AugmentsWindowY = 0
+    layoutDefaults.MythicalsWindowX = 0
+    layoutDefaults.MythicalsWindowY = 0
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0
