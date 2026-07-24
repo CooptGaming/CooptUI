@@ -805,6 +805,43 @@ end
 
 local defaultLayoutAppliedThisRun = false
 
+-- Companion window close helpers (shared by the context refs, the /itemui
+-- hide/toggle paths, and the hub X-close): LIFO-close every open companion
+-- window, including the Loot UI (registry id "loot" + uiState cleanup).
+local function lootCompanionCleanup(closedId)
+    if closedId ~= "loot" then return end
+    uiState.lootUIOpen = false
+    uiState.lootRunLootedList = {}
+    uiState.lootRunLootedItems = {}
+    uiState.lootRunCorpsesLooted = 0
+    uiState.lootRunTotalCorpses = 0
+    uiState.lootRunCurrentCorpse = ""
+    uiState.lootRunFinished = false
+    uiState.lootMythicalAlert = nil
+    uiState.lootMythicalDecisionStartAt = nil
+    uiState.lootMythicalFeedback = nil
+    uiState.lootRunTotalValue = 0
+    uiState.lootRunTributeValue = 0
+    uiState.lootRunBestItemName = ""
+    uiState.lootRunBestItemValue = 0
+end
+
+local function getMostRecentlyOpenedCompanionFn()
+    return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
+end
+
+local function closeCompanionWindowFn(name)
+    return registry.closeWindow(name, lootCompanionCleanup)
+end
+
+local function closeAllCompanionWindows()
+    for _ = 1, 32 do
+        local id = getMostRecentlyOpenedCompanionFn()
+        if not id then break end
+        closeCompanionWindowFn(id)
+    end
+end
+
 context.init({
     -- Main window state access (unifies former mainWindowRefs + context wiring)
     getShouldDraw = function() return shouldDraw end,
@@ -965,28 +1002,9 @@ context.init({
     getItemStatsForTooltip = getItemStatsForTooltipRef,
     addItemDisplayTab = addItemDisplayTab,
     recordCompanionWindowOpened = recordCompanionWindowOpened,
-    getMostRecentlyOpenedCompanion = function()
-        return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
-    end,
-    closeCompanionWindow = function(name)
-        return registry.closeWindow(name, function(closedId)
-            if closedId ~= "loot" then return end
-            uiState.lootUIOpen = false
-            uiState.lootRunLootedList = {}
-            uiState.lootRunLootedItems = {}
-            uiState.lootRunCorpsesLooted = 0
-            uiState.lootRunTotalCorpses = 0
-            uiState.lootRunCurrentCorpse = ""
-            uiState.lootRunFinished = false
-            uiState.lootMythicalAlert = nil
-            uiState.lootMythicalDecisionStartAt = nil
-            uiState.lootMythicalFeedback = nil
-            uiState.lootRunTotalValue = 0
-            uiState.lootRunTributeValue = 0
-            uiState.lootRunBestItemName = ""
-            uiState.lootRunBestItemValue = 0
-        end)
-    end,
+    getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanionFn,
+    closeCompanionWindow = closeCompanionWindowFn,
+    closeAllCompanionWindows = closeAllCompanionWindows,
     CharacterStats = CharacterStats,
     itemOps = itemOps,
     saveLayoutToFile = saveLayoutToFile,
@@ -1129,6 +1147,7 @@ commands.init({
         set = function(v) terminate = v end,
     },
     loadLayoutConfig = loadLayoutConfig,
+    closeAllCompanionWindows = closeAllCompanionWindows,
     scanInventory = scanInventory,
     isBankWindowOpen = isBankWindowOpen,
     isMerchantWindowOpen = isMerchantWindowOpen,

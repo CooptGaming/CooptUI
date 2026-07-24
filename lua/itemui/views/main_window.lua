@@ -374,6 +374,7 @@ function M.render(refs)
             refs.closeGameInventoryIfOpen()
             refs.closeGameBankIfOpen()
             refs.closeGameMerchantIfOpen()
+            if refs.closeAllCompanionWindows then refs.closeAllCompanionWindows() end
             ImGui.End()
             renderCompanions(refs, uiState)
             if uiState.lootUIOpen then renderLootWindow(refs) end

@@ -54,6 +54,7 @@ function M.handleCommand(...)
             if deps.recordCompanionWindowOpened then deps.recordCompanionWindowOpened("equipment") end
         else
             deps.uiState.userClosedViaKeybind = true
+            if deps.closeAllCompanionWindows then deps.closeAllCompanionWindows() end
             if deps.closeGameInventoryIfOpen then deps.closeGameInventoryIfOpen() end
             if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
             if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
@@ -77,6 +78,7 @@ function M.handleCommand(...)
         deps.uiState.userClosedViaKeybind = true
         setShouldDraw(false)
         setIsOpen(false)
+        if deps.closeAllCompanionWindows then deps.closeAllCompanionWindows() end
         if deps.closeGameInventoryIfOpen then deps.closeGameInventoryIfOpen() end
         if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
         if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
