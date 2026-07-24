@@ -9,6 +9,7 @@ local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
 local scriptConsumeEvents = require('itemui.services.script_consume_events')
 local nativeBridge = require('itemui.services.native_bridge')
+local aaDataService = require('itemui.services.aa_data')
 local ItemDisplayView = require('itemui.views.item_display')
 local item_name = require('itemui.utils.item_name')
 local soundService = require('itemui.services.sound')
@@ -1350,13 +1351,32 @@ local function phase8b_pendingRerollAdd(now)
                     if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d...", idx, sync.totalCount or 0)) end
                     break
                 else
-                    -- Item not in inventory — record as failed, skip to next
+                    -- Item not in bags. In the bank: keep pending with a clear
+                    -- reason. Owned nowhere (sold/rolled/consumed): drop it from
+                    -- pending so it can't stay stuck forever. The ownership check
+                    -- only auto-removes when the inventory scan actually ran.
+                    local function idInList(list)
+                        for _, b in ipairs(list or {}) do
+                            if (b.id or b.ID) == entry.id then return true end
+                        end
+                        return false
+                    end
+                    local inBank = idInList(bankItems) or idInList(d.bankCache)
                     sync.failedCount = (sync.failedCount or 0) + 1
                     local fi = sync.failedItems or {}
-                    fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not in inventory" }
+                    if inBank then
+                        fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "In bank - move to bags to sync" }
+                        if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s is in the bank)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
+                    elseif #inventoryItems > 0 then
+                        rerollService.removeFromPending(sync.list, entry.id)
+                        fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not owned - cleared from pending" }
+                        if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not owned - cleared from pending)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
+                    else
+                        fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not in inventory" }
+                        if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not found)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
+                    end
                     sync.failedItems = fi
                     sync.nextIndex = idx + 1
-                    if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not found)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
                 end
             end
         end
@@ -1780,6 +1800,7 @@ function M.tick(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
     nativeBridge.tick(now)
+    aaDataService.pump()
     phase5_lootMacro(now)
     phaseEquipAction(now)
     -- Drain IPC after phase 5 so run-start clear in phase 5 doesn't wipe items we just drained

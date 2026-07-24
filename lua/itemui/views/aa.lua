@@ -376,7 +376,11 @@ function AAView.render(ctx)
     ImGui.SameLine()
     ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
     ImGui.SameLine()
-    ctx.theme.TextMuted(ctx.getAALastRefreshTime and ("Last: " .. os.date("%H:%M:%S", (ctx.getAALastRefreshTime() or 0) / 1000)) or "")
+    if ctx.isAABuilding and ctx.isAABuilding() then
+        ctx.theme.TextWarning("Scanning AA tables...")
+    else
+        ctx.theme.TextMuted(ctx.getAALastRefreshTime and ("Last: " .. os.date("%H:%M:%S", (ctx.getAALastRefreshTime() or 0) / 1000)) or "")
+    end
     ImGui.Spacing()
 
     local filtered = getFilteredList(ctx)
@@ -603,6 +607,7 @@ registry.register({
         ctx.getAAPointsSummary = aa_data.getPointsSummary
         ctx.shouldRefreshAA = aa_data.shouldRefresh
         ctx.getAALastRefreshTime = aa_data.getLastRefreshTime
+        ctx.isAABuilding = aa_data.isBuilding
         AAView.render(ctx)
     end,
 })

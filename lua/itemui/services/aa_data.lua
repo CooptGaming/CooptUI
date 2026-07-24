@@ -13,8 +13,13 @@ local aaList = {}
 local aaTab = 1
 local lastFingerprint = ""
 local lastRefreshTime = 0
-local MAX_AA_INDEX = 2000  -- Iterate Me.AltAbility(1)..(N); increase if server has more
-local EMPTY_CONSECUTIVE_MAX = 50  -- Stop after this many consecutive invalid indices
+-- The AA id space on emu servers is SPARSE and class/archetype ids live far above
+-- the low General block (the old 1..2000 scan with a 50-gap early break is why only
+-- General AAs ever appeared). Scan the whole 16-bit id space with no gap bail,
+-- chunked across main-loop ticks so a rebuild never hitches a frame.
+local MAX_AA_ID = 65535
+local IDS_PER_PUMP = 2500
+local build = nil  -- { cursor, list, seen } while an incremental rebuild is running
 
 --- Build fingerprint string: changes when zone/level/AA points change
 local function buildFingerprint()
@@ -26,69 +31,78 @@ local function buildFingerprint()
     return string.format("%d|%d|%d", zone, level, spent)
 end
 
---- Build full AA list from global AltAbility TLO (all available AAs), then fill
+--- Build one AA record from the global AltAbility TLO entry plus the
 --- character-specific rank/canTrain/nextIndex from Me.AltAbility(name).
-local function buildList()
-    local list = {}
-    local AltAbility = mq.TLO and mq.TLO.AltAbility
+local function buildRecord(aa, id, name)
     local Me = mq.TLO and mq.TLO.Me
-    if not AltAbility then return list end
+    local rank, canTrain, index, nextIndex, myReuseTime = 0, false, 0, 0, 0
+    if Me and Me.AltAbility then
+        local myAA = Me.AltAbility(name)
+        if myAA then
+            rank = (myAA.Rank and myAA.Rank()) or 0
+            canTrain = (myAA.CanTrain and myAA.CanTrain()) or false
+            index = (myAA.Index and myAA.Index()) or 0
+            nextIndex = (myAA.NextIndex and myAA.NextIndex()) or 0
+            myReuseTime = (myAA.MyReuseTime and myAA.MyReuseTime()) or 0
+        end
+    end
+    return {
+        name = name,
+        id = id,
+        rank = rank,
+        maxRank = (aa.MaxRank and aa.MaxRank()) or 0,
+        cost = (aa.Cost and aa.Cost()) or 0,
+        category = (aa.Category and aa.Category()) or "",
+        canTrain = canTrain,
+        index = index,
+        nextIndex = nextIndex,
+        description = (aa.Description and aa.Description()) or "",
+        passive = (aa.Passive and aa.Passive()) or false,
+        requiresAbility = (aa.RequiresAbility and aa.RequiresAbility()) or nil,
+        requiresAbilityPoints = (aa.RequiresAbilityPoints and aa.RequiresAbilityPoints()) or 0,
+        myReuseTime = myReuseTime,
+    }
+end
 
-    local emptyCount = 0
-    for i = 1, MAX_AA_INDEX do
+--- Refresh: start an incremental rebuild. The old list stays served until the
+--- rebuild completes (stale-while-revalidate), so the view never goes blank.
+function M.refresh()
+    build = { cursor = 1, list = {}, seen = {} }
+end
+
+--- True while an incremental rebuild is in progress.
+function M.isBuilding()
+    return build ~= nil
+end
+
+--- Advance the incremental rebuild by one chunk. Called every main-loop tick;
+--- no-ops when idle. Rank ids share a name, so entries dedupe by name keeping
+--- the lowest id (rank 1), matching the old scan's behavior on the low block.
+function M.pump()
+    if not build then return end
+    local AltAbility = mq.TLO and mq.TLO.AltAbility
+    if not AltAbility then build = nil; return end
+    local upper = math.min(build.cursor + IDS_PER_PUMP - 1, MAX_AA_ID)
+    for i = build.cursor, upper do
         local aa = AltAbility(i)
-        if not aa or not aa.ID then
-            emptyCount = emptyCount + 1
-            if emptyCount >= EMPTY_CONSECUTIVE_MAX then break end
-        else
+        if aa and aa.ID then
             local id = aa.ID()
             if id and id > 0 then
-                emptyCount = 0
                 local name = (aa.Name and aa.Name()) or ""
-                if name ~= "" then
-                    -- Character-specific data (rank, canTrain, nextIndex, myReuseTime) from Me.AltAbility
-                    local rank, canTrain, index, nextIndex, myReuseTime = 0, false, 0, 0, 0
-                    if Me and Me.AltAbility then
-                        local myAA = Me.AltAbility(name)
-                        if myAA then
-                            rank = (myAA.Rank and myAA.Rank()) or 0
-                            canTrain = (myAA.CanTrain and myAA.CanTrain()) or false
-                            index = (myAA.Index and myAA.Index()) or 0
-                            nextIndex = (myAA.NextIndex and myAA.NextIndex()) or 0
-                            myReuseTime = (myAA.MyReuseTime and myAA.MyReuseTime()) or 0
-                        end
-                    end
-                    list[#list + 1] = {
-                        name = name,
-                        id = id,
-                        rank = rank,
-                        maxRank = (aa.MaxRank and aa.MaxRank()) or 0,
-                        cost = (aa.Cost and aa.Cost()) or 0,
-                        category = (aa.Category and aa.Category()) or "",
-                        canTrain = canTrain,
-                        index = index,
-                        nextIndex = nextIndex,
-                        description = (aa.Description and aa.Description()) or "",
-                        passive = (aa.Passive and aa.Passive()) or false,
-                        requiresAbility = (aa.RequiresAbility and aa.RequiresAbility()) or nil,
-                        requiresAbilityPoints = (aa.RequiresAbilityPoints and aa.RequiresAbilityPoints()) or 0,
-                        myReuseTime = myReuseTime,
-                    }
+                if name ~= "" and not build.seen[name] then
+                    build.seen[name] = true
+                    build.list[#build.list + 1] = buildRecord(aa, id, name)
                 end
-            else
-                emptyCount = emptyCount + 1
-                if emptyCount >= EMPTY_CONSECUTIVE_MAX then break end
             end
         end
     end
-    return list
-end
-
---- Refresh: rebuild list and update cache/fingerprint.
-function M.refresh()
-    aaList = buildList()
-    lastFingerprint = buildFingerprint()
-    lastRefreshTime = mq.gettime()
+    build.cursor = upper + 1
+    if build.cursor > MAX_AA_ID then
+        aaList = build.list
+        lastFingerprint = buildFingerprint()
+        lastRefreshTime = mq.gettime()
+        build = nil
+    end
 end
 
 --- Return current cached list (do not modify).
@@ -97,7 +111,9 @@ function M.getList()
 end
 
 --- True if cache is empty or fingerprint changed (caller should refresh).
+--- Never true while a rebuild is already running.
 function M.shouldRefresh()
+    if build then return false end
     local fp = buildFingerprint()
     if #aaList == 0 then return true end
     return fp ~= lastFingerprint

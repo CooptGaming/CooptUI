@@ -38,10 +38,6 @@ local BTN_AUTOSELL   = 'Coopt_AutoSellBtn'
 local BTN_PREVIEW    = 'Coopt_PreviewBtn'
 local MERCHANT_STATUS = 'Coopt_Status'
 
-local LOOT_WND       = 'LootWnd'
-local BTN_LOOT_ALL   = 'Coopt_LootAllBtn'
-local LOOT_STATUS    = 'Coopt_LootStatus'
-
 local ACTIONS_WND    = 'ActionsWindow'
 -- launcher button -> action ("cmd:" issues a slash command, "lootui" toggles the
 -- Loot UI window flag, otherwise a registry module id)
@@ -347,56 +343,6 @@ local function tickMerchant(now)
 end
 
 ---------------------------------------------------------------------------
--- Loot surface
----------------------------------------------------------------------------
-
--- Mirrors main_window's loot callbacks (Loot UI open flags + macro run), with one
--- addition: the open corpse window is CLOSED first so the loot macro starts from
--- its own clean state machine (target/open/loot per corpse). Launching it over an
--- already-open corpse window confused the run and fragmented the loot session.
-local function tryStartLoot(s, now, quiet)
-    if lootBusy() then
-        if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Already looting", now) end
-        return
-    end
-    if sellBusy() then
-        if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Sell in progress", now) end
-        return
-    end
-    hint(s, LOOT_WND, LOOT_STATUS, "Looting all...", now)
-    -- Target the open corpse before closing it: opening flags it "looted", and the
-    -- macro's /hidecorpse looted would hide it from /tar npccorpse - so the macro
-    -- honors a pre-targeted corpse on its first pass and loots it first.
-    local corpseId = (mq.TLO and mq.TLO.Corpse and mq.TLO.Corpse.ID and tonumber(mq.TLO.Corpse.ID())) or nil
-    if corpseId and corpseId > 0 then mq.cmdf('/target id %d', corpseId) end
-    mq.cmdf('/notify %s DoneButton leftmouseup', LOOT_WND)
-    local uiState = d.uiState
-    if not uiState.suppressWhenLootMac then
-        uiState.lootUIOpen = true
-        uiState.lootRunFinished = false
-        if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
-    end
-    mq.cmd('/macro loot')
-end
-
-local function lootStatus(s, now)
-    if (now - s.lastStatusAt) < STATUS_INTERVAL_MS then return end
-    s.lastStatusAt = now
-    if s.hintText and now < s.hintUntil then return end
-    s.hintText = nil
-    setStatus(s, LOOT_WND, LOOT_STATUS, lootBusy() and "Looting..." or "CoOpt")
-end
-
-local function tickLoot(now)
-    local s = surf(LOOT_WND)
-    if not refreshSurface(s, LOOT_WND, BTN_LOOT_ALL, now) then return end
-
-    if consumeClick(s, LOOT_WND, BTN_LOOT_ALL, now) then tryStartLoot(s, now, false) end
-
-    lootStatus(s, now)
-end
-
----------------------------------------------------------------------------
 -- Actions surface (companion launchers; no status line)
 ---------------------------------------------------------------------------
 
@@ -476,7 +422,6 @@ function M.tick(now)
     if (now - lastPollAt) < POLL_INTERVAL_MS then return end
     lastPollAt = now
     tickMerchant(now)
-    tickLoot(now)
     tickActions(now)
     tickCommandCenter(now)
     tickItemDisplay(now)
