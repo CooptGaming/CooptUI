@@ -30,6 +30,7 @@
 !docs/
 !plugin/
 !config/
+!poc/
 
 # --- Ignore these project paths (do not track or push) ---
 .cursor/agents/
