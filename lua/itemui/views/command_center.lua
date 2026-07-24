@@ -137,6 +137,11 @@ function CommandCenterView.render(ctx)
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Show/hide the CoOpt UI hub (same as Shift+Q)."); ImGui.EndTooltip() end
     ImGui.SameLine()
+    if ImGui.Button("Native Panel##CmdCenter", ImVec2(110, 0)) then
+        pcall(function() mq.TLO.Window('TipWindow').DoOpen() end)
+    end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the NATIVE Command Center (requires /loadskin coopt). Also: /itemui center"); ImGui.EndTooltip() end
+    ImGui.SameLine()
     local lootUIOpen = uiState.lootUIOpen and true or false
     theme.PushKeepButton(lootUIOpen)
     if ImGui.Button("Loot UI##CmdCenter", ImVec2(110, 0)) then

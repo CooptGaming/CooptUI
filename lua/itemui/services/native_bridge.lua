@@ -56,6 +56,29 @@ local ACTION_BUTTONS = {
     { name = 'Coopt_ActSettingsBtn', action = 'config' },
 }
 
+-- Native Command Center (repurposed Tip of the Day window; open with /itemui center)
+local CMD_WND   = 'TipWindow'
+local CC_STATUS = 'Coopt_CCStatus'
+local CC_BUTTONS = {
+    { name = 'Coopt_CCLootAllBtn',  action = 'lootall' },
+    { name = 'Coopt_CCStopLootBtn', action = 'stoploot' },
+    { name = 'Coopt_CCSellBtn',     action = 'autosell' },
+    { name = 'Coopt_CCTrackerBtn',  action = 'tracker' },
+    { name = 'Coopt_CCUiBtn',       action = 'cmd:/itemui' },
+    { name = 'Coopt_CCLootUiBtn',   action = 'lootui' },
+    { name = 'Coopt_CCEquipBtn',    action = 'equipment' },
+    { name = 'Coopt_CCBankBtn',     action = 'bank' },
+    { name = 'Coopt_CCAugBtn',      action = 'augments' },
+    { name = 'Coopt_CCMythBtn',     action = 'mythicals' },
+    { name = 'Coopt_CCUtilBtn',     action = 'augmentUtility' },
+    { name = 'Coopt_CCRerollBtn',   action = 'reroll' },
+    { name = 'Coopt_CCAABtn',       action = 'aa' },
+    { name = 'Coopt_CCSettingsBtn', action = 'config' },
+}
+
+local ITEMDISPLAY_WND = 'ItemDisplayWindow'
+local BTN_ID_AUG      = 'Coopt_IDAugBtn'
+
 local POLL_INTERVAL_MS   = 100
 local PROBE_INTERVAL_MS  = 2000
 local STATUS_INTERVAL_MS = 500
@@ -196,6 +219,68 @@ end
 local function lootBusy()
     local mb = d.macroBridge
     return (mb and mb.isLootMacroRunning and mb.isLootMacroRunning()) or false
+end
+
+-- MQ2Lua's Lua TLO isn't guaranteed on every build; nil = unknown.
+local function scriptTrackerRunning()
+    local ok, status = pcall(function()
+        local l = mq.TLO and mq.TLO.Lua
+        local script = l and l.Script and l.Script('scripttracker')
+        return script and script.Status and script.Status()
+    end)
+    if ok and type(status) == 'string' then return status:upper() == 'RUNNING' end
+    return nil
+end
+
+-- Shared launcher/process executor for all native button surfaces. The optional
+-- s/wnd/statusName route feedback into that surface's status EditBox.
+local function runAction(action, s, wnd, statusName, now)
+    local cmd = action:match('^cmd:(.+)$')
+    if cmd then mq.cmd(cmd) return end
+    if action == 'lootui' then
+        local uiState = d.uiState
+        uiState.lootUIOpen = not uiState.lootUIOpen
+        if uiState.lootUIOpen and d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+    elseif action == 'lootall' then
+        if lootBusy() or sellBusy() then
+            if s then hint(s, wnd, statusName, "Busy - macro already running", now) end
+            return
+        end
+        local uiState = d.uiState
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+            uiState.lootRunFinished = false
+            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+        end
+        mq.cmd('/macro loot')
+    elseif action == 'stoploot' then
+        if lootBusy() then
+            mq.cmd('/endmacro')
+        elseif s then
+            hint(s, wnd, statusName, "No loot macro running", now)
+        end
+    elseif action == 'autosell' then
+        if not windowOpen(MERCHANT_WND) then
+            if s then hint(s, wnd, statusName, "Open a merchant first", now) end
+            return
+        end
+        if sellBusy() or lootBusy() then
+            if s then hint(s, wnd, statusName, "Busy - macro already running", now) end
+            return
+        end
+        d.uiState.autoSellRequested = true
+        if s then hint(s, wnd, statusName, "Starting sell...", now) end
+    elseif action == 'tracker' then
+        local running = scriptTrackerRunning()
+        if running == false then
+            mq.cmd('/lua run scripttracker')
+        else
+            mq.cmd('/st show')
+            if running == nil then mq.cmd('/lua run scripttracker') end
+        end
+    else
+        registry.toggleWindow(action)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -344,19 +429,76 @@ local function tickActions(now)
     if not refreshSurface(s, ACTIONS_WND, ACTION_BUTTONS[1].name, now) then return end
     for _, spec in ipairs(ACTION_BUTTONS) do
         if consumeClick(s, ACTIONS_WND, spec.name, now) then
-            local cmd = spec.action:match('^cmd:(.+)$')
-            if cmd then
-                mq.cmd(cmd)
-            elseif spec.action == 'lootui' then
-                local uiState = d.uiState
-                uiState.lootUIOpen = not uiState.lootUIOpen
-                if uiState.lootUIOpen and d.recordCompanionWindowOpened then
-                    d.recordCompanionWindowOpened("loot")
-                end
-            else
-                registry.toggleWindow(spec.action)
-            end
+            runAction(spec.action, nil, nil, nil, now)
         end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Command Center surface (repurposed Tip of the Day window)
+---------------------------------------------------------------------------
+
+local function ccStatusText()
+    local mb = d.macroBridge
+    local plugin = (mb and mb.isIPCAvailable and mb.isIPCAvailable()) and "Plugin OK" or "No plugin"
+    local state
+    if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
+        state = "Selling"
+    elseif lootBusy() then
+        state = "Looting"
+    else
+        state = "Idle"
+    end
+    return plugin .. " | " .. state
+end
+
+local function tickCommandCenter(now)
+    local s = surf(CMD_WND)
+    if not refreshSurface(s, CMD_WND, CC_BUTTONS[1].name, now) then return end
+    for _, spec in ipairs(CC_BUTTONS) do
+        if consumeClick(s, CMD_WND, spec.name, now) then
+            runAction(spec.action, s, CMD_WND, CC_STATUS, now)
+        end
+    end
+    if (now - s.lastStatusAt) >= STATUS_INTERVAL_MS then
+        s.lastStatusAt = now
+        if not (s.hintText and now < s.hintUntil) then
+            s.hintText = nil
+            setStatus(s, CMD_WND, CC_STATUS, ccStatusText())
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Item Display surface: Aug Utility targeted at the inspected item
+---------------------------------------------------------------------------
+
+local function openAugUtilityForDisplayItem()
+    local ok, id = pcall(function()
+        local di = mq.TLO and mq.TLO.DisplayItem
+        return di and di.ID and tonumber(di.ID())
+    end)
+    if not ok or not id or id == 0 then
+        print('\ay[CoOpt]\ax Could not read the inspected item (is the MQ2ItemDisplay plugin loaded?).')
+        return
+    end
+    local found
+    for _, it in ipairs(d.inventoryItems or {}) do
+        if (it.id or it.ID) == id then found = it break end
+    end
+    if not found then
+        print('\ay[CoOpt]\ax Inspected item is not in your bags - open the Aug Utility from the CoOpt UI instead.')
+        return
+    end
+    if d.addItemDisplayTab then d.addItemDisplayTab(found) end
+    if not registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
+end
+
+local function tickItemDisplay(now)
+    local s = surf(ITEMDISPLAY_WND)
+    if not refreshSurface(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then return end
+    if consumeClick(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then
+        openAugUtilityForDisplayItem()
     end
 end
 
@@ -374,6 +516,8 @@ function M.tick(now)
     tickMerchant(now)
     tickLoot(now)
     tickActions(now)
+    tickCommandCenter(now)
+    tickItemDisplay(now)
 end
 
 return M

@@ -1265,6 +1265,7 @@ local function buildMainLoopDeps()
     d.invalidateLootConfigCache = function() sellStatusService.invalidateLootConfigCache() end
     d.rerollService = rerollService
     d.applySellListChange = applySellListChange
+    d.addItemDisplayTab = addItemDisplayTab
     return d
 end
 

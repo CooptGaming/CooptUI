@@ -82,6 +82,9 @@ function M.handleCommand(...)
         if deps.closeGameInventoryIfOpen then deps.closeGameInventoryIfOpen() end
         if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
         if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
+    elseif cmd == "center" then
+        -- Native Command Center (the repurposed Tip of the Day window; needs /loadskin coopt)
+        pcall(function() mq.TLO.Window('TipWindow').DoOpen() end)
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end

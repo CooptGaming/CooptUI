@@ -1,0 +1,381 @@
+<?xml version = "1.0"?>
+<XML ID = "EQInterfaceDefinitionLanguage">
+	<Schema xmlns = "EverQuestData" xmlns:dt = "EverQuestDataTypes"/>
+
+	<!-- ============================================================
+	     CoOpt native Command Center, hosted in the Tip of the Day
+	     window (nobody misses it). Every stock element keeps its
+	     ScreenID (the client writes tip text / wires its buttons by
+	     these) but is parked offscreen; the CoOpt launcher grid and
+	     status line take over the visible window. Buttons are
+	     Style_Checkbox so clicks latch for the native_bridge poll.
+	     Open with /itemui center (or the EQ menu's Tip of the Day).
+	     ============================================================ -->
+
+	<STMLbox item = "TIP_Display">
+		<ScreenID>Display</ScreenID>
+		<DrawTemplate>WDT_Inner</DrawTemplate>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Style_VScroll>false</Style_VScroll>
+		<Style_Border>false</Style_Border>
+	</STMLbox>
+
+	<Combobox item = "TIP_History">
+		<ScreenID>History</ScreenID>
+		<DrawTemplate>WDT_Inner</DrawTemplate>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<ListHeight>80</ListHeight>
+		<Button>BDT_Combo</Button>
+	</Combobox>
+
+	<Button item = "TIP_NextTipButton">
+		<ScreenID>NextTipButton</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Style_Checkbox>false</Style_Checkbox>
+		<Text>Show Another Tip</Text>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "TIP_NoShowThisButton">
+		<ScreenID>NoShowThisButton</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text></Text>
+		<Template>BDT_Checkbox</Template>
+	</Button>
+
+	<Label item = "TIP_NoShowThisLabel">
+		<ScreenID>NoShowThisLabel</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Text>Don't show this tip again</Text>
+	</Label>
+
+	<Button item = "TIP_NoShowButton">
+		<ScreenID>NoShowButton</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text></Text>
+		<Template>BDT_Checkbox</Template>
+	</Button>
+
+	<Label item = "TIP_NoShowLabel">
+		<ScreenID>NoShowLabel</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Text>Don't show any tips</Text>
+	</Label>
+
+	<Button item = "TIP_CloseButton">
+		<ScreenID>CloseButton</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<LeftAnchorOffset>0</LeftAnchorOffset>
+		<TopAnchorOffset>-1010</TopAnchorOffset>
+		<RightAnchorOffset>10</RightAnchorOffset>
+		<BottomAnchorOffset>-1000</BottomAnchorOffset>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>true</RightAnchorToLeft>
+		<TopAnchorToTop>true</TopAnchorToTop>
+		<BottomAnchorToTop>true</BottomAnchorToTop>
+		<Style_Checkbox>false</Style_Checkbox>
+		<Text>Close</Text>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<!-- ================= CoOpt Command Center grid ================= -->
+
+	<Button item = "Coopt_CCLootAllBtn">
+		<ScreenID>Coopt_CCLootAllBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>8</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Loot all nearby corpses using your loot rules (runs the loot macro)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Loot All</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCStopLootBtn">
+		<ScreenID>Coopt_CCStopLootBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>8</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Stop the running loot macro</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Stop Loot</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCSellBtn">
+		<ScreenID>Coopt_CCSellBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>32</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Auto Sell at the open merchant (everything marked Sell)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Auto Sell</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCTrackerBtn">
+		<ScreenID>Coopt_CCTrackerBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>32</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open the ScriptTracker window (starts it if needed)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>ScriptTracker</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCUiBtn">
+		<ScreenID>Coopt_CCUiBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>64</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Show/hide the CoOpt UI hub</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>CoOpt UI</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCLootUiBtn">
+		<ScreenID>Coopt_CCLootUiBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>64</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Loot UI</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Loot UI</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCEquipBtn">
+		<ScreenID>Coopt_CCEquipBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>88</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Equipment Companion</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Equipment</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCBankBtn">
+		<ScreenID>Coopt_CCBankBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>88</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Bank Companion</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Bank</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCAugBtn">
+		<ScreenID>Coopt_CCAugBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>112</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Augments Companion</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Augments</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCMythBtn">
+		<ScreenID>Coopt_CCMythBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>112</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Mythicals Companion</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Mythics</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCUtilBtn">
+		<ScreenID>Coopt_CCUtilBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>136</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Augment Utility</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Aug Utility</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCRerollBtn">
+		<ScreenID>Coopt_CCRerollBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>136</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Reroll Companion</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Reroll</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCAABtn">
+		<ScreenID>Coopt_CCAABtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>160</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt AA Browser</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>AA</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCSettingsBtn">
+		<ScreenID>Coopt_CCSettingsBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>160</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close CoOpt Settings</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Settings</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Editbox item="Coopt_CCStatus">
+		<ScreenID>Coopt_CCStatus</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<AutoStretch>true</AutoStretch>
+		<TopAnchorToTop>false</TopAnchorToTop>
+		<BottomAnchorToTop>false</BottomAnchorToTop>
+		<LeftAnchorToLeft>true</LeftAnchorToLeft>
+		<RightAnchorToLeft>false</RightAnchorToLeft>
+		<LeftAnchorOffset>8</LeftAnchorOffset>
+		<TopAnchorOffset>28</TopAnchorOffset>
+		<RightAnchorOffset>8</RightAnchorOffset>
+		<BottomAnchorOffset>8</BottomAnchorOffset>
+		<Style_Transparent>true</Style_Transparent>
+		<Style_Border>false</Style_Border>
+		<TooltipReference>CoOpt status (set from Lua)</TooltipReference>
+		<Text>CoOpt Command Center - run /lua run itemui</Text>
+		<TextColor><R>255</R><G>255</G><B>0</B></TextColor>
+	</Editbox>
+
+	<Screen item = "TipWindow">
+		<RelativePosition>false</RelativePosition>
+		<Location>
+			<X>280</X>
+			<Y>0</Y>
+		</Location>
+		<Size>
+			<CX>360</CX>
+			<CY>250</CY>
+		</Size>
+		<Text>CoOpt Command Center</Text>
+		<Style_VScroll>false</Style_VScroll>
+		<Style_HScroll>false</Style_HScroll>
+		<Style_Transparent>false</Style_Transparent>
+		<DrawTemplate>WDT_Def</DrawTemplate>
+		<Style_Titlebar>true</Style_Titlebar>
+		<Style_Closebox>true</Style_Closebox>
+		<Style_Minimizebox>true</Style_Minimizebox>
+		<Style_Border>true</Style_Border>
+		<Style_Sizable>true</Style_Sizable>
+		<Pieces>TIP_Display</Pieces>
+		<Pieces>TIP_CloseButton</Pieces>
+		<Pieces>TIP_NoShowThisButton</Pieces>
+		<Pieces>TIP_NoShowThisLabel</Pieces>
+		<Pieces>TIP_NoShowButton</Pieces>
+		<Pieces>TIP_NoShowLabel</Pieces>
+		<Pieces>TIP_NextTipButton</Pieces>
+		<Pieces>TIP_History</Pieces>
+		<Pieces>Coopt_CCLootAllBtn</Pieces>
+		<Pieces>Coopt_CCStopLootBtn</Pieces>
+		<Pieces>Coopt_CCSellBtn</Pieces>
+		<Pieces>Coopt_CCTrackerBtn</Pieces>
+		<Pieces>Coopt_CCUiBtn</Pieces>
+		<Pieces>Coopt_CCLootUiBtn</Pieces>
+		<Pieces>Coopt_CCEquipBtn</Pieces>
+		<Pieces>Coopt_CCBankBtn</Pieces>
+		<Pieces>Coopt_CCAugBtn</Pieces>
+		<Pieces>Coopt_CCMythBtn</Pieces>
+		<Pieces>Coopt_CCUtilBtn</Pieces>
+		<Pieces>Coopt_CCRerollBtn</Pieces>
+		<Pieces>Coopt_CCAABtn</Pieces>
+		<Pieces>Coopt_CCSettingsBtn</Pieces>
+		<Pieces>Coopt_CCStatus</Pieces>
+	</Screen>
+
+</XML>
