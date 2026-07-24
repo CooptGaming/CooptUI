@@ -88,15 +88,28 @@ function ConfigGeneral.render(ctx)
             ImGui.EndTooltip()
         end
         local prevNativeStrip = (uiState.nativeMerchantStrip ~= false)
-        local nativeStrip = ImGui.Checkbox("Native merchant strip (CoOpt skin)", prevNativeStrip)
+        local nativeStrip = ImGui.Checkbox("Native window strips (CoOpt skin)", prevNativeStrip)
         if prevNativeStrip ~= nativeStrip then
             uiState.nativeMerchantStrip = nativeStrip
             scheduleLayoutSave()
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Drives the CoOpt buttons inside the game's own Merchant window (Auto Sell, Preview, Keep, Junk, status line).")
+            ImGui.Text("Drives the CoOpt controls inside the game's own windows: Merchant (Auto Sell, Preview, status),")
+            ImGui.Text("Loot (CoOpt Cur / CoOpt All), and the Actions window's CoOpt launcher tab.")
             ImGui.Text("Requires the CoOpt UI skin: /loadskin coopt. Does nothing if the skin isn't loaded.")
+            ImGui.EndTooltip()
+        end
+        local prevAutoLootCorpse = (uiState.nativeAutoLootOnCorpse == true)
+        local autoLootCorpse = ImGui.Checkbox("Opening a corpse starts Auto Loot", prevAutoLootCorpse)
+        if prevAutoLootCorpse ~= autoLootCorpse then
+            uiState.nativeAutoLootOnCorpse = autoLootCorpse
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("When you right-click a corpse open, CoOpt immediately runs the loot macro for ALL nearby corpses")
+            ImGui.Text("using your loot rules. Ignored while the loot macro is already running. Needs the CoOpt skin loaded.")
             ImGui.EndTooltip()
         end
         local prevLootHist = (uiState.enableLootHistory == true)

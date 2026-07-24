@@ -693,54 +693,6 @@
 		<Template>BDT_Normal</Template>
 	</Button>
 
-	<Button item = "Coopt_KeepBtn">
-		<ScreenID>Coopt_KeepBtn</ScreenID>
-		<RelativePosition>true</RelativePosition>
-		<AutoStretch>true</AutoStretch>
-		<TopAnchorToTop>false</TopAnchorToTop>
-		<BottomAnchorToTop>false</BottomAnchorToTop>
-		<LeftAnchorToLeft>true</LeftAnchorToLeft>
-		<RightAnchorToLeft>true</RightAnchorToLeft>
-		<LeftAnchorOffset>160</LeftAnchorOffset>
-		<TopAnchorOffset>28</TopAnchorOffset>
-		<RightAnchorOffset>208</RightAnchorOffset>
-		<BottomAnchorOffset>8</BottomAnchorOffset>
-		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: toggle the selected item on your Keep (never sell) list</TooltipReference>
-		<Style_Checkbox>true</Style_Checkbox>
-		<Text>Keep</Text>
-		<TextColor>
-			<R>255</R>
-			<G>255</G>
-			<B>255</B>
-		</TextColor>
-		<Template>BDT_Normal</Template>
-	</Button>
-
-	<Button item = "Coopt_JunkBtn">
-		<ScreenID>Coopt_JunkBtn</ScreenID>
-		<RelativePosition>true</RelativePosition>
-		<AutoStretch>true</AutoStretch>
-		<TopAnchorToTop>false</TopAnchorToTop>
-		<BottomAnchorToTop>false</BottomAnchorToTop>
-		<LeftAnchorToLeft>true</LeftAnchorToLeft>
-		<RightAnchorToLeft>true</RightAnchorToLeft>
-		<LeftAnchorOffset>212</LeftAnchorOffset>
-		<TopAnchorOffset>28</TopAnchorOffset>
-		<RightAnchorOffset>260</RightAnchorOffset>
-		<BottomAnchorOffset>8</BottomAnchorOffset>
-		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: toggle the selected item on your Junk (always sell) list</TooltipReference>
-		<Style_Checkbox>true</Style_Checkbox>
-		<Text>Junk</Text>
-		<TextColor>
-			<R>255</R>
-			<G>255</G>
-			<B>255</B>
-		</TextColor>
-		<Template>BDT_Normal</Template>
-	</Button>
-
 	<Editbox item="Coopt_Status">
 		<ScreenID>Coopt_Status</ScreenID>
 		<RelativePosition>true</RelativePosition>
@@ -749,7 +701,7 @@
 		<BottomAnchorToTop>false</BottomAnchorToTop>
 		<LeftAnchorToLeft>true</LeftAnchorToLeft>
 		<RightAnchorToLeft>false</RightAnchorToLeft>
-		<LeftAnchorOffset>266</LeftAnchorOffset>
+		<LeftAnchorOffset>162</LeftAnchorOffset>
 		<TopAnchorOffset>26</TopAnchorOffset>
 		<RightAnchorOffset>10</RightAnchorOffset>
 		<BottomAnchorOffset>8</BottomAnchorOffset>
@@ -802,8 +754,6 @@
 		<Pieces>MW_Preview_Button</Pieces>
 		<Pieces>Coopt_AutoSellBtn</Pieces>
 		<Pieces>Coopt_PreviewBtn</Pieces>
-		<Pieces>Coopt_KeepBtn</Pieces>
-		<Pieces>Coopt_JunkBtn</Pieces>
 		<Pieces>Coopt_Status</Pieces>
 	</Screen>
 

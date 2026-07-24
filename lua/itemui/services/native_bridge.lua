@@ -1,23 +1,22 @@
 --[[ native_bridge.lua: drives CoOpt controls that the "coopt" UI skin adds to
-     native EQ windows (uifiles\coopt). v1 surface: the MerchantWnd sell strip.
+     native EQ windows (uifiles\coopt). Surfaces:
+       MerchantWnd    - Auto Sell / Preview buttons + sell status line
+       LootWnd        - CoOpt Cur / CoOpt All buttons + loot status line,
+                        plus optional auto-loot when a corpse window opens
+       ActionsWindow  - "CoOpt" tab with companion launcher buttons
 
      Click detection: skin buttons are Style_Checkbox, so every real click
-     toggles bChecked. We poll Checked each tick and treat ANY transition as
-     one user click - no synthetic input is ever sent during interaction.
-     (v1 unlatched by sending /notify leftmouseup immediately; at main-loop
-     tick rate that synthetic click can land while the user's real mouse
-     button is still held down, wedging EQ's mouse capture on the button so
-     all later clicks re-route to it.) The only synthetic click we send is a
-     cosmetic un-latch, deferred >=350ms after the click and gated on
-     MouseOver()==false - a real click cannot be in progress on a control
-     the cursor is not over, so the capture race cannot occur.
+     toggles bChecked. We poll Checked (throttled) and treat ANY transition
+     as one user click - no synthetic input during interaction. The only
+     synthetic event is a cosmetic un-latch deferred >=350ms and gated on
+     MouseOver()==false, when no real click can be in progress (sending it
+     immediately can land mid-click and wedge EQ's mouse capture).
 
      Missing-control detection: on this MQ build, Window.Child() for an
      absent name can return an object whose ToString is non-nil but whose
-     members are nil (proven by the POC crash after /loadskin). Existence is
-     therefore judged by a pcall'd member read, never by Child()/ToString.
+     members are nil. Existence is judged by a pcall'd member read only.
 
-     The status readout is an EditBox because this MQ build's Window.SetText
+     Status readouts are EditBoxes because this MQ build's Window.SetText
      method only supports EditBoxes.
 
      Service contract: init(deps) with the main_loop deps table; tick(now)
@@ -27,52 +26,75 @@
 ]]
 
 local mq = require('mq')
+local registry = require('itemui.core.registry')
 
 local M = {}
 
 local d -- main_loop deps table, set by init()
 
--- Control names: must match uifiles/coopt/EQUI_MerchantWnd.xml
-local WND          = 'MerchantWnd'
-local BTN_AUTOSELL = 'Coopt_AutoSellBtn'
-local BTN_PREVIEW  = 'Coopt_PreviewBtn'
-local BTN_KEEP     = 'Coopt_KeepBtn'
-local BTN_JUNK     = 'Coopt_JunkBtn'
-local STATUS       = 'Coopt_Status'
+-- Control names: must match the uifiles/coopt window XMLs
+local MERCHANT_WND   = 'MerchantWnd'
+local BTN_AUTOSELL   = 'Coopt_AutoSellBtn'
+local BTN_PREVIEW    = 'Coopt_PreviewBtn'
+local MERCHANT_STATUS = 'Coopt_Status'
 
-local PROBE_INTERVAL_MS   = 2000
-local STATUS_INTERVAL_MS  = 500
-local HINT_MS             = 3000
-local STATUS_MAX_CHARS    = 60
-local UNLATCH_SETTLE_MS   = 350   -- min age of a click before the cosmetic un-latch
-local UNLATCH_ECHO_MS     = 1000  -- window to swallow our own un-latch transition
+local LOOT_WND       = 'LootWnd'
+local BTN_LOOT_CURR  = 'Coopt_LootCurrBtn'
+local BTN_LOOT_ALL   = 'Coopt_LootAllBtn'
+local LOOT_STATUS    = 'Coopt_LootStatus'
 
-local state = {
-    available = false,    -- skin controls present in the open merchant window
-    lastProbeAt = 0,
-    lastStatusAt = 0,
-    lastStatusText = nil,
-    hintText = nil,
-    hintUntil = 0,
-    textBroken = false,   -- SetText failed; retried on next merchant open
-    wasOpen = false,
-    btn = {},             -- name -> { last, unlatchAt, expectSyntheticUntil }
+local ACTIONS_WND    = 'ActionsWindow'
+-- launcher button -> action ("cmd:" issues a slash command, otherwise a registry id)
+local ACTION_BUTTONS = {
+    { name = 'Coopt_ActUiBtn',     action = 'cmd:/itemui' },
+    { name = 'Coopt_ActBankBtn',   action = 'bank' },
+    { name = 'Coopt_ActAugBtn',    action = 'augments' },
+    { name = 'Coopt_ActUtilBtn',   action = 'augmentUtility' },
+    { name = 'Coopt_ActRerollBtn', action = 'reroll' },
+    { name = 'Coopt_ActAABtn',     action = 'aa' },
 }
 
-local function merchantOpen()
-    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
+local POLL_INTERVAL_MS   = 100
+local PROBE_INTERVAL_MS  = 2000
+local STATUS_INTERVAL_MS = 500
+local HINT_MS            = 3000
+local STATUS_MAX_CHARS   = 60
+local UNLATCH_SETTLE_MS  = 350   -- min age of a click before the cosmetic un-latch
+local UNLATCH_ECHO_MS    = 1000  -- window to swallow our own un-latch transition
+
+local lastPollAt = 0
+
+-- Per-window surface state, created lazily.
+local surfaces = {}
+
+local function surf(wnd)
+    local s = surfaces[wnd]
+    if not s then
+        s = {
+            wasOpen = false, available = false, justOpened = false,
+            lastProbeAt = 0, btn = {},
+            lastStatusText = nil, statusBroken = false, lastStatusAt = 0,
+            hintText = nil, hintUntil = 0,
+        }
+        surfaces[wnd] = s
+    end
+    return s
+end
+
+local function windowOpen(wnd)
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(wnd)
     return (w and w() ~= nil and w.Open and w.Open()) or false
 end
 
-local function child(name)
-    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
+local function child(wnd, name)
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(wnd)
     if not w or w() == nil then return nil end
     return w.Child and w.Child(name) or nil
 end
 
 -- Checked state as a real boolean, or nil when the control is absent/invalid.
-local function readChecked(name)
-    local c = child(name)
+local function readChecked(wnd, name)
+    local c = child(wnd, name)
     if not c then return nil end
     local ok, checked = pcall(function() return c.Checked() end)
     if not ok or type(checked) ~= 'boolean' then return nil end
@@ -81,28 +103,26 @@ end
 
 -- True exactly once per real user click (checkbox toggled in either direction).
 -- Also runs the deferred cosmetic un-latch when it is provably safe.
-local function consumeClick(name, now)
-    local checked = readChecked(name)
+local function consumeClick(s, wnd, name, now)
+    local checked = readChecked(wnd, name)
     if checked == nil then return false end
-    local b = state.btn[name]
+    local b = s.btn[name]
     if not b then
-        state.btn[name] = { last = checked }
+        s.btn[name] = { last = checked }
         return false
     end
     if checked == b.last then
-        -- Steady state: maybe un-latch a stale pressed look, cursor-off only.
         if checked and b.unlatchAt and now >= b.unlatchAt then
-            local c = child(name)
+            local c = child(wnd, name)
             local okOver, over = pcall(function() return c.MouseOver() end)
             if okOver and over == false then
-                mq.cmdf('/notify %s %s leftmouseup', WND, name)
+                mq.cmdf('/notify %s %s leftmouseup', wnd, name)
                 b.expectSyntheticUntil = now + UNLATCH_ECHO_MS
                 b.unlatchAt = nil
             end
         end
         return false
     end
-    -- Transition observed.
     b.last = checked
     if now < (b.expectSyntheticUntil or 0) then
         b.expectSyntheticUntil = 0 -- our own un-latch echoing back; not a click
@@ -113,37 +133,47 @@ local function consumeClick(name, now)
     return true
 end
 
-local function setStatus(text)
-    if state.textBroken then return end
+local function setStatus(s, wnd, name, text)
+    if s.statusBroken then return end
     if #text > STATUS_MAX_CHARS then text = text:sub(1, STATUS_MAX_CHARS - 3) .. "..." end
-    if text == state.lastStatusText then return end
-    local c = child(STATUS)
+    if text == s.lastStatusText then return end
+    local c = child(wnd, name)
     if not c then return end
     local ok = pcall(function() c.SetText(text)() end)
-    if not ok then state.textBroken = true; return end
-    state.lastStatusText = text
+    if not ok then s.statusBroken = true; return end
+    s.lastStatusText = text
 end
 
-local function hint(text, now)
-    state.hintText = text
-    state.hintUntil = now + HINT_MS
-    setStatus(text)
+local function hint(s, wnd, name, text, now)
+    s.hintText = text
+    s.hintUntil = now + HINT_MS
+    setStatus(s, wnd, name, text)
 end
 
--- The player's selected sell-side item, resolved against the scanned sell list.
--- Returns nil for no selection or a merchant-side (buy list) selection.
-local function selectedSellItem()
-    local m = mq.TLO and mq.TLO.Merchant
-    local sel = m and m.SelectedItem
-    if not sel or sel() == nil then return nil end
-    local okName, name = pcall(function() return sel.Name() end)
-    if not okName or not name or name == "" then return nil end
-    local items = d.sellItems
-    if not items then return nil end
-    for _, it in ipairs(items) do
-        if it.name == name then return it end
+-- Open/close + skin-presence bookkeeping shared by all surfaces.
+-- Returns false when the surface is closed or its controls are absent.
+local function refreshSurface(s, wnd, probeButton, now)
+    if not windowOpen(wnd) then
+        s.wasOpen = false
+        s.available = false
+        s.justOpened = false
+        s.lastStatusText = nil
+        s.btn = {}
+        return false
     end
-    return nil
+    s.justOpened = not s.wasOpen
+    if s.justOpened or (now - s.lastProbeAt) >= PROBE_INTERVAL_MS then
+        s.lastProbeAt = now
+        local wasAvailable = s.available
+        s.available = readChecked(wnd, probeButton) ~= nil
+        if s.justOpened or (s.available and not wasAvailable) then
+            s.lastStatusText = nil
+            s.statusBroken = false
+            s.btn = {}
+        end
+    end
+    s.wasOpen = true
+    return s.available
 end
 
 local function sellBusy()
@@ -154,53 +184,16 @@ local function sellBusy()
     return false
 end
 
-local function onAutoSell(now)
-    if sellBusy() then hint("Already selling", now); return end
-    d.uiState.autoSellRequested = true
-    hint("Starting sell...", now)
+local function lootBusy()
+    local mb = d.macroBridge
+    return (mb and mb.isLootMacroRunning and mb.isLootMacroRunning()) or false
 end
 
-local function onPreview(now)
-    -- The preview modal renders inside the CoOpt sell view, so make sure the
-    -- UI is shown and the sell list is fresh, then let the view open the popup.
-    if d.getShouldDraw and not d.getShouldDraw() then
-        if d.setShouldDraw then d.setShouldDraw(true) end
-        d.uiState.userClosedViaKeybind = false
-    end
-    if d.maybeScanSellItems then d.maybeScanSellItems(true) end
-    d.uiState.nativePreviewRequested = true
-    hint("Opening preview...", now)
-end
+---------------------------------------------------------------------------
+-- Merchant surface
+---------------------------------------------------------------------------
 
--- Mirrors the sell view's per-row Keep/Junk toggle semantics.
-local function onKeep(now)
-    local it = selectedSellItem()
-    if not it then hint("Select one of your items first", now); return end
-    if not d.applySellListChange then return end
-    if it.inKeep then
-        d.applySellListChange(it.name, false, it.inJunk and true or false)
-        hint("Keep removed: " .. it.name, now)
-    else
-        d.applySellListChange(it.name, true, false)
-        hint("Keep: " .. it.name, now)
-    end
-end
-
-local function onJunk(now)
-    local it = selectedSellItem()
-    if not it then hint("Select one of your items first", now); return end
-    if not d.applySellListChange then return end
-    if it.inJunk then
-        d.applySellListChange(it.name, it.inKeep and true or false, false)
-        hint("Junk removed: " .. it.name, now)
-    else
-        d.applySellListChange(it.name, false, true)
-        hint("Junk: " .. it.name, now)
-    end
-end
-
--- Idle summary: same counting rules as the sell view's summary line.
-local function summaryText()
+local function merchantSummary()
     local items = d.sellItems
     if not items or #items == 0 then return "CoOpt ready" end
     local keepCount, sellCount, protectCount = 0, 0, 0
@@ -212,28 +205,128 @@ local function summaryText()
     return string.format("Sell %d | Keep %d | Prot %d", sellCount, keepCount, protectCount)
 end
 
-local function updateStatus(now)
-    if (now - state.lastStatusAt) < STATUS_INTERVAL_MS then return end
-    state.lastStatusAt = now
-    if state.hintText and now < state.hintUntil then return end
-    state.hintText = nil
+local function merchantStatus(s, now)
+    if (now - s.lastStatusAt) < STATUS_INTERVAL_MS then return end
+    s.lastStatusAt = now
+    if s.hintText and now < s.hintUntil then return end
+    s.hintText = nil
     local mb = d.macroBridge
     if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
         local prog = (mb.getSellProgress and mb.getSellProgress()) or {}
         if (prog.total or 0) > 0 then
-            setStatus(string.format("Selling %d/%d", prog.current or 0, prog.total or 0))
+            setStatus(s, MERCHANT_WND, MERCHANT_STATUS, string.format("Selling %d/%d", prog.current or 0, prog.total or 0))
         else
-            setStatus("Selling...")
+            setStatus(s, MERCHANT_WND, MERCHANT_STATUS, "Selling...")
         end
         return
     end
     local sb = d.sellBatch
     if sb and sb.isRunning and sb.isRunning() then
-        setStatus("Selling...")
+        setStatus(s, MERCHANT_WND, MERCHANT_STATUS, "Selling...")
         return
     end
-    setStatus(summaryText())
+    setStatus(s, MERCHANT_WND, MERCHANT_STATUS, merchantSummary())
 end
+
+local function tickMerchant(now)
+    local s = surf(MERCHANT_WND)
+    if not refreshSurface(s, MERCHANT_WND, BTN_AUTOSELL, now) then return end
+
+    if consumeClick(s, MERCHANT_WND, BTN_AUTOSELL, now) then
+        if sellBusy() then
+            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Already selling", now)
+        else
+            d.uiState.autoSellRequested = true
+            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Starting sell...", now)
+        end
+    end
+    if consumeClick(s, MERCHANT_WND, BTN_PREVIEW, now) then
+        -- The preview modal renders inside the CoOpt sell view, so show the
+        -- UI and freshen the sell list, then let the view open the popup.
+        if d.getShouldDraw and not d.getShouldDraw() then
+            if d.setShouldDraw then d.setShouldDraw(true) end
+            d.uiState.userClosedViaKeybind = false
+        end
+        if d.maybeScanSellItems then d.maybeScanSellItems(true) end
+        d.uiState.nativePreviewRequested = true
+        hint(s, MERCHANT_WND, MERCHANT_STATUS, "Opening preview...", now)
+    end
+
+    merchantStatus(s, now)
+end
+
+---------------------------------------------------------------------------
+-- Loot surface
+---------------------------------------------------------------------------
+
+-- Mirrors main_window's loot callbacks (Loot UI open flags + macro run).
+local function runLootMacro(allCorpses)
+    local uiState = d.uiState
+    if not uiState.suppressWhenLootMac then
+        uiState.lootUIOpen = true
+        uiState.lootRunFinished = false
+        if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+    end
+    mq.cmd(allCorpses and '/macro loot' or '/macro loot current')
+end
+
+local function tryStartLoot(s, allCorpses, now, quiet)
+    if lootBusy() then
+        if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Already looting", now) end
+        return
+    end
+    if sellBusy() then
+        if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Sell in progress", now) end
+        return
+    end
+    hint(s, LOOT_WND, LOOT_STATUS, allCorpses and "Looting all..." or "Looting corpse...", now)
+    runLootMacro(allCorpses)
+end
+
+local function lootStatus(s, now)
+    if (now - s.lastStatusAt) < STATUS_INTERVAL_MS then return end
+    s.lastStatusAt = now
+    if s.hintText and now < s.hintUntil then return end
+    s.hintText = nil
+    setStatus(s, LOOT_WND, LOOT_STATUS, lootBusy() and "Looting..." or "CoOpt")
+end
+
+local function tickLoot(now)
+    local s = surf(LOOT_WND)
+    if not refreshSurface(s, LOOT_WND, BTN_LOOT_CURR, now) then return end
+
+    -- Optional: a corpse window opened by the USER starts a full rules-based
+    -- loot run. The loot macro's own window churn is excluded by lootBusy().
+    if s.justOpened and d.uiState.nativeAutoLootOnCorpse and not lootBusy() and not sellBusy() then
+        tryStartLoot(s, true, now, true)
+    end
+
+    if consumeClick(s, LOOT_WND, BTN_LOOT_CURR, now) then tryStartLoot(s, false, now, false) end
+    if consumeClick(s, LOOT_WND, BTN_LOOT_ALL, now) then tryStartLoot(s, true, now, false) end
+
+    lootStatus(s, now)
+end
+
+---------------------------------------------------------------------------
+-- Actions surface (companion launchers; no status line)
+---------------------------------------------------------------------------
+
+local function tickActions(now)
+    local s = surf(ACTIONS_WND)
+    if not refreshSurface(s, ACTIONS_WND, ACTION_BUTTONS[1].name, now) then return end
+    for _, spec in ipairs(ACTION_BUTTONS) do
+        if consumeClick(s, ACTIONS_WND, spec.name, now) then
+            local cmd = spec.action:match('^cmd:(.+)$')
+            if cmd then
+                mq.cmd(cmd)
+            else
+                registry.toggleWindow(spec.action)
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 
 function M.init(deps)
     d = deps
@@ -242,34 +335,11 @@ end
 function M.tick(now)
     if not d or not d.uiState then return end
     if d.uiState.nativeMerchantStrip == false then return end
-    if not merchantOpen() then
-        state.wasOpen = false
-        state.available = false
-        state.lastStatusText = nil
-        state.btn = {}
-        return
-    end
-    -- Probe for the skin's controls on open and periodically (covers /loadskin
-    -- while a merchant is up). Existence = pcall'd member read, never ToString.
-    if not state.wasOpen or (now - state.lastProbeAt) >= PROBE_INTERVAL_MS then
-        state.lastProbeAt = now
-        local wasAvailable = state.available
-        state.available = readChecked(BTN_AUTOSELL) ~= nil
-        if not state.wasOpen or (state.available and not wasAvailable) then
-            state.lastStatusText = nil
-            state.textBroken = false
-            state.btn = {}
-        end
-        state.wasOpen = true
-    end
-    if not state.available then return end
-
-    if consumeClick(BTN_AUTOSELL, now) then onAutoSell(now) end
-    if consumeClick(BTN_PREVIEW, now) then onPreview(now) end
-    if consumeClick(BTN_KEEP, now) then onKeep(now) end
-    if consumeClick(BTN_JUNK, now) then onJunk(now) end
-
-    updateStatus(now)
+    if (now - lastPollAt) < POLL_INTERVAL_MS then return end
+    lastPollAt = now
+    tickMerchant(now)
+    tickLoot(now)
+    tickActions(now)
 end
 
 return M
