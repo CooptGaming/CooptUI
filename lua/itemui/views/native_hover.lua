@@ -69,7 +69,12 @@ function M.render(ctx)
     if uiState.nativeItemDisplayReplace == true and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
         local wornItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = idx, source = "equipped" }, "equipped")
         if wornItem and wornItem.name then
-            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(wornItem) end
+            -- Same call shape as the equipment context menu: a minimal loc table
+            -- plus the "equipped" source, so the tab machinery does the full
+            -- enrichment (augment slots, worn totals) itself.
+            if ctx.addItemDisplayTab then
+                ctx.addItemDisplayTab({ bag = 0, slot = idx, name = wornItem.name, type = wornItem.type }, "equipped")
+            end
             if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
             uiState.nativeInspectSquashUntil = now + 1500
         end

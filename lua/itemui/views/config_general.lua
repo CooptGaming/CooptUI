@@ -100,18 +100,6 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Requires the CoOpt UI skin: /loadskin coopt. Does nothing if the skin isn't loaded.")
             ImGui.EndTooltip()
         end
-        local prevAutoLootCorpse = (uiState.nativeAutoLootOnCorpse == true)
-        local autoLootCorpse = ImGui.Checkbox("Opening a corpse starts Auto Loot", prevAutoLootCorpse)
-        if prevAutoLootCorpse ~= autoLootCorpse then
-            uiState.nativeAutoLootOnCorpse = autoLootCorpse
-            scheduleLayoutSave()
-        end
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text("When you right-click a corpse open, CoOpt immediately runs the loot macro for ALL nearby corpses")
-            ImGui.Text("using your loot rules. Ignored while the loot macro is already running. Needs the CoOpt skin loaded.")
-            ImGui.EndTooltip()
-        end
         local prevNativeHover = (uiState.nativeHoverTooltip ~= false)
         local nativeHover = ImGui.Checkbox("Native inventory hover tooltips", prevNativeHover)
         if prevNativeHover ~= nativeHover then

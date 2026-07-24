@@ -56,7 +56,7 @@ local uiState = {
     searchFilterInv = "", searchFilterBank = "",
     autoSellRequested = false, showOnlySellable = false,
     nativeMerchantStrip = true, nativePreviewRequested = false,
-    nativeAutoLootOnCorpse = false, nativeHoverTooltip = true,
+    nativeHoverTooltip = true,
     nativeItemDisplayReplace = true,
     companionWindowOpenedAt = {},
     statusMessage = "", statusMessageTime = 0,

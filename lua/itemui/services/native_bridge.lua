@@ -77,7 +77,6 @@ local CC_BUTTONS = {
 }
 
 local ITEMDISPLAY_WND = 'ItemDisplayWindow'
-local BTN_ID_AUG      = 'Coopt_IDAugBtn'
 
 local POLL_INTERVAL_MS   = 100
 local PROBE_INTERVAL_MS  = 2000
@@ -86,8 +85,6 @@ local HINT_MS            = 3000
 local STATUS_MAX_CHARS   = 60
 local UNLATCH_SETTLE_MS  = 350   -- min age of a click before the cosmetic un-latch
 local UNLATCH_ECHO_MS    = 1000  -- window to swallow our own un-latch transition
-local AUTO_LOOT_SETTLE_MS   = 600   -- let a just-opened corpse window finish its server handshake
-local AUTO_LOOT_COOLDOWN_MS = 5000  -- min gap between auto-triggered loot runs
 
 local lastPollAt = 0
 
@@ -392,28 +389,7 @@ end
 
 local function tickLoot(now)
     local s = surf(LOOT_WND)
-    if not refreshSurface(s, LOOT_WND, BTN_LOOT_ALL, now) then
-        s.autoLootAt = nil
-        return
-    end
-
-    -- Optional: a corpse window opened by the USER starts a full rules-based loot
-    -- run — after a short settle so the freshly opened window (and the server's
-    -- corpse-lock handshake) finishes first. Firing on the same tick as the open
-    -- closed the corpse mid-handshake and left it lock-latched, so the macro's
-    -- /loot failed on every corpse. The loot macro's own window churn is excluded
-    -- by lootBusy(); the cooldown prevents rapid re-fires after short runs.
-    if s.justOpened and d.uiState.nativeAutoLootOnCorpse == true and not lootBusy() and not sellBusy()
-        and now >= (s.autoLootCooldownUntil or 0) then
-        s.autoLootAt = now + AUTO_LOOT_SETTLE_MS
-    end
-    if s.autoLootAt and now >= s.autoLootAt then
-        s.autoLootAt = nil
-        if not lootBusy() and not sellBusy() then
-            s.autoLootCooldownUntil = now + AUTO_LOOT_COOLDOWN_MS
-            tryStartLoot(s, now, true)
-        end
-    end
+    if not refreshSurface(s, LOOT_WND, BTN_LOOT_ALL, now) then return end
 
     if consumeClick(s, LOOT_WND, BTN_LOOT_ALL, now) then tryStartLoot(s, now, false) end
 
@@ -470,35 +446,13 @@ local function tickCommandCenter(now)
 end
 
 ---------------------------------------------------------------------------
--- Item Display surface: Aug Utility targeted at the inspected item
+-- Item Display surface: squash-only (the redirect lives in native_hover)
 ---------------------------------------------------------------------------
 
-local function openAugUtilityForDisplayItem()
-    local ok, id = pcall(function()
-        local di = mq.TLO and mq.TLO.DisplayItem
-        return di and di.ID and tonumber(di.ID())
-    end)
-    if not ok or not id or id == 0 then
-        print('\ay[CoOpt]\ax Could not read the inspected item (is the MQ2ItemDisplay plugin loaded?).')
-        return
-    end
-    local found
-    for _, it in ipairs(d.inventoryItems or {}) do
-        if (it.id or it.ID) == id then found = it break end
-    end
-    if not found then
-        print('\ay[CoOpt]\ax Inspected item is not in your bags - open the Aug Utility from the CoOpt UI instead.')
-        return
-    end
-    if d.addItemDisplayTab then d.addItemDisplayTab(found) end
-    if not registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
-end
-
 local function tickItemDisplay(now)
-    -- Squash window: after a worn-slot inspect was redirected to the CoOpt Item
-    -- Display (native_hover sets nativeInspectSquashUntil), close the native
-    -- inspect that the same right-click opened. Runs before the skin-button
-    -- probe so it works even without the coopt skin loaded.
+    -- After a worn-slot inspect was redirected to the CoOpt Item Display
+    -- (native_hover sets nativeInspectSquashUntil), close the native inspect
+    -- that the same right-click opened. Works with or without the coopt skin.
     local squashUntil = d.uiState.nativeInspectSquashUntil
     if squashUntil then
         if now > squashUntil then
@@ -507,11 +461,6 @@ local function tickItemDisplay(now)
             pcall(function() mq.TLO.Window(ITEMDISPLAY_WND).DoClose() end)
             d.uiState.nativeInspectSquashUntil = nil
         end
-    end
-    local s = surf(ITEMDISPLAY_WND)
-    if not refreshSurface(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then return end
-    if consumeClick(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then
-        openAugUtilityForDisplayItem()
     end
 end
 
