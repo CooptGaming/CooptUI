@@ -90,6 +90,8 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightMythicals then layoutDefaults.HeightMythicals = tonumber(d.HeightMythicals) or layoutDefaults.HeightMythicals end
     if d.MythicalsWindowX then layoutDefaults.MythicalsWindowX = tonumber(d.MythicalsWindowX) or layoutDefaults.MythicalsWindowX end
     if d.MythicalsWindowY then layoutDefaults.MythicalsWindowY = tonumber(d.MythicalsWindowY) or layoutDefaults.MythicalsWindowY end
+    if d.CommandCenterWindowX then layoutDefaults.CommandCenterWindowX = tonumber(d.CommandCenterWindowX) or layoutDefaults.CommandCenterWindowX end
+    if d.CommandCenterWindowY then layoutDefaults.CommandCenterWindowY = tonumber(d.CommandCenterWindowY) or layoutDefaults.CommandCenterWindowY end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -236,6 +238,9 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightMythicals=" .. tostring(layoutConfig.HeightMythicals or layoutDefaults.HeightMythicals) .. "\n")
         f:write("MythicalsWindowX=" .. tostring(layoutConfig.MythicalsWindowX or layoutDefaults.MythicalsWindowX) .. "\n")
         f:write("MythicalsWindowY=" .. tostring(layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY) .. "\n")
+        f:write("CommandCenterWindowX=" .. tostring(layoutConfig.CommandCenterWindowX or layoutDefaults.CommandCenterWindowX) .. "\n")
+        f:write("CommandCenterWindowY=" .. tostring(layoutConfig.CommandCenterWindowY or layoutDefaults.CommandCenterWindowY) .. "\n")
+        f:write("NativeHoverTooltip=" .. (uiState.nativeHoverTooltip ~= false and "1" or "0") .. "\n")
         f:write("ItemDisplayWindowX=" .. tostring(layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX) .. "\n")
         f:write("ItemDisplayWindowY=" .. tostring(layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY) .. "\n")
         f:write("WidthItemDisplayPanel=" .. tostring(layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel) .. "\n")
@@ -408,6 +413,9 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.HeightMythicals = LayoutUtils.loadLayoutValue(layout, "HeightMythicals", layoutDefaults.HeightMythicals)
         layoutConfig.MythicalsWindowX = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowX", layoutDefaults.MythicalsWindowX)
         layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
+        layoutConfig.CommandCenterWindowX = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowX", layoutDefaults.CommandCenterWindowX)
+        layoutConfig.CommandCenterWindowY = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowY", layoutDefaults.CommandCenterWindowY)
+        uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
         layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
         layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
         layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)
@@ -530,6 +538,9 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.HeightMythicals = LayoutUtils.loadLayoutValue(layout, "HeightMythicals", layoutDefaults.HeightMythicals)
     layoutConfig.MythicalsWindowX = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowX", layoutDefaults.MythicalsWindowX)
     layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
+    layoutConfig.CommandCenterWindowX = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowX", layoutDefaults.CommandCenterWindowX)
+    layoutConfig.CommandCenterWindowY = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowY", layoutDefaults.CommandCenterWindowY)
+    uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
     layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
     layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
     layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)

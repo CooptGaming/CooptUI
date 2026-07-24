@@ -56,7 +56,7 @@ local uiState = {
     searchFilterInv = "", searchFilterBank = "",
     autoSellRequested = false, showOnlySellable = false,
     nativeMerchantStrip = true, nativePreviewRequested = false,
-    nativeAutoLootOnCorpse = false,
+    nativeAutoLootOnCorpse = false, nativeHoverTooltip = true,
     companionWindowOpenedAt = {},
     statusMessage = "", statusMessageTime = 0,
     confirmBeforeDelete = true,
@@ -78,6 +78,8 @@ do
     layoutDefaults.AugmentsWindowY = 0
     layoutDefaults.MythicalsWindowX = 0
     layoutDefaults.MythicalsWindowY = 0
+    layoutDefaults.CommandCenterWindowX = 0
+    layoutDefaults.CommandCenterWindowY = 0
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

@@ -378,16 +378,23 @@ Sub Main
     }
     
     | --- Check for nearby corpses (skip when loot current = one corpse only) ---
-    /if (!${doCurrentOnly} && ${SpawnCount[npccorpse radius 25 noalert 1]} == 0) {
+    | First pass exception: a pre-targeted corpse (native right-click handoff) may be
+    | hidecorpse-hidden, so it must be honored even if the spawn search comes up empty.
+    /if (!${doCurrentOnly} && ${SpawnCount[npccorpse radius 25 noalert 1]} == 0 && (${loopIterationCount} > 1 || !${Target.ID} || !${Target.Type.Equal[Corpse]})) {
         /call FinishLooting
         /return
     }
-    
+
     | --- Target and approach corpse ---
     /if (${doCurrentOnly}) {
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     } else {
-        /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+        | First pass only: keep a corpse the caller pre-targeted (it was opened once,
+        | so /hidecorpse looted hides it and /tar npccorpse would skip it forever).
+        | Later passes always retarget so a skipped-items corpse can't loop.
+        /if (${loopIterationCount} > 1 || !${Target.ID} || !${Target.Type.Equal[Corpse]}) {
+            /tar npccorpse${If[${Alert}, noalert ${Alert},]}
+        }
         /if (${lootVerbose}) /echo Corpses Remaining: ${SpawnCount[npccorpse radius 25 noalert 1]}
         /if (!${Target.ID} || !${Target.Type.Equal[Corpse]}) /goto :mainlootloop
     }

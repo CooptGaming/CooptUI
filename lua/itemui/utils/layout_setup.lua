@@ -50,6 +50,8 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.HeightMythicals = layoutConfig.HeightMythicals or layoutDefaults.HeightMythicals
     layoutDefaults.MythicalsWindowX = layoutConfig.MythicalsWindowX or layoutDefaults.MythicalsWindowX
     layoutDefaults.MythicalsWindowY = layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY
+    layoutDefaults.CommandCenterWindowX = layoutConfig.CommandCenterWindowX or layoutDefaults.CommandCenterWindowX
+    layoutDefaults.CommandCenterWindowY = layoutConfig.CommandCenterWindowY or layoutDefaults.CommandCenterWindowY
     layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
@@ -88,6 +90,7 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
     layoutDefaults.NativeMerchantStrip = (uiState.nativeMerchantStrip ~= false) and 1 or 0
     layoutDefaults.NativeAutoLootOnCorpse = (uiState.nativeAutoLootOnCorpse == true) and 1 or 0
+    layoutDefaults.NativeHoverTooltip = (uiState.nativeHoverTooltip ~= false) and 1 or 0
     if ImGui and ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
 
     local path = getLayoutFilePath and getLayoutFilePath()
@@ -141,6 +144,8 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightMythicals=" .. layoutDefaults.HeightMythicals .. "\n")
             f:write("MythicalsWindowX=" .. layoutDefaults.MythicalsWindowX .. "\n")
             f:write("MythicalsWindowY=" .. layoutDefaults.MythicalsWindowY .. "\n")
+            f:write("CommandCenterWindowX=" .. layoutDefaults.CommandCenterWindowX .. "\n")
+            f:write("CommandCenterWindowY=" .. layoutDefaults.CommandCenterWindowY .. "\n")
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
@@ -233,6 +238,8 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightMythicals = layoutDefaults.HeightMythicals
     layoutConfig.MythicalsWindowX = layoutDefaults.MythicalsWindowX
     layoutConfig.MythicalsWindowY = layoutDefaults.MythicalsWindowY
+    layoutConfig.CommandCenterWindowX = layoutDefaults.CommandCenterWindowX
+    layoutConfig.CommandCenterWindowY = layoutDefaults.CommandCenterWindowY
     layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
     layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel
@@ -282,6 +289,7 @@ local function layout_setup_resetLayoutToDefault()
     uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
     uiState.nativeMerchantStrip = ((layoutDefaults.NativeMerchantStrip or 1) == 1)
     uiState.nativeAutoLootOnCorpse = ((layoutDefaults.NativeAutoLootOnCorpse or 0) == 1)
+    uiState.nativeHoverTooltip = ((layoutDefaults.NativeHoverTooltip or 1) == 1)
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 

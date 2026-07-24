@@ -112,6 +112,17 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("using your loot rules. Ignored while the loot macro is already running. Needs the CoOpt skin loaded.")
             ImGui.EndTooltip()
         end
+        local prevNativeHover = (uiState.nativeHoverTooltip ~= false)
+        local nativeHover = ImGui.Checkbox("Native inventory hover tooltips", prevNativeHover)
+        if prevNativeHover ~= nativeHover then
+            uiState.nativeHoverTooltip = nativeHover
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Hovering a worn equipment slot in the game's own Inventory window shows the full CoOpt stats tooltip.")
+            ImGui.EndTooltip()
+        end
         local prevLootHist = (uiState.enableLootHistory == true)
         local lootHist = ImGui.Checkbox("Enable Loot History tab", prevLootHist)
         if prevLootHist ~= lootHist then

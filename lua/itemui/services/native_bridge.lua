@@ -282,6 +282,11 @@ local function tryStartLoot(s, now, quiet)
         return
     end
     hint(s, LOOT_WND, LOOT_STATUS, "Looting all...", now)
+    -- Target the open corpse before closing it: opening flags it "looted", and the
+    -- macro's /hidecorpse looted would hide it from /tar npccorpse - so the macro
+    -- honors a pre-targeted corpse on its first pass and loots it first.
+    local corpseId = (mq.TLO and mq.TLO.Corpse and mq.TLO.Corpse.ID and tonumber(mq.TLO.Corpse.ID())) or nil
+    if corpseId and corpseId > 0 then mq.cmdf('/target id %d', corpseId) end
     mq.cmdf('/notify %s DoneButton leftmouseup', LOOT_WND)
     local uiState = d.uiState
     if not uiState.suppressWhenLootMac then

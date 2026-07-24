@@ -250,7 +250,12 @@ local M = {}
 -- Companion windows (bank, augments, reroll, AA, settings, ...) render from the
 -- registry regardless of whether the hub window is drawn, so native-UI launchers
 -- and keybinds can open them while the hub is hidden or collapsed.
+local NativeHover = require('itemui.views.native_hover')
+
 local function renderCompanions(refs, uiState)
+    -- Native-UI hover tooltip (worn slots in the game's Inventory window). Runs on
+    -- every render path; isolated so a hover error can't take down the frame.
+    pcall(NativeHover.render, refs)
     -- ESC closes the most recently opened companion window (LIFO) no matter how it
     -- was opened (toolbar, keybind, native Actions tab) or whether the hub is drawn.
     -- The hub's own ESC branch handles the quantity picker and hub close and defers
