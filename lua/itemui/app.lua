@@ -1307,6 +1307,17 @@ local function main()
         mq.cmd('/macro loot')
     end)
     mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
+    -- Keep the tiny Command Center launcher alive (it owns the native Start/Stop
+    -- buttons, which must keep working after /lua stop itemui).
+    do
+        local ok, status = pcall(function()
+            local l = mq.TLO and mq.TLO.Lua
+            local s = l and l.Script and l.Script('coopt_launcher')
+            return s and s.Status and s.Status()
+        end)
+        local running = ok and type(status) == 'string' and status:upper() == 'RUNNING'
+        if not running then mq.cmd('/lua run coopt_launcher') end
+    end
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
         if p and p ~= "" then

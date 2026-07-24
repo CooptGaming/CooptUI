@@ -49,6 +49,7 @@ docs/*
 
 # --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
+!lua/coopt_launcher.lua
 !lua/itemui/
 !lua/scripttracker/
 !lua/coopui/

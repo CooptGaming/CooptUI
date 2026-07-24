@@ -146,10 +146,34 @@
 
 	<!-- ================= CoOpt Command Center grid ================= -->
 
+	<Button item = "Coopt_CCStartBtn">
+		<ScreenID>Coopt_CCStartBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>8</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Start CoOpt UI and ScriptTracker (handled by the coopt_launcher script)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Start CoOpt</Text>
+		<TextColor><R>120</R><G>255</G><B>120</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCStopBtn">
+		<ScreenID>Coopt_CCStopBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>8</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Stop CoOpt UI and ScriptTracker</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Stop CoOpt</Text>
+		<TextColor><R>255</R><G>140</G><B>120</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
 	<Button item = "Coopt_CCLootAllBtn">
 		<ScreenID>Coopt_CCLootAllBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>8</Y></Location>
+		<Location><X>8</X><Y>32</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Loot all nearby corpses using your loot rules (runs the loot macro)</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -161,7 +185,7 @@
 	<Button item = "Coopt_CCStopLootBtn">
 		<ScreenID>Coopt_CCStopLootBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>8</Y></Location>
+		<Location><X>182</X><Y>32</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Stop the running loot macro</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -173,7 +197,7 @@
 	<Button item = "Coopt_CCSellBtn">
 		<ScreenID>Coopt_CCSellBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>32</Y></Location>
+		<Location><X>8</X><Y>56</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Auto Sell at the open merchant (everything marked Sell)</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -185,7 +209,7 @@
 	<Button item = "Coopt_CCTrackerBtn">
 		<ScreenID>Coopt_CCTrackerBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>32</Y></Location>
+		<Location><X>182</X><Y>56</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open the ScriptTracker window (starts it if needed)</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -197,7 +221,7 @@
 	<Button item = "Coopt_CCUiBtn">
 		<ScreenID>Coopt_CCUiBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>64</Y></Location>
+		<Location><X>8</X><Y>88</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Show/hide the CoOpt UI hub</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -209,7 +233,7 @@
 	<Button item = "Coopt_CCLootUiBtn">
 		<ScreenID>Coopt_CCLootUiBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>64</Y></Location>
+		<Location><X>182</X><Y>88</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Loot UI</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -221,7 +245,7 @@
 	<Button item = "Coopt_CCEquipBtn">
 		<ScreenID>Coopt_CCEquipBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>88</Y></Location>
+		<Location><X>8</X><Y>112</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Equipment Companion</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -233,7 +257,7 @@
 	<Button item = "Coopt_CCBankBtn">
 		<ScreenID>Coopt_CCBankBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>88</Y></Location>
+		<Location><X>182</X><Y>112</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Bank Companion</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -245,7 +269,7 @@
 	<Button item = "Coopt_CCAugBtn">
 		<ScreenID>Coopt_CCAugBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>112</Y></Location>
+		<Location><X>8</X><Y>136</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Augments Companion</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -257,7 +281,7 @@
 	<Button item = "Coopt_CCMythBtn">
 		<ScreenID>Coopt_CCMythBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>112</Y></Location>
+		<Location><X>182</X><Y>136</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Mythicals Companion</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -269,7 +293,7 @@
 	<Button item = "Coopt_CCUtilBtn">
 		<ScreenID>Coopt_CCUtilBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>136</Y></Location>
+		<Location><X>8</X><Y>160</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Augment Utility</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -281,7 +305,7 @@
 	<Button item = "Coopt_CCRerollBtn">
 		<ScreenID>Coopt_CCRerollBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>136</Y></Location>
+		<Location><X>182</X><Y>160</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt Reroll Companion</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -293,7 +317,7 @@
 	<Button item = "Coopt_CCAABtn">
 		<ScreenID>Coopt_CCAABtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>8</X><Y>160</Y></Location>
+		<Location><X>8</X><Y>184</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close the CoOpt AA Browser</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -305,7 +329,7 @@
 	<Button item = "Coopt_CCSettingsBtn">
 		<ScreenID>Coopt_CCSettingsBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>160</Y></Location>
+		<Location><X>182</X><Y>184</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close CoOpt Settings</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -341,7 +365,7 @@
 		</Location>
 		<Size>
 			<CX>360</CX>
-			<CY>250</CY>
+			<CY>300</CY>
 		</Size>
 		<Text>CoOpt Command Center</Text>
 		<Style_VScroll>false</Style_VScroll>
@@ -361,6 +385,8 @@
 		<Pieces>TIP_NoShowLabel</Pieces>
 		<Pieces>TIP_NextTipButton</Pieces>
 		<Pieces>TIP_History</Pieces>
+		<Pieces>Coopt_CCStartBtn</Pieces>
+		<Pieces>Coopt_CCStopBtn</Pieces>
 		<Pieces>Coopt_CCLootAllBtn</Pieces>
 		<Pieces>Coopt_CCStopLootBtn</Pieces>
 		<Pieces>Coopt_CCSellBtn</Pieces>

@@ -91,6 +91,7 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.NativeMerchantStrip = (uiState.nativeMerchantStrip ~= false) and 1 or 0
     layoutDefaults.NativeAutoLootOnCorpse = (uiState.nativeAutoLootOnCorpse == true) and 1 or 0
     layoutDefaults.NativeHoverTooltip = (uiState.nativeHoverTooltip ~= false) and 1 or 0
+    layoutDefaults.NativeItemDisplayReplace = (uiState.nativeItemDisplayReplace ~= false) and 1 or 0
     if ImGui and ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
 
     local path = getLayoutFilePath and getLayoutFilePath()
@@ -290,6 +291,7 @@ local function layout_setup_resetLayoutToDefault()
     uiState.nativeMerchantStrip = ((layoutDefaults.NativeMerchantStrip or 1) == 1)
     uiState.nativeAutoLootOnCorpse = ((layoutDefaults.NativeAutoLootOnCorpse or 0) == 1)
     uiState.nativeHoverTooltip = ((layoutDefaults.NativeHoverTooltip or 1) == 1)
+    uiState.nativeItemDisplayReplace = ((layoutDefaults.NativeItemDisplayReplace or 1) == 1)
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 

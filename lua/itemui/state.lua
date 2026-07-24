@@ -57,6 +57,7 @@ local uiState = {
     autoSellRequested = false, showOnlySellable = false,
     nativeMerchantStrip = true, nativePreviewRequested = false,
     nativeAutoLootOnCorpse = false, nativeHoverTooltip = true,
+    nativeItemDisplayReplace = true,
     companionWindowOpenedAt = {},
     statusMessage = "", statusMessageTime = 0,
     confirmBeforeDelete = true,

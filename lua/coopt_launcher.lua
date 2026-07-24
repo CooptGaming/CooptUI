@@ -1,0 +1,128 @@
+--[[ coopt_launcher.lua - tiny always-on watcher for the native Command Center.
+
+The Command Center (the coopt skin's repurposed Tip of the Day window) has
+Start/Stop buttons that must work when itemui is NOT running - so this
+minimal script owns them, and nothing else. itemui starts this launcher
+automatically; to have the Command Center ready at login before ever
+starting CoOpt, add to your MacroQuest autoexec:  /lua run coopt_launcher
+
+Behavior:
+  - On startup, opens the Command Center window once (if the coopt skin is
+    loaded; otherwise silently does nothing until it is).
+  - Start CoOpt  -> /lua run itemui + /lua run scripttracker
+  - Stop CoOpt   -> /lua stop scripttracker + /lua stop itemui
+  - Writes the status line only while itemui is stopped (the itemui bridge
+    owns it while running).
+
+Buttons are Style_Checkbox: a click toggles Checked; any transition is one
+click. The cosmetic un-latch only fires while the cursor is off the button
+(sending it mid-click wedges EQ's mouse capture).
+]]
+
+local mq = require('mq')
+
+local WND    = 'TipWindow'
+local START  = 'Coopt_CCStartBtn'
+local STOP   = 'Coopt_CCStopBtn'
+local STATUS = 'Coopt_CCStatus'
+
+local btnLast = {}
+local lastStatusText = nil
+local openTriedAt = nil
+
+local function child(name)
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
+    if not w or w() == nil then return nil end
+    return w.Child and w.Child(name) or nil
+end
+
+local function readChecked(name)
+    local c = child(name)
+    if not c then return nil end
+    local ok, v = pcall(function() return c.Checked() end)
+    if not ok or type(v) ~= 'boolean' then return nil end
+    return v
+end
+
+-- One click = one Checked transition (either direction).
+local function clicked(name)
+    local v = readChecked(name)
+    if v == nil then return false end
+    local last = btnLast[name]
+    btnLast[name] = v
+    if last == nil then return false end
+    return v ~= last
+end
+
+-- Pop a latched button back out, but only while the cursor is off it.
+local function unlatch(name)
+    local c = child(name)
+    if not c then return end
+    local okc, v = pcall(function() return c.Checked() end)
+    if not okc or v ~= true then return end
+    local oko, over = pcall(function() return c.MouseOver() end)
+    if oko and over == false then
+        mq.cmdf('/notify %s %s leftmouseup', WND, name)
+        btnLast[name] = false -- swallow our own synthetic toggle
+    end
+end
+
+local function luaRunning(script)
+    local ok, status = pcall(function()
+        local l = mq.TLO and mq.TLO.Lua
+        local s = l and l.Script and l.Script(script)
+        return s and s.Status and s.Status()
+    end)
+    if ok and type(status) == 'string' then return status:upper() == 'RUNNING' end
+    return nil
+end
+
+local function setStatus(text)
+    if text == lastStatusText then return end
+    local c = child(STATUS)
+    if not c then return end
+    local ok = pcall(function() c.SetText(text)() end)
+    if ok then lastStatusText = text end
+end
+
+local function windowOpen()
+    local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
+    return (w and w() ~= nil and w.Open and w.Open()) or false
+end
+
+print('\ay[CoOpt Launcher]\ax Watching the Command Center Start/Stop buttons. (/lua stop coopt_launcher to end)')
+
+while true do
+    -- Open the Command Center once per session, as soon as the coopt skin's
+    -- controls exist (children are addressable even while the window is closed).
+    if not openTriedAt and readChecked(START) ~= nil then
+        openTriedAt = mq.gettime()
+        if not windowOpen() then
+            pcall(function() mq.TLO.Window(WND).DoOpen() end)
+        end
+    end
+
+    if windowOpen() then
+        if clicked(START) then
+            local itemuiUp = luaRunning('itemui')
+            if itemuiUp ~= true then mq.cmd('/lua run itemui') end
+            if luaRunning('scripttracker') ~= true then mq.cmd('/lua run scripttracker') end
+            setStatus('Starting CoOpt...')
+        end
+        if clicked(STOP) then
+            if luaRunning('scripttracker') == true then mq.cmd('/lua stop scripttracker') end
+            if luaRunning('itemui') == true then mq.cmd('/lua stop itemui') end
+            setStatus('CoOpt stopped - press Start')
+        end
+        unlatch(START)
+        unlatch(STOP)
+        -- Own the status line only while itemui is down.
+        if luaRunning('itemui') == false then
+            setStatus('CoOpt stopped - press Start')
+        else
+            lastStatusText = nil -- bridge owns it; forget our cache
+        end
+    end
+
+    mq.delay(250)
+end

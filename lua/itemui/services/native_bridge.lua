@@ -494,9 +494,32 @@ local function openAugUtilityForDisplayItem()
     if not registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
 end
 
+-- Swap the native inspect window for the CoOpt Item Display (the stock layout
+-- garbles with this server's custom item data). Only when the item is in the
+-- scanned bags; links/worn inspects keep the native window.
+local function replaceNativeItemDisplay()
+    local ok, id = pcall(function()
+        local di = mq.TLO and mq.TLO.DisplayItem
+        return di and di.ID and tonumber(di.ID())
+    end)
+    if not ok or not id or id == 0 then return false end
+    local found
+    for _, it in ipairs(d.inventoryItems or {}) do
+        if (it.id or it.ID) == id then found = it break end
+    end
+    if not found then return false end
+    if d.addItemDisplayTab then d.addItemDisplayTab(found) end
+    if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
+    pcall(function() mq.TLO.Window(ITEMDISPLAY_WND).DoClose() end)
+    return true
+end
+
 local function tickItemDisplay(now)
     local s = surf(ITEMDISPLAY_WND)
     if not refreshSurface(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then return end
+    if s.justOpened and d.uiState.nativeItemDisplayReplace == true then
+        if replaceNativeItemDisplay() then return end
+    end
     if consumeClick(s, ITEMDISPLAY_WND, BTN_ID_AUG, now) then
         openAugUtilityForDisplayItem()
     end
