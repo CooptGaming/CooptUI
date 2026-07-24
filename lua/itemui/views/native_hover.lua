@@ -20,6 +20,7 @@ local mq = require('mq')
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
+local registry = require('itemui.core.registry')
 
 local M = {}
 
@@ -59,6 +60,21 @@ function M.render(ctx)
     local idx = hoveredWornSlot()
     if not idx then hover.key = nil; return end
     local now = mq.gettime()
+
+    -- Right-click on a worn slot: open the CoOpt Item Display for that slot
+    -- instead of the native inspect (whose layout garbles on this server). We
+    -- know the slot directly, so no DisplayItem TLO or window probing is needed;
+    -- the native window that still pops is squashed by native_bridge via the
+    -- nativeInspectSquashUntil flag.
+    if uiState.nativeItemDisplayReplace == true and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+        local wornItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = idx, source = "equipped" }, "equipped")
+        if wornItem and wornItem.name then
+            if ctx.addItemDisplayTab then ctx.addItemDisplayTab(wornItem) end
+            if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
+            uiState.nativeInspectSquashUntil = now + 1500
+        end
+    end
+
     local key = 'InvSlot' .. idx
     if hover.key ~= key then
         hover.key = key

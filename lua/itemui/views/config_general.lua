@@ -124,16 +124,16 @@ function ConfigGeneral.render(ctx)
             ImGui.EndTooltip()
         end
         local prevIdReplace = (uiState.nativeItemDisplayReplace ~= false)
-        local idReplace = ImGui.Checkbox("Replace native item inspect with CoOpt Item Display", prevIdReplace)
+        local idReplace = ImGui.Checkbox("Equipped inspect opens CoOpt Item Display", prevIdReplace)
         if prevIdReplace ~= idReplace then
             uiState.nativeItemDisplayReplace = idReplace
             scheduleLayoutSave()
         end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Right-click inspecting an item in your bags closes the game's (garbled) item window and opens the")
-            ImGui.Text("CoOpt Item Display for it instead. Item links and worn inspects still use the native window.")
-            ImGui.Text("Requires the CoOpt skin (/loadskin coopt).")
+            ImGui.Text("Right-clicking a worn equipment slot in the game's own Inventory window opens the CoOpt Item Display")
+            ImGui.Text("(the native inspect garbles on this server) and closes the native window that pops.")
+            ImGui.Text("Bag items are covered by the CoOpt Inventory Companion as usual.")
             ImGui.EndTooltip()
         end
         local prevLootHist = (uiState.enableLootHistory == true)
