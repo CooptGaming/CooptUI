@@ -251,6 +251,16 @@ local M = {}
 -- registry regardless of whether the hub window is drawn, so native-UI launchers
 -- and keybinds can open them while the hub is hidden or collapsed.
 local function renderCompanions(refs, uiState)
+    -- ESC closes the most recently opened companion window (LIFO) no matter how it
+    -- was opened (toolbar, keybind, native Actions tab) or whether the hub is drawn.
+    -- The hub's own ESC branch handles the quantity picker and hub close and defers
+    -- companion closing to here so it isn't handled twice in one frame.
+    if ImGui.IsKeyPressed(ImGuiKey.Escape) and not uiState.pendingQuantityPickup then
+        local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
+        if mostRecent and refs.closeCompanionWindow then
+            refs.closeCompanionWindow(mostRecent)
+        end
+    end
     if registry.shouldDraw("equipment") then
         local now = mq.gettime()
         local shouldRefresh = false
@@ -387,10 +397,11 @@ function M.render(refs)
                 uiState.pendingQuantityPickupTimeoutAt = nil
                 uiState.quantityPickerValue = ""
             else
+                -- Companion closing is handled by renderCompanions' ESC handler (LIFO,
+                -- works with the hub hidden too); ESC here only closes the hub itself
+                -- when no companion window is open.
                 local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
-                if mostRecent then
-                    if refs.closeCompanionWindow then refs.closeCompanionWindow(mostRecent) end
-                else
+                if not mostRecent then
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)
                     uiState.welcomeSkippedThisSession = false

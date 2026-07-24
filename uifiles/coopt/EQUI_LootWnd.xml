@@ -693,30 +693,6 @@
 		</TextColor>
 	</Editbox>
 
-	<Button item="Coopt_LootCurrBtn">
-		<ScreenID>Coopt_LootCurrBtn</ScreenID>
-		<RelativePosition>true</RelativePosition>
-		<AutoStretch>true</AutoStretch>
-		<TopAnchorToTop>false</TopAnchorToTop>
-		<BottomAnchorToTop>false</BottomAnchorToTop>
-		<LeftAnchorToLeft>true</LeftAnchorToLeft>
-		<RightAnchorToLeft>true</RightAnchorToLeft>
-		<LeftAnchorOffset>2</LeftAnchorOffset>
-		<TopAnchorOffset>80</TopAnchorOffset>
-		<RightAnchorOffset>58</RightAnchorOffset>
-		<BottomAnchorOffset>56</BottomAnchorOffset>
-		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: loot THIS corpse using your loot rules</TooltipReference>
-		<Style_Checkbox>true</Style_Checkbox>
-		<Text>CoOpt Cur</Text>
-		<TextColor>
-			<R>255</R>
-			<G>255</G>
-			<B>255</B>
-		</TextColor>
-		<Template>BDT_Normal</Template>
-	</Button>
-
 	<Button item="Coopt_LootAllBtn">
 		<ScreenID>Coopt_LootAllBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
@@ -725,20 +701,20 @@
 		<BottomAnchorToTop>false</BottomAnchorToTop>
 		<LeftAnchorToLeft>true</LeftAnchorToLeft>
 		<RightAnchorToLeft>false</RightAnchorToLeft>
-		<LeftAnchorOffset>62</LeftAnchorOffset>
+		<LeftAnchorOffset>2</LeftAnchorOffset>
 		<TopAnchorOffset>80</TopAnchorOffset>
 		<RightAnchorOffset>2</RightAnchorOffset>
 		<BottomAnchorOffset>56</BottomAnchorOffset>
 		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: loot ALL nearby corpses using your loot rules (runs the loot macro)</TooltipReference>
+		<TooltipReference>CoOpt: closes this corpse and loots ALL nearby corpses using your loot rules (runs the loot macro)</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
-		<Text>CoOpt All</Text>
+		<Text>CoOpt: Loot All</Text>
 		<TextColor>
 			<R>255</R>
 			<G>255</G>
 			<B>255</B>
 		</TextColor>
-		<Template>BDT_Normal</Template>
+		<Template>BDT_BigNormal</Template>
 	</Button>
 
 	<Screen item="LootWnd">
@@ -775,7 +751,6 @@
 		<Pieces>LW_DoneButton</Pieces>
 		<Pieces>LW_LootAllButton</Pieces>
 		<Pieces>Coopt_LootStatus</Pieces>
-		<Pieces>Coopt_LootCurrBtn</Pieces>
 		<Pieces>Coopt_LootAllBtn</Pieces>
 	</Screen>
 </XML>

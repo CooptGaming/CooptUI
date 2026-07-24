@@ -39,7 +39,6 @@ local BTN_PREVIEW    = 'Coopt_PreviewBtn'
 local MERCHANT_STATUS = 'Coopt_Status'
 
 local LOOT_WND       = 'LootWnd'
-local BTN_LOOT_CURR  = 'Coopt_LootCurrBtn'
 local BTN_LOOT_ALL   = 'Coopt_LootAllBtn'
 local LOOT_STATUS    = 'Coopt_LootStatus'
 
@@ -111,7 +110,12 @@ local function consumeClick(s, wnd, name, now)
     if checked == nil then return false end
     local b = s.btn[name]
     if not b then
-        s.btn[name] = { last = checked }
+        b = { last = checked }
+        s.btn[name] = b
+        -- Already latched at first sight (window reopened mid-run, or our state was
+        -- reset while the button was pressed): stale latch, not a click — schedule
+        -- the cosmetic un-latch so it doesn't stay visually pushed in.
+        if checked then b.unlatchAt = now + UNLATCH_SETTLE_MS end
         return false
     end
     if checked == b.last then
@@ -262,18 +266,11 @@ end
 -- Loot surface
 ---------------------------------------------------------------------------
 
--- Mirrors main_window's loot callbacks (Loot UI open flags + macro run).
-local function runLootMacro(allCorpses)
-    local uiState = d.uiState
-    if not uiState.suppressWhenLootMac then
-        uiState.lootUIOpen = true
-        uiState.lootRunFinished = false
-        if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
-    end
-    mq.cmd(allCorpses and '/macro loot' or '/macro loot current')
-end
-
-local function tryStartLoot(s, allCorpses, now, quiet)
+-- Mirrors main_window's loot callbacks (Loot UI open flags + macro run), with one
+-- addition: the open corpse window is CLOSED first so the loot macro starts from
+-- its own clean state machine (target/open/loot per corpse). Launching it over an
+-- already-open corpse window confused the run and fragmented the loot session.
+local function tryStartLoot(s, now, quiet)
     if lootBusy() then
         if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Already looting", now) end
         return
@@ -282,8 +279,15 @@ local function tryStartLoot(s, allCorpses, now, quiet)
         if not quiet then hint(s, LOOT_WND, LOOT_STATUS, "Sell in progress", now) end
         return
     end
-    hint(s, LOOT_WND, LOOT_STATUS, allCorpses and "Looting all..." or "Looting corpse...", now)
-    runLootMacro(allCorpses)
+    hint(s, LOOT_WND, LOOT_STATUS, "Looting all...", now)
+    mq.cmdf('/notify %s DoneButton leftmouseup', LOOT_WND)
+    local uiState = d.uiState
+    if not uiState.suppressWhenLootMac then
+        uiState.lootUIOpen = true
+        uiState.lootRunFinished = false
+        if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+    end
+    mq.cmd('/macro loot')
 end
 
 local function lootStatus(s, now)
@@ -296,16 +300,15 @@ end
 
 local function tickLoot(now)
     local s = surf(LOOT_WND)
-    if not refreshSurface(s, LOOT_WND, BTN_LOOT_CURR, now) then return end
+    if not refreshSurface(s, LOOT_WND, BTN_LOOT_ALL, now) then return end
 
     -- Optional: a corpse window opened by the USER starts a full rules-based
     -- loot run. The loot macro's own window churn is excluded by lootBusy().
     if s.justOpened and d.uiState.nativeAutoLootOnCorpse == true and not lootBusy() and not sellBusy() then
-        tryStartLoot(s, true, now, true)
+        tryStartLoot(s, now, true)
     end
 
-    if consumeClick(s, LOOT_WND, BTN_LOOT_CURR, now) then tryStartLoot(s, false, now, false) end
-    if consumeClick(s, LOOT_WND, BTN_LOOT_ALL, now) then tryStartLoot(s, true, now, false) end
+    if consumeClick(s, LOOT_WND, BTN_LOOT_ALL, now) then tryStartLoot(s, now, false) end
 
     lootStatus(s, now)
 end
