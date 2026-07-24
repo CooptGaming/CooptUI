@@ -8,6 +8,7 @@ local mq = require('mq')
 local constants = require('itemui.constants')
 local lootFeedEvents = require('itemui.services.loot_feed_events')
 local scriptConsumeEvents = require('itemui.services.script_consume_events')
+local nativeBridge = require('itemui.services.native_bridge')
 local ItemDisplayView = require('itemui.views.item_display')
 local item_name = require('itemui.utils.item_name')
 local soundService = require('itemui.services.sound')
@@ -1726,6 +1727,7 @@ function M.init(deps)
     d = deps
     lootFeedEvents.init(d)
     scriptConsumeEvents.init(d)
+    nativeBridge.init(d)
 end
 
 function M.tick(now)
@@ -1739,6 +1741,7 @@ function M.tick(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
+    nativeBridge.tick(now)
     phase5_lootMacro(now)
     phaseEquipAction(now)
     -- Drain IPC after phase 5 so run-start clear in phase 5 doesn't wipe items we just drained

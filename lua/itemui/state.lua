@@ -55,6 +55,7 @@ local uiState = {
     resetWindowPositionsRequested = false,
     searchFilterInv = "", searchFilterBank = "",
     autoSellRequested = false, showOnlySellable = false,
+    nativeMerchantStrip = true, nativePreviewRequested = false,
     companionWindowOpenedAt = {},
     statusMessage = "", statusMessageTime = 0,
     confirmBeforeDelete = true,

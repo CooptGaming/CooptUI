@@ -87,6 +87,18 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Uncheck to keep the Loot UI closed during looting.")
             ImGui.EndTooltip()
         end
+        local prevNativeStrip = (uiState.nativeMerchantStrip ~= false)
+        local nativeStrip = ImGui.Checkbox("Native merchant strip (CoOpt skin)", prevNativeStrip)
+        if prevNativeStrip ~= nativeStrip then
+            uiState.nativeMerchantStrip = nativeStrip
+            scheduleLayoutSave()
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Drives the CoOpt buttons inside the game's own Merchant window (Auto Sell, Preview, Keep, Junk, status line).")
+            ImGui.Text("Requires the CoOpt UI skin: /loadskin coopt. Does nothing if the skin isn't loaded.")
+            ImGui.EndTooltip()
+        end
         local prevLootHist = (uiState.enableLootHistory == true)
         local lootHist = ImGui.Checkbox("Enable Loot History tab", prevLootHist)
         if prevLootHist ~= lootHist then

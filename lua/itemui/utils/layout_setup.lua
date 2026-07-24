@@ -82,6 +82,7 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.EnableLootHistory = (uiState.enableLootHistory == true) and 1 or 0
     layoutDefaults.EnableSkipHistory = (uiState.enableSkipHistory == true) and 1 or 0
     layoutDefaults.ConfirmBeforeDelete = (uiState.confirmBeforeDelete == true) and 1 or 0
+    layoutDefaults.NativeMerchantStrip = (uiState.nativeMerchantStrip ~= false) and 1 or 0
     if ImGui and ImGui.SaveIniSettingsToDisk then ImGui.SaveIniSettingsToDisk(nil) end
 
     local path = getLayoutFilePath and getLayoutFilePath()
@@ -266,6 +267,7 @@ local function layout_setup_resetLayoutToDefault()
     uiState.enableLootHistory = ((layoutDefaults.EnableLootHistory or 0) == 1)
     uiState.enableSkipHistory = ((layoutDefaults.EnableSkipHistory or 0) == 1)
     uiState.confirmBeforeDelete = ((layoutDefaults.ConfirmBeforeDelete or 1) == 1)
+    uiState.nativeMerchantStrip = ((layoutDefaults.NativeMerchantStrip or 1) == 1)
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 

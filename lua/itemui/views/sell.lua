@@ -104,6 +104,11 @@ function SellView.render(ctx, simulateSellView)
         ImGui.OpenPopup("Sell Preview##ItemUI")
     end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Dry run: list exactly what Auto Sell would sell, and why"); ImGui.EndTooltip() end
+    -- Native merchant strip (native_bridge): the skin's Preview button requests the modal from outside ImGui.
+    if ctx.uiState.nativePreviewRequested then
+        ctx.uiState.nativePreviewRequested = false
+        ImGui.OpenPopup("Sell Preview##ItemUI")
+    end
     SellView.renderSellPreviewModal(ctx)
     if not simulateSellView then
         ImGui.SameLine()
