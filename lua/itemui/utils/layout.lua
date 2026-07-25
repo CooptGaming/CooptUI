@@ -92,6 +92,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.MythicalsWindowY then layoutDefaults.MythicalsWindowY = tonumber(d.MythicalsWindowY) or layoutDefaults.MythicalsWindowY end
     if d.CommandCenterWindowX then layoutDefaults.CommandCenterWindowX = tonumber(d.CommandCenterWindowX) or layoutDefaults.CommandCenterWindowX end
     if d.CommandCenterWindowY then layoutDefaults.CommandCenterWindowY = tonumber(d.CommandCenterWindowY) or layoutDefaults.CommandCenterWindowY end
+    if d.WidthFavoritesPanel then layoutDefaults.WidthFavoritesPanel = tonumber(d.WidthFavoritesPanel) or layoutDefaults.WidthFavoritesPanel end
+    if d.HeightFavorites then layoutDefaults.HeightFavorites = tonumber(d.HeightFavorites) or layoutDefaults.HeightFavorites end
+    if d.FavoritesWindowX then layoutDefaults.FavoritesWindowX = tonumber(d.FavoritesWindowX) or layoutDefaults.FavoritesWindowX end
+    if d.FavoritesWindowY then layoutDefaults.FavoritesWindowY = tonumber(d.FavoritesWindowY) or layoutDefaults.FavoritesWindowY end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -240,6 +244,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("MythicalsWindowY=" .. tostring(layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY) .. "\n")
         f:write("CommandCenterWindowX=" .. tostring(layoutConfig.CommandCenterWindowX or layoutDefaults.CommandCenterWindowX) .. "\n")
         f:write("CommandCenterWindowY=" .. tostring(layoutConfig.CommandCenterWindowY or layoutDefaults.CommandCenterWindowY) .. "\n")
+        f:write("WidthFavoritesPanel=" .. tostring(layoutConfig.WidthFavoritesPanel or layoutDefaults.WidthFavoritesPanel) .. "\n")
+        f:write("HeightFavorites=" .. tostring(layoutConfig.HeightFavorites or layoutDefaults.HeightFavorites) .. "\n")
+        f:write("FavoritesWindowX=" .. tostring(layoutConfig.FavoritesWindowX or layoutDefaults.FavoritesWindowX) .. "\n")
+        f:write("FavoritesWindowY=" .. tostring(layoutConfig.FavoritesWindowY or layoutDefaults.FavoritesWindowY) .. "\n")
         f:write("NativeHoverTooltip=" .. (uiState.nativeHoverTooltip ~= false and "1" or "0") .. "\n")
         f:write("NativeItemDisplayReplace=" .. (uiState.nativeItemDisplayReplace ~= false and "1" or "0") .. "\n")
         f:write("ItemDisplayWindowX=" .. tostring(layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX) .. "\n")
@@ -415,6 +423,10 @@ function LayoutUtils.loadLayoutConfig()
         layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
         layoutConfig.CommandCenterWindowX = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowX", layoutDefaults.CommandCenterWindowX)
         layoutConfig.CommandCenterWindowY = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowY", layoutDefaults.CommandCenterWindowY)
+        layoutConfig.WidthFavoritesPanel = LayoutUtils.loadLayoutValue(layout, "WidthFavoritesPanel", layoutDefaults.WidthFavoritesPanel)
+        layoutConfig.HeightFavorites = LayoutUtils.loadLayoutValue(layout, "HeightFavorites", layoutDefaults.HeightFavorites)
+        layoutConfig.FavoritesWindowX = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowX", layoutDefaults.FavoritesWindowX)
+        layoutConfig.FavoritesWindowY = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowY", layoutDefaults.FavoritesWindowY)
         uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
         uiState.nativeItemDisplayReplace = LayoutUtils.loadLayoutValue(layout, "NativeItemDisplayReplace", (layoutDefaults.NativeItemDisplayReplace or 1) == 1)
         layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
@@ -540,6 +552,10 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
     layoutConfig.CommandCenterWindowX = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowX", layoutDefaults.CommandCenterWindowX)
     layoutConfig.CommandCenterWindowY = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowY", layoutDefaults.CommandCenterWindowY)
+    layoutConfig.WidthFavoritesPanel = LayoutUtils.loadLayoutValue(layout, "WidthFavoritesPanel", layoutDefaults.WidthFavoritesPanel)
+    layoutConfig.HeightFavorites = LayoutUtils.loadLayoutValue(layout, "HeightFavorites", layoutDefaults.HeightFavorites)
+    layoutConfig.FavoritesWindowX = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowX", layoutDefaults.FavoritesWindowX)
+    layoutConfig.FavoritesWindowY = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowY", layoutDefaults.FavoritesWindowY)
     uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
     uiState.nativeItemDisplayReplace = LayoutUtils.loadLayoutValue(layout, "NativeItemDisplayReplace", (layoutDefaults.NativeItemDisplayReplace or 1) == 1)
     layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)

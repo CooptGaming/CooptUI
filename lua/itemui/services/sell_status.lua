@@ -19,6 +19,10 @@ end
 function M.loadSellConfigCache()
     deps.perfCache.sellConfigCache = deps.rules.loadSellConfigCache()
     -- Reroll List protection: merge aug/mythical list IDs so willItemBeSold never sells listed items.
+    -- Favorites/Clicky-list protection: same id-set channel as the reroll lists.
+    if deps.perfCache.sellConfigCache and deps.getFavoritesProtection then
+        deps.perfCache.sellConfigCache.favoritesIdSet = deps.getFavoritesProtection()
+    end
     if deps.perfCache.sellConfigCache and deps.getRerollListProtection then
         local r = deps.getRerollListProtection()
         if r then

@@ -81,6 +81,8 @@ do
     layoutDefaults.MythicalsWindowY = 0
     layoutDefaults.CommandCenterWindowX = 0
     layoutDefaults.CommandCenterWindowY = 0
+    layoutDefaults.FavoritesWindowX = 0
+    layoutDefaults.FavoritesWindowY = 0
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

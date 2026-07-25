@@ -36,13 +36,20 @@ local function getFilteredList(ctx)
     local filtered = {}
     for i = 1, #list do
         local aa = list[i]
-        local cat = (aa.category or ""):lower()
-        if tab == 1 then
-            if cat == "" or cat == "general" or (cat ~= "archetype" and cat ~= "class" and cat ~= "special") then
+        -- Prefer the numeric Type (matches the client's own AA window tabs);
+        -- fall back to the category string for records without one.
+        local t = tonumber(aa.aatype) or 0
+        if t >= 1 and t <= 4 then
+            if t == tab then filtered[#filtered + 1] = aa end
+        else
+            local cat = (aa.category or ""):lower()
+            if tab == 1 then
+                if cat == "" or cat == "general" or (cat ~= "archetype" and cat ~= "class" and cat ~= "special") then
+                    filtered[#filtered + 1] = aa
+                end
+            elseif (tab == 2 and cat == "archetype") or (tab == 3 and cat == "class") or (tab == 4 and cat == "special") then
                 filtered[#filtered + 1] = aa
             end
-        elseif (tab == 2 and cat == "archetype") or (tab == 3 and cat == "class") or (tab == 4 and cat == "special") then
-            filtered[#filtered + 1] = aa
         end
     end
     -- Search filter

@@ -52,6 +52,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.MythicalsWindowY = layoutConfig.MythicalsWindowY or layoutDefaults.MythicalsWindowY
     layoutDefaults.CommandCenterWindowX = layoutConfig.CommandCenterWindowX or layoutDefaults.CommandCenterWindowX
     layoutDefaults.CommandCenterWindowY = layoutConfig.CommandCenterWindowY or layoutDefaults.CommandCenterWindowY
+    layoutDefaults.WidthFavoritesPanel = layoutConfig.WidthFavoritesPanel or layoutDefaults.WidthFavoritesPanel
+    layoutDefaults.HeightFavorites = layoutConfig.HeightFavorites or layoutDefaults.HeightFavorites
+    layoutDefaults.FavoritesWindowX = layoutConfig.FavoritesWindowX or layoutDefaults.FavoritesWindowX
+    layoutDefaults.FavoritesWindowY = layoutConfig.FavoritesWindowY or layoutDefaults.FavoritesWindowY
     layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
@@ -146,6 +150,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("MythicalsWindowY=" .. layoutDefaults.MythicalsWindowY .. "\n")
             f:write("CommandCenterWindowX=" .. layoutDefaults.CommandCenterWindowX .. "\n")
             f:write("CommandCenterWindowY=" .. layoutDefaults.CommandCenterWindowY .. "\n")
+            f:write("WidthFavoritesPanel=" .. layoutDefaults.WidthFavoritesPanel .. "\n")
+            f:write("HeightFavorites=" .. layoutDefaults.HeightFavorites .. "\n")
+            f:write("FavoritesWindowX=" .. layoutDefaults.FavoritesWindowX .. "\n")
+            f:write("FavoritesWindowY=" .. layoutDefaults.FavoritesWindowY .. "\n")
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
@@ -240,6 +248,10 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.MythicalsWindowY = layoutDefaults.MythicalsWindowY
     layoutConfig.CommandCenterWindowX = layoutDefaults.CommandCenterWindowX
     layoutConfig.CommandCenterWindowY = layoutDefaults.CommandCenterWindowY
+    layoutConfig.WidthFavoritesPanel = layoutDefaults.WidthFavoritesPanel
+    layoutConfig.HeightFavorites = layoutDefaults.HeightFavorites
+    layoutConfig.FavoritesWindowX = layoutDefaults.FavoritesWindowX
+    layoutConfig.FavoritesWindowY = layoutDefaults.FavoritesWindowY
     layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
     layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel

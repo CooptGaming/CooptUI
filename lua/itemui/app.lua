@@ -42,11 +42,13 @@ local LootUIView = require('itemui.views.loot_ui')
 local AugmentsView = require('itemui.views.augments')
 require('itemui.views.mythicals')  -- registers the Mythicals companion
 require('itemui.views.command_center')  -- registers the Command Center
+require('itemui.views.favorites')  -- registers the Clickies (favorites) companion
 local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
 local rerollService = require('itemui.services.reroll_service')
+local favoritesService = require('itemui.services.favorites_service')
 local MainWindow = require('itemui.views.main_window')
 local ConfigFilters = require('itemui.views.config_filters')
 
@@ -343,7 +345,11 @@ local function recordCompanionWindowOpened(name)
 end
 
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
-sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C, getRerollListProtection = function() return rerollService.getRerollListProtection() end })
+favoritesService.init({
+    getStoragePath = config.getCharStoragePath,
+    onChanged = function() events.emit(events.EVENTS.CONFIG_SELL_CHANGED) end,
+})
+sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C, getRerollListProtection = function() return rerollService.getRerollListProtection() end, getFavoritesProtection = function() return favoritesService.getProtectedIdSet() end })
 local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
 
 -- ============================================================================
@@ -1006,6 +1012,7 @@ context.init({
     getMostRecentlyOpenedCompanion = getMostRecentlyOpenedCompanionFn,
     closeCompanionWindow = closeCompanionWindowFn,
     closeAllCompanionWindows = closeAllCompanionWindows,
+    favoritesService = favoritesService,
     CharacterStats = CharacterStats,
     itemOps = itemOps,
     saveLayoutToFile = saveLayoutToFile,

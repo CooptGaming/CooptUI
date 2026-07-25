@@ -33,6 +33,8 @@ end
 
 --- Build one AA record from the global AltAbility TLO entry plus the
 --- character-specific rank/canTrain/nextIndex from Me.AltAbility(name).
+local AA_TYPE_NAMES = { [1] = "General", [2] = "Archetype", [3] = "Class", [4] = "Special" }
+
 local function buildRecord(aa, id, name)
     local Me = mq.TLO and mq.TLO.Me
     local rank, canTrain, index, nextIndex, myReuseTime = 0, false, 0, 0, 0
@@ -46,13 +48,25 @@ local function buildRecord(aa, id, name)
             myReuseTime = (myAA.MyReuseTime and myAA.MyReuseTime()) or 0
         end
     end
+    -- Tab placement comes from the numeric Type field (1 General, 2 Archetype,
+    -- 3 Class, 4 Special) - the same field the client's AA window uses. The
+    -- Category STRING is a live-EQ dbstr lookup that is empty on the emu, which
+    -- is why everything used to land in the General tab.
+    local aatype = 0
+    if aa.Type then
+        local okType, t = pcall(function() return tonumber(aa.Type()) end)
+        if okType and t then aatype = t end
+    end
+    local catStr = (aa.Category and aa.Category()) or ""
+    if catStr == "" then catStr = AA_TYPE_NAMES[aatype] or "" end
     return {
         name = name,
         id = id,
         rank = rank,
         maxRank = (aa.MaxRank and aa.MaxRank()) or 0,
         cost = (aa.Cost and aa.Cost()) or 0,
-        category = (aa.Category and aa.Category()) or "",
+        aatype = aatype,
+        category = catStr,
         canTrain = canTrain,
         index = index,
         nextIndex = nextIndex,

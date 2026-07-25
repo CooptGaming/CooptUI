@@ -290,6 +290,8 @@ local function willItemBeSold(itemData, cache)
     -- Reroll List protection layer: items on aug or mythical reroll list must never be sold (by ID only;
     -- name matching removed because same-name-different-ID items are common on EQEmu servers).
     if cfg.rerollListIdSet and itemData.id and cfg.rerollListIdSet[itemData.id] then return false, "RerollList" end
+    -- Favorites/Clicky-list protection: listed items must never be sold (by ID only).
+    if cfg.favoritesIdSet and itemData.id and cfg.favoritesIdSet[itemData.id] then return false, "Favorites" end
     -- Step 1: NoDrop
     if (cfg.protectNoDrop ~= false) and itemData.nodrop then return false, "NoDrop" end
     -- Step 2: NoTrade

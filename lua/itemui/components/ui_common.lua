@@ -250,6 +250,34 @@ function M.renderItemContextMenu(ctx, item, opts)
         if ctx.addItemDisplayTab then ctx.addItemDisplayTab(item, source) end
     end
 
+    -- Clicky Lists (favorites): toggle membership per list. Items on any list are
+    -- protected from selling and from Delete until removed.
+    do
+        local fav = ctx.favoritesService
+        local favItemId = tonumber(item.id or item.ID)
+        if fav and favItemId then
+            if ImGui.BeginMenu("Clicky Lists") then
+                local favLists = fav.getLists()
+                if #favLists == 0 then
+                    ImGui.MenuItem("(create lists in the Clickies window)", nil, false, false)
+                else
+                    local containing = fav.listsContaining(favItemId)
+                    for _, l in ipairs(favLists) do
+                        local on = containing[l.name] == true
+                        if ImGui.MenuItem(l.name, nil, on) then
+                            if on then
+                                fav.removeItem(l.name, favItemId)
+                            else
+                                fav.addItem(l.name, favItemId, item.name or "")
+                            end
+                        end
+                    end
+                end
+                ImGui.EndMenu()
+            end
+        end
+    end
+
     -- Move to Bank / Move to Inventory
     if (source == "inv" or source == "sell" or source == "augments") and bankOpen and ctx.moveInvToBank and item.bag and item.slot then
         ImGui.Separator()
@@ -487,7 +515,17 @@ function M.renderItemContextMenu(ctx, item, opts)
 
     -- Destroy
     local canDestroy = (source == "inv" or source == "bank" or source == "sell" or source == "augments" or source == "reroll") and item.bag ~= nil and item.slot ~= nil
-    if canDestroy and ctx.setPendingDestroy and ctx.requestDestroyItem then
+    -- Favorites protection: listed items can't be deleted until removed from their lists.
+    local favProtected = ctx.favoritesService and ctx.favoritesService.isProtected(tonumber(item.id or item.ID)) or false
+    if canDestroy and favProtected then
+        ImGui.Separator()
+        ImGui.MenuItem("Delete (on a Clicky List)", nil, false, false)
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("This item is on a Clicky List. Remove it from the list (Clickies window) to delete it.")
+            ImGui.EndTooltip()
+        end
+    elseif canDestroy and ctx.setPendingDestroy and ctx.requestDestroyItem then
         ImGui.Separator()
         ImGui.Dummy(ImVec2(0, 6))
         ctx.theme.PushDeleteButton()
