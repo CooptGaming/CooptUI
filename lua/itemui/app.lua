@@ -49,6 +49,7 @@ local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
 local rerollService = require('itemui.services.reroll_service')
 local favoritesService = require('itemui.services.favorites_service')
+local skinSync = require('itemui.services.skin_sync')
 local MainWindow = require('itemui.views.main_window')
 local ConfigFilters = require('itemui.views.config_filters')
 
@@ -539,6 +540,11 @@ itemOps.init({
 -- Mirror the reroll id set into the C++ plugin so its rule ladders apply
 -- RerollList protection too (the plugin never parses reroll files itself).
 -- No-op when the plugin is absent or predates setRerollIds.
+-- NOTE: favorites/clicky-list ids must NOT be merged into this push. These ids
+-- mean loot-SKIP in the loot ladder (see rules.lua shouldItemBeLooted), and a
+-- favorited stackable (potions etc.) must keep looting. Favorites sell
+-- protection is Lua-side: willItemBeSold + the UI-written sell cache. (sell.mac
+-- fallback mode knows neither reroll nor favorites ids - shared, known hole.)
 local function pushRerollIdsToPlugin()
     local plug = coopuiPlugin and coopuiPlugin.getPlugin and coopuiPlugin.getPlugin()
     if not (plug and plug.setRerollIds) then return end
@@ -1314,8 +1320,28 @@ local function main()
         mq.cmd('/macro loot')
     end)
     mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
+    -- Native skin bootstrap: /loadskin loads from the EQ client's own uifiles
+    -- folder, but releases only write under the MQ root - sync the skin over
+    -- whenever it's missing or stale (and clean up retired skin files).
+    do
+        local ok, res = pcall(skinSync.sync)
+        if ok and res then
+            local parts = {}
+            if #res.copied > 0 then
+                parts[#parts + 1] = string.format("%d file%s %s", #res.copied, #res.copied == 1 and "" or "s",
+                    res.freshInstall and "installed" or "updated")
+            end
+            if #res.removed > 0 then
+                parts[#parts + 1] = string.format("%d retired file%s removed", #res.removed, #res.removed == 1 and "" or "s")
+            end
+            print(string.format("\ay[CoOpt UI]\ax CoOpt skin synced to EverQuest\\uifiles\\coopt (%s). Use /loadskin coopt to (re)load it.",
+                table.concat(parts, ", ")))
+        end
+    end
     -- Keep the tiny Command Center launcher alive (it owns the native Start/Stop
-    -- buttons, which must keep working after /lua stop itemui).
+    -- buttons, which must keep working after /lua stop itemui). Only start it when
+    -- the script actually exists - an install patched before the launcher shipped
+    -- would otherwise get a red "script not found" error at every itemui start.
     do
         local ok, status = pcall(function()
             local l = mq.TLO and mq.TLO.Lua
@@ -1323,7 +1349,18 @@ local function main()
             return s and s.Status and s.Status()
         end)
         local running = ok and type(status) == 'string' and status:upper() == 'RUNNING'
-        if not running then mq.cmd('/lua run coopt_launcher') end
+        if not running then
+            local luaDir = mq.TLO.Lua and mq.TLO.Lua.Dir and mq.TLO.Lua.Dir()
+            if not luaDir or luaDir == '' then
+                local mqp = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
+                luaDir = mqp and (tostring(mqp):gsub('[\\/]+$', '') .. '\\lua') or nil
+            end
+            local lf = luaDir and io.open(tostring(luaDir):gsub('[\\/]+$', '') .. '\\coopt_launcher.lua', 'r') or nil
+            if lf then
+                lf:close()
+                mq.cmd('/lua run coopt_launcher')
+            end
+        end
     end
     do
         local p = mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()

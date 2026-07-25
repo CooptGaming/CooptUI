@@ -39,9 +39,19 @@ try {
 
     Copy-Item -Path (Join-Path $RepoRoot "lua\scripttracker") -Destination (Join-Path $luaDest "scripttracker") -Recurse -Force
     Copy-Item -Path (Join-Path $RepoRoot "lua\coopui") -Destination (Join-Path $luaDest "coopui") -Recurse -Force
+    Copy-Item -Path (Join-Path $RepoRoot "lua\coopt_launcher.lua") -Destination (Join-Path $luaDest "coopt_launcher.lua") -Force
     $mqDest = Join-Path $luaDest "mq"
     New-Item -ItemType Directory -Path $mqDest -Force | Out-Null
     Copy-Item -Path (Join-Path $RepoRoot "lua\mq\ItemUtils.lua") -Destination (Join-Path $mqDest "ItemUtils.lua") -Force
+
+    # uifiles\coopt: native EQ skin. Ships under the MQ root; itemui's skin_sync
+    # copies it into the EQ client's uifiles folder at runtime.
+    $skinSrc = Join-Path $RepoRoot "uifiles\coopt"
+    if (Test-Path $skinSrc) {
+        $skinDest = Join-Path $Staging "uifiles\coopt"
+        New-Item -ItemType Directory -Path $skinDest -Force | Out-Null
+        Copy-Item -Path "$skinSrc\*" -Destination $skinDest -Force
+    }
 
     # Macros: sell.mac, loot.mac, shared_config/*.mac only
     $macrosDest = Join-Path $Staging "Macros"

@@ -418,13 +418,16 @@ end
 
 function M.tick(now)
     if not d or not d.uiState then return end
-    if d.uiState.nativeMerchantStrip == false then return end
     if (now - lastPollAt) < POLL_INTERVAL_MS then return end
     lastPollAt = now
+    -- The inspect-redirect squash belongs to nativeItemDisplayReplace (checked
+    -- in native_hover, which sets the flag) - it must keep working when the
+    -- native strips master toggle is off or the skin isn't loaded at all.
+    tickItemDisplay(now)
+    if d.uiState.nativeMerchantStrip == false then return end
     tickMerchant(now)
     tickActions(now)
     tickCommandCenter(now)
-    tickItemDisplay(now)
 end
 
 return M

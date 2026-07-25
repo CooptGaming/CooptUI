@@ -1353,8 +1353,10 @@ local function phase8b_pendingRerollAdd(now)
                 else
                     -- Item not in bags. In the bank: keep pending with a clear
                     -- reason. Owned nowhere (sold/rolled/consumed): drop it from
-                    -- pending so it can't stay stuck forever. The ownership check
-                    -- only auto-removes when the inventory scan actually ran.
+                    -- pending so it can't stay stuck forever. Auto-remove only
+                    -- when the inventory scan actually ran AND we have bank
+                    -- knowledge (live or cached) - a banked item on a character
+                    -- whose bank was never scanned must not be cleared blind.
                     local function idInList(list)
                         for _, b in ipairs(list or {}) do
                             if (b.id or b.ID) == entry.id then return true end
@@ -1362,12 +1364,13 @@ local function phase8b_pendingRerollAdd(now)
                         return false
                     end
                     local inBank = idInList(bankItems) or idInList(d.bankCache)
+                    local bankKnown = (bankItems and #bankItems > 0) or (d.bankCache and #d.bankCache > 0)
                     sync.failedCount = (sync.failedCount or 0) + 1
                     local fi = sync.failedItems or {}
                     if inBank then
                         fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "In bank - move to bags to sync" }
                         if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s is in the bank)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
-                    elseif #inventoryItems > 0 then
+                    elseif #inventoryItems > 0 and bankKnown then
                         rerollService.removeFromPending(sync.list, entry.id)
                         fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not owned - cleared from pending" }
                         if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not owned - cleared from pending)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end

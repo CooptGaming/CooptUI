@@ -95,7 +95,15 @@ end
 function M.pump()
     if not build then return end
     local AltAbility = mq.TLO and mq.TLO.AltAbility
-    if not AltAbility then build = nil; return end
+    if not AltAbility then
+        -- No TLO: record a completed-empty scan so shouldRefresh doesn't
+        -- retrigger a doomed rebuild every frame the AA view is open.
+        aaList = {}
+        lastFingerprint = buildFingerprint()
+        lastRefreshTime = mq.gettime()
+        build = nil
+        return
+    end
     local upper = math.min(build.cursor + IDS_PER_PUMP - 1, MAX_AA_ID)
     for i = build.cursor, upper do
         local aa = AltAbility(i)
@@ -124,13 +132,15 @@ function M.getList()
     return aaList
 end
 
---- True if cache is empty or fingerprint changed (caller should refresh).
---- Never true while a rebuild is already running.
+--- True if we have never scanned or the fingerprint changed (caller should
+--- refresh). Never true while a rebuild is already running. An EMPTY completed
+--- scan is a legitimate result (low-level character, no AA data): it must wait
+--- for a fingerprint change like any other, or the full id-space scan would
+--- retrigger in a loop for as long as the AA view is open.
 function M.shouldRefresh()
     if build then return false end
-    local fp = buildFingerprint()
-    if #aaList == 0 then return true end
-    return fp ~= lastFingerprint
+    if #aaList == 0 and lastRefreshTime == 0 then return true end
+    return buildFingerprint() ~= lastFingerprint
 end
 
 --- Return points summary for right panel (thin wrapper around Me.*).

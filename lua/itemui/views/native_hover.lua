@@ -12,6 +12,11 @@
     Idle cost is one Window.Open check per frame while the tooltip is enabled;
     the slot pipeline only runs with the Inventory window open.
 
+    Also hosts the equipped-inspect redirect (right-click a worn slot opens
+    the CoOpt Item Display; native_bridge squashes the native window). The
+    tooltip (nativeHoverTooltip) and the redirect (nativeItemDisplayReplace)
+    are independent toggles - either works with the other disabled.
+
     v1 scope: worn slots only. Bag/bank slot contents are template-cloned
     controls without distinct names, so those need the plugin's help later.
 --]]
@@ -48,7 +53,12 @@ end
 
 function M.render(ctx)
     local uiState = ctx.uiState
-    if uiState.nativeHoverTooltip == false then return end
+    -- Two independent features share the worn-slot detection: the hover stats
+    -- tooltip and the inspect redirect. Each honors only its own toggle -
+    -- turning tooltips off must not silently kill the redirect (or vice versa).
+    local tooltipOn = uiState.nativeHoverTooltip ~= false
+    local redirectOn = uiState.nativeItemDisplayReplace == true
+    if not tooltipOn and not redirectOn then return end
     -- Never fight CoOpt's own ImGui tooltips: skip while the cursor is over ImGui.
     local overImGui = false
     pcall(function()
@@ -66,7 +76,7 @@ function M.render(ctx)
     -- know the slot directly, so no DisplayItem TLO or window probing is needed;
     -- the native window that still pops is squashed by native_bridge via the
     -- nativeInspectSquashUntil flag.
-    if uiState.nativeItemDisplayReplace == true and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+    if redirectOn and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
         local wornItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = idx, source = "equipped" }, "equipped")
         if wornItem and wornItem.name then
             -- Same call shape as the equipment context menu: a minimal loc table
@@ -79,6 +89,7 @@ function M.render(ctx)
             uiState.nativeInspectSquashUntil = now + 1500
         end
     end
+    if not tooltipOn then hover.key = nil; return end
 
     local key = 'InvSlot' .. idx
     if hover.key ~= key then

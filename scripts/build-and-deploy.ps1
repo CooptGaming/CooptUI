@@ -641,7 +641,22 @@ if (Test-Path $mqLuaSrc) {
     if (-not (Test-Path $mqLuaDst)) { New-Item -ItemType Directory -Path $mqLuaDst -Force | Out-Null }
     Copy-Item $mqLuaSrc -Destination (Join-Path $mqLuaDst "ItemUtils.lua") -Force
 }
-Write-Host "    Copied Lua modules (itemui, coopui, scripttracker, mq/ItemUtils)"
+$launcherSrc = Join-Path $CoOptUIRepo "lua\coopt_launcher.lua"
+if (Test-Path $launcherSrc) {
+    Copy-Item $launcherSrc -Destination (Join-Path $luaDst "coopt_launcher.lua") -Force
+}
+Write-Host "    Copied Lua modules (itemui, coopui, scripttracker, mq/ItemUtils, coopt_launcher)"
+
+# uifiles\coopt: native EQ skin. Deployed under the MQ root; itemui's skin_sync
+# copies it into the EQ client's uifiles folder at runtime.
+$skinSrc = Join-Path $CoOptUIRepo "uifiles\coopt"
+if (Test-Path $skinSrc) {
+    $skinDst = Join-Path $DeployPath "uifiles\coopt"
+    if (Test-Path $skinDst) { Remove-Item $skinDst -Recurse -Force }
+    New-Item -ItemType Directory -Path $skinDst -Force | Out-Null
+    Copy-Item "$skinSrc\*" -Destination $skinDst -Force
+    Write-Host "    Copied uifiles\coopt (native skin)"
+}
 
 # Macros
 $macrosDst = Join-Path $DeployPath "Macros"
@@ -736,12 +751,13 @@ FOLDER STRUCTURE (do not move files)
   MacroQuest.exe, mono-2.0-sgen.dll  (root)
   config\MacroQuest.ini
   plugins\MQ2Mono.dll, MQ2CoOptUI.dll, ...
-  lua\itemui, lua\coopui, lua\scripttracker, lua\mq
+  lua\itemui, lua\coopui, lua\scripttracker, lua\mq, lua\coopt_launcher.lua
   Macros\sell.mac, loot.mac, shared_config\
   mono\macros\e3\   (E3Next)
   config\e3 Bot Inis\   (place E3 bot INIs here)
   config\e3 Macro Inis\
   resources\UIFiles\Default\
+  uifiles\coopt\   (native EQ skin; itemui copies it into the EQ client at runtime)
 "@
 Set-Content $readmePath $readmeContent -NoNewline
 Write-Host "    Wrote README.txt (included in zip)"
@@ -825,9 +841,11 @@ $checks = @(
     @{ Path = "plugins\MQ2Mono.dll";         Label = "MQ2Mono plugin" }
     @{ Path = "config\MacroQuest.ini";       Label = "MacroQuest config" }
     @{ Path = "lua\itemui\init.lua";         Label = "CoOpt UI Lua" }
+    @{ Path = "lua\coopt_launcher.lua";      Label = "Command Center launcher" }
     @{ Path = "mono\macros\e3\E3.dll";       Label = "E3Next" }
     @{ Path = "mono-2.0-sgen.dll";           Label = "Mono runtime" }
     @{ Path = "resources\UIFiles\Default\EQUI.xml"; Label = "UI resources" }
+    @{ Path = "uifiles\coopt\EQUI_TipWnd.xml"; Label = "CoOpt native skin" }
 )
 
 Write-Host "  Deployment check:"

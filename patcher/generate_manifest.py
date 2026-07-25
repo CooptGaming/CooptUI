@@ -31,7 +31,10 @@ def _read_coopt_version() -> str:
 
 # Paths to include (relative to repo root). Mirrors build-release.ps1 replace-on-update list.
 # We collect lua/itemui (excluding docs, upvalue_check), scripttracker, coopui, mq/ItemUtils,
-# Macros sell.mac loot.mac shared_config/*.mac, resources/UIFiles/Default (3 files).
+# lua/coopt_launcher.lua, Macros sell.mac loot.mac shared_config/*.mac,
+# resources/UIFiles/Default (3 files), and uifiles/coopt (the native EQ skin - installed
+# under the MQ root; lua/itemui/services/skin_sync.lua copies it into the EQ client's
+# uifiles folder at runtime, since the patcher only knows the MQ root).
 def _collect_release_paths():
     paths = []
     # lua/itemui (exclude dev-only)
@@ -64,6 +67,16 @@ def _collect_release_paths():
     mq_utils = os.path.join(REPO_ROOT, "lua", "mq", "ItemUtils.lua")
     if os.path.isfile(mq_utils):
         paths.append("lua/mq/ItemUtils.lua")
+    # lua/coopt_launcher.lua (standalone Command Center watcher, autostarted by itemui)
+    launcher = os.path.join(REPO_ROOT, "lua", "coopt_launcher.lua")
+    if os.path.isfile(launcher):
+        paths.append("lua/coopt_launcher.lua")
+    # uifiles/coopt - native EQ skin (skin_sync.lua mirrors it into the EQ dir at runtime)
+    coopt_skin = os.path.join(REPO_ROOT, "uifiles", "coopt")
+    if os.path.isdir(coopt_skin):
+        for f in sorted(os.listdir(coopt_skin)):
+            if os.path.isfile(os.path.join(coopt_skin, f)):
+                paths.append(f"uifiles/coopt/{f}")
     # Macros
     for name in ("sell.mac", "loot.mac"):
         p = os.path.join(REPO_ROOT, "Macros", name)
