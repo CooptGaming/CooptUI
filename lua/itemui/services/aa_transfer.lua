@@ -282,7 +282,11 @@ function M.parseBackup(path)
         if not f then error("cannot open " .. tostring(path)) end
         for line in f:lines() do
             line = line:match("^%s*(.-)%s*$")
-            if line:match("^%[([^%]]+)%]") then
+            -- Section header ONLY when the whole line is [Name]. Perky's
+            -- rebirth-class AAs are named "[Berserker] Decapitation" etc. -
+            -- an unanchored match ate the first such line as a section switch
+            -- and silently dropped it and everything after it.
+            if line:match("^%[([^%]]+)%]%s*$") then
                 section = line:match("^%[([^%]]+)%]")
             elseif section == "Meta" and line:find("=") then
                 local k, v = line:match("^([^=]+)=(.*)$")
@@ -382,6 +386,19 @@ end
 
 --- Plan an import: entries needing ranks, total ranks, and the AA-point cost
 --- (exact when the plugin cost map is available). Pure - buys nothing.
+--- Last-resort group id: the GLOBAL TLO's name branch is table-wide and
+--- ownership-independent - covers AAs the browser's visible list excludes
+--- (e.g. rebirth-class lines) in exports that predate [AAIds].
+local function gidByName(name)
+    local ok, id = pcall(function()
+        local ga = mq.TLO.AltAbility and mq.TLO.AltAbility(name)
+        return ga and ga.ID and ga.ID()
+    end)
+    id = ok and tonumber(id) or nil
+    if id and id > 0 then return id end
+    return nil
+end
+
 local function planImport(aas, nameIds, nameRecs)
     local plan = { queue = {}, ranks = 0, cost = 0, exact = false, skippedAuto = 0 }
     nameIds = nameIds or {}
@@ -399,10 +416,10 @@ local function planImport(aas, nameIds, nameRecs)
         if entry.name:match("^Rebirth ") then
             plan.skippedAuto = plan.skippedAuto + 1
         else
-            -- Group id: current scan first, the export's own [AAIds] as
-            -- fallback. Never the character-side TLO - post-reset it
-            -- resolves nothing.
-            local gid = nameIds[entry.name] or entry.id
+            -- Group id: current scan first, the export's own [AAIds], then a
+            -- global-TLO name probe. Never the character-side TLO - post-
+            -- reset it resolves nothing.
+            local gid = nameIds[entry.name] or entry.id or gidByName(entry.name)
             local cur = curRankFor(gid, entry.name)
             if entry.rank > cur then
                 plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur, gid = gid }
@@ -469,9 +486,13 @@ function M.startImport(path, force)
         say("Scanning AA tables - click Import again in a moment")
         return false
     end
-    local aas, err = M.parseBackup(path)
-    if not aas then say("Import failed: " .. tostring(err)) return false end
+    local aas, meta = M.parseBackup(path)
+    if not aas then say("Import failed: " .. tostring(meta)) return false end
     if #aas == 0 then say("No AAs in file") return false end
+    local metaTotal = tonumber(meta and meta.TotalAAs) or 0
+    if metaTotal > 0 and #aas < metaTotal then
+        say(string.format("Warning: parsed %d of %d file entries", #aas, metaTotal))
+    end
     local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
     local have = myPoints()
@@ -561,8 +582,13 @@ function M.armOrStartImport()
         say("Scanning AA tables - click Import again in a moment")
         return
     end
-    local aas, err = M.parseBackup(path)
-    if not aas then say("Import failed: " .. tostring(err)) return end
+    local aas, meta = M.parseBackup(path)
+    if not aas then say("Import failed: " .. tostring(meta)) return end
+    local metaTotal = tonumber(meta and meta.TotalAAs) or 0
+    if metaTotal > 0 and #aas < metaTotal then
+        say(string.format("Warning: parsed %d of %d file entries", #aas, metaTotal))
+        return
+    end
     local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
     local have = myPoints()
