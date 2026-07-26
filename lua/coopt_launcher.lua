@@ -30,6 +30,18 @@ local btnLast = {}
 local lastStatusText = nil
 local openTriedAt = nil
 
+-- MQ2CoOptUI window API when present: direct SetCheck un-latch (state write,
+-- no synthetic click, no capture involvement). One-shot detection; the
+-- MouseOver-gated /notify path below stays as the pluginless fallback.
+local plugWin = nil
+do
+    local ok, mod = pcall(require, 'plugin.MQ2CoOptUI')
+    if ok and type(mod) == 'table' and type(mod.window) == 'table'
+        and type(mod.window.setChecked) == 'function' then
+        plugWin = mod.window
+    end
+end
+
 local function child(name)
     local w = mq.TLO and mq.TLO.Window and mq.TLO.Window(WND)
     if not w or w() == nil then return nil end
@@ -54,12 +66,19 @@ local function clicked(name)
     return v ~= last
 end
 
--- Pop a latched button back out, but only while the cursor is off it.
+-- Pop a latched button back out. Plugin: immediate direct state write.
+-- Fallback: synthetic click, only while the cursor is off the button.
 local function unlatch(name)
     local c = child(name)
     if not c then return end
     local okc, v = pcall(function() return c.Checked() end)
     if not okc or v ~= true then return end
+    if plugWin then
+        if plugWin.setChecked(WND, name, false) then
+            btnLast[name] = false -- state write only; nothing echoes back
+        end
+        return
+    end
     local oko, over = pcall(function() return c.MouseOver() end)
     if oko and over == false then
         mq.cmdf('/notify %s %s leftmouseup', WND, name)

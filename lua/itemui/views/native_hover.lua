@@ -1,24 +1,26 @@
 --[[
-    Native hover - CoOpt item tooltip over the game's OWN Inventory window.
+    Native hover - CoOpt item tooltip over the game's OWN windows.
 
-    While the native Inventory window is open, hovering a worn equipment slot
-    (InvSlot0..InvSlot22) shows the full CoOpt stats tooltip (same renderer as
-    the Equipment Companion / Item Display), so MacroQuest-enriched data reads
-    directly off the native UI.
+    Hovering a native item slot shows the full CoOpt stats tooltip (same
+    renderer as the companions / Item Display), so MacroQuest-enriched data
+    reads directly off the native UI.
 
-    Detection: ${EverQuest.LastMouseOver} names the window under the cursor;
-    a name matching InvSlot<N> is verified against the Inventory window's own
-    child (MouseOver) so same-named controls elsewhere can't false-positive.
-    Idle cost is one Window.Open check per frame while the tooltip is enabled;
-    the slot pipeline only runs with the Inventory window open.
+    Slot detection has two tiers:
+      - MQ2CoOptUI window API present: EVERY real inv slot resolves - worn,
+        bag, and bank contents - via plugin.window.getMouseOverSlot(), which
+        reads CInvSlotMgr directly. Bag/bank slot windows are nameless
+        template clones (invisible to the Window TLO), but each is registered
+        with the slot manager and carries its item location.
+      - Fallback (no plugin): worn slots only. ${EverQuest.LastMouseOver}
+        names the window under the cursor; a name matching InvSlot<N> is
+        verified against the Inventory window's own child (MouseOver) so
+        same-named controls elsewhere can't false-positive.
 
     Also hosts the equipped-inspect redirect (right-click a worn slot opens
     the CoOpt Item Display; native_bridge squashes the native window). The
     tooltip (nativeHoverTooltip) and the redirect (nativeItemDisplayReplace)
-    are independent toggles - either works with the other disabled.
-
-    v1 scope: worn slots only. Bag/bank slot contents are template-cloned
-    controls without distinct names, so those need the plugin's help later.
+    are independent toggles - either works with the other disabled. The
+    redirect stays worn-only: bag items belong to the Inventory Companion.
 --]]
 
 local mq = require('mq')
@@ -26,8 +28,18 @@ require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local registry = require('itemui.core.registry')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
+
+-- One-shot capability detection (same pattern as the plugin loader).
+local pwCache
+local function plugWindow()
+    if pwCache ~= nil then return pwCache or nil end
+    local w = coopuiPlugin.getWindow()
+    pwCache = (w and type(w.getMouseOverSlot) == 'function') and w or false
+    return pwCache or nil
+end
 
 local DWELL_MS = 250
 local hover = { key = nil, since = 0 }
@@ -66,24 +78,42 @@ function M.render(ctx)
         overImGui = (io and io.WantCaptureMouse) or false
     end)
     if overImGui then hover.key = nil; return end
-
-    local idx = hoveredWornSlot()
-    if not idx then hover.key = nil; return end
     local now = mq.gettime()
+
+    -- Resolve the hovered native slot to (source, bag, slot). Plugin tier:
+    -- worn + bags + bank. Fallback tier: worn only. Top-level inv/bank slots
+    -- (slot 0: loose items, the bags themselves) can't resolve through the
+    -- item TLO pipeline, so they are skipped.
+    local src, bag, slotIdx
+    local pw = plugWindow()
+    if pw then
+        local s = pw.getMouseOverSlot()
+        if s and s.source then
+            if s.source == "equipped" then
+                src, bag, slotIdx = "equipped", 0, s.slot
+            elseif (s.slot or 0) > 0 then
+                src, bag, slotIdx = s.source, s.bag, s.slot
+            end
+        end
+    else
+        local idx = hoveredWornSlot()
+        if idx then src, bag, slotIdx = "equipped", 0, idx end
+    end
+    if not src then hover.key = nil; return end
 
     -- Right-click on a worn slot: open the CoOpt Item Display for that slot
     -- instead of the native inspect (whose layout garbles on this server). We
     -- know the slot directly, so no DisplayItem TLO or window probing is needed;
     -- the native window that still pops is squashed by native_bridge via the
     -- nativeInspectSquashUntil flag.
-    if redirectOn and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
-        local wornItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = idx, source = "equipped" }, "equipped")
+    if redirectOn and src == "equipped" and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+        local wornItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = slotIdx, source = "equipped" }, "equipped")
         if wornItem and wornItem.name then
             -- Same call shape as the equipment context menu: a minimal loc table
             -- plus the "equipped" source, so the tab machinery does the full
             -- enrichment (augment slots, worn totals) itself.
             if ctx.addItemDisplayTab then
-                ctx.addItemDisplayTab({ bag = 0, slot = idx, name = wornItem.name, type = wornItem.type }, "equipped")
+                ctx.addItemDisplayTab({ bag = 0, slot = slotIdx, name = wornItem.name, type = wornItem.type }, "equipped")
             end
             if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
             uiState.nativeInspectSquashUntil = now + 1500
@@ -91,7 +121,7 @@ function M.render(ctx)
     end
     if not tooltipOn then hover.key = nil; return end
 
-    local key = 'InvSlot' .. idx
+    local key = src .. '_' .. tostring(bag) .. '_' .. tostring(slotIdx)
     if hover.key ~= key then
         hover.key = key
         hover.since = now
@@ -99,15 +129,11 @@ function M.render(ctx)
     end
     if (now - hover.since) < DWELL_MS then return end
 
-    local it = mq.TLO.Me and mq.TLO.Me.Inventory and mq.TLO.Me.Inventory(idx)
-    if not it or it() == nil then return end
-    local okId, id = pcall(function() return it.ID() end)
-    if not okId or not id or tonumber(id) == 0 then return end
-
-    -- Same pipeline as the Equipment Companion's hover (stat prewarm + cache).
-    local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = idx, source = "equipped" }, "equipped")) or nil
+    -- Same pipeline as the companions' hover (stat prewarm + cache). An empty
+    -- or unresolvable slot yields no name and renders nothing.
+    local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = bag, slot = slotIdx, source = src }, src)) or nil
     if not showItem or not showItem.name then return end
-    local opts = { source = "equipped", bag = 0, slot = idx }
+    local opts = { source = src, bag = bag, slot = slotIdx }
     local effects, tw, th = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
     opts.effects = effects
     ItemTooltip.beginItemTooltip(tw or (constants.UI and constants.UI.TOOLTIP_MIN_WIDTH) or 340, th or (constants.UI and constants.UI.TOOLTIP_MIN_HEIGHT) or 200)

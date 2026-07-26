@@ -27,10 +27,22 @@
 
 local mq = require('mq')
 local registry = require('itemui.core.registry')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
 
 local d -- main_loop deps table, set by init()
+
+-- Plugin window API (direct SetCheck / SetWindowText - state writes, no
+-- synthetic input, so no capture wedge and no echo to swallow). One-shot
+-- capability detection per session, same pattern as the plugin loader.
+local pwCache
+local function plugWindow()
+    if pwCache ~= nil then return pwCache or nil end
+    local w = coopuiPlugin.getWindow()
+    pwCache = (w and type(w.setChecked) == 'function' and type(w.setText) == 'function') and w or false
+    return pwCache or nil
+end
 
 -- Control names: must match the uifiles/coopt window XMLs
 local MERCHANT_WND   = 'MerchantWnd'
@@ -131,9 +143,17 @@ local function consumeClick(s, wnd, name, now)
         b = { last = checked }
         s.btn[name] = b
         -- Already latched at first sight (window reopened mid-run, or our state was
-        -- reset while the button was pressed): stale latch, not a click — schedule
-        -- the cosmetic un-latch so it doesn't stay visually pushed in.
-        if checked then b.unlatchAt = now + UNLATCH_SETTLE_MS end
+        -- reset while the button was pressed): stale latch, not a click. With the
+        -- plugin, pop it out right now via a direct state write; otherwise schedule
+        -- the deferred cosmetic un-latch so it doesn't stay visually pushed in.
+        if checked then
+            local pw = plugWindow()
+            if pw and pw.setChecked(wnd, name, false) then
+                b.last = false
+            else
+                b.unlatchAt = now + UNLATCH_SETTLE_MS
+            end
+        end
         return false
     end
     if checked == b.last then
@@ -154,7 +174,19 @@ local function consumeClick(s, wnd, name, now)
         b.unlatchAt = nil
         return false
     end
-    b.unlatchAt = checked and (now + UNLATCH_SETTLE_MS) or nil
+    if checked then
+        local pw = plugWindow()
+        if pw and pw.setChecked(wnd, name, false) then
+            -- Direct un-latch: bChecked write only. Nothing echoes back and no
+            -- click can be in progress conflict-wise, so no settle delay needed.
+            b.last = false
+            b.unlatchAt = nil
+        else
+            b.unlatchAt = now + UNLATCH_SETTLE_MS
+        end
+    else
+        b.unlatchAt = nil
+    end
     return true
 end
 
@@ -162,6 +194,12 @@ local function setStatus(s, wnd, name, text)
     if s.statusBroken then return end
     if #text > STATUS_MAX_CHARS then text = text:sub(1, STATUS_MAX_CHARS - 3) .. "..." end
     if text == s.lastStatusText then return end
+    local pw = plugWindow()
+    if pw then
+        -- Plugin SetWindowText works on labels too, not just EditBoxes.
+        if pw.setText(wnd, name, text) then s.lastStatusText = text end
+        return
+    end
     local c = child(wnd, name)
     if not c then return end
     local ok = pcall(function() c.SetText(text)() end)
