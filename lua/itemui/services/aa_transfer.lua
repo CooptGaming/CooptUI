@@ -35,6 +35,10 @@ local exportPending = false
 local imp = nil            -- active import state
 local armed = nil          -- { path, until, ranks, cost, exact }
 local statusLine = "CoOpt: Export saves your AAs"
+-- Stamped by the chat event when the server refuses a training request -
+-- lets the stepper fail an in-flight buy instantly instead of waiting out
+-- the 2s verify timeout (x2 retries, x2 passes) per refused line.
+local lastUnableAt = 0
 -- File button selection (native window): newest-first backup list.
 local fileList = nil       -- { { path=, name= }, ... }
 local fileIdx = 1
@@ -572,7 +576,7 @@ local function finishImport()
     -- pass 1 exists. Unresolvable/unbuyable entries would fail identically.
     local function retryable(f)
         return f.reason and (f.reason:match("^buy timed out") or f.reason:match("^prereq not met")
-            or f.reason:match("^burst stalled")) ~= nil
+            or f.reason:match("^burst stalled") or f.reason:match("^server refused")) ~= nil
     end
     if imp.pass == 1 then
         local retryQueue = {}
@@ -660,6 +664,7 @@ local function tickImport(now)
                     entry.burstIds = ids
                     entry.burstPos = 1
                     entry.burstStart = cur
+                    entry.burstT0 = now
                     imp.phase = "burst"
                     statusLine = string.format("Buying %s %d..%d", entry.name, cur + 1, entry.target)
                     return
@@ -686,20 +691,26 @@ local function tickImport(now)
         end
     elseif imp.phase == "burstverify" then
         local cur = myRank(entry.name)
+        -- Server refusal announced in chat during/after this burst: settle
+        -- briefly, then finalize from the actual rank - no timeout wait.
+        local refused = lastUnableAt >= (entry.burstT0 or 0)
+            and (now - math.max(imp.buyAt, lastUnableAt)) > 600
         if cur >= entry.target then
             imp.doneRanks = imp.doneRanks + (entry.target - entry.burstStart)
             imp.idx = imp.idx + 1
             imp.retries = 0
             imp.phase = "begin"
             statusLine = string.format("Importing %d/%d...", imp.doneRanks, imp.totalRanks)
-        elseif (now - imp.buyAt) > (1500 + 100 * #entry.burstIds) then
-            -- Credit whatever landed; the stalled remainder goes to pass 2's
-            -- careful per-rank lane.
+        elseif refused or (now - imp.buyAt) > (1500 + 100 * #entry.burstIds) then
+            -- Credit whatever landed; the remainder goes to pass 2's careful
+            -- per-rank lane (a hard server gate will just refuse fast again).
             if cur > entry.burstStart then
                 imp.doneRanks = imp.doneRanks + (cur - entry.burstStart)
             end
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur,
-                reason = string.format("burst stalled at rank %d/%d", cur, entry.target) }
+            local reason = refused
+                and string.format("server refused training at rank %d/%d", cur, entry.target)
+                or string.format("burst stalled at rank %d/%d", cur, entry.target)
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = reason }
             imp.idx = imp.idx + 1
             imp.retries = 0
             imp.phase = "begin"
@@ -712,6 +723,13 @@ local function tickImport(now)
             imp.phase = "begin"
             imp.nextActionAt = now + BUY_PACE_MS
             statusLine = string.format("Importing %d/%d...", imp.doneRanks, imp.totalRanks)
+        elseif lastUnableAt >= imp.buyAt and (now - lastUnableAt) > 250 then
+            -- The server said no in chat: fail this entry now, no timeout.
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur,
+                reason = string.format("server refused training at rank %d", imp.expectRank) }
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            imp.phase = "begin"
         elseif (now - imp.buyAt) > BUY_TIMEOUT_MS then
             imp.retries = imp.retries + 1
             if imp.retries >= 2 then
@@ -773,6 +791,13 @@ end
 
 function M.init(d)
     deps = d or {}
+    -- Server refusal line ("Unable to train in ability.") -> instant fail
+    -- for the in-flight buy. Registered once; main_loop pumps mq.doevents.
+    pcall(function()
+        mq.event('cooptAAUnable', '#*#Unable to train in ability#*#', function()
+            lastUnableAt = mq.gettime()
+        end)
+    end)
 end
 
 return M
