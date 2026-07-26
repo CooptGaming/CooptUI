@@ -4,7 +4,7 @@
 
 For **EverQuest emulator** players using **MacroQuest2**. One set of windows, one set of rules. Set what to keep or sell in the UI, and the auto-sell and auto-loot macros use those same rules.
 
-`v0.9.7` · Windows · MacroQuest2
+`v0.9.8` · Windows · MacroQuest2
 
 ---
 
@@ -29,6 +29,16 @@ For **EverQuest emulator** players using **MacroQuest2**. One set of windows, on
 **Auto Sell** — At a merchant, one command sells everything that matches your “junk” rules. Your keep lists and epic/valuable protection are respected. A **Preview** button shows exactly what would sell (and why) before you commit.
 
 **Auto Loot** — Loots corpses using your rules (value, types, always-loot and never-loot lists). Lore items are checked so you don’t grab duplicates.
+
+**Effects** — All buffs, songs, and auras in one compact window: timers, hit counts, right-click to remove.
+
+**Clickies** — Lists of your clicky items (mounts, illusions, buffs) with one-click activation. Listed items are protected from selling and deleting.
+
+**Mythics** — Every mythical you own in one list, with quick reroll-list actions.
+
+**Command Center** — One-stop control panel: status, Loot All / Auto Sell / ScriptTracker buttons, and launchers for every CoOpt window.
+
+**Native game-window integration (optional skin)** — Install the CoOpt skin (Settings → General, then `/loadskin coopt`) and the game's own windows grow CoOpt controls: Auto Sell + Preview in the Merchant window, a CoOpt launcher tab in the Actions window, a native Command Center (`/itemui center`), Export/Import in the native AA window, and full CoOpt tooltips when hovering native inventory slots.
 
 **ScriptTracker** — Separate small window that tracks AA scripts (Lost Memories, Planar Power, etc.) in your inventory and shows total AA value.
 
@@ -81,14 +91,15 @@ In-game, `/lua run` should work. If it doesn’t, CoOpt UI won’t run.
 
 | Command | What it does |
 |--------|----------------|
-| `/itemui` or `/inv` | Open/close the main window |
+| `/itemui` or `/inv` | Open/close the main window (default keybind Shift+Q) |
 | `/dosell` | Auto-sell at a merchant (merchant must be open) |
 | `/doloot` | Auto-loot corpses |
-| `/scripttracker` | Open/close ScriptTracker |
+| `/st` | Open/close ScriptTracker |
 | `/itemui config` | Open Settings |
 | `/itemui setup` | Run the setup wizard again |
+| `/itemui center` | Open the native Command Center (requires `/loadskin coopt`) |
 
-Other windows (Bank, Equipment, Augments, AA, Reroll, Item Display, Settings) open from buttons on the main window. The Loot window opens automatically when you run `/doloot` (you can turn that off in Settings).
+Other windows (Bank, Equipment, Augments, AA, Reroll, Effects, Clickies, Mythics, Item Display, Settings) open from buttons on the main window or the Command Center. The Loot window opens automatically when you run `/doloot` (you can turn that off in Settings).
 
 ---
 
@@ -96,7 +107,9 @@ Other windows (Bank, Equipment, Augments, AA, Reroll, Item Display, Settings) op
 
 | Link | What’s in it |
 |------|----------------|
+| [Player guide](docs/PRODUCT_GUIDE.md) | **Start here** — every feature, first-time setup, workflows, commands |
 | [Install guide](docs/INSTALL.md) | Step-by-step install, updating, migrating from SellUI |
+| [Default settings](docs/DEFAULT_SETTINGS.md) | What a fresh install does out of the box, and why |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems and fixes |
 | [Changelog](CHANGELOG.md) | What changed in each version |
 

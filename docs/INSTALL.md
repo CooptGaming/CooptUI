@@ -169,12 +169,15 @@ MacroQuest2/
 | Command | Description |
 |---------|-------------|
 | `/lua run itemui` | Load ItemUI |
-| `/itemui` or `/inv` or `/inventoryui` | Toggle ItemUI window |
+| `/itemui` or `/inv` or `/inventoryui` | Toggle ItemUI window (default keybind Shift+Q) |
 | `/itemui show` | Show window |
 | `/itemui hide` | Hide window |
+| `/itemui center` | Open the native Command Center (requires `/loadskin coopt`) |
 | `/itemui refresh` | Refresh inventory/bank/sell data |
-| `/itemui setup` | Enter setup mode (resize panels) |
-| `/itemui config` | Open config window |
+| `/itemui setup` | Run the 13-step setup wizard |
+| `/itemui onboarding` | Show the first-run welcome again |
+| `/itemui config` | Open Settings |
+| `/itemui sell legacy` / `/itemui sell lua` | Force a specific sell engine |
 | `/itemui exit` (or `quit`, `unload`) | Unload ItemUI |
 | `/itemui help` | Show command help |
 
@@ -183,7 +186,11 @@ MacroQuest2/
 | Command | Description |
 |---------|-------------|
 | `/lua run scripttracker` | Load ScriptTracker |
-| `/scripttracker` | Toggle ScriptTracker window |
+| `/st` | Toggle ScriptTracker window (`/st show`, `/st hide`, `/st refresh`) |
+
+### Optional native skin
+
+The release ships a `uifiles/coopt` skin under your MacroQuest folder. It is **not** copied into EverQuest until you opt in: Settings → General → Features → **Install skin**, then `/loadskin coopt` in-game. This adds CoOpt controls to the Merchant window, an Actions-window CoOpt tab, the native Command Center (`/itemui center`), and Export/Import buttons on the native AA window. Remove with `/loadskin default` and deleting `uifiles\coopt` from your EQ folder.
 
 ### Macros
 
