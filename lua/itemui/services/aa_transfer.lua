@@ -214,6 +214,14 @@ local function doExportNow()
                 f:write(aa.name .. "=" .. tostring(aa.rank) .. "\n")
             end
         end
+        -- Group ids as an import-resolution fallback (names are primary;
+        -- ids survive if a name lookup ever fails against a fresh scan).
+        f:write("[AAIds]\n")
+        for _, aa in ipairs(list) do
+            if aa.rank and aa.rank > 0 and aa.name and aa.id then
+                f:write(aa.name .. "=" .. tostring(aa.id) .. "\n")
+            end
+        end
         f:close()
     end)
     if ok then
@@ -228,8 +236,10 @@ end
 --- Parse / files ----------------------------------------------------------
 
 --- Parse an aa_*.ini backup. Returns entries array, meta table (or nil, err).
+--- Newer exports carry an optional [AAIds] section (name=groupId); when
+--- present the ids are attached to the entries as a resolution fallback.
 function M.parseBackup(path)
-    local meta, aas = {}, {}
+    local meta, aas, ids = {}, {}, {}
     local section = nil
     local ok, err = pcall(function()
         local f = io.open(path, "r")
@@ -248,12 +258,31 @@ function M.parseBackup(path)
                     rank = tonumber(rank:match("^%s*(.-)%s*$"))
                     if name ~= "" and rank and rank > 0 then aas[#aas + 1] = { name = name, rank = rank } end
                 end
+            elseif section == "AAIds" and line:find("=") then
+                local name, id = line:match("^([^=]+)=(.*)$")
+                if name and id then
+                    name = name:match("^%s*(.-)%s*$")
+                    id = tonumber(id:match("^%s*(.-)%s*$"))
+                    if name ~= "" and id then ids[name] = id end
+                end
             end
         end
         f:close()
     end)
     if not ok then return nil, err end
+    for _, e in ipairs(aas) do e.id = ids[e.name] end
     return aas, meta
+end
+
+--- name -> groupId for every AA the browser scan knows (ownership-
+--- INDEPENDENT - this is the global table, so it resolves post-reset when
+--- Me.AltAbility(name) can't: that TLO only finds abilities you own).
+local function buildNameIdMap()
+    local map = {}
+    for _, r in ipairs((deps.getAAList and deps.getAAList()) or {}) do
+        if r.name and r.id then map[r.name] = r.id end
+    end
+    return map
 end
 
 --- Rebuild the newest-first backup list for this character. Sort by the
@@ -312,8 +341,9 @@ end
 
 --- Plan an import: entries needing ranks, total ranks, and the AA-point cost
 --- (exact when the plugin cost map is available). Pure - buys nothing.
-local function planImport(aas)
+local function planImport(aas, nameIds)
     local plan = { queue = {}, ranks = 0, cost = 0, exact = false, skippedAuto = 0 }
+    nameIds = nameIds or {}
     local costs = nil
     local pa = plugAA()
     if pa and type(pa.getGroupRankCosts) == 'function' then
@@ -330,20 +360,20 @@ local function planImport(aas)
         else
             local cur = myRank(entry.name)
             if entry.rank > cur then
-                plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur }
+                -- Group id: current scan first, the export's own [AAIds] as
+                -- fallback. Never the character-side TLO - post-reset it
+                -- resolves nothing.
+                local gid = nameIds[entry.name] or entry.id
+                plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur, gid = gid }
                 plan.ranks = plan.ranks + (entry.rank - cur)
-                if costs then
-                    local aa = myAA(entry.name)
-                    local okId, gid = pcall(function() return aa and aa.ID and aa.ID() end)
-                    local groupCosts = (okId and gid) and costs[gid] or nil
-                    if groupCosts then
-                        for r = cur + 1, entry.rank do
-                            local c = tonumber(groupCosts[r])
-                            if c then plan.cost = plan.cost + c else plan.exact = false end
-                        end
-                    else
-                        plan.exact = false
+                local groupCosts = (costs and gid) and costs[gid] or nil
+                if groupCosts then
+                    for r = cur + 1, entry.rank do
+                        local c = tonumber(groupCosts[r])
+                        if c then plan.cost = plan.cost + c else plan.exact = false end
                     end
+                else
+                    plan.exact = false
                 end
             end
         end
@@ -359,10 +389,18 @@ end
 function M.startImport(path, force)
     if imp then say("Import already running") return false end
     if exportPending then say("Export running - wait for it") return false end
+    -- The global AA scan is the resolver for unowned names; without it the
+    -- whole import would misreport. Kick a scan and ask for a re-click.
+    local nameIds = buildNameIdMap()
+    if next(nameIds) == nil then
+        if deps.refreshAA then deps.refreshAA() end
+        say("Scanning AA tables - click Import again in a moment")
+        return false
+    end
     local aas, err = M.parseBackup(path)
     if not aas then say("Import failed: " .. tostring(err)) return false end
     if #aas == 0 then say("No AAs in file") return false end
-    local plan = planImport(aas)
+    local plan = planImport(aas, nameIds)
     if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
     local have = myPoints()
     if plan.exact and plan.cost > have and not force then
@@ -381,6 +419,29 @@ function M.startImport(path, force)
         pass = 1, skippedAuto = plan.skippedAuto or 0,
     }
     return true
+end
+
+--- Buy id for one missing rank. Owned AAs: the character-side NextIndex
+--- (id of the next rank's entry). Unowned (post-reset): Me.AltAbility can't
+--- see them, so resolve the group through the GLOBAL table - its first
+--- entry is rank 1 and its Index is the same id currency /alt buy takes
+--- (NextIndex is literally NextGroupAbilityId).
+local function resolveBuyId(entry)
+    local aa = myAA(entry.name)
+    if aa and aa() ~= nil then
+        local okN, nextIdx = pcall(function() return aa.NextIndex and aa.NextIndex() end)
+        nextIdx = okN and tonumber(nextIdx) or nil
+        if nextIdx and nextIdx > 0 then return nextIdx end
+        return nil, "no trainable next rank (auto-granted?)"
+    end
+    if not entry.gid then return nil, "name not in AA tables" end
+    local okI, idx = pcall(function()
+        local ga = mq.TLO.AltAbility and mq.TLO.AltAbility(entry.gid)
+        return ga and ga.Index and ga.Index()
+    end)
+    idx = okI and tonumber(idx) or nil
+    if idx and idx > 0 then return idx end
+    return nil, "group id not in AA tables"
 end
 
 --- Native-button flow: first click reports what WOULD happen, second click
@@ -405,9 +466,15 @@ function M.armOrStartImport()
         path, fname = M.findLatestBackup()
     end
     if not path then say("No aa_*.ini export found for this character") return end
+    local nameIds = buildNameIdMap()
+    if next(nameIds) == nil then
+        if deps.refreshAA then deps.refreshAA() end
+        say("Scanning AA tables - click Import again in a moment")
+        return
+    end
     local aas, err = M.parseBackup(path)
     if not aas then say("Import failed: " .. tostring(err)) return end
-    local plan = planImport(aas)
+    local plan = planImport(aas, nameIds)
     if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
     local have = myPoints()
     if plan.exact and plan.cost > have then
@@ -514,25 +581,14 @@ local function tickImport(now)
             imp.retries = 0
             return
         end
-        local aa = myAA(entry.name)
-        if not aa or aa() == nil then
-            -- Name doesn't resolve for this character at all: an entry from
-            -- an old unfiltered export (system/other-class AA). Unbuyable.
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "name not resolvable" }
+        local buyId, why = resolveBuyId(entry)
+        if not buyId then
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = why or "unresolvable" }
             imp.idx = imp.idx + 1
             imp.retries = 0
             return
         end
-        local okN, nextIdx = pcall(function() return aa.NextIndex and aa.NextIndex() end)
-        nextIdx = okN and tonumber(nextIdx) or nil
-        if not nextIdx or nextIdx <= 0 then
-            -- No purchasable next rank: auto-granted/innate or blocked line.
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "no trainable next rank (auto-granted?)" }
-            imp.idx = imp.idx + 1
-            imp.retries = 0
-            return
-        end
-        mq.cmd("/alt buy " .. tostring(nextIdx))
+        mq.cmd("/alt buy " .. tostring(buyId))
         imp.expectRank = cur + 1
         imp.buyAt = now
         imp.phase = "verify"
