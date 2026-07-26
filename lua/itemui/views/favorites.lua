@@ -37,11 +37,34 @@ local function getInvById(ctx)
     return invCache.byId
 end
 
+-- id -> { item, slotIndex } for WORN items (epics etc. live in worn slots).
+-- Time-throttled: the equipment cache refresh is cheap when nothing changed
+-- (~23 ID reads), but there is no identity key to invalidate on, so rebuild
+-- at most once a second while the window renders.
+local wornCache = { at = 0, byId = {} }
+
+local function getWornById(ctx)
+    local now = mq.gettime()
+    if (now - wornCache.at) < 1000 then return wornCache.byId end
+    wornCache.at = now
+    if ctx.refreshEquipmentCache then ctx.refreshEquipmentCache() end
+    local byId = {}
+    local eq = ctx.equipmentCache or {}
+    for slotIndex = 0, 22 do
+        local it = eq[slotIndex + 1]
+        local id = it and tonumber(it.id or it.ID)
+        if id and not byId[id] then byId[id] = { item = it, slotIndex = slotIndex } end
+    end
+    wornCache.byId = byId
+    return byId
+end
+
 local function renderListRows(ctx, fav, list)
     local invById = getInvById(ctx)
+    local wornById = getWornById(ctx)
     local hasCursor = ctx.hasItemOnCursor()
     if #list.items == 0 then
-        ctx.theme.TextMuted("Empty. Right-click an item in the Inventory Companion and use Clicky Lists > " .. list.name .. ".")
+        ctx.theme.TextMuted("Empty. Right-click an item in the Inventory or Equipment Companion and use Clicky Lists > " .. list.name .. ".")
         return
     end
     if not ImGui.BeginTable("ClickyList_" .. list.name, 5, ctx.uiState.tableFlags or 0) then return end
@@ -55,16 +78,20 @@ local function renderListRows(ctx, fav, list)
 
     for i, entry in ipairs(list.items) do
         local item = invById[entry.id]
+        local worn = (not item) and wornById[entry.id] or nil
         ImGui.TableNextRow()
         ImGui.PushID("clicky_" .. list.name .. "_" .. tostring(entry.id) .. "_" .. i)
 
-        -- Icon (hover = full stats when the item is in bags)
+        -- Icon (hover = full stats when the item is in bags or worn)
         ImGui.TableNextColumn()
-        if item and ctx.drawItemIcon then
-            ctx.drawItemIcon(item.icon)
+        local iconItem = item or (worn and worn.item)
+        if iconItem and ctx.drawItemIcon then
+            ctx.drawItemIcon(iconItem.icon)
             if ImGui.IsItemHovered() then
-                local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item, "inv")) or item
-                local opts = { source = "inv", bag = item.bag, slot = item.slot }
+                local src = item and "inv" or "equipped"
+                local loc = item and { bag = item.bag, slot = item.slot } or { bag = 0, slot = worn.slotIndex }
+                local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(item or { bag = 0, slot = worn.slotIndex, source = "equipped" }, src)) or iconItem
+                local opts = { source = src, bag = loc.bag, slot = loc.slot }
                 local effects, tw, th = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                 opts.effects = effects
                 ItemTooltip.beginItemTooltip(tw, th)
@@ -86,18 +113,26 @@ local function renderListRows(ctx, fav, list)
             if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and not hasCursor then
                 ctx.pickupFromSlot(item.bag, item.slot, "inv")
             end
+        elseif worn then
+            ImGui.Text((worn.item.name or entry.name or "") .. "  (worn)")
         else
-            ctx.theme.TextMuted((entry.name or ("ID " .. tostring(entry.id))) .. "  (not in bags)")
+            ctx.theme.TextMuted((entry.name or ("ID " .. tostring(entry.id))) .. "  (not in bags or worn)")
         end
 
         -- Clicky effect + cooldown state
         ImGui.TableNextColumn()
         local onCooldown = false
-        if item then
-            local cid = ctx.getItemSpellId(item, "Clicky") or 0
+        local rowItem = item or (worn and worn.item)
+        if rowItem then
+            local cid = ctx.getItemSpellId(rowItem, "Clicky") or 0
             if cid > 0 then
                 local spellName = ctx.getSpellName(cid) or "Unknown"
-                local timerReady = ctx.getTimerReady(item.bag, item.slot)
+                local timerReady
+                if item then
+                    timerReady = ctx.getTimerReady(item.bag, item.slot)
+                else
+                    timerReady = ctx.getTimerReady(0, worn.slotIndex, "equipped")
+                end
                 onCooldown = (timerReady and timerReady > 0) or false
                 if onCooldown then
                     ctx.theme.TextError(string.format("%s (%ds)", spellName, math.ceil(timerReady)))
@@ -111,18 +146,24 @@ local function renderListRows(ctx, fav, list)
             ctx.theme.TextMuted("-")
         end
 
-        -- Use (right-click activate in-game)
+        -- Use (right-click activate in-game; worn items activate from their slot)
         ImGui.TableNextColumn()
-        local usable = item ~= nil and not onCooldown
+        local usable = rowItem ~= nil and not onCooldown
         ctx.theme.PushKeepButton(not usable)
         if ImGui.Button("Use", ImVec2(44, 0)) and usable then
-            mq.cmdf('/itemnotify in pack%d %d rightmouseup', item.bag, item.slot)
+            if item then
+                mq.cmdf('/itemnotify in pack%d %d rightmouseup', item.bag, item.slot)
+            else
+                local slotName = ctx.getEquipmentSlotNameForItemNotify and ctx.getEquipmentSlotNameForItemNotify(worn.slotIndex)
+                if slotName then mq.cmdf('/itemnotify %s rightmouseup', slotName) end
+            end
         end
         ctx.theme.PopButtonColors()
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            if not item then ImGui.Text("Item is not in your bags.")
+            if not rowItem then ImGui.Text("Item is not in your bags or worn.")
             elseif onCooldown then ImGui.Text("On cooldown.")
+            elseif worn then ImGui.Text("Activate this worn item's clicky effect.")
             else ImGui.Text("Activate this item's clicky effect.") end
             ImGui.EndTooltip()
         end
@@ -171,6 +212,7 @@ function FavoritesView.render(ctx)
     registry.setWindowState("favorites", winOpen, winOpen)
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "favorites") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()

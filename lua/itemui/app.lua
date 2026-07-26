@@ -839,8 +839,10 @@ local function lootCompanionCleanup(closedId)
     uiState.lootRunBestItemValue = 0
 end
 
-local function getMostRecentlyOpenedCompanionFn()
-    return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end)
+-- excludePinned: ESC's LIFO close passes true so Locked windows stay up;
+-- deliberate close-all paths (Shift+Q, /itemui hide, hub X) leave it false.
+local function getMostRecentlyOpenedCompanionFn(excludePinned)
+    return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end, excludePinned)
 end
 
 local function closeCompanionWindowFn(name)
@@ -910,6 +912,7 @@ context.init({
     renderRefreshButton = function(ctx, id, tooltip, onRefresh, opts) return ui_common.renderRefreshButton(ctx, id, tooltip, onRefresh, opts) end,
     getSellStatusNameColor = function(ctx, item) return ui_common.getSellStatusNameColor(ctx, item) end,
     renderItemContextMenu = function(ctx, item, opts) return ui_common.renderItemContextMenu(ctx, item, opts) end,
+    renderWindowLock = function(ctx, id) return ui_common.renderWindowLock(ctx, id) end,
     -- Remove a consumed item from inv/sell/bank lists and schedule a bag rescan.
     consumeItemAtSlot = function(source, bag, slot)
         if source == "bank" then
@@ -1320,9 +1323,10 @@ local function main()
         mq.cmd('/macro loot')
     end)
     mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
-    -- Native skin bootstrap: /loadskin loads from the EQ client's own uifiles
-    -- folder, but releases only write under the MQ root - sync the skin over
-    -- whenever it's missing or stale (and clean up retired skin files).
+    -- Native skin maintenance: the skin is OPT-IN (installed via the Settings
+    -- button or by hand). sync() only refreshes an EXISTING <EQ>\uifiles\coopt
+    -- copy - updates changed files, removes retired ones - and never installs
+    -- uninvited (no-op when the folder is absent).
     do
         local ok, res = pcall(skinSync.sync)
         if ok and res then

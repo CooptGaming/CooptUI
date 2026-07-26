@@ -7,8 +7,32 @@
 require('ImGui')
 local mq = require('mq')
 local constants = require('itemui.constants')
+local registry = require('itemui.core.registry')
 
 local M = {}
+
+--- Top-right "Lock" checkbox for companion windows. Call right after ImGui.Begin
+--- (before other content): draws at the window's top-right, then restores the
+--- cursor so the caller's layout is unaffected. Locked windows are skipped by
+--- ESC's LIFO close; deliberate close-all paths still close them.
+function M.renderWindowLock(ctx, id)
+    local cx, cy = ImGui.GetCursorPos()
+    local w = ImGui.GetWindowWidth()
+    ImGui.SetCursorPos(w - 62, cy)
+    local locked = registry.isPinned(id)
+    local v = ImGui.Checkbox("Lock##winlock_" .. id, locked)
+    if v ~= locked then
+        registry.setPinned(id, v)
+        if ctx and ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+    end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        ImGui.Text("Lock this window: ESC won't close it (it stays up while you play).")
+        ImGui.Text("Close-all (Shift+Q, /itemui hide, the hub's X) and this window's own X still close it.")
+        ImGui.EndTooltip()
+    end
+    ImGui.SetCursorPos(cx, cy)
+end
 
 --- Return ImVec4 for Name column sell-status color: green = Keep, red = Will Sell, white = Neutral.
 --- Uses ctx.getSellStatusForItem(item) when item.willSell/inKeep not set; otherwise row state.

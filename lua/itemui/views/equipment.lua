@@ -84,6 +84,7 @@ function EquipmentView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "equipment") end
 
     -- Save size when resized (if unlocked)
     if not ctx.uiState.uiLocked then
@@ -215,6 +216,9 @@ function EquipmentView.render(ctx)
                         local displayItem = { bag = 0, slot = slotIndex }
                         if item.name then displayItem.name = item.name end
                         if item.type then displayItem.type = item.type end
+                        -- id is what gates the Clicky Lists submenu (and any other
+                        -- id-keyed menu entries) - without it they silently vanish.
+                        if item.id then displayItem.id = item.id end
                         ctx.renderItemContextMenu(ctx, displayItem, { source = "equipped", popupId = "ItemContextEquip_" .. slotIndex, bankOpen = false, hasCursor = ctx.hasItemOnCursor and ctx.hasItemOnCursor() or false })
                     end
                     -- Phase 2: left-click pickup (no cursor) or drop/swap (has cursor)

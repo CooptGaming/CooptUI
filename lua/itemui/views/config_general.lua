@@ -11,6 +11,19 @@ local events = require('itemui.core.events')
 
 local KEYBIND_DEBOUNCE_MS = 800
 local registry = require('itemui.core.registry')
+local skinSync = require('itemui.services.skin_sync')
+
+-- Cached "is the skin installed in the EQ client?" - file probes are not free,
+-- so recheck at most every 5s (and immediately after an install click).
+local skinInstalledCache = { at = 0, value = false }
+local function skinInstalled()
+    local now = mq.gettime()
+    if (now - skinInstalledCache.at) > 5000 then
+        skinInstalledCache.at = now
+        skinInstalledCache.value = skinSync.isInstalled()
+    end
+    return skinInstalledCache.value
+end
 
 local ConfigGeneral = {}
 
@@ -96,9 +109,38 @@ function ConfigGeneral.render(ctx)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Drives the CoOpt controls inside the game's own windows: Merchant (Auto Sell, Preview, status),")
-            ImGui.Text("Loot (CoOpt Cur / CoOpt All), and the Actions window's CoOpt launcher tab.")
+            ImGui.Text("the Actions window's CoOpt launcher tab, and the native Command Center.")
             ImGui.Text("Requires the CoOpt UI skin: /loadskin coopt. Does nothing if the skin isn't loaded.")
             ImGui.EndTooltip()
+        end
+        -- The skin itself is OPTIONAL: it ships under the MacroQuest folder but is
+        -- only copied into the EQ client on explicit request (or kept fresh once there).
+        ImGui.SameLine()
+        if skinInstalled() then
+            theme.TextMuted("(skin installed - kept up to date)")
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("The CoOpt skin is in your EverQuest uifiles folder and updates automatically with CoOpt UI.")
+                ImGui.Text("To remove it: /loadskin default, then delete the uifiles\\coopt folder in your EQ directory.")
+                ImGui.EndTooltip()
+            end
+        else
+            if ImGui.Button("Install skin (optional)") then
+                local res = skinSync.sync({ force = true })
+                skinInstalledCache.at = 0
+                if res and #res.copied > 0 then
+                    if ctx.setStatusMessage then ctx.setStatusMessage("CoOpt skin installed. Use /loadskin coopt to enable it.") end
+                else
+                    if ctx.setStatusMessage then ctx.setStatusMessage("Skin install failed - check that MQ and EQ paths are available.") end
+                end
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Copies the CoOpt skin into your EverQuest uifiles folder (optional - native strips need it).")
+                ImGui.Text("Nothing is written to your EQ client unless you click this. Load with /loadskin coopt,")
+                ImGui.Text("go back with /loadskin default. Once installed it stays current with CoOpt UI updates.")
+                ImGui.EndTooltip()
+            end
         end
         local prevNativeHover = (uiState.nativeHoverTooltip ~= false)
         local nativeHover = ImGui.Checkbox("Native inventory hover tooltips", prevNativeHover)

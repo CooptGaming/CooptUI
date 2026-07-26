@@ -302,6 +302,7 @@ local function layout_setup_resetLayoutToDefault()
     uiState.nativeMerchantStrip = ((layoutDefaults.NativeMerchantStrip or 1) == 1)
     uiState.nativeHoverTooltip = ((layoutDefaults.NativeHoverTooltip or 1) == 1)
     uiState.nativeItemDisplayReplace = ((layoutDefaults.NativeItemDisplayReplace or 1) == 1)
+    require('itemui.core.registry').setPinnedFromCSV("")  -- reset clears window Locks
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 

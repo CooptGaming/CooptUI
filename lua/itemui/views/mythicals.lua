@@ -88,6 +88,7 @@ function MythicalsView.render(ctx)
 
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "mythicals") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()

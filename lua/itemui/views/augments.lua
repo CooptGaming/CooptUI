@@ -89,6 +89,7 @@ function AugmentsView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "augments") end
 
     -- Save size/position when changed
     if not ctx.uiState.uiLocked then

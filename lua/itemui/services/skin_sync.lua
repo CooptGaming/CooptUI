@@ -1,17 +1,21 @@
 --[[
-    Skin sync - install/refresh the CoOpt native skin into the EQ client.
+    Skin sync - keep an OPT-IN copy of the CoOpt native skin fresh in the EQ client.
 
-    Releases (patcher manifest, zips, EMU deploy) only write under the
+    Releases (patcher manifest, zips, EMU deploy) ship the skin under the
     MacroQuest root, but /loadskin loads from <EverQuest>\uifiles\<skin>.
-    This service copies <MQ root>\uifiles\coopt into <EQ>\uifiles\coopt
-    whenever a file is missing or its contents differ, and deletes skin
-    files we shipped once but have since retired (e.g. the trialed
-    loot-window strip), so stale overrides can't linger with dead controls.
+    The skin is OPTIONAL: nothing is ever written into the EQ client unless
+    the user opted in - either by installing via the Settings button
+    (sync{force=true}) or by copying uifiles\coopt over themselves.
 
-    One shot at startup (app.lua); pure file I/O, no polling. Copying while
-    a skin is loaded is safe - EQ reads skin XML only at /loadskin time.
-    Degrades to a silent no-op when either path or the source folder is
-    missing (skin not patched in yet).
+    Once a <EQ>\uifiles\coopt folder exists, sync() keeps it current: copies
+    files whose contents differ and deletes skin files we shipped once but
+    have since retired (e.g. the trialed loot-window strip), so stale
+    overrides can't linger with dead controls. Without that folder, sync()
+    is a no-op - it never installs uninvited.
+
+    One shot at startup (app.lua) plus the Settings button; pure file I/O,
+    no polling. Copying while a skin is loaded is safe - EQ reads skin XML
+    only at /loadskin time.
 ]]
 
 local mq = require('mq')
@@ -31,10 +35,36 @@ local function readAll(path)
     return data
 end
 
+local function getLfs()
+    local ok, lfs = pcall(require, 'lfs')
+    if ok and type(lfs) == 'table' then return lfs end
+    return nil
+end
+
+local function paths()
+    local mqPath = mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
+    local eqPath = mq.TLO and mq.TLO.EverQuest and mq.TLO.EverQuest.Path and mq.TLO.EverQuest.Path()
+    if not mqPath or mqPath == '' or not eqPath or eqPath == '' then return nil end
+    local srcDir = tostring(mqPath):gsub('[\\/]+$', '') .. '\\uifiles\\coopt'
+    local dstDir = tostring(eqPath):gsub('[\\/]+$', '') .. '\\uifiles\\coopt'
+    return srcDir, dstDir
+end
+
+local function dirExists(dir, lfs)
+    if lfs and lfs.attributes then
+        return lfs.attributes(dir, 'mode') == 'directory'
+    end
+    -- Without lfs: probe for any known skin file (good enough - a manual
+    -- install that diverged still counts as installed).
+    for _, name in ipairs(STATIC_FILES) do
+        local f = io.open(dir .. '\\' .. name, 'rb')
+        if f then f:close(); return true end
+    end
+    return false
+end
+
 -- Skin file names from the source folder (lfs when present, static list otherwise).
-local function listSkinFiles(srcDir)
-    local okLfs, lfs = pcall(require, 'lfs')
-    if not (okLfs and type(lfs) == 'table') then lfs = nil end
+local function listSkinFiles(srcDir, lfs)
     if lfs and lfs.dir then
         local names = {}
         local okIter = pcall(function()
@@ -42,45 +72,50 @@ local function listSkinFiles(srcDir)
                 if name:lower():match('%.xml$') then names[#names + 1] = name end
             end
         end)
-        if okIter and #names > 0 then return names, lfs end
+        if okIter and #names > 0 then return names end
     end
-    return STATIC_FILES, lfs
+    return STATIC_FILES
+end
+
+--- True when the user has the skin in the EQ client (i.e. opted in).
+function M.isInstalled()
+    local srcDir, dstDir = paths()
+    if not dstDir then return false end
+    if srcDir and srcDir:lower() == dstDir:lower() then return true end
+    return dirExists(dstDir, getLfs())
 end
 
 --- Copy changed/missing skin files MQ -> EQ and remove retired ones.
---- Returns { copied = {...}, removed = {...}, freshInstall = bool },
---- or nil when there was nothing to do (or nothing could be done).
-function M.sync()
-    local mqPath = mq.TLO and mq.TLO.MacroQuest and mq.TLO.MacroQuest.Path and mq.TLO.MacroQuest.Path()
-    local eqPath = mq.TLO and mq.TLO.EverQuest and mq.TLO.EverQuest.Path and mq.TLO.EverQuest.Path()
-    if not mqPath or mqPath == '' or not eqPath or eqPath == '' then return nil end
-    local srcDir = tostring(mqPath):gsub('[\\/]+$', '') .. '\\uifiles\\coopt'
-    local dstDir = tostring(eqPath):gsub('[\\/]+$', '') .. '\\uifiles\\coopt'
+--- Default: maintenance only - a no-op unless <EQ>\uifiles\coopt already
+--- exists (the skin is opt-in). opts.force = true performs a first install
+--- (creates the folder). Returns { copied = {...}, removed = {...},
+--- freshInstall = bool }, or nil when there was nothing to do.
+function M.sync(opts)
+    local force = opts and opts.force or false
+    local srcDir, dstDir = paths()
+    if not srcDir then return nil end
     -- MQ installed inside the EQ folder: the skin is already where EQ wants it.
     if srcDir:lower() == dstDir:lower() then return nil end
 
-    local names, lfs = listSkinFiles(srcDir)
-    local copied, removed = {}, {}
+    local lfs = getLfs()
+    local installed = dirExists(dstDir, lfs)
+    if not installed and not force then return nil end
+
     local freshInstall = false
-    local dirReady = false
-    -- <EQ>\uifiles always exists (the default UI lives there); only 'coopt'
-    -- may need creating. Without lfs we can't mkdir; the io.open below then
-    -- fails closed and the sync is a no-op rather than an error.
-    local function ensureDstDir()
-        if dirReady then return end
-        if lfs and lfs.attributes and not lfs.attributes(dstDir, 'mode') then
-            freshInstall = true
-            if lfs.mkdir then pcall(lfs.mkdir, dstDir) end
-        end
-        dirReady = true
+    if not installed then
+        -- <EQ>\uifiles always exists (the default UI lives there); only
+        -- 'coopt' needs creating. Without lfs the io.open below fails closed
+        -- and the install is reported as a no-op rather than an error.
+        freshInstall = true
+        if lfs and lfs.mkdir then pcall(lfs.mkdir, dstDir) end
     end
 
-    for _, name in ipairs(names) do
+    local copied, removed = {}, {}
+    for _, name in ipairs(listSkinFiles(srcDir, lfs)) do
         local srcData = readAll(srcDir .. '\\' .. name)
         if srcData then
             local dstFile = dstDir .. '\\' .. name
             if readAll(dstFile) ~= srcData then
-                ensureDstDir()
                 local f = io.open(dstFile, 'wb')
                 if f then
                     f:write(srcData)

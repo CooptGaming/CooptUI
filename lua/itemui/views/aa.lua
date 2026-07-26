@@ -299,6 +299,7 @@ function AAView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "aa") end
 
     -- Enter = Train selected (if trainable). Gated to this window (incl. child regions) having
     -- focus and no active widget, so Enter in another window or the search box can't train.

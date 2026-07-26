@@ -261,7 +261,9 @@ local function renderCompanions(refs, uiState)
     -- The hub's own ESC branch handles the quantity picker and hub close and defers
     -- companion closing to here so it isn't handled twice in one frame.
     if ImGui.IsKeyPressed(ImGuiKey.Escape) and not uiState.pendingQuantityPickup then
-        local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
+        -- true = skip Locked windows: they stay up until closed deliberately
+        -- (their X, the Lock checkbox, or a close-all path like Shift+Q).
+        local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion(true)
         if mostRecent and refs.closeCompanionWindow then
             refs.closeCompanionWindow(mostRecent)
         end
@@ -405,8 +407,8 @@ function M.render(refs)
             else
                 -- Companion closing is handled by renderCompanions' ESC handler (LIFO,
                 -- works with the hub hidden too); ESC here only closes the hub itself
-                -- when no companion window is open.
-                local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion()
+                -- when no closable (non-Locked) companion window is open.
+                local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion(true)
                 if not mostRecent then
                     ImGui.SetKeyboardFocusHere(-1)
                     refs.setShouldDraw(false)

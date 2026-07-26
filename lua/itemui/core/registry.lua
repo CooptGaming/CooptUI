@@ -16,6 +16,13 @@ local companionWindowOpenedAt
 local modules = {}
 local order = {}  -- registration order for stable iteration
 
+-- id -> true for windows the user Locked (top-right checkbox): ESC's LIFO close
+-- skips them so they stay up during play. Deliberate close-all paths (Shift+Q,
+-- /itemui hide, hub X) still close locked windows. Plain table keyed by id so
+-- uiState-managed windows (the Loot UI) can be locked too. Persisted in the
+-- layout INI as PinnedWindows=id,id,...
+local pinnedIds = {}
+
 -- Cache for getEnabledModules/getDrawableModules/getTickableModules (Task 6.1). Invalidated when registry state changes.
 local cacheDirty = true
 local cachedEnabled, cachedDrawable, cachedTickable
@@ -177,12 +184,12 @@ function M.closeWindow(id, cleanupFn)
     return true
 end
 
-function M.getNewestOpen(isOpenFn)
+function M.getNewestOpen(isOpenFn, excludePinned)
     local bestId, bestT = nil, -1
     local opened = companionWindowOpenedAt or {}
     for id, openedAt in pairs(opened) do
         local t = tonumber(openedAt) or -1
-        if t >= 0 then
+        if t >= 0 and not (excludePinned and pinnedIds[id]) then
             local m = modules[id]
             local isOpen = false
             if m then
@@ -197,6 +204,30 @@ function M.getNewestOpen(isOpenFn)
         end
     end
     return bestId
+end
+
+function M.isPinned(id)
+    return pinnedIds[id] == true
+end
+
+function M.setPinned(id, v)
+    if not id or id == "" then return end
+    pinnedIds[id] = (v == true) and true or nil
+end
+
+--- Comma-joined pinned ids for layout persistence (stable order).
+function M.getPinnedCSV()
+    local ids = {}
+    for id in pairs(pinnedIds) do ids[#ids + 1] = id end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
+function M.setPinnedFromCSV(csv)
+    pinnedIds = {}
+    for id in tostring(csv or ""):gmatch("[^,%s]+") do
+        pinnedIds[id] = true
+    end
 end
 
 function M.getDrawableModules()

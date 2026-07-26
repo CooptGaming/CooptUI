@@ -61,6 +61,7 @@ function BankView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "bank") end
     
     -- Save window size when resized (if unlocked)
     if not ctx.uiState.uiLocked then

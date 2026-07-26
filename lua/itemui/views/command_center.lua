@@ -61,6 +61,7 @@ function CommandCenterView.render(ctx)
     registry.setWindowState("commandCenter", winOpen, winOpen)
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "commandCenter") end
 
     local px, py = ImGui.GetWindowPos()
     if px and py then

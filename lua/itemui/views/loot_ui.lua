@@ -113,6 +113,7 @@ function LootUIView.render(ctx)
     end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "loot") end
 
     local function drawContent()
         -- Persist window size when resized (debounced via scheduleLayoutSave)
