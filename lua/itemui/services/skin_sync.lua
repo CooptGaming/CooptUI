@@ -25,7 +25,7 @@ local M = {}
 -- Shipped once, later removed from the skin; deleted from the EQ copy on sync.
 local REMOVED_FILES = { 'EQUI_LootWnd.xml', 'EQUI_ItemDisplay.xml' }
 -- Fallback listing when lfs is unavailable: the current skin files.
-local STATIC_FILES = { 'EQUI_ActionsWindow.xml', 'EQUI_MerchantWnd.xml', 'EQUI_TipWnd.xml' }
+local STATIC_FILES = { 'EQUI_AAWindow.xml', 'EQUI_ActionsWindow.xml', 'EQUI_MerchantWnd.xml', 'EQUI_TipWnd.xml' }
 
 local function readAll(path)
     local f = io.open(path, 'rb')

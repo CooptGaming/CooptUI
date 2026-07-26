@@ -9,6 +9,7 @@ local config = require('itemui.config')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local aa_data = require('itemui.services.aa_data')
+local aa_transfer = require('itemui.services.aa_transfer')
 local registry = require('itemui.core.registry')
 local diagnostics = require('itemui.core.diagnostics')
 
@@ -16,15 +17,12 @@ local AAView = {}
 
 local TAB_NAMES = { "General", "Archetype", "Class", "Special" }
 
--- Module-local state (search, debounce, selection, import state)
+-- Module-local state (search, debounce, selection)
 local searchText = ""
 local searchTextApplied = ""
 local searchDebounceAt = 0
 local selectedAAName = nil
 local canPurchaseOnly = false
-local importInProgress = false
-local importProgressCurrent = 0
-local importProgressTotal = 0
 -- Sort cache
 local sortCache = { key = "", list = {} }
 
@@ -127,46 +125,6 @@ local function getAABackupDir(ctx)
     return config.CONFIG_PATH or ""
 end
 
--- Export: write INI to AA backup dir (or CONFIG_PATH) as aa_CharName_date.ini
-local function doExport(ctx)
-    local list = ctx.getAAList()
-    if not list then return end
-    local Me = mq.TLO and mq.TLO.Me
-    if not Me or not Me.Name then return end
-    local charName = (Me.Name() or "Unknown"):gsub("[^%w_%-]", "_")
-    local class = (Me.Class and Me.Class()) and Me.Class() or "Unknown"
-    local fname = "aa_" .. charName .. "_" .. os.date("%Y%m%d_%H%M%S") .. ".ini"
-    local dir = getAABackupDir(ctx)
-    local path = (dir and dir ~= "") and (dir .. "/" .. fname) or config.getConfigFile(fname)
-    if not path then ctx.setStatusMessage("Export failed: no config path"); return end
-    local countSpent = 0
-    local ok, err = pcall(function()
-        local f = io.open(path, "w")
-        if not f then error("could not open file") end
-        f:write("[Meta]\n")
-        f:write("Character=" .. (Me.Name() or "") .. "\n")
-        f:write("Class=" .. tostring(class) .. "\n")
-        f:write("Exported=" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
-        for _, aa in ipairs(list) do
-            if aa.rank and aa.rank > 0 and aa.name then countSpent = countSpent + 1 end
-        end
-        f:write("TotalAAs=" .. tostring(countSpent) .. "\n")
-        f:write("[AAs]\n")
-        for _, aa in ipairs(list) do
-            if aa.rank and aa.rank > 0 and aa.name then
-                f:write(aa.name .. "=" .. tostring(aa.rank) .. "\n")
-            end
-        end
-        f:close()
-    end)
-    if ok then
-        ctx.setStatusMessage("Exported to " .. fname)
-    else
-        ctx.setStatusMessage("Export failed: " .. tostring(err))
-        diagnostics.recordError("AA Export", "Export failed", err)
-    end
-end
-
 -- List backup files in AA backup dir (or CONFIG_PATH)
 local function listBackupFiles(ctx)
     local dir = (ctx and getAABackupDir(ctx)) or config.CONFIG_PATH
@@ -182,93 +140,8 @@ local function listBackupFiles(ctx)
     return out
 end
 
--- Parse INI [AAs] section: name=rank
-local function parseAABackup(path)
-    local meta = {} local aas = {}
-    local section = nil
-    local ok, err = pcall(function()
-        local f = io.open(path, "r")
-        if not f then error("cannot open") end
-        for line in f:lines() do
-            line = line:match("^%s*(.-)%s*$")
-            if line:match("^%[([^%]]+)%]") then
-                section = line:match("^%[([^%]]+)%]")
-            elseif section == "Meta" and line:find("=") then
-                local k, v = line:match("^([^=]+)=(.*)$")
-                if k and v then meta[k:match("^%s*(.-)%s*$")] = v:match("^%s*(.-)%s*$") end
-            elseif section == "AAs" and line:find("=") then
-                local name, rank = line:match("^([^=]+)=(.*)$")
-                if name and rank then
-                    name = name:match("^%s*(.-)%s*$")
-                    rank = tonumber(rank:match("^%s*(.-)%s*$"))
-                    if name ~= "" and rank and rank > 0 then aas[#aas + 1] = { name = name, rank = rank } end
-                end
-            end
-        end
-        f:close()
-    end)
-    if not ok and err then
-        diagnostics.recordError("AA Import", "Could not parse backup file", err)
-    end
-    return ok and aas or nil, meta
-end
-
--- Import: apply backup (run in coroutine or step-by-step with mq.delay)
-local function startImport(ctx, path)
-    local aas, meta = parseAABackup(path)
-    if not aas or #aas == 0 then ctx.setStatusMessage("No AAs in file"); return end
-    importInProgress = true
-    importProgressTotal = 0
-    for _, entry in ipairs(aas) do
-        importProgressTotal = importProgressTotal + (entry.rank or 0)
-    end
-    importProgressCurrent = 0
-    -- We'll process one buy per frame in render to avoid blocking
-    ctx._aaImportQueue = { path = path, aas = aas, meta = meta, idx = 1, subRank = 0, targetRank = 0 }
-end
-
-local function stepImport(ctx)
-    local q = ctx._aaImportQueue
-    if not q or not importInProgress then return end
-    local aas, idx, subRank, targetRank = q.aas, q.idx, q.subRank, q.targetRank
-    if idx > #aas then
-        ctx._aaImportQueue = nil
-        importInProgress = false
-        ctx.refreshAA()
-        ctx.setStatusMessage("Import complete")
-        return
-    end
-    local entry = aas[idx]
-    local name, rank = entry.name, entry.rank or 0
-    if targetRank == 0 then
-        targetRank = rank
-        local Me = mq.TLO and mq.TLO.Me
-        local aa = Me and Me.AltAbility and Me.AltAbility(name)
-        local current = (aa and aa.Rank and aa.Rank()) or 0
-        subRank = current
-        q.targetRank = targetRank
-        q.subRank = subRank
-    end
-    if subRank >= targetRank then
-        q.idx = q.idx + 1
-        q.subRank = 0
-        q.targetRank = 0
-        return
-    end
-    local Me = mq.TLO and mq.TLO.Me
-    local aa = Me and Me.AltAbility and Me.AltAbility(name)
-    if not aa or not aa.NextIndex then q.idx = q.idx + 1; q.subRank = 0; q.targetRank = 0; return end
-    local nextIdx = aa.NextIndex()
-    if nextIdx and nextIdx > 0 then
-        mq.cmd("/alt buy " .. tostring(nextIdx))
-        importProgressCurrent = importProgressCurrent + 1
-        q.subRank = (q.subRank or 0) + 1
-    else
-        q.idx = q.idx + 1
-        q.subRank = 0
-        q.targetRank = 0
-    end
-end
+-- Export/import live in services/aa_transfer.lua (main-loop driven, shared
+-- with the native AA window's CoOpt buttons): verified buys + points gate.
 
 function AAView.render(ctx)
     local state = registry.getWindowState("aa")
@@ -335,11 +208,6 @@ function AAView.render(ctx)
             ctx.scheduleLayoutSave()
             ctx.flushLayoutSave()
         end
-    end
-
-    -- Process import queue one step per frame
-    if ctx._aaImportQueue and importInProgress then
-        stepImport(ctx)
     end
 
     -- Refresh on open if needed. Invalidate the sort cache: refresh rebuilds the AA row
@@ -533,18 +401,20 @@ function AAView.render(ctx)
         ImGui.EndTooltip()
     end
     ImGui.Spacing()
-    if ImGui.Button("Export", ImVec2(80, 0)) then doExport(ctx) end
+    local transferBusy = aa_transfer.isBusy()
+    if ImGui.Button("Export", ImVec2(80, 0)) and not transferBusy then
+        aa_transfer.requestExport()
+    end
     ImGui.SameLine()
-    if ImGui.Button("Import", ImVec2(80, 0)) and not importInProgress then
+    if ImGui.Button("Import", ImVec2(80, 0)) and not transferBusy then
         local files = listBackupFiles(ctx)
         if #files == 0 then ctx.setStatusMessage("No aa_*.ini backups in config folder") end
-        -- Simple: use first file or show list; for v1 we use a combo
         if #files > 0 then
             ctx._aaImportFileCombo = ctx._aaImportFileCombo or 1
             ctx._aaImportFiles = files
         end
     end
-    if ctx._aaImportFiles and #ctx._aaImportFiles > 0 and not importInProgress then
+    if ctx._aaImportFiles and #ctx._aaImportFiles > 0 and not transferBusy then
         local idx = ctx._aaImportFileCombo or 1
         local changed
         idx, changed = ImGui.Combo("##ImportFile", idx, ctx._aaImportFiles)
@@ -556,11 +426,14 @@ function AAView.render(ctx)
             local oneBased = (type(idx) == "number" and idx >= 1) and idx or ((type(idx) == "number" and idx >= 0) and (idx + 1) or 1)
             local fname = ctx._aaImportFiles[oneBased]
             local path = (dir and dir ~= "" and fname) and (dir .. "/" .. fname) or (config.CONFIG_PATH and config.CONFIG_PATH .. "/" .. (fname or "")) or config.getConfigFile(fname or "")
-            if path then startImport(ctx, path) end
+            if path then
+                if aa_transfer.startImport(path) then ctx._aaImportFiles = nil end
+            end
         end
     end
-    if importInProgress then
-        ctx.theme.TextWarning(string.format("Training %d / %d...", importProgressCurrent, importProgressTotal))
+    local prog = aa_transfer.getProgress()
+    if prog then
+        ctx.theme.TextWarning(string.format("Training %d / %d... (verified per rank)", prog.done, prog.total))
     end
     local backupDir = getAABackupDir(ctx)
     if backupDir and backupDir ~= "" then

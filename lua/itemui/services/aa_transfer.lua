@@ -1,0 +1,385 @@
+--[[
+    AA Transfer - export purchased AAs to a file; re-buy them after a reset.
+
+    Driven from the main loop (tick), so it works with every CoOpt window
+    closed - the native AA window's CoOpt Export/Import buttons (coopt skin)
+    and the CoOpt AA Browser's buttons both route here.
+
+    Export: waits for a fresh AA scan, then writes aa_<Char>_<date>.ini
+    ([Meta] + [AAs] name=rank) to the backup dir (Settings) or CONFIG_PATH.
+
+    Import: parses the file, plans only the missing ranks, and GATES on AA
+    points first - with the plugin, per-rank costs come from the AA table
+    (getGroupRankCosts), so "not enough points" aborts before anything is
+    bought. Buys are VERIFIED: /alt buy, then poll the rank until it moves
+    (2s timeout, one retry) before the next buy - no more fire-and-forget.
+    Failures are collected and summarized instead of silently skipped.
+
+    The native Import button arms first (armOrStartImport): first click
+    reports what would be imported, a second click within 10s starts it.
+--]]
+
+local mq = require('mq')
+local config = require('itemui.config')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
+
+local M = {}
+
+local deps = {}            -- { setStatusMessage, layoutConfig, refreshAA, getAAList, isAABuilding }
+
+local BUY_TIMEOUT_MS = 2000
+local BUY_PACE_MS = 150
+local ARM_WINDOW_MS = 10000
+
+local exportPending = false
+local imp = nil            -- active import state
+local armed = nil          -- { path, until, ranks, cost, exact }
+local statusLine = "CoOpt: Export saves your AAs"
+
+local paCache
+local function plugAA()
+    if paCache ~= nil then return paCache or nil end
+    local p = coopuiPlugin.getPlugin()
+    paCache = (p and type(p.aa) == 'table') and p.aa or false
+    return paCache or nil
+end
+
+local function say(msg)
+    statusLine = msg
+    if deps.setStatusMessage then deps.setStatusMessage(msg) end
+end
+
+local function charName()
+    local me = mq.TLO and mq.TLO.Me
+    local n = me and me.Name and me.Name()
+    if not n or n == "" then return nil end
+    return n
+end
+
+local function safeCharName()
+    local n = charName()
+    return n and n:gsub("[^%w_%-]", "_") or nil
+end
+
+local function backupDir()
+    local lc = deps.layoutConfig
+    local p = lc and lc.AABackupPath or ""
+    if p and p ~= "" then return p end
+    return config.CONFIG_PATH or ""
+end
+
+local function myAA(name)
+    local me = mq.TLO and mq.TLO.Me
+    return me and me.AltAbility and me.AltAbility(name) or nil
+end
+
+local function myRank(name)
+    local aa = myAA(name)
+    local ok, r = pcall(function() return aa and aa.Rank and aa.Rank() end)
+    return (ok and tonumber(r)) or 0
+end
+
+local function myPoints()
+    local me = mq.TLO and mq.TLO.Me
+    local ok, p = pcall(function() return me and me.AAPoints and me.AAPoints() end)
+    return (ok and tonumber(p)) or 0
+end
+
+--- Export -----------------------------------------------------------------
+
+--- Start an export: refreshes the AA scan first so ranks are current
+--- (tick writes the file when the rebuild completes).
+function M.requestExport()
+    if imp then say("Import running - wait for it to finish") return false end
+    if exportPending then return true end
+    exportPending = true
+    if deps.refreshAA then deps.refreshAA() end
+    say("Scanning AAs for export...")
+    return true
+end
+
+local function doExportNow()
+    local list = (deps.getAAList and deps.getAAList()) or {}
+    local me = mq.TLO and mq.TLO.Me
+    local cname = charName()
+    if not cname then say("Export failed: no character") return end
+    local class = (me.Class and me.Class()) and tostring(me.Class()) or "Unknown"
+    local fname = "aa_" .. safeCharName() .. "_" .. os.date("%Y%m%d_%H%M%S") .. ".ini"
+    local dir = backupDir()
+    local path = (dir ~= "") and (dir .. "/" .. fname) or config.getConfigFile(fname)
+    if not path then say("Export failed: no config path") return end
+    local count = 0
+    local ok, err = pcall(function()
+        local f = io.open(path, "w")
+        if not f then error("could not open file") end
+        f:write("[Meta]\n")
+        f:write("Character=" .. cname .. "\n")
+        f:write("Class=" .. class .. "\n")
+        f:write("Exported=" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
+        for _, aa in ipairs(list) do
+            if aa.rank and aa.rank > 0 and aa.name then count = count + 1 end
+        end
+        f:write("TotalAAs=" .. tostring(count) .. "\n")
+        f:write("[AAs]\n")
+        for _, aa in ipairs(list) do
+            if aa.rank and aa.rank > 0 and aa.name then
+                f:write(aa.name .. "=" .. tostring(aa.rank) .. "\n")
+            end
+        end
+        f:close()
+    end)
+    if ok then
+        say(string.format("Exported %d AAs -> %s", count, fname))
+    else
+        say("Export failed: " .. tostring(err))
+    end
+end
+
+--- Parse / files ----------------------------------------------------------
+
+--- Parse an aa_*.ini backup. Returns entries array, meta table (or nil, err).
+function M.parseBackup(path)
+    local meta, aas = {}, {}
+    local section = nil
+    local ok, err = pcall(function()
+        local f = io.open(path, "r")
+        if not f then error("cannot open " .. tostring(path)) end
+        for line in f:lines() do
+            line = line:match("^%s*(.-)%s*$")
+            if line:match("^%[([^%]]+)%]") then
+                section = line:match("^%[([^%]]+)%]")
+            elseif section == "Meta" and line:find("=") then
+                local k, v = line:match("^([^=]+)=(.*)$")
+                if k and v then meta[k:match("^%s*(.-)%s*$")] = v:match("^%s*(.-)%s*$") end
+            elseif section == "AAs" and line:find("=") then
+                local name, rank = line:match("^([^=]+)=(.*)$")
+                if name and rank then
+                    name = name:match("^%s*(.-)%s*$")
+                    rank = tonumber(rank:match("^%s*(.-)%s*$"))
+                    if name ~= "" and rank and rank > 0 then aas[#aas + 1] = { name = name, rank = rank } end
+                end
+            end
+        end
+        f:close()
+    end)
+    if not ok then return nil, err end
+    return aas, meta
+end
+
+--- Newest aa_<ThisChar>_*.ini in the backup dir (timestamped names sort).
+function M.findLatestBackup()
+    local cn = safeCharName()
+    local dir = backupDir()
+    if not cn or dir == "" then return nil end
+    local best = nil
+    local ok, pipe = pcall(io.popen, 'dir /b "' .. dir:gsub("/", "\\") .. '\\aa_' .. cn .. '_*.ini" 2>nul')
+    if ok and pipe then
+        for line in pipe:lines() do
+            if line and line:match("^aa_.*%.ini$") then
+                if not best or line > best then best = line end
+            end
+        end
+        pipe:close()
+    end
+    if not best then return nil end
+    return dir .. "/" .. best, best
+end
+
+--- Import -----------------------------------------------------------------
+
+--- Plan an import: entries needing ranks, total ranks, and the AA-point cost
+--- (exact when the plugin cost map is available). Pure - buys nothing.
+local function planImport(aas)
+    local plan = { queue = {}, ranks = 0, cost = 0, exact = false }
+    local costs = nil
+    local pa = plugAA()
+    if pa and type(pa.getGroupRankCosts) == 'function' then
+        local ok, map = pcall(pa.getGroupRankCosts)
+        if ok and type(map) == 'table' then costs = map end
+    end
+    plan.exact = costs ~= nil
+    for _, entry in ipairs(aas) do
+        local cur = myRank(entry.name)
+        if entry.rank > cur then
+            plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur }
+            plan.ranks = plan.ranks + (entry.rank - cur)
+            if costs then
+                local aa = myAA(entry.name)
+                local okId, gid = pcall(function() return aa and aa.ID and aa.ID() end)
+                local groupCosts = (okId and gid) and costs[gid] or nil
+                if groupCosts then
+                    for r = cur + 1, entry.rank do
+                        local c = tonumber(groupCosts[r])
+                        if c then plan.cost = plan.cost + c else plan.exact = false end
+                    end
+                else
+                    plan.exact = false
+                end
+            end
+        end
+    end
+    return plan
+end
+
+--- Start importing from a backup file. Gates on AA points when the cost is
+--- known exactly; refuses to start when nothing is missing.
+function M.startImport(path)
+    if imp then say("Import already running") return false end
+    if exportPending then say("Export running - wait for it") return false end
+    local aas, err = M.parseBackup(path)
+    if not aas then say("Import failed: " .. tostring(err)) return false end
+    if #aas == 0 then say("No AAs in file") return false end
+    local plan = planImport(aas)
+    if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
+    local have = myPoints()
+    if plan.exact and plan.cost > have then
+        say(string.format("Need %d AA pts for %d ranks - you have %d. Import aborted.", plan.cost, plan.ranks, have))
+        return false
+    end
+    if not plan.exact then
+        say(string.format("Importing %d ranks (point check unavailable)...", plan.ranks))
+    else
+        say(string.format("Importing %d ranks (%d pts, %d available)...", plan.ranks, plan.cost, have))
+    end
+    imp = {
+        queue = plan.queue, idx = 1, phase = "begin",
+        expectRank = 0, buyAt = 0, retries = 0, nextActionAt = 0,
+        totalRanks = plan.ranks, doneRanks = 0, failed = {},
+    }
+    return true
+end
+
+--- Native-button flow: first click reports what WOULD happen, second click
+--- within the window actually starts (a full re-buy from one click is too
+--- easy to fat-finger on a native window with no dialog).
+function M.armOrStartImport()
+    if imp then say("Import already running") return end
+    local now = mq.gettime()
+    if armed and now < armed.armedUntil then
+        local path = armed.path
+        armed = nil
+        M.startImport(path)
+        return
+    end
+    armed = nil
+    local path, fname = M.findLatestBackup()
+    if not path then say("No aa_*.ini export found for this character") return end
+    local aas, err = M.parseBackup(path)
+    if not aas then say("Import failed: " .. tostring(err)) return end
+    local plan = planImport(aas)
+    if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
+    local have = myPoints()
+    if plan.exact and plan.cost > have then
+        say(string.format("Need %d pts for %d ranks, have %d - cannot import", plan.cost, plan.ranks, have))
+        return
+    end
+    armed = { path = path, armedUntil = now + ARM_WINDOW_MS }
+    if plan.exact then
+        say(string.format("%s: %d ranks, %d pts. Import again to start.", fname, plan.ranks, plan.cost))
+    else
+        say(string.format("%s: %d ranks. Import again to start.", fname, plan.ranks))
+    end
+end
+
+local function finishImport()
+    local nFailed = #imp.failed
+    local msg
+    if nFailed == 0 then
+        msg = string.format("Import complete: %d ranks trained", imp.doneRanks)
+    else
+        local names = {}
+        for i = 1, math.min(2, nFailed) do names[#names + 1] = imp.failed[i].name end
+        msg = string.format("Import: %d ranks trained, %d failed (%s%s)", imp.doneRanks, nFailed,
+            table.concat(names, ", "), nFailed > 2 and ", ..." or "")
+    end
+    imp = nil
+    if deps.refreshAA then deps.refreshAA() end
+    say(msg)
+end
+
+local function tickImport(now)
+    if now < (imp.nextActionAt or 0) then return end
+    local entry = imp.queue[imp.idx]
+    if not entry then finishImport() return end
+
+    if imp.phase == "begin" then
+        local cur = myRank(entry.name)
+        if cur >= entry.target then
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            return
+        end
+        local aa = myAA(entry.name)
+        local okN, nextIdx = pcall(function() return aa and aa.NextIndex and aa.NextIndex() end)
+        nextIdx = okN and tonumber(nextIdx) or nil
+        if not nextIdx or nextIdx <= 0 then
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target }
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            return
+        end
+        mq.cmd("/alt buy " .. tostring(nextIdx))
+        imp.expectRank = cur + 1
+        imp.buyAt = now
+        imp.phase = "verify"
+    elseif imp.phase == "verify" then
+        local cur = myRank(entry.name)
+        if cur >= imp.expectRank then
+            imp.doneRanks = imp.doneRanks + 1
+            imp.retries = 0
+            imp.phase = "begin"
+            imp.nextActionAt = now + BUY_PACE_MS
+            statusLine = string.format("Importing %d/%d...", imp.doneRanks, imp.totalRanks)
+        elseif (now - imp.buyAt) > BUY_TIMEOUT_MS then
+            imp.retries = imp.retries + 1
+            if imp.retries >= 2 then
+                -- Two timeouts on the same rank: record and move on (points
+                -- exhausted, server refused, or rank mismatch).
+                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target }
+                imp.idx = imp.idx + 1
+                imp.retries = 0
+                imp.phase = "begin"
+            else
+                imp.phase = "begin"  -- re-issue the buy once
+            end
+        end
+    end
+end
+
+--- Main-loop pump: advances export and import. Cheap no-op when idle.
+function M.tick(now)
+    if exportPending then
+        if not (deps.isAABuilding and deps.isAABuilding()) then
+            exportPending = false
+            doExportNow()
+        end
+        return
+    end
+    if imp then tickImport(now) end
+    if armed and now >= armed.armedUntil then armed = nil end
+end
+
+function M.isBusy()
+    return imp ~= nil or exportPending
+end
+
+function M.isImporting()
+    return imp ~= nil
+end
+
+--- { done, total } while importing, nil otherwise (for the view's progress).
+function M.getProgress()
+    if not imp then return nil end
+    return { done = imp.doneRanks, total = imp.totalRanks }
+end
+
+--- One-line status for the native AA window strip.
+function M.getStatusLine()
+    return statusLine
+end
+
+function M.init(d)
+    deps = d or {}
+end
+
+return M

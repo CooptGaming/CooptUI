@@ -34,12 +34,14 @@ namespace {
 //   - Archetype/Class (Type 2/3) whose Classes bitmask excludes our class ->
 //     other classes' lines (the server maintains the masks per character,
 //     which is how multi-class actives surface in the native window)
-//   - Special (Type 4) that is QuestOnly with CurrentRank 0 -> granted
-//     abilities (the "breath" line) this character does not have
+//   - QuestOnly (granted) abilities the character does NOT have - ownership
+//     via pLocalPC->HasAlternateAbility(Index), the same proven call the
+//     TLO's Rank member makes. (CAltAbilityData::CurrentRank is the entry's
+//     STATIC rank position - "Group Level" - not character state.)
 //
 // Plain locals only: x86 SEH cannot share a frame with C++ unwinding.
 // Returns 1 = visible (outGroupId set), 0 = hidden/absent, -1 = faulted.
-int checkAbilitySafe(int classMask, int n, int* outGroupId) {
+int checkAbilitySafe(eqlib::PcClient* pc, int classMask, int n, int* outGroupId) {
   __try {
     eqlib::CAltAbilityData* ab = mq::GetAAById(n);
     if (!ab) return 0;
@@ -49,8 +51,24 @@ int checkAbilitySafe(int classMask, int n, int* outGroupId) {
         && (ab->Classes & classMask) == 0) {
       return 0;
     }
-    if (type == 4 && ab->QuestOnly && ab->CurrentRank == 0) return 0;
+    if (ab->QuestOnly && !pc->HasAlternateAbility(ab->Index)) return 0;
     *outGroupId = ab->GroupID;
+    return 1;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return -1;
+  }
+}
+
+// Table facts for the AA import cost gate: group id + the entry's static
+// rank position + that rank's cost. Same proven primitives, SEH per entry.
+// Returns 1 = valid entry, 0 = absent, -1 = faulted.
+int readRankCostSafe(int n, int* outGroupId, int* outRank, int* outCost) {
+  __try {
+    eqlib::CAltAbilityData* ab = mq::GetAAById(n);
+    if (!ab) return 0;
+    *outGroupId = ab->GroupID;
+    *outRank = ab->CurrentRank;
+    *outCost = ab->Cost;
     return 1;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return -1;
@@ -78,7 +96,7 @@ void registerLua(sol::state_view L, sol::table& table) {
     int faults = 0;
     for (int n = 0; n < NUM_ALT_ABILITIES; ++n) {
       int groupId = -1;
-      int r = checkAbilitySafe(classMask, n, &groupId);
+      int r = checkAbilitySafe(pLocalPC, classMask, n, &groupId);
       if (r == 1 && groupId > 0) {
         ids.push_back(groupId);
       } else if (r == -1) {
@@ -98,6 +116,36 @@ void registerLua(sol::state_view L, sol::table& table) {
     sol::table out = sv.create_table(static_cast<int>(ids.size()), 0);
     int n = 0;
     for (int id : ids) out[++n] = id;
+    return sol::make_object(sv, out);
+  });
+
+  // Per-rank AA point costs for every group: { [groupId] = { [rank] = cost } }.
+  // Drives the import's "enough points?" gate. nil when unavailable.
+  table.set_function("getGroupRankCosts", [rawL]() -> sol::object {
+    sol::state_view sv(rawL);
+    using namespace eqlib;
+    if (!pAltAdvManager.get()) return sol::make_object(sv, sol::lua_nil);
+
+    sol::table out = sv.create_table();
+    int faults = 0;
+    for (int n = 0; n < NUM_ALT_ABILITIES; ++n) {
+      int groupId = -1, rank = -1, cost = -1;
+      int r = readRankCostSafe(n, &groupId, &rank, &cost);
+      if (r == 1 && groupId > 0 && rank > 0 && cost >= 0) {
+        sol::object cur = out[groupId];
+        sol::table group;
+        if (cur.is<sol::table>()) {
+          group = cur.as<sol::table>();
+        } else {
+          group = sv.create_table();
+          out[groupId] = group;
+        }
+        group[rank] = cost;
+      } else if (r == -1) {
+        ++faults;
+        if (faults > 25) return sol::make_object(sv, sol::lua_nil);
+      }
+    }
     return sol::make_object(sv, out);
   });
 }

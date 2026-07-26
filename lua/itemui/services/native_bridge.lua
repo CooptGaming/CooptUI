@@ -28,6 +28,7 @@
 local mq = require('mq')
 local registry = require('itemui.core.registry')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local aaTransfer = require('itemui.services.aa_transfer')
 
 local M = {}
 
@@ -85,6 +86,13 @@ local CC_BUTTONS = {
 }
 
 local ITEMDISPLAY_WND = 'ItemDisplayWindow'
+
+-- Native AA window: CoOpt Export/Import buttons + status line (coopt skin
+-- repurposes the dead Monster Abilities corner). Logic lives in aa_transfer.
+local AA_WND       = 'AAWindow'
+local BTN_AAEXPORT = 'Coopt_AAExportBtn'
+local BTN_AAIMPORT = 'Coopt_AAImportBtn'
+local AA_STATUS    = 'Coopt_AAStatus'
 
 local POLL_INTERVAL_MS   = 100
 local PROBE_INTERVAL_MS  = 2000
@@ -422,6 +430,25 @@ local function tickCommandCenter(now)
 end
 
 ---------------------------------------------------------------------------
+-- AA window surface: Export / Import (arm-then-confirm) + status line
+---------------------------------------------------------------------------
+
+local function tickAAWindow(now)
+    local s = surf(AA_WND)
+    if not refreshSurface(s, AA_WND, BTN_AAEXPORT, now) then return end
+    if consumeClick(s, AA_WND, BTN_AAEXPORT, now) then
+        aaTransfer.requestExport()
+    end
+    if consumeClick(s, AA_WND, BTN_AAIMPORT, now) then
+        aaTransfer.armOrStartImport()
+    end
+    if (now - s.lastStatusAt) >= STATUS_INTERVAL_MS then
+        s.lastStatusAt = now
+        setStatus(s, AA_WND, AA_STATUS, aaTransfer.getStatusLine() or "CoOpt")
+    end
+end
+
+---------------------------------------------------------------------------
 -- Item Display surface: squash-only (the redirect lives in native_hover)
 ---------------------------------------------------------------------------
 
@@ -458,6 +485,7 @@ function M.tick(now)
     tickMerchant(now)
     tickActions(now)
     tickCommandCenter(now)
+    tickAAWindow(now)
 end
 
 return M

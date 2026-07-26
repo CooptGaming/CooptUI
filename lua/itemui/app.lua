@@ -48,6 +48,7 @@ local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')
 local aa_data = require('itemui.services.aa_data')
+local aaTransferService = require('itemui.services.aa_transfer')
 local rerollService = require('itemui.services.reroll_service')
 local favoritesService = require('itemui.services.favorites_service')
 local skinSync = require('itemui.services.skin_sync')
@@ -556,6 +557,13 @@ local function pushRerollIdsToPlugin()
     end
     pcall(plug.setRerollIds, ids)
 end
+aaTransferService.init({
+    setStatusMessage = setStatusMessage,
+    layoutConfig = layoutConfig,
+    refreshAA = aa_data.refresh,
+    getAAList = aa_data.getList,
+    isAABuilding = aa_data.isBuilding,
+})
 rerollService.init({
     setStatusMessage = setStatusMessage,
     getRerollListStoragePath = function()
