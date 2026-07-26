@@ -119,6 +119,38 @@ void registerLua(sol::state_view L, sol::table& table) {
     return sol::make_object(sv, out);
   });
 
+  // Per-rank table ids for every group: { [groupId] = { [rank] = index } }.
+  // The import buys EXACT ranks with these - the global TLO's first match
+  // for a group is not guaranteed to be rank 1 on this server's custom
+  // table, and /alt buy with a mid-chain id gets "Unable to train".
+  table.set_function("getGroupRankIndexes", [rawL]() -> sol::object {
+    sol::state_view sv(rawL);
+    using namespace eqlib;
+    if (!pAltAdvManager.get()) return sol::make_object(sv, sol::lua_nil);
+
+    sol::table out = sv.create_table();
+    int faults = 0;
+    for (int n = 0; n < NUM_ALT_ABILITIES; ++n) {
+      int groupId = -1, rank = -1, cost = -1;
+      int r = readRankCostSafe(n, &groupId, &rank, &cost);
+      if (r == 1 && groupId > 0 && rank > 0) {
+        sol::object cur = out[groupId];
+        sol::table group;
+        if (cur.is<sol::table>()) {
+          group = cur.as<sol::table>();
+        } else {
+          group = sv.create_table();
+          out[groupId] = group;
+        }
+        group[rank] = n;
+      } else if (r == -1) {
+        ++faults;
+        if (faults > 25) return sol::make_object(sv, sol::lua_nil);
+      }
+    }
+    return sol::make_object(sv, out);
+  });
+
   // Per-rank AA point costs for every group: { [groupId] = { [rank] = cost } }.
   // Drives the import's "enough points?" gate. nil when unavailable.
   table.set_function("getGroupRankCosts", [rawL]() -> sol::object {

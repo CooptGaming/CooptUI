@@ -28,7 +28,7 @@ local M = {}
 local deps = {}            -- { setStatusMessage, layoutConfig, refreshAA, getAAList, isAABuilding }
 
 local BUY_TIMEOUT_MS = 2000
-local BUY_PACE_MS = 150
+local BUY_PACE_MS = 25
 local ARM_WINDOW_MS = 10000
 
 local exportPending = false
@@ -448,22 +448,38 @@ function M.startImport(path, force)
     else
         say(string.format("Importing %d ranks (%d pts, %d available)...", plan.ranks, plan.cost, have))
     end
+    -- Exact per-rank table ids (plugin): enables precise buys and burst mode.
+    local rankIndexes = nil
+    local pa = plugAA()
+    if pa and type(pa.getGroupRankIndexes) == 'function' then
+        local okR, m = pcall(pa.getGroupRankIndexes)
+        if okR and type(m) == 'table' then rankIndexes = m end
+    end
     imp = {
         queue = plan.queue, idx = 1, phase = "begin",
         expectRank = 0, buyAt = 0, retries = 0, nextActionAt = 0,
         totalRanks = plan.ranks, doneRanks = 0, failed = {},
         pass = 1, skippedAuto = plan.skippedAuto or 0,
-        nameRecs = nameRecs,
+        nameRecs = nameRecs, rankIndexes = rankIndexes,
     }
     return true
 end
 
---- Buy id for one missing rank. Owned AAs: the character-side NextIndex
---- (id of the next rank's entry). Unowned (post-reset): Me.AltAbility can't
---- see them, so resolve the group through the GLOBAL table - its first
---- entry is rank 1 and its Index is the same id currency /alt buy takes
---- (NextIndex is literally NextGroupAbilityId).
-local function resolveBuyId(entry)
+--- Buy id for one missing rank, most-authoritative source first:
+---  1. The plugin's per-rank table-id map - EXACT rank cur+1 by id. The
+---     global TLO's first match for a group is NOT guaranteed to be rank 1
+---     on this server's custom table, and /alt buy with a mid-chain id gets
+---     "Unable to train" (seen in the field: multi-rank General/Class lines
+---     refused while single-rank Specials bought fine).
+---  2. Owned AAs: the character-side NextIndex (id of the next rank entry).
+---  3. Last resort: the global first-match entry's Index (correct whenever
+---     rank 1 happens to be the lowest-index entry, e.g. single-rank AAs).
+local function resolveBuyId(entry, rankIndexes, cur)
+    if rankIndexes and entry.gid then
+        local grp = rankIndexes[entry.gid]
+        local ix = grp and tonumber(grp[(cur or 0) + 1]) or nil
+        if ix and ix > 0 then return ix end
+    end
     local aa = myAA(entry.name)
     if aa and aa() ~= nil then
         local okN, nextIdx = pcall(function() return aa.NextIndex and aa.NextIndex() end)
@@ -555,7 +571,8 @@ local function finishImport()
     -- ordering missed (multi-prereq AAs) resolve once everything else from
     -- pass 1 exists. Unresolvable/unbuyable entries would fail identically.
     local function retryable(f)
-        return f.reason and (f.reason:match("^buy timed out") or f.reason:match("^prereq not met")) ~= nil
+        return f.reason and (f.reason:match("^buy timed out") or f.reason:match("^prereq not met")
+            or f.reason:match("^burst stalled")) ~= nil
     end
     if imp.pass == 1 then
         local retryQueue = {}
@@ -622,7 +639,34 @@ local function tickImport(now)
             imp.retries = 0
             return
         end
-        local buyId, why = resolveBuyId(entry)
+        -- Burst mode (pass 1): when every missing rank's exact table id is
+        -- known, fire the whole line one buy per tick and verify ONCE at the
+        -- end - an order of magnitude faster than buy/verify per rank on
+        -- long passive lines. Pass 2 stays in the careful per-rank lane.
+        if imp.pass == 1 and imp.rankIndexes and entry.gid then
+            local grp = imp.rankIndexes[entry.gid]
+            if grp then
+                local ids, complete = {}, true
+                for r = cur + 1, entry.target do
+                    local ix = tonumber(grp[r])
+                    if ix and ix > 0 then
+                        ids[#ids + 1] = ix
+                    else
+                        complete = false
+                        break
+                    end
+                end
+                if complete and #ids > 1 then
+                    entry.burstIds = ids
+                    entry.burstPos = 1
+                    entry.burstStart = cur
+                    imp.phase = "burst"
+                    statusLine = string.format("Buying %s %d..%d", entry.name, cur + 1, entry.target)
+                    return
+                end
+            end
+        end
+        local buyId, why = resolveBuyId(entry, imp.rankIndexes, cur)
         if not buyId then
             imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = why or "unresolvable" }
             imp.idx = imp.idx + 1
@@ -633,6 +677,33 @@ local function tickImport(now)
         imp.expectRank = cur + 1
         imp.buyAt = now
         imp.phase = "verify"
+    elseif imp.phase == "burst" then
+        mq.cmd("/alt buy " .. tostring(entry.burstIds[entry.burstPos]))
+        entry.burstPos = entry.burstPos + 1
+        if entry.burstPos > #entry.burstIds then
+            imp.buyAt = now
+            imp.phase = "burstverify"
+        end
+    elseif imp.phase == "burstverify" then
+        local cur = myRank(entry.name)
+        if cur >= entry.target then
+            imp.doneRanks = imp.doneRanks + (entry.target - entry.burstStart)
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            imp.phase = "begin"
+            statusLine = string.format("Importing %d/%d...", imp.doneRanks, imp.totalRanks)
+        elseif (now - imp.buyAt) > (1500 + 100 * #entry.burstIds) then
+            -- Credit whatever landed; the stalled remainder goes to pass 2's
+            -- careful per-rank lane.
+            if cur > entry.burstStart then
+                imp.doneRanks = imp.doneRanks + (cur - entry.burstStart)
+            end
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur,
+                reason = string.format("burst stalled at rank %d/%d", cur, entry.target) }
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            imp.phase = "begin"
+        end
     elseif imp.phase == "verify" then
         local cur = myRank(entry.name)
         if cur >= imp.expectRank then
