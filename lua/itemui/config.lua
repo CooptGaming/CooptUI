@@ -23,6 +23,9 @@ local CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/sell_config') or ""
 local SHARED_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/shared_config') or ""
 local LOOT_CONFIG_PATH = basePath ~= "" and (basePath .. '/Macros/loot_config') or ""
 local CHARS_PATH = basePath ~= "" and (CONFIG_PATH .. '/Chars') or ""
+-- AA exports get their own folder - they lived in sell_config historically
+-- (leftover from the sell-manager era); aa_transfer migrates old files over.
+local AA_BACKUP_PATH = basePath ~= "" and (basePath .. '/Macros/aa_backups') or ""
 
 -- Resolve MacroQuest path when called (so paths work if config loaded before Path was set)
 local function getBasePath()
@@ -284,6 +287,7 @@ return {
     SHARED_CONFIG_PATH = SHARED_CONFIG_PATH,
     LOOT_CONFIG_PATH = LOOT_CONFIG_PATH,
     CHARS_PATH = CHARS_PATH,
+    AA_BACKUP_PATH = AA_BACKUP_PATH,
     getConfigFile = getConfigFile,
     getSharedConfigFile = getSharedConfigFile,
     getLootConfigFile = getLootConfigFile,

@@ -122,7 +122,8 @@ end
 local function getAABackupDir(ctx)
     local p = (ctx.layoutConfig and ctx.layoutConfig.AABackupPath) and ctx.layoutConfig.AABackupPath or ""
     if p and p ~= "" then return p end
-    return config.CONFIG_PATH or ""
+    -- Service owns the default (Macros\aa_backups) + one-time legacy migration.
+    return aa_transfer.getBackupDir()
 end
 
 -- List backup files in AA backup dir (or CONFIG_PATH)
@@ -443,7 +444,7 @@ function AAView.render(ctx)
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Export/Import location. Set AABackupPath in itemui_layout.ini [Layout] to use a custom folder.")
+        ImGui.Text("Export/Import location (default: Macros\\aa_backups). Set AABackupPath in itemui_layout.ini [Layout] to use a custom folder.")
         ImGui.EndTooltip()
     end
     ImGui.EndChild()

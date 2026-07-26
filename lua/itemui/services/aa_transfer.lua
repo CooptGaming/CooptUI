@@ -65,11 +65,53 @@ local function safeCharName()
     return n and n:gsub("[^%w_%-]", "_") or nil
 end
 
-local function backupDir()
+local dirEnsured = false
+local migratedLegacy = false
+
+local function ensureDir(d)
+    if dirEnsured or not d or d == "" then return end
+    dirEnsured = true
+    pcall(function() os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul') end)
+end
+
+-- One-time move of aa_*.ini out of the legacy default (Macros\sell_config -
+-- a leftover from the sell-manager era) into the AA backup folder. Runs only
+-- for the default location; a rename collision just keeps the old copy.
+local function migrateLegacyFiles(dstDir)
+    if migratedLegacy then return end
+    migratedLegacy = true
+    local legacy = config.CONFIG_PATH
+    if not legacy or legacy == "" or not dstDir or dstDir == "" or legacy == dstDir then return end
+    local moved = 0
+    local ok, pipe = pcall(io.popen, 'dir /b "' .. legacy:gsub("/", "\\") .. '\\aa_*.ini" 2>nul')
+    if ok and pipe then
+        for line in pipe:lines() do
+            if line and line:match("^aa_.*%.ini$") then
+                if os.rename(legacy .. "/" .. line, dstDir .. "/" .. line) then moved = moved + 1 end
+            end
+        end
+        pipe:close()
+    end
+    if moved > 0 then say(string.format("Moved %d AA export(s) to Macros\\aa_backups", moved)) end
+end
+
+--- The AA export folder: custom AABackupPath when set, else Macros\aa_backups
+--- (created on demand; legacy files in sell_config migrate over once).
+function M.getBackupDir()
     local lc = deps.layoutConfig
     local p = lc and lc.AABackupPath or ""
     if p and p ~= "" then return p end
+    local d = config.AA_BACKUP_PATH or ""
+    if d ~= "" then
+        ensureDir(d)
+        migrateLegacyFiles(d)
+        return d
+    end
     return config.CONFIG_PATH or ""
+end
+
+local function backupDir()
+    return M.getBackupDir()
 end
 
 local function myAA(name)
