@@ -31,7 +31,7 @@ local BUY_TIMEOUT_MS = 2000
 local BUY_PACE_MS = 25
 local ARM_WINDOW_MS = 10000
 local FLOOD_SENDS_PER_TICK = 8     -- /alt buy commands per main-loop tick in flood mode
-local FLOOD_SETTLE_MS = 1500       -- flood ends when confirms stop arriving for this long
+local FLOOD_SETTLE_MS = 4000       -- flood ends when confirms/refusals stop arriving for this long
 
 local exportPending = false
 local imp = nil            -- active import state
@@ -780,7 +780,13 @@ local function tickImport(now)
             fl.lastProgressAt = now
             statusLine = string.format("Confirmed %d/%d...", doneCount, imp.totalRanks)
         end
-        if allMet or (now - fl.lastProgressAt) > FLOOD_SETTLE_MS then
+        -- Refusal chatter is ALSO the server working through our queue - it
+        -- must hold the settle open. Exiting early while flood commands were
+        -- still draining made the careful lane race the queue (rank
+        -- collisions -> spurious "unable to train"; field-observed as "run
+        -- it twice and the stragglers go through").
+        local lastActivity = math.max(fl.lastProgressAt, (lastUnableAt >= (imp.t0 or 0)) and lastUnableAt or 0)
+        if allMet or (now - lastActivity) > FLOOD_SETTLE_MS then
             -- Reconcile against server truth: credit what landed, hand the
             -- shortfalls + deferred lines to the careful per-rank lane.
             imp.doneRanks = doneCount
@@ -800,6 +806,10 @@ local function tickImport(now)
             imp.phase = "begin"
             imp.retries = 0
             imp.pass = 2
+            -- Extra beat before the careful lane touches anything: the queue
+            -- is quiet per the settle, but cheap insurance against one last
+            -- in-flight confirm.
+            imp.nextActionAt = now + 750
             statusLine = string.format("Finishing %d lines carefully...", #rest)
         end
         return
