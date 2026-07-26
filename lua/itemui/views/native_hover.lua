@@ -141,6 +141,10 @@ function M.render(ctx)
     -- The pending Shift+Right-click menu renders before the over-ImGui gate:
     -- once open, the popup itself makes WantCaptureMouse true.
     renderNativeMenu(ctx)
+    -- While the slot menu is open, suppress hover and clicks entirely - the
+    -- cursor usually still sits over the native slot (not the popup), so the
+    -- over-ImGui gate alone would let the tooltip keep rendering beside it.
+    if nativeMenu.item then hover.key = nil; return end
     -- Never fight CoOpt's own ImGui tooltips: skip while the cursor is over ImGui.
     local overImGui, shiftDown = false, false
     pcall(function()

@@ -72,9 +72,29 @@ local function readEffect(kind, i)
         if sp and sp() ~= nil then
             e.spellId = tonumber(sp.ID())
             e.icon = tonumber(sp.SpellIcon())
+            -- What the buff does. A dbstr lookup - can be empty on emu; hide then.
+            local d = sp.Description and sp.Description()
+            if d and d ~= "" and d ~= "NULL" then e.description = d end
         end
     end)
+    pcall(function()
+        local c = b.Caster and b.Caster()
+        if c and c ~= "" and c ~= "NULL" then e.caster = c end
+    end)
     return e
+end
+
+-- Wrapped, format-safe text (descriptions can contain '%', which ImGui.Text
+-- would treat as a format string).
+local function textWrapped(s)
+    s = tostring(s)
+    if ImGui.PushTextWrapPos then ImGui.PushTextWrapPos(340) end
+    if ImGui.TextUnformatted then
+        ImGui.TextUnformatted(s)
+    else
+        ImGui.Text((s:gsub("%%", "%%%%")))
+    end
+    if ImGui.PopTextWrapPos then ImGui.PopTextWrapPos() end
 end
 
 local function rescan()
@@ -128,8 +148,13 @@ local function effectTooltip(ctx, e)
     ImGui.BeginTooltip()
     ImGui.Text(e.name)
     ImGui.Separator()
+    if e.description then
+        textWrapped(e.description)
+        ImGui.Spacing()
+    end
     local kindLabel = (e.kind == "buff" and "Buff") or (e.kind == "song" and "Song") or "Aura"
     ctx.theme.TextMuted(string.format("%s slot %d", kindLabel, e.index))
+    if e.caster then ctx.theme.TextMuted("From: " .. e.caster) end
     if e.permanent then
         ctx.theme.TextMuted("Duration: permanent")
     else
