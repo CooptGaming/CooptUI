@@ -1,6 +1,6 @@
 # Config templates — default settings files
 
-These folders hold the **official default** INI files for sell, loot, and shared config. They mirror the maintainer’s current general settings. They are used by:
+These folders hold the **official default** INI files for sell, loot, and shared config — the curated new-player baseline (see [docs/DEFAULT_SETTINGS.md](../docs/DEFAULT_SETTINGS.md) for every value and the reasoning). They are used by:
 
 1. **Patcher (create-if-missing)** — When a user runs the patcher, any file listed here is installed into `Macros/sell_config`, `Macros/shared_config`, or `Macros/loot_config` **only if that file does not already exist**. Existing user files are never overwritten.
 2. **UI startup (optional safety net)** — The UI can create a minimal version of a few critical files if they are missing (so the app doesn’t break if the user never ran the patcher).
@@ -15,7 +15,7 @@ These folders hold the **official default** INI files for sell, loot, and shared
 
 ## What’s in the templates
 
-- **General settings** (flags, value thresholds, epic_classes, layout) — Mirror current maintainer settings.
+- **General settings** (flags, value thresholds, epic_classes, layout) — The curated defaults: safety-critical flags (protectEpic, alwaysLootEpic) match the code fallbacks; dev-only settings (verbose logging) stay off.
 - **Sell list, loot list, shared list** — Only **types** and **keyword** entries (exact, contains). No extra chunk keys (exact2–exact20, etc.); single-line values only.
 - **Class-specific epic INIs** (`epic_items_<class>.ini`) — **Contain the full epic item entries** for each class (from your Macros). Beastlord and berserker are empty (no source INI in Macros).
 

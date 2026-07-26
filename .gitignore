@@ -40,6 +40,8 @@
 docs/*
 !docs/INSTALL.md
 !docs/CONFIGURATION.md
+!docs/DEFAULT_SETTINGS.md
+!docs/PRODUCT_GUIDE.md
 !docs/DEVELOPER.md
 !docs/TROUBLESHOOTING.md
 !docs/RELEASE_AND_DEPLOYMENT.md
@@ -67,6 +69,7 @@ Macros/*
 
 # Per-character and runtime data; all user INIs (never version — defaults live in config_templates/)
 Macros/sell_config/Chars/
+Macros/sell_config/default_layout_version.txt
 Macros/sell_config/*.ini
 Macros/loot_config/*.ini
 Macros/shared_config/*.ini
