@@ -274,15 +274,20 @@ function M.parseBackup(path)
     return aas, meta
 end
 
---- name -> groupId for every AA the browser scan knows (ownership-
---- INDEPENDENT - this is the global table, so it resolves post-reset when
---- Me.AltAbility(name) can't: that TLO only finds abilities you own).
-local function buildNameIdMap()
-    local map = {}
+--- name -> groupId and name -> scan record for every AA the browser scan
+--- knows (ownership-INDEPENDENT - this is the global table, so it resolves
+--- post-reset when Me.AltAbility(name) can't: that TLO only finds abilities
+--- you own). Records also carry requiresAbility/requiresAbilityPoints (the
+--- table's first-prerequisite data) for import ordering and diagnostics.
+local function buildNameMaps()
+    local ids, recs = {}, {}
     for _, r in ipairs((deps.getAAList and deps.getAAList()) or {}) do
-        if r.name and r.id then map[r.name] = r.id end
+        if r.name then
+            if r.id then ids[r.name] = r.id end
+            recs[r.name] = r
+        end
     end
-    return map
+    return ids, recs
 end
 
 --- Rebuild the newest-first backup list for this character. Sort by the
@@ -341,7 +346,7 @@ end
 
 --- Plan an import: entries needing ranks, total ranks, and the AA-point cost
 --- (exact when the plugin cost map is available). Pure - buys nothing.
-local function planImport(aas, nameIds)
+local function planImport(aas, nameIds, nameRecs)
     local plan = { queue = {}, ranks = 0, cost = 0, exact = false, skippedAuto = 0 }
     nameIds = nameIds or {}
     local costs = nil
@@ -378,6 +383,37 @@ local function planImport(aas, nameIds)
             end
         end
     end
+    -- Prerequisite ordering: buy prereq lines before their dependents. The
+    -- scan records carry the table's FIRST required group per AA (name +
+    -- required rank); buying the whole prereq line first satisfies any
+    -- required rank, so entry-level topological order suffices. Multi-prereq
+    -- AAs (rare) are covered by the timeout-retry pass instead. A cycle or
+    -- self-reference just emits the remainder in file order.
+    if nameRecs then
+        local queued = {}
+        for _, q in ipairs(plan.queue) do queued[q.name] = true end
+        local ordered, emitted = {}, {}
+        for _ = 1, #plan.queue do
+            local progressed = false
+            for _, q in ipairs(plan.queue) do
+                if not emitted[q.name] then
+                    local rec = nameRecs[q.name]
+                    local prereq = rec and rec.requiresAbility
+                    if type(prereq) ~= "string" or prereq == "" then prereq = nil end
+                    if not (prereq and queued[prereq] and not emitted[prereq]) then
+                        ordered[#ordered + 1] = q
+                        emitted[q.name] = true
+                        progressed = true
+                    end
+                end
+            end
+            if not progressed or #ordered == #plan.queue then break end
+        end
+        for _, q in ipairs(plan.queue) do
+            if not emitted[q.name] then ordered[#ordered + 1] = q end
+        end
+        plan.queue = ordered
+    end
     return plan
 end
 
@@ -391,7 +427,7 @@ function M.startImport(path, force)
     if exportPending then say("Export running - wait for it") return false end
     -- The global AA scan is the resolver for unowned names; without it the
     -- whole import would misreport. Kick a scan and ask for a re-click.
-    local nameIds = buildNameIdMap()
+    local nameIds, nameRecs = buildNameMaps()
     if next(nameIds) == nil then
         if deps.refreshAA then deps.refreshAA() end
         say("Scanning AA tables - click Import again in a moment")
@@ -400,7 +436,7 @@ function M.startImport(path, force)
     local aas, err = M.parseBackup(path)
     if not aas then say("Import failed: " .. tostring(err)) return false end
     if #aas == 0 then say("No AAs in file") return false end
-    local plan = planImport(aas, nameIds)
+    local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
     local have = myPoints()
     if plan.exact and plan.cost > have and not force then
@@ -417,6 +453,7 @@ function M.startImport(path, force)
         expectRank = 0, buyAt = 0, retries = 0, nextActionAt = 0,
         totalRanks = plan.ranks, doneRanks = 0, failed = {},
         pass = 1, skippedAuto = plan.skippedAuto or 0,
+        nameRecs = nameRecs,
     }
     return true
 end
@@ -466,7 +503,7 @@ function M.armOrStartImport()
         path, fname = M.findLatestBackup()
     end
     if not path then say("No aa_*.ini export found for this character") return end
-    local nameIds = buildNameIdMap()
+    local nameIds, nameRecs = buildNameMaps()
     if next(nameIds) == nil then
         if deps.refreshAA then deps.refreshAA() end
         say("Scanning AA tables - click Import again in a moment")
@@ -474,7 +511,7 @@ function M.armOrStartImport()
     end
     local aas, err = M.parseBackup(path)
     if not aas then say("Import failed: " .. tostring(err)) return end
-    local plan = planImport(aas, nameIds)
+    local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
     local have = myPoints()
     if plan.exact and plan.cost > have then
@@ -514,20 +551,24 @@ local function writeImportReport()
 end
 
 local function finishImport()
-    -- One extra sweep over TIMEOUT failures only: simple RequiresAbility
-    -- chains resolve once prerequisites bought later in pass 1 exist.
-    -- Unresolvable/unbuyable entries would just fail identically again.
+    -- One extra sweep over timeout/prereq failures: chains the plan-time
+    -- ordering missed (multi-prereq AAs) resolve once everything else from
+    -- pass 1 exists. Unresolvable/unbuyable entries would fail identically.
+    local function retryable(f)
+        return f.reason and (f.reason:match("^buy timed out") or f.reason:match("^prereq not met")) ~= nil
+    end
     if imp.pass == 1 then
         local retryQueue = {}
         for _, f in ipairs(imp.failed) do
-            if f.reason == "buy timed out (rank never moved)" then
-                retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted }
+            if retryable(f) then
+                local rec = imp.nameRecs and imp.nameRecs[f.name]
+                retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted, gid = rec and rec.id or nil }
             end
         end
         if #retryQueue > 0 then
             local keep = {}
             for _, f in ipairs(imp.failed) do
-                if f.reason ~= "buy timed out (rank never moved)" then keep[#keep + 1] = f end
+                if not retryable(f) then keep[#keep + 1] = f end
             end
             imp.queue = retryQueue
             imp.failed = keep
@@ -603,9 +644,20 @@ local function tickImport(now)
         elseif (now - imp.buyAt) > BUY_TIMEOUT_MS then
             imp.retries = imp.retries + 1
             if imp.retries >= 2 then
-                -- Two timeouts on the same rank: record and move on (points
-                -- exhausted, server refused, or rank mismatch).
-                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "buy timed out (rank never moved)" }
+                -- Two timeouts on the same rank: record and move on. When the
+                -- table says a prereq line is short, name it - that's almost
+                -- always why a server refuses a buy.
+                local reason = "buy timed out (rank never moved)"
+                local rec = imp.nameRecs and imp.nameRecs[entry.name]
+                local prereq = rec and rec.requiresAbility
+                if type(prereq) == "string" and prereq ~= "" then
+                    local need = tonumber(rec.requiresAbilityPoints) or 0
+                    local haveR = myRank(prereq)
+                    if need > 0 and haveR < need then
+                        reason = string.format("prereq not met: %s rank %d (have %d)", prereq, need, haveR)
+                    end
+                end
+                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = reason }
                 imp.idx = imp.idx + 1
                 imp.retries = 0
                 imp.phase = "begin"
