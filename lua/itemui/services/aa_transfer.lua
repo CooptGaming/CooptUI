@@ -352,8 +352,11 @@ local function planImport(aas)
 end
 
 --- Start importing from a backup file. Gates on AA points when the cost is
---- known exactly; refuses to start when nothing is missing.
-function M.startImport(path)
+--- known exactly; refuses to start when nothing is missing. force = true
+--- (the native arm flow's confirmed click) allows a partial import when
+--- points fall short - safe because the plan only ever buys missing ranks,
+--- so re-importing later resumes where it stopped.
+function M.startImport(path, force)
     if imp then say("Import already running") return false end
     if exportPending then say("Export running - wait for it") return false end
     local aas, err = M.parseBackup(path)
@@ -362,7 +365,7 @@ function M.startImport(path)
     local plan = planImport(aas)
     if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
     local have = myPoints()
-    if plan.exact and plan.cost > have then
+    if plan.exact and plan.cost > have and not force then
         say(string.format("Need %d AA pts for %d ranks - you have %d. Import aborted.", plan.cost, plan.ranks, have))
         return false
     end
@@ -389,8 +392,9 @@ function M.armOrStartImport()
     local now = mq.gettime()
     if armed and now < armed.armedUntil then
         local path = armed.path
+        local force = armed.partial == true
         armed = nil
-        M.startImport(path)
+        M.startImport(path, force)
         return
     end
     armed = nil
@@ -407,7 +411,10 @@ function M.armOrStartImport()
     if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
     local have = myPoints()
     if plan.exact and plan.cost > have then
-        say(string.format("Need %d pts for %d ranks, have %d - cannot import", plan.cost, plan.ranks, have))
+        -- Not enough points: arm a PARTIAL import instead of dead-ending -
+        -- the plan only buys missing ranks, so a later re-import resumes.
+        armed = { path = path, armedUntil = now + ARM_WINDOW_MS, partial = true }
+        say(string.format("Need %d pts, have %d. Import again for a PARTIAL import.", plan.cost, have))
         return
     end
     armed = { path = path, armedUntil = now + ARM_WINDOW_MS }
@@ -495,6 +502,14 @@ local function tickImport(now)
     if imp.phase == "begin" then
         local cur = myRank(entry.name)
         if cur >= entry.target then
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            return
+        end
+        if myPoints() <= 0 then
+            -- Out of points: drain the rest fast with a clear reason instead
+            -- of burning two 2s timeouts per remaining entry.
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "out of AA points" }
             imp.idx = imp.idx + 1
             imp.retries = 0
             return
