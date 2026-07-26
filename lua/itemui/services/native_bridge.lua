@@ -143,27 +143,31 @@ local function consumeClick(s, wnd, name, now)
         b = { last = checked }
         s.btn[name] = b
         -- Already latched at first sight (window reopened mid-run, or our state was
-        -- reset while the button was pressed): stale latch, not a click. With the
-        -- plugin, pop it out right now via a direct state write; otherwise schedule
-        -- the deferred cosmetic un-latch so it doesn't stay visually pushed in.
-        if checked then
-            local pw = plugWindow()
-            if pw and pw.setChecked(wnd, name, false) then
-                b.last = false
-            else
-                b.unlatchAt = now + UNLATCH_SETTLE_MS
-            end
-        end
+        -- reset while the button was pressed): stale latch, not a click — schedule
+        -- the cosmetic un-latch so it doesn't stay visually pushed in.
+        if checked then b.unlatchAt = now + UNLATCH_SETTLE_MS end
         return false
     end
     if checked == b.last then
+        -- Deferred un-latch: the settle delay + MouseOver gate are LOAD-BEARING
+        -- even with the plugin. Touching bChecked inside the click window makes
+        -- the release re-toggle it — a phantom second transition that toggled
+        -- the just-opened window closed (seen on the native Command Center).
+        -- The plugin only upgrades the MECHANISM: a silent state write instead
+        -- of a synthetic click, so no capture wedge and no echo to swallow.
         if checked and b.unlatchAt and now >= b.unlatchAt then
             local c = child(wnd, name)
             local okOver, over = pcall(function() return c.MouseOver() end)
             if okOver and over == false then
-                mq.cmdf('/notify %s %s leftmouseup', wnd, name)
-                b.expectSyntheticUntil = now + UNLATCH_ECHO_MS
-                b.unlatchAt = nil
+                local pw = plugWindow()
+                if pw and pw.setChecked(wnd, name, false) then
+                    b.last = false
+                    b.unlatchAt = nil
+                else
+                    mq.cmdf('/notify %s %s leftmouseup', wnd, name)
+                    b.expectSyntheticUntil = now + UNLATCH_ECHO_MS
+                    b.unlatchAt = nil
+                end
             end
         end
         return false
@@ -174,19 +178,7 @@ local function consumeClick(s, wnd, name, now)
         b.unlatchAt = nil
         return false
     end
-    if checked then
-        local pw = plugWindow()
-        if pw and pw.setChecked(wnd, name, false) then
-            -- Direct un-latch: bChecked write only. Nothing echoes back and no
-            -- click can be in progress conflict-wise, so no settle delay needed.
-            b.last = false
-            b.unlatchAt = nil
-        else
-            b.unlatchAt = now + UNLATCH_SETTLE_MS
-        end
-    else
-        b.unlatchAt = nil
-    end
+    b.unlatchAt = checked and (now + UNLATCH_SETTLE_MS) or nil
     return true
 end
 

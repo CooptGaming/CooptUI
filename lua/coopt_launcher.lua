@@ -66,23 +66,25 @@ local function clicked(name)
     return v ~= last
 end
 
--- Pop a latched button back out. Plugin: immediate direct state write.
--- Fallback: synthetic click, only while the cursor is off the button.
+-- Pop a latched button back out, only while the cursor is off it — touching
+-- bChecked inside the click window makes the release re-toggle it (phantom
+-- second click). The plugin only upgrades the mechanism: silent state write
+-- instead of a synthetic click.
 local function unlatch(name)
     local c = child(name)
     if not c then return end
     local okc, v = pcall(function() return c.Checked() end)
     if not okc or v ~= true then return end
-    if plugWin then
-        if plugWin.setChecked(WND, name, false) then
-            btnLast[name] = false -- state write only; nothing echoes back
-        end
-        return
-    end
     local oko, over = pcall(function() return c.MouseOver() end)
     if oko and over == false then
-        mq.cmdf('/notify %s %s leftmouseup', WND, name)
-        btnLast[name] = false -- swallow our own synthetic toggle
+        if plugWin then
+            if plugWin.setChecked(WND, name, false) then
+                btnLast[name] = false -- state write; nothing echoes back
+            end
+        else
+            mq.cmdf('/notify %s %s leftmouseup', WND, name)
+            btnLast[name] = false -- swallow our own synthetic toggle
+        end
     end
 end
 

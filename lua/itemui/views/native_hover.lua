@@ -29,6 +29,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local registry = require('itemui.core.registry')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local ui_common = require('itemui.components.ui_common')
 
 local M = {}
 
@@ -39,6 +40,72 @@ local function plugWindow()
     local w = coopuiPlugin.getWindow()
     pwCache = (w and type(w.getMouseOverSlot) == 'function') and w or false
     return pwCache or nil
+end
+
+-- Shift+Right-click on a native slot opens the shared CoOpt context menu
+-- (Clicky Lists, Reroll, Move, Delete...). Plain right-click stays native:
+-- the game always processes its own clicks (we can't consume native input),
+-- and plain right-click has native meaning (use item / inspect) we must not
+-- co-opt. Shift avoids double-firing consumables.
+local NATIVE_MENU_POPUP = "ItemContextNativeSlot"
+local nativeMenu = { item = nil, source = nil, openRequested = false }
+
+-- Resolve a native slot to a real scan-row item so the shared menu behaves
+-- exactly as it does in the companions; falls back to an enriched stats item.
+local function resolveSlotItem(ctx, src, bag, slotIdx)
+    local function findIn(list)
+        for _, it in ipairs(list or {}) do
+            if it.bag == bag and it.slot == slotIdx then return it end
+        end
+        return nil
+    end
+    if src == "inv" then
+        local it = findIn(ctx.inventoryItems)
+        if it then return it end
+    elseif src == "bank" then
+        local it = findIn(ctx.bankItems) or findIn(ctx.bankCache)
+        if it then return it end
+    elseif src == "equipped" then
+        local eq = ctx.equipmentCache
+        local it = eq and eq[slotIdx + 1]
+        if it then return it end
+    end
+    local st = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = bag, slot = slotIdx, source = src }, src)
+    if st and st.name then
+        st.bag, st.slot = bag, slotIdx
+        return st
+    end
+    return nil
+end
+
+-- Host + render the pending native-slot menu. Popups can't open from the
+-- ImGui root (no window on the stack), so a zero-footprint host window owns
+-- the popup. Runs before the over-ImGui early-out: the open menu makes
+-- WantCaptureMouse true, and bailing there would close it instantly.
+local function renderNativeMenu(ctx)
+    if not nativeMenu.item then return end
+    ImGui.SetNextWindowPos(ImVec2(-2000, -2000))
+    ImGui.SetNextWindowSize(ImVec2(1, 1))
+    local flags = bit32.bor(ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoResize, ImGuiWindowFlags.NoMove,
+        ImGuiWindowFlags.NoBackground, ImGuiWindowFlags.NoSavedSettings, ImGuiWindowFlags.NoFocusOnAppearing,
+        ImGuiWindowFlags.NoBringToFrontOnFocus, ImGuiWindowFlags.NoNav)
+    ImGui.Begin("##CooptNativeSlotMenuHost", true, flags)
+    if nativeMenu.openRequested then
+        nativeMenu.openRequested = false
+        ImGui.OpenPopup(NATIVE_MENU_POPUP)
+    end
+    if ImGui.BeginPopup(NATIVE_MENU_POPUP) then
+        ui_common.renderItemContextMenuContents(ctx, nativeMenu.item, {
+            source = nativeMenu.source,
+            bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false,
+            hasCursor = (ctx.hasItemOnCursor and ctx.hasItemOnCursor()) or false,
+        })
+        ImGui.EndPopup()
+    else
+        nativeMenu.item = nil
+        nativeMenu.source = nil
+    end
+    ImGui.End()
 end
 
 local DWELL_MS = 250
@@ -71,11 +138,15 @@ function M.render(ctx)
     local tooltipOn = uiState.nativeHoverTooltip ~= false
     local redirectOn = uiState.nativeItemDisplayReplace == true
     if not tooltipOn and not redirectOn then return end
+    -- The pending Shift+Right-click menu renders before the over-ImGui gate:
+    -- once open, the popup itself makes WantCaptureMouse true.
+    renderNativeMenu(ctx)
     -- Never fight CoOpt's own ImGui tooltips: skip while the cursor is over ImGui.
-    local overImGui = false
+    local overImGui, shiftDown = false, false
     pcall(function()
         local io = ImGui.GetIO and ImGui.GetIO()
         overImGui = (io and io.WantCaptureMouse) or false
+        shiftDown = (io and io.KeyShift) or false
     end)
     if overImGui then hover.key = nil; return end
     local now = mq.gettime()
@@ -100,6 +171,19 @@ function M.render(ctx)
         if idx then src, bag, slotIdx = "equipped", 0, idx end
     end
     if not src then hover.key = nil; return end
+
+    -- Shift+Right-click: open the shared CoOpt context menu for this slot.
+    -- Checked before the inspect redirect so shift-clicks don't also redirect.
+    if ImGui.IsMouseClicked(ImGuiMouseButton.Right) and shiftDown then
+        local it = resolveSlotItem(ctx, src, bag, slotIdx)
+        if it then
+            nativeMenu.item = it
+            nativeMenu.source = src
+            nativeMenu.openRequested = true
+        end
+        hover.key = nil
+        return
+    end
 
     -- Right-click on a worn slot: open the CoOpt Item Display for that slot
     -- instead of the native inspect (whose layout garbles on this server). We
@@ -140,6 +224,8 @@ function M.render(ctx)
     ImGui.Text("Stats")
     ImGui.Separator()
     ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+    ImGui.Spacing()
+    ctx.theme.TextMuted("Shift+Right-click: CoOpt menu")
     ImGui.EndTooltip()
 end
 

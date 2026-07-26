@@ -152,12 +152,19 @@ end
 --- opts.popupId must be unique per row (e.g. "ItemContextInv_"..rid). opts.bankOpen, opts.hasCursor.
 function M.renderItemContextMenu(ctx, item, opts)
     if not ctx or not item or not opts or not opts.popupId then return end
+    local opened = ImGui.BeginPopupContextItem(opts.popupId) or ImGui.BeginPopup(opts.popupId)
+    if not opened then return end
+    M.renderItemContextMenuContents(ctx, item, opts)
+    ImGui.EndPopup()
+end
+
+--- Menu CONTENTS only (no popup begin/end) - for hosts that manage the popup
+--- themselves (e.g. native_hover's Shift+Right-click menu over native slots).
+function M.renderItemContextMenuContents(ctx, item, opts)
+    if not ctx or not item or not opts then return end
     local source = opts.source or "inv"
     local bankOpen = opts.bankOpen or false
     local hasCursor = opts.hasCursor or false
-
-    local opened = ImGui.BeginPopupContextItem(opts.popupId) or ImGui.BeginPopup(opts.popupId)
-    if not opened then return end
 
     local nameKey = (item.name or ""):match("^%s*(.-)%s*$") or ""
     local itemTypeTrim = (item.type or ""):match("^%s*(.-)%s*$") or ""
@@ -563,8 +570,6 @@ function M.renderItemContextMenu(ctx, item, opts)
         end
         ctx.theme.PopButtonColors()
     end
-
-    ImGui.EndPopup()
 end
 
 return M
