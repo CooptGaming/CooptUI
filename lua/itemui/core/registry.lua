@@ -152,13 +152,6 @@ function M.toggleWindow(id)
     end
 end
 
-function M.closeNewestOpen()
-    local bestId = M.getNewestOpen()
-    if not bestId then return nil end
-    M.closeWindow(bestId)
-    return bestId
-end
-
 function M.closeWindow(id, cleanupFn)
     if not id or id == "" then return false end
     cacheDirty = true
@@ -254,7 +247,12 @@ end
 function M.setWindowState(id, windowOpen, windowShouldDraw)
     local m = modules[id]
     if not m then return end
-    cacheDirty = true
+    -- Dirty the module caches only on an actual change: every open companion
+    -- calls this right after ImGui.Begin EVERY FRAME, and an unconditional
+    -- dirty made getDrawableModules() rebuild (and re-allocate) per frame.
+    if m.windowOpen ~= windowOpen or m.windowShouldDraw ~= windowShouldDraw then
+        cacheDirty = true
+    end
     local wasOpen = m.windowOpen
     m.windowOpen = windowOpen
     m.windowShouldDraw = windowShouldDraw

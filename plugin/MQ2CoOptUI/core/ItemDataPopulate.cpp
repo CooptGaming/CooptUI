@@ -44,7 +44,13 @@ static std::string BuildWornSlotsString(int equipSlots) {
 
 static std::string BuildClassString(int classes) {
   if (classes <= 0) return "";
-  if (classes >= 16) return "All";
+  // "All" means every class BIT is set — compare the popcount, not the raw
+  // mask (any mask >= 16 just means "includes a class above bit 4").
+  int classCount = 0;
+  for (int i = 0; i < eqlib::TotalPlayerClasses; ++i) {
+    if (classes & (1 << i)) ++classCount;
+  }
+  if (classCount >= eqlib::TotalPlayerClasses) return "All";
   if (!eqlib::pEverQuest) return "";
   std::ostringstream oss;
   bool first = true;
@@ -73,7 +79,12 @@ static int RaceBitToId(int num) {
 
 static std::string BuildRaceString(int races) {
   if (races <= 0) return "";
-  if (races >= 15) return "All";
+  // Same popcount logic as classes: "All" = (nearly) every race bit set.
+  int raceCount = 0;
+  for (int i = 0; i < 16; ++i) {
+    if (races & (1 << i)) ++raceCount;
+  }
+  if (raceCount >= 15) return "All";
   if (!eqlib::pEverQuest) return "";
   std::ostringstream oss;
   bool first = true;

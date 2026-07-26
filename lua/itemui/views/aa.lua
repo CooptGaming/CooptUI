@@ -25,11 +25,23 @@ local selectedAAName = nil
 local canPurchaseOnly = false
 -- Sort cache
 local sortCache = { key = "", list = {} }
+-- Filter cache: the tab/search/can-purchase pass over ~2k records used to
+-- re-run (and re-allocate) every frame; only the SORT was cached.
+local filterCache = { key = "", list = {} }
 
 local function getFilteredList(ctx)
     local list = ctx.getAAList()
     if not list or #list == 0 then return {} end
     local tab = (ctx.sortState.aaTab and ctx.sortState.aaTab >= 1 and ctx.sortState.aaTab <= 4) and ctx.sortState.aaTab or 1
+    local ptsKey = 0
+    if canPurchaseOnly then
+        local points = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
+        ptsKey = points.aaPoints or 0
+    end
+    local rt = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
+    local cacheKey = string.format("%d|%s|%s|%d|%d|%s", tab, searchTextApplied or "",
+        canPurchaseOnly and "1" or "0", #list, ptsKey, tostring(rt))
+    if filterCache.key == cacheKey then return filterCache.list end
     local tabName = TAB_NAMES[tab]
     local filtered = {}
     for i = 1, #list do
@@ -63,14 +75,14 @@ local function getFilteredList(ctx)
     end
     -- Can Purchase filter
     if canPurchaseOnly then
-        local points = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
-        local aaPoints = (points.aaPoints or 0)
         local out = {}
         for _, aa in ipairs(filtered) do
-            if aa.canTrain and aaPoints >= (aa.cost or 0) then out[#out + 1] = aa end
+            if aa.canTrain and ptsKey >= (aa.cost or 0) then out[#out + 1] = aa end
         end
         filtered = out
     end
+    filterCache.key = cacheKey
+    filterCache.list = filtered
     return filtered
 end
 
@@ -167,7 +179,7 @@ function AAView.render(ctx)
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
     end
 
-    local winOpen, winVis = ImGui.Begin("CoOpt UI AAs Companion (Work in Progress)##ItemUIAA", state.windowOpen, windowFlags)
+    local winOpen, winVis = ImGui.Begin("CoOpt UI AAs Companion##ItemUIAA", state.windowOpen, windowFlags)
     registry.setWindowState("aa", winOpen, winOpen)
 
     if not winOpen then ImGui.End(); return end
@@ -207,7 +219,6 @@ function AAView.render(ctx)
             layoutConfig.AAWindowX = cx
             layoutConfig.AAWindowY = cy
             ctx.scheduleLayoutSave()
-            ctx.flushLayoutSave()
         end
     end
 
@@ -316,11 +327,13 @@ function AAView.render(ctx)
                     ImGui.BeginTooltip()
                     ImGui.Text(aa.name or "")
                     if aa.description and aa.description ~= "" then ImGui.TextWrapped(aa.description) end
-                    local ok, reqName = pcall(function()
-                        if aa.requiresAbility and aa.requiresAbility.Name then return aa.requiresAbility.Name() end
-                        return nil
-                    end)
-                    if ok and reqName and reqName ~= "" then ImGui.Text("Requires: " .. tostring(reqName)) end
+                    -- requiresAbilityName is resolved by the scan (gid -> name);
+                    -- the raw requiresAbility field is a group-id STRING, so
+                    -- .Name on it indexed the string library and always hid this line.
+                    local reqName = aa.requiresAbilityName
+                    if reqName and reqName ~= "" then
+                        ImGui.Text(string.format("Requires: %s (rank %d)", reqName, tonumber(aa.requiresAbilityPoints) or 1))
+                    end
                     ImGui.EndTooltip()
                 end
                 if rowHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) and isSelected and aa.canTrain and aaPoints >= (aa.cost or 0) then
@@ -409,7 +422,7 @@ function AAView.render(ctx)
     ImGui.SameLine()
     if ImGui.Button("Import", ImVec2(80, 0)) and not transferBusy then
         local files = listBackupFiles(ctx)
-        if #files == 0 then ctx.setStatusMessage("No aa_*.ini backups in config folder") end
+        if #files == 0 then ctx.setStatusMessage("No aa_*.ini backups in Macros\aa_backups (or your AABackupPath folder)") end
         if #files > 0 then
             ctx._aaImportFileCombo = ctx._aaImportFileCombo or 1
             ctx._aaImportFiles = files

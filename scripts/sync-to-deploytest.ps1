@@ -56,6 +56,24 @@ if (Test-Path $mqLuaSrc) {
     $count++
 }
 
+$launcherSrc = Join-Path $RepoRoot "lua\coopt_launcher.lua"
+if (Test-Path $launcherSrc) {
+    Copy-Item $launcherSrc -Destination (Join-Path $Target "lua\coopt_launcher.lua") -Force
+    Write-Host "  [OK] lua\coopt_launcher.lua" -ForegroundColor Green
+    $count++
+}
+
+# --- Native skin (MQ root copy; skin_sync mirrors it into the EQ client at runtime) ---
+
+$skinSrc = Join-Path $RepoRoot "uifiles\coopt"
+$skinDst = Join-Path $Target "uifiles\coopt"
+if (Test-Path $skinSrc) {
+    if (-not (Test-Path $skinDst)) { New-Item -ItemType Directory -Path $skinDst -Force | Out-Null }
+    Copy-Item (Join-Path $skinSrc "*") -Destination $skinDst -Recurse -Force
+    Write-Host "  [OK] uifiles\coopt (native skin)" -ForegroundColor Green
+    $count++
+}
+
 # --- Macros (sell.mac, loot.mac, shared_config/*.mac only — NOT config INIs) ---
 
 $macrosDst = Join-Path $Target "Macros"

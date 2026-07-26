@@ -98,7 +98,7 @@ function SellView.render(ctx, simulateSellView)
             ctx.uiState.autoSellRequested = true
         end
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(simulateSellView and "Simulated view - Auto Sell disabled" or "Run /macro sell confirm to sell marked items"); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(simulateSellView and "Simulated view - Auto Sell disabled" or "Sell everything marked Sell (Lua sell or sell.mac per sellMode in sell_flags.ini)"); ImGui.EndTooltip() end
     ImGui.SameLine()
     if ImGui.Button("Preview##SellPreview", ImVec2(70, 0)) then
         ImGui.OpenPopup("Sell Preview##ItemUI")
@@ -112,7 +112,7 @@ function SellView.render(ctx, simulateSellView)
     SellView.renderSellPreviewModal(ctx)
     if not simulateSellView then
         ImGui.SameLine()
-        ctx.theme.TextMuted("/macro sell confirm")
+        ctx.theme.TextMuted("Auto Sell / /dosell")
     end
     ImGui.SameLine()
     ctx.renderRefreshButton(ctx, "Refresh##Sell", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })

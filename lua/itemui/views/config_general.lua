@@ -76,7 +76,7 @@ function ConfigGeneral.render(ctx)
     renderBreadcrumb("General", "Overview")
     if ImGui.CollapsingHeader("Features", ImGuiTreeNodeFlags.DefaultOpen) then
         renderBreadcrumb("General", "Features")
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Turn features on or off. All are enabled by default; uncheck to disable.")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Turn features on or off. Most are enabled by default (Loot/Skip History start off).")
         ImGui.Spacing()
         local prevAlign = uiState.alignToContext
         uiState.alignToContext = ImGui.Checkbox("Enable snap to Inventory", uiState.alignToContext)
@@ -221,6 +221,11 @@ function ConfigGeneral.render(ctx)
             config.writeLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", epicEnabled and "TRUE" or "FALSE")
             invalidateSellConfigCache()
             invalidateLootConfigCache()
+            -- Settings contract leg 3: without the events, attached willSell/
+            -- sellReason on visible rows keeps advertising the OLD ruling until
+            -- an unrelated rescan.
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
             scheduleLayoutSave()
         end
         if ImGui.IsItemHovered() then
@@ -271,7 +276,7 @@ function ConfigGeneral.render(ctx)
             for _, cls in ipairs(EPIC_CLASSES) do
                 if configEpicClasses[cls] == true then nSelected = nSelected + 1 end
             end
-            local preview = (nSelected == 0) and "All classes (none selected)" or (nSelected == #EPIC_CLASSES) and "All classes" or string.format("%d class%s", nSelected, nSelected == 1 and "" or "es")
+            local preview = (nSelected == 0) and "None selected (epic rules inactive)" or (nSelected == #EPIC_CLASSES) and "All classes" or string.format("%d class%s", nSelected, nSelected == 1 and "" or "es")
             ImGui.SetNextItemWidth(320)
             if ImGui.BeginCombo("Classes for epic##epic", preview, ImGuiComboFlags.None) then
                 local rowHeight = (ImGui.GetFrameHeight and ImGui.GetFrameHeight()) or 24
@@ -286,6 +291,8 @@ function ConfigGeneral.render(ctx)
                     end
                     invalidateSellConfigCache()
                     invalidateLootConfigCache()
+                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
                 ImGui.SameLine()
@@ -296,6 +303,8 @@ function ConfigGeneral.render(ctx)
                     end
                     invalidateSellConfigCache()
                     invalidateLootConfigCache()
+                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all (no epic items when none selected)"); ImGui.EndTooltip() end
                 ImGui.Spacing()
@@ -306,6 +315,8 @@ function ConfigGeneral.render(ctx)
                         config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE")
                         invalidateSellConfigCache()
                         invalidateLootConfigCache()
+                        events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                        events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                     end
                 end
                 ImGui.EndCombo()
@@ -405,7 +416,7 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         local function sellFlag(name, key, tooltip)
             local v = ImGui.Checkbox(name, configSellFlags[key])
-            if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache() end
+            if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache(); events.emit(events.EVENTS.CONFIG_SELL_CHANGED) end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
         end
         sellFlag("Enable No-Drop protection", "protectNoDrop", "Never sell items with the No-Drop flag")
@@ -424,6 +435,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.minSell = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValue", tostring(configSellValues.minSell))
             invalidateSellConfigCache()
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minSell))
@@ -434,6 +446,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.minStack = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValueStack", tostring(configSellValues.minStack))
             invalidateSellConfigCache()
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minStack) .. "/unit")
@@ -444,6 +457,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.maxKeep = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "maxKeepValue", tostring(configSellValues.maxKeep))
             invalidateSellConfigCache()
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.maxKeep))
@@ -467,8 +481,14 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         lootFlag("Enable pause on Mythical NoDrop/NoTrade", "pauseOnMythicalNoDropNoTrade", "Loot Companion will open and pause so you can choose Take or Pass (5 min).")
         lootFlag("Enable alert group when Mythical pause", "alertMythicalGroupChat", "When pause triggers, send the item and corpse name to group chat (only if grouped).")
-        -- Live loot feed is always enabled (toggle removed — feature is non-optional)
-        configLootFlags.enableLiveLootFeed = true
+        -- Live loot feed is always enabled (toggle removed — feature is non-optional).
+        -- Persist it to the INI too: loot.mac's no-plugin fallback reads the INI
+        -- (defaults FALSE there), and without this write macro-path users never
+        -- got live loot rows.
+        if not configLootFlags.enableLiveLootFeed then
+            configLootFlags.enableLiveLootFeed = true
+            config.writeLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", "TRUE")
+        end
         uiState.enableRealTimeLoot = true
         -- Loot console verbosity: controlled via Settings > Advanced > Debug channels > "Debug: Loot"
         ImGui.Spacing()
@@ -481,7 +501,7 @@ function ConfigGeneral.render(ctx)
             configLootFlags.lootDelayTicks = val
             config.writeLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", tostring(val))
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Ticks to wait after itemnotify/cursor/window. 2 = faster, 3 = default, 4+ if laggy."); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Ticks to wait after itemnotify/cursor/window. 2 = default (fast), 3 = safe on slower systems, 4+ if laggy."); ImGui.EndTooltip() end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), tostring(configLootFlags.lootDelayTicks or 3))
         ImGui.Spacing()

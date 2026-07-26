@@ -116,11 +116,24 @@ function M.sync(opts)
         if srcData then
             local dstFile = dstDir .. '\\' .. name
             if readAll(dstFile) ~= srcData then
-                local f = io.open(dstFile, 'wb')
+                -- tmp + rename: a crash/disk-full mid-write must never leave a
+                -- truncated EQUI_*.xml for the next /loadskin coopt to feed the
+                -- client. Only count the file once the swap fully succeeds.
+                local tmpFile = dstFile .. '.tmp'
+                local f = io.open(tmpFile, 'wb')
                 if f then
-                    f:write(srcData)
+                    local wok = pcall(function() f:write(srcData) end)
                     f:close()
-                    copied[#copied + 1] = name
+                    if wok then
+                        os.remove(dstFile)
+                        if os.rename(tmpFile, dstFile) then
+                            copied[#copied + 1] = name
+                        else
+                            pcall(os.remove, tmpFile)
+                        end
+                    else
+                        pcall(os.remove, tmpFile)
+                    end
                 end
             end
         end

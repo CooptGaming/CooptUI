@@ -146,6 +146,32 @@ function M.pump()
     end
     build.cursor = upper + 1
     if build.cursor > last then
+        -- Overlay TRUE trained ranks from the plugin's owned-ranks store
+        -- (PcProfile AAList). The TLO Rank read above resolves the
+        -- level-appropriate entry and INFLATES partially-trained lines -
+        -- exports and the Cur/Max column must show what is actually owned.
+        local pa = plugAA()
+        if pa and type(pa.getOwnedRanks) == 'function' then
+            local ok, owned = pcall(pa.getOwnedRanks)
+            if ok and type(owned) == 'table' then
+                for _, rec in ipairs(build.list) do
+                    rec.rank = tonumber(owned[rec.id]) or 0
+                end
+            end
+        end
+        -- Resolve each record's requiresAbility (a GROUP-ID string as the TLO
+        -- renders it) to the required ability's NAME. Name-keyed consumers
+        -- (import prereq ordering, timeout diagnosis, the Requires tooltip)
+        -- can't use the raw id-string.
+        local byId = {}
+        for _, rec in ipairs(build.list) do
+            if rec.id then byId[rec.id] = rec end
+        end
+        for _, rec in ipairs(build.list) do
+            local rid = rec.requiresAbility and tonumber(rec.requiresAbility) or nil
+            local reqRec = rid and byId[rid] or nil
+            rec.requiresAbilityName = reqRec and reqRec.name or nil
+        end
         aaList = build.list
         lastFingerprint = buildFingerprint()
         lastRefreshTime = mq.gettime()

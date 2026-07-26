@@ -13,12 +13,23 @@ local M = {}
 
 --- Top-right "Lock" checkbox for companion windows. Call right after ImGui.Begin
 --- (before other content): draws at the window's top-right, then restores the
---- cursor so the caller's layout is unaffected. Locked windows are skipped by
---- ESC's LIFO close; deliberate close-all paths still close them.
+--- cursor so the caller's layout is unaffected. Locked windows survive ESC's
+--- LIFO close AND every close-all gesture (Shift+Q, /itemui hide, hub X);
+--- they close only via their own X or by unticking Lock.
 function M.renderWindowLock(ctx, id)
     local cx, cy = ImGui.GetCursorPos()
-    local w = ImGui.GetWindowWidth()
-    ImGui.SetCursorPos(w - 62, cy)
+    -- Right-align by MEASURED width, never past (windowWidth - WindowPadding.x).
+    -- A fixed offset here once let the checkbox overshoot the content edge; in an
+    -- AlwaysAutoResize window (Command Center) auto-fit then grows the window to the
+    -- overshoot every frame — the window widens forever.
+    local style = ImGui.GetStyle and ImGui.GetStyle() or nil
+    local innerX = (style and style.ItemInnerSpacing and style.ItemInnerSpacing.x) or 4
+    local padX = (style and style.WindowPadding and style.WindowPadding.x) or 8
+    local boxW = (ImGui.GetFrameHeight and ImGui.GetFrameHeight()) or 20
+    local textW = ImGui.CalcTextSize("Lock") or 28
+    local x = math.floor(ImGui.GetWindowWidth() - padX - (boxW + innerX + textW))
+    if x < cx then x = cx end
+    ImGui.SetCursorPos(x, cy)
     local locked = registry.isPinned(id)
     local v = ImGui.Checkbox("Lock##winlock_" .. id, locked)
     if v ~= locked then
@@ -27,7 +38,8 @@ function M.renderWindowLock(ctx, id)
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Lock this window: it stays up while you play. ESC, the toggle keybind (Shift+Q),")
+        local keyName = (ctx and ctx.getItemUIToggleKeyDisplay and ctx.getItemUIToggleKeyDisplay()) or "Shift+Q"
+        ImGui.Text(string.format("Lock this window: it stays up while you play. ESC, the toggle keybind (%s),", keyName))
         ImGui.Text("/itemui hide, and the hub's X all leave it open. Close it with its own X, or untick Lock.")
         ImGui.EndTooltip()
     end
@@ -76,6 +88,9 @@ function M.formatSellStatus(reason, willSell, theme)
     if text == "Epic" then
         text = "EpicQuest"
         color = theme.ToVec4(theme.Colors.EpicQuest or theme.Colors.Muted)
+    elseif text == "Favorites" then
+        -- rules.lua's raw reason predates the "Clickies" branding
+        text = "ClickyList"
     elseif text == "NoDrop" or text == "NoTrade" then
         color = theme.ToVec4(theme.Colors.Error)
     elseif text == "RerollList" and theme.Colors.RerollList then
@@ -226,7 +241,8 @@ function M.renderItemContextMenuContents(ctx, item, opts)
             ctx.uiState.quantityPickerValue = "1"
             ctx.uiState.quantityPickerMax = maxQty
         end
-        ImGui.EndPopup()
+        -- No EndPopup here: this is the contents-only function — the host that
+        -- opened the popup closes it (double EndPopup corrupts the ImGui stack).
         return
     end
 
@@ -246,7 +262,7 @@ function M.renderItemContextMenuContents(ctx, item, opts)
                 if ctx.setStatusMessage then ctx.setStatusMessage("Used Book of Mythical Reroll.") end
             end
         end
-        ImGui.EndPopup()
+        -- No EndPopup here (contents-only function; host closes the popup).
         return
     end
 

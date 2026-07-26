@@ -86,9 +86,12 @@ local state = {
 }
 local getRerollListStoragePathFn = nil  -- optional: function() return path end for persistence
 local onRerollListChangedFn = nil       -- optional: callback when aug/mythical/pending lists change (invalidate sell cache)
--- When adding via pickup flow: after we send !augadd/!mythicaladd, we wait for a list line containing this id then call callback (put back, update UI).
-local pendingAddAckId = nil
-local pendingAddAckCallback = nil
+-- When adding via pickup flow: after we send !augadd/!mythicaladd, we wait for a
+-- list/confirm line containing the id then invoke its callback (put back, update UI).
+-- A MAP, not a single slot: two quick single adds each keep their own ack — the old
+-- single slot was overwritten by the second add, so the first add's confirmation was
+-- lost and its 10s background timeout rolled back a server-confirmed entry.
+local pendingAddAcks = {}  -- { [itemId] = callback }
 
 -- ---------------------------------------------------------------------------
 -- Cache infrastructure: generation-based invalidation for O(1) lookups
@@ -272,10 +275,10 @@ end
 local function onRerollAddConfirmation(line)
     local id = parseAddConfirmationLine(line)
     if not id then return end
-    if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
-        pendingAddAckCallback()
-        pendingAddAckId = nil
-        pendingAddAckCallback = nil
+    local cb = pendingAddAcks[id]
+    if cb then
+        pendingAddAcks[id] = nil
+        cb()
         return
     end
     -- Late/unmatched confirmation: the line itself proves the server added this id
@@ -331,10 +334,10 @@ local function onRerollListLine(line)
         if not id then return end
         if not name or #name < 3 or not name:find("%a") then return end
     end
-    if pendingAddAckId and id == pendingAddAckId and pendingAddAckCallback then
-        pendingAddAckCallback()
-        pendingAddAckId = nil
-        pendingAddAckCallback = nil
+    local ackCb = pendingAddAcks[id]
+    if ackCb then
+        pendingAddAcks[id] = nil
+        ackCb()
         return
     end
     local entry = { id = id, name = name }
@@ -360,8 +363,7 @@ function M.init(deps)
     currentList = nil
     strictLineSeenInWindow = false
     lastListSaveAt = nil
-    pendingAddAckId = nil
-    pendingAddAckCallback = nil
+    pendingAddAcks = {}
     state.pendingRerollAdd = nil
     loadFromFile()
     -- Server list requests only: (1) explicit Refresh in UI, (2) stored list empty on load. Both lists in one stream (fast).
@@ -504,15 +506,19 @@ function M.getRerollListProtection()
 end
 
 --- Register callback for add-ack: when a list line with this id is parsed, callback is invoked (put back, update UI).
+--- Multiple items may be in flight (queued single adds); each id keeps its own callback.
 function M.setPendingAddAck(itemId, callback)
-    pendingAddAckId = itemId
-    pendingAddAckCallback = callback
+    if itemId == nil then return end
+    pendingAddAcks[itemId] = callback
 end
 
---- Clear add-ack wait (e.g. on timeout).
-function M.clearPendingAddAck()
-    pendingAddAckId = nil
-    pendingAddAckCallback = nil
+--- Clear one add-ack wait (e.g. on timeout), or all when no id is given.
+function M.clearPendingAddAck(itemId)
+    if itemId ~= nil then
+        pendingAddAcks[itemId] = nil
+    else
+        pendingAddAcks = {}
+    end
 end
 
 --- Optimistically add one entry to in-memory list and persist (for add-from-cursor flow before server echo).

@@ -848,8 +848,9 @@ local function lootCompanionCleanup(closedId)
     uiState.lootRunBestItemValue = 0
 end
 
--- excludePinned: ESC's LIFO close passes true so Locked windows stay up;
--- deliberate close-all paths (Shift+Q, /itemui hide, hub X) leave it false.
+-- excludePinned: ESC's LIFO close AND the close-all paths (Shift+Q, /itemui
+-- hide, hub X) all pass true - Locked windows survive every bulk gesture and
+-- close only via their own X or by unticking Lock (see closeAllCompanionWindows).
 local function getMostRecentlyOpenedCompanionFn(excludePinned)
     return registry.getNewestOpen(function(id) return id == "loot" and uiState.lootUIOpen or false end, excludePinned)
 end
@@ -881,6 +882,7 @@ context.init({
     -- Data tables
     inventoryItems = inventoryItems, bankItems = bankItems, lootItems = lootItems,
     sellItems = sellItems, bankCache = bankCache, equipmentCache = equipmentCache,
+    deferredScanNeeded = deferredScanNeeded,
     -- Config
     configLootLists = configLootLists, config = config,
     columnAutofitWidths = columnAutofitWidths, availableColumns = availableColumns,
@@ -1313,7 +1315,7 @@ end
 local function main()
     -- Startup order: 1) Unbind 2) Bind + imgui.init 3) Paths 4) Wait for Me 5) loadLayoutConfig 6) maybeScan* 7) Initial persist 8) Main loop
     local displayVer = getDisplayVersion()
-    print(string.format("\ag[ItemUI]\ax Item UI v%s loaded. /itemui or /inv to toggle. /dosell, /doloot for macros.", displayVer))
+    print(string.format("\ag[ItemUI]\ax Item UI v%s loaded. /itemui or /inv to toggle. /dosell = auto sell, /doloot = auto loot.", displayVer))
     -- Unbind first so reload or leftover bindings don't cause "already bound" errors
     pcall(function() mq.unbind('/inventoryui') end)
     pcall(function() mq.unbind('/inv') end)

@@ -326,10 +326,34 @@
 		<Template>BDT_Normal</Template>
 	</Button>
 
+	<Button item = "Coopt_CCEffectsBtn">
+		<ScreenID>Coopt_CCEffectsBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>182</X><Y>184</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Effects Companion (buffs, songs, auras with timers)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Effects</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
+	<Button item = "Coopt_CCClickiesBtn">
+		<ScreenID>Coopt_CCClickiesBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location><X>8</X><Y>208</Y></Location>
+		<Size><CX>166</CX><CY>22</CY></Size>
+		<TooltipReference>Open/close the CoOpt Clickies window (clicky lists with sell/delete protection)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>Clickies</Text>
+		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
+		<Template>BDT_Normal</Template>
+	</Button>
+
 	<Button item = "Coopt_CCSettingsBtn">
 		<ScreenID>Coopt_CCSettingsBtn</ScreenID>
 		<RelativePosition>true</RelativePosition>
-		<Location><X>182</X><Y>184</Y></Location>
+		<Location><X>182</X><Y>208</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
 		<TooltipReference>Open/close CoOpt Settings</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
@@ -400,6 +424,8 @@
 		<Pieces>Coopt_CCUtilBtn</Pieces>
 		<Pieces>Coopt_CCRerollBtn</Pieces>
 		<Pieces>Coopt_CCAABtn</Pieces>
+		<Pieces>Coopt_CCEffectsBtn</Pieces>
+		<Pieces>Coopt_CCClickiesBtn</Pieces>
 		<Pieces>Coopt_CCSettingsBtn</Pieces>
 		<Pieces>Coopt_CCStatus</Pieces>
 	</Screen>

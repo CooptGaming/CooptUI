@@ -48,7 +48,14 @@ local function loadConfigCache()
     lootFlags.alwaysLootEpic = config.readLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", "TRUE") == "TRUE"
     lootFlags.pauseOnMythicalNoDropNoTrade = config.readLootINIValue("loot_flags.ini", "Settings", "pauseOnMythicalNoDropNoTrade", "FALSE") == "TRUE"
     lootFlags.alertMythicalGroupChat = config.readLootINIValue("loot_flags.ini", "Settings", "alertMythicalGroupChat", "TRUE") == "TRUE"
-    lootFlags.enableLiveLootFeed = config.readLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", "FALSE") == "TRUE"
+    -- Live loot feed is non-optional (the UI toggle was removed), but loot.mac's
+    -- no-plugin fallback still reads this INI key (defaulting FALSE). Self-heal:
+    -- write TRUE once whenever the stored value disagrees, so macro-path users
+    -- get live loot rows without ever opening Settings.
+    if config.readLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", "FALSE") ~= "TRUE" then
+        config.writeLootINIValue("loot_flags.ini", "Settings", "enableLiveLootFeed", "TRUE")
+    end
+    lootFlags.enableLiveLootFeed = true
     -- quietMode removed: loot verbosity now uses Debug:Loot channel in itemui_layout.ini (Advanced > Debug channels)
     lootFlags.lootDelayTicks = tonumber(config.readLootINIValue("loot_flags.ini", "Settings", "lootDelayTicks", "3")) or 3
     if lootFlags.lootDelayTicks < 1 then lootFlags.lootDelayTicks = 1 elseif lootFlags.lootDelayTicks > 10 then lootFlags.lootDelayTicks = 10 end

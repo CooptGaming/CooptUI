@@ -288,6 +288,13 @@ return {
     LOOT_CONFIG_PATH = LOOT_CONFIG_PATH,
     CHARS_PATH = CHARS_PATH,
     AA_BACKUP_PATH = AA_BACKUP_PATH,
+    -- Lazy variant: resolves MacroQuest.Path at call time, so it works even if
+    -- this module was required before the TLO had a path (AA_BACKUP_PATH above
+    -- would then be "" forever).
+    getAABackupPath = function()
+        local bp = getBasePath()
+        return (bp and bp ~= "") and (bp .. '/Macros/aa_backups') or AA_BACKUP_PATH
+    end,
     getConfigFile = getConfigFile,
     getSharedConfigFile = getSharedConfigFile,
     getLootConfigFile = getLootConfigFile,

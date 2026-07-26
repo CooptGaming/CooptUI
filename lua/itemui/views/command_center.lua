@@ -22,6 +22,8 @@ local LAUNCHERS = {
     { label = "Aug Utility", id = "augmentUtility" },
     { label = "Reroll",      id = "reroll" },
     { label = "AA",          id = "aa" },
+    { label = "Effects",     id = "effects" },
+    { label = "Clickies",    id = "favorites" },
     { label = "Settings",    id = "config" },
 }
 
@@ -52,7 +54,7 @@ function CommandCenterView.render(ctx)
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local cxPos = layoutConfig.CommandCenterWindowX or 0
     local cyPos = layoutConfig.CommandCenterWindowY or 0
-    if cxPos ~= 0 and cyPos ~= 0 then
+    if cxPos ~= 0 or cyPos ~= 0 then
         ImGui.SetNextWindowPos(ImVec2(cxPos, cyPos), condPos)
     end
 
@@ -118,8 +120,9 @@ function CommandCenterView.render(ctx)
     theme.PopButtonColors()
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(merchantOpen and "Sell everything marked Sell to this merchant." or "Open a merchant first."); ImGui.EndTooltip() end
     ImGui.SameLine()
-    local stRunning = scriptTrackerRunning()
     if ImGui.Button("ScriptTracker##CmdCenter", ImVec2(110, 0)) then
+        -- Status probe only on click, not per frame (pcall'd TLO chain).
+        local stRunning = scriptTrackerRunning()
         if stRunning == false then
             mq.cmd('/lua run scripttracker')
         else
@@ -136,7 +139,12 @@ function CommandCenterView.render(ctx)
     if ImGui.Button("CoOpt UI##CmdCenter", ImVec2(110, 0)) then
         mq.cmd('/itemui')
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Show/hide the CoOpt UI hub (same as Shift+Q)."); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        local keyName = (ctx.getItemUIToggleKeyDisplay and ctx.getItemUIToggleKeyDisplay()) or "Shift+Q"
+        ImGui.Text(string.format("Show/hide the CoOpt UI hub (same as %s).", keyName))
+        ImGui.EndTooltip()
+    end
     ImGui.SameLine()
     if ImGui.Button("Native Panel##CmdCenter", ImVec2(110, 0)) then
         pcall(function() mq.TLO.Window('TipWindow').DoOpen() end)

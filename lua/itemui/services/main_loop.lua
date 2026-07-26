@@ -1278,17 +1278,19 @@ local function phase8b_pendingRerollAdd(now)
         d.uiState, d.hasItemOnCursor, d.removeItemFromCursor, d.setStatusMessage, d.invalidateSellConfigCache, d.invalidateLootConfigCache, d.rerollService, d.computeAndAttachSellStatus, d.inventoryItems, d.bankItems
     local rerollState = rerollService and rerollService.getState and rerollService.getState() or {}
 
-    -- Background ack drain: check for timed-out background acks and roll back
-    -- Only single (non-sync) "Add from cursor" actions use the background-ack list now; the
-    -- Sync flow waits for each item's confirmation inline (step "waitconfirm") so it never has
-    -- more than one add in flight (the add-ack is a single slot — concurrent sends overwrote
-    -- each other and lost confirmations).
+    -- Background ack drain: check for timed-out background acks and roll back.
+    -- Only single (non-sync) "Add from cursor" actions use the background-ack list; the
+    -- Sync flow waits for each item's confirmation inline (step "waitconfirm"). The
+    -- service-side ack registry is a MAP keyed by item id, so multiple queued single
+    -- adds can be in flight without a later add losing an earlier confirmation.
     for i = #_bgAckPending, 1, -1 do
         local bg = _bgAckPending[i]
         if bg.acked then
             table.remove(_bgAckPending, i)
         elseif (now - bg.sentAt) > REROLL_BG_ACK_TIMEOUT_MS then
-            -- Never confirmed — roll back the optimistic cache add.
+            -- Never confirmed — roll back the optimistic cache add. Also release
+            -- this id's ack registration so the map doesn't accumulate closures.
+            if rerollService.clearPendingAddAck then rerollService.clearPendingAddAck(bg.itemId) end
             if rerollService.removeEntryFromCache then
                 rerollService.removeEntryFromCache(bg.list, bg.itemId)
             end
@@ -1366,9 +1368,19 @@ local function phase8b_pendingRerollAdd(now)
                     end
                     local inBank = idInList(bankItems) or idInList(d.bankCache)
                     local bankKnown = (bankItems and #bankItems > 0) or (d.bankCache and #d.bankCache > 0)
+                    -- Worn gear is in NEITHER scan (bags-only inventory scan) - an
+                    -- equipped pending item (e.g. a mythical weapon equipped after
+                    -- being added) must not be cleared as "not owned".
+                    local isEquipped = false
+                    for _, eq in pairs(d.equipmentCache or {}) do
+                        if eq and (eq.id or eq.ID) == entry.id then isEquipped = true break end
+                    end
                     sync.failedCount = (sync.failedCount or 0) + 1
                     local fi = sync.failedItems or {}
-                    if inBank then
+                    if isEquipped then
+                        fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Equipped - unequip to sync" }
+                        if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s is equipped - unequip to sync)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
+                    elseif inBank then
                         fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "In bank - move to bags to sync" }
                         if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s is in the bank)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
                     elseif #inventoryItems > 0 and bankKnown then
@@ -1502,7 +1514,7 @@ local function phase8b_pendingRerollAdd(now)
         elseif (now - (pending.sentAt or now)) > REROLL_BG_ACK_TIMEOUT_MS then
             -- No confirmation in time: put the item back and record a failure. It stays in the
             -- pending list (never confirmed), so a later sync can retry it.
-            if rerollService.clearPendingAddAck then rerollService.clearPendingAddAck() end
+            if rerollService.clearPendingAddAck then rerollService.clearPendingAddAck(pending.itemId) end
             if sync then
                 sync.failedCount = (sync.failedCount or 0) + 1
                 local fi = sync.failedItems or {}
@@ -1804,7 +1816,19 @@ function M.tick(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
     nativeBridge.tick(now)
-    aaDataService.pump()
+    do
+        -- Bump the AA view's sort/filter cache key when a rebuild COMPLETES
+        -- (building true -> false), not when it is requested: the completed
+        -- swap is what changes row contents (rank/canTrain), and completion
+        -- must invalidate no matter who started the rebuild (view Refresh
+        -- button, export flow, fingerprint change).
+        local building = aaDataService.isBuilding()
+        if d.uiState._aaWasBuilding and not building then
+            d.uiState.aaDataRefreshedAt = now
+        end
+        d.uiState._aaWasBuilding = building
+        aaDataService.pump()
+    end
     aaTransferService.tick(now)
     phase5_lootMacro(now)
     phaseEquipAction(now)

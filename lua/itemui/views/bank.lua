@@ -269,7 +269,10 @@ function BankView.render(ctx)
                 local rid = "bank_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
                 if rawget(item, "_statsPending") then
-                    if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
+                    -- BANK bag numbers must not go into pendingStatRescanBags -
+                    -- that feeds rescanInventoryBags (packs only), which can't
+                    -- heal a bank row. Request a bank rescan instead.
+                    if ctx.deferredScanNeeded then ctx.deferredScanNeeded.bank = true end
                     for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ctx.theme.TextMuted("...") end
                     ImGui.PopID()
                     goto bank_continue

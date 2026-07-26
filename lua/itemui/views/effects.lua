@@ -260,7 +260,7 @@ function EffectsView.render(ctx)
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.EffectsWindowX or 0
     local ay = layoutConfig.EffectsWindowY or 0
-    if ax ~= 0 and ay ~= 0 then
+    if ax ~= 0 or ay ~= 0 then
         ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
     local w = layoutConfig.WidthEffectsPanel or EFFECTS_WINDOW_WIDTH
@@ -294,7 +294,6 @@ function EffectsView.render(ctx)
             layoutConfig.EffectsWindowX = px
             layoutConfig.EffectsWindowY = py
             ctx.scheduleLayoutSave()
-            ctx.flushLayoutSave()
         end
     end
 

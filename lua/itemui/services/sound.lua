@@ -17,6 +17,7 @@ local SOUND_SECTION = "Sound"
 -- beeps: how many beeps for default (no custom file). 1 = single, 2 = double with /timed spacing.
 local EVENT_DEFS = {
     sell_complete   = { label = "Sell Complete",  desc = "Played when sell macro finishes",                      beeps = 1 },
+    sell_failed     = { label = "Sell Failed",    desc = "Played when one or more items fail to sell",           beeps = 2 },
     loot_rare       = { label = "Rare Loot",      desc = "Played per-item when a Legendary, Script, or Mythical item is looted", beeps = 1 },
     mythical_alert  = { label = "Mythical Alert", desc = "Played when a mythical item is detected on a corpse", beeps = 2 },
 }

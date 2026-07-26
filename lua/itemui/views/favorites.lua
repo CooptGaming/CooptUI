@@ -194,7 +194,7 @@ function FavoritesView.render(ctx)
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.FavoritesWindowX or 0
     local ay = layoutConfig.FavoritesWindowY or 0
-    if ax ~= 0 and ay ~= 0 then
+    if ax ~= 0 or ay ~= 0 then
         ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
     local w = layoutConfig.WidthFavoritesPanel or FAVORITES_WINDOW_WIDTH
@@ -228,7 +228,6 @@ function FavoritesView.render(ctx)
             layoutConfig.FavoritesWindowX = px
             layoutConfig.FavoritesWindowY = py
             ctx.scheduleLayoutSave()
-            ctx.flushLayoutSave()
         end
     end
 

@@ -225,10 +225,11 @@ function LootUIView.render(ctx)
         ImGui.Separator()
 
         -- Suppress note (read-only)
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Suppress Loot UI during looting")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Don't want this window during loots?")
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("When enabled (Config), the Loot UI won't open during looting.")
+            ImGui.Text("Settings > General > Features: uncheck 'Enable Loot UI during looting'")
+            ImGui.Text("to keep this window closed while loot runs.")
             ImGui.EndTooltip()
         end
         ImGui.Separator()

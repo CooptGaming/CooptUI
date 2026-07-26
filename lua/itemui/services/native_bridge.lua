@@ -62,6 +62,8 @@ local ACTION_BUTTONS = {
     { name = 'Coopt_ActRerollBtn',   action = 'reroll' },
     { name = 'Coopt_ActAABtn',       action = 'aa' },
     { name = 'Coopt_ActLootBtn',     action = 'lootui' },
+    { name = 'Coopt_ActEffectsBtn',  action = 'effects' },
+    { name = 'Coopt_ActClickiesBtn', action = 'favorites' },
     { name = 'Coopt_ActSettingsBtn', action = 'config' },
 }
 
@@ -82,6 +84,8 @@ local CC_BUTTONS = {
     { name = 'Coopt_CCUtilBtn',     action = 'augmentUtility' },
     { name = 'Coopt_CCRerollBtn',   action = 'reroll' },
     { name = 'Coopt_CCAABtn',       action = 'aa' },
+    { name = 'Coopt_CCEffectsBtn',  action = 'effects' },
+    { name = 'Coopt_CCClickiesBtn', action = 'favorites' },
     { name = 'Coopt_CCSettingsBtn', action = 'config' },
 }
 

@@ -56,6 +56,11 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.HeightFavorites = layoutConfig.HeightFavorites or layoutDefaults.HeightFavorites
     layoutDefaults.FavoritesWindowX = layoutConfig.FavoritesWindowX or layoutDefaults.FavoritesWindowX
     layoutDefaults.FavoritesWindowY = layoutConfig.FavoritesWindowY or layoutDefaults.FavoritesWindowY
+    layoutDefaults.WidthEffectsPanel = layoutConfig.WidthEffectsPanel or layoutDefaults.WidthEffectsPanel
+    layoutDefaults.HeightEffects = layoutConfig.HeightEffects or layoutDefaults.HeightEffects
+    layoutDefaults.EffectsWindowX = layoutConfig.EffectsWindowX or layoutDefaults.EffectsWindowX
+    layoutDefaults.EffectsWindowY = layoutConfig.EffectsWindowY or layoutDefaults.EffectsWindowY
+    layoutDefaults.EffectsCompact = layoutConfig.EffectsCompact or layoutDefaults.EffectsCompact or 0
     layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
@@ -154,6 +159,11 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightFavorites=" .. layoutDefaults.HeightFavorites .. "\n")
             f:write("FavoritesWindowX=" .. layoutDefaults.FavoritesWindowX .. "\n")
             f:write("FavoritesWindowY=" .. layoutDefaults.FavoritesWindowY .. "\n")
+            f:write("WidthEffectsPanel=" .. (layoutDefaults.WidthEffectsPanel or 340) .. "\n")
+            f:write("HeightEffects=" .. (layoutDefaults.HeightEffects or 480) .. "\n")
+            f:write("EffectsWindowX=" .. (layoutDefaults.EffectsWindowX or 0) .. "\n")
+            f:write("EffectsWindowY=" .. (layoutDefaults.EffectsWindowY or 0) .. "\n")
+            f:write("EffectsCompact=" .. (layoutDefaults.EffectsCompact or 0) .. "\n")
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
@@ -252,6 +262,11 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightFavorites = layoutDefaults.HeightFavorites
     layoutConfig.FavoritesWindowX = layoutDefaults.FavoritesWindowX
     layoutConfig.FavoritesWindowY = layoutDefaults.FavoritesWindowY
+    layoutConfig.WidthEffectsPanel = layoutDefaults.WidthEffectsPanel
+    layoutConfig.HeightEffects = layoutDefaults.HeightEffects
+    layoutConfig.EffectsWindowX = layoutDefaults.EffectsWindowX
+    layoutConfig.EffectsWindowY = layoutDefaults.EffectsWindowY
+    layoutConfig.EffectsCompact = layoutDefaults.EffectsCompact or 0
     layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY
     layoutConfig.WidthItemDisplayPanel = layoutDefaults.WidthItemDisplayPanel

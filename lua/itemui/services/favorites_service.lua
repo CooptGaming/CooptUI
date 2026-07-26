@@ -58,7 +58,13 @@ end
 
 local function ensureLoaded()
     local c = charName()
-    if not c or loadedFor == c then return end
+    if not c then
+        -- Zoning/char select: never serve the PREVIOUS character's lists.
+        -- Dropping loadedFor forces a reload once the character resolves again.
+        if loadedFor then lists = {}; idSetCache = nil; loadedFor = nil end
+        return
+    end
+    if loadedFor == c then return end
     loadedFor = c
     lists = {}
     idSetCache = nil

@@ -679,7 +679,7 @@ sub EvaluateItem(int slot)
             /if (${itemLinkStr.Length} > 0) /ini "${configPath}/loot_mythical_alert.ini" Alert itemLink "${itemLinkStr}"
             /ini "${configPath}/loot_mythical_alert.ini" Alert iconId ${Corpse.Item[${slot}].Icon}
             | Sound notification handled by CoOpt UI Sound Service.
-            /if (${lootVerbose}) /echo Paused: Mythical NoDrop/NoTrade — choose Loot or Skip in the Loot UI.
+            /if (${lootVerbose}) /echo Paused: Mythical NoDrop/NoTrade — choose Take or Pass in the Loot UI.
             /if (${alertMythicalGroupChat} && ${Me.Grouped}) {
                 /declare linkText string local
                 /squelch /varset linkText ${Corpse.Item[${slot}].ItemLink[CLICKABLE]}

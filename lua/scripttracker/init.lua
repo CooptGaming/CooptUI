@@ -11,7 +11,7 @@
     Tiers (AA each): normal(1), Enhanced(2), Rare(3), Epic(4), Legendary(5)
 
     Usage: /lua run scripttracker
-    Toggle: /scripttracker
+    Toggle: /st (subcommands: toggle|show|hide|refresh|help)
 --]]
 
 local mq = require('mq')

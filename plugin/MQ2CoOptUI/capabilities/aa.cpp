@@ -20,7 +20,10 @@ namespace {
 int readOwnedSlotSafe(eqlib::PcProfile* prof, int slot, int* outGroupId, int* outRank) {
   __try {
     int aaIndex = prof->AAList[slot].AAIndex;
-    if (aaIndex <= 0) return 0;
+    // Clamp to the proven-safe GetAAById range (see filter history below):
+    // beyond NUM_ALT_ABILITIES an index into mapped-but-wrong memory could
+    // return garbage without faulting - and this data spends real AA points.
+    if (aaIndex <= 0 || aaIndex >= eqlib::NUM_ALT_ABILITIES) return 0;
     eqlib::CAltAbilityData* ab = mq::GetAAById(aaIndex);
     if (!ab) return 0;
     *outGroupId = ab->GroupID;
@@ -144,6 +147,11 @@ void registerLua(sol::state_view L, sol::table& table) {
     sol::state_view sv(rawL);
     using namespace eqlib;
     if (!pLocalPC) return sol::make_object(sv, sol::lua_nil);
+    // Same manager guard as the sibling entry points: every slot read resolves
+    // through GetAAById. Without it a null manager faults all slots and a
+    // low-AA character could return an EMPTY table - which Lua would cache as
+    // owned-ranks truth and plan re-buys of already-owned ranks.
+    if (!pAltAdvManager.get()) return sol::make_object(sv, sol::lua_nil);
     PcProfile* prof = pLocalPC->GetCurrentPcProfile();
     if (!prof) return sol::make_object(sv, sol::lua_nil);
 

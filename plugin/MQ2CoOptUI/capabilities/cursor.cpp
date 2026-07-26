@@ -33,7 +33,9 @@ static std::string ItemTypeString(uint8_t itemClass) {
 }  // namespace
 
 void updateFromPulse() {
-  if (!eqlib::pLocalPC) {
+  // GetInventorySlot resolves through the current profile, which can be null
+  // during shroud/char handoff even while pLocalPC is set.
+  if (!eqlib::pLocalPC || !eqlib::pLocalPC->GetCurrentPcProfile()) {
     s_hasItem = false;
     s_itemId = 0;
     s_itemStack = 1;

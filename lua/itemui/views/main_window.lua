@@ -253,14 +253,13 @@ local M = {}
 local NativeHover = require('itemui.views.native_hover')
 
 local function renderCompanions(refs, uiState)
-    -- Native-UI hover tooltip (worn slots in the game's Inventory window). Runs on
-    -- every render path; isolated so a hover error can't take down the frame.
-    pcall(NativeHover.render, refs)
     -- ESC closes the most recently opened companion window (LIFO) no matter how it
     -- was opened (toolbar, keybind, native Actions tab) or whether the hub is drawn.
     -- The hub's own ESC branch handles the quantity picker and hub close and defers
-    -- companion closing to here so it isn't handled twice in one frame.
-    if ImGui.IsKeyPressed(ImGuiKey.Escape) and not uiState.pendingQuantityPickup then
+    -- companion closing to here so it isn't handled twice in one frame
+    -- (escConsumedThisFrame latches when the hub ESC cancels the quantity picker).
+    if ImGui.IsKeyPressed(ImGuiKey.Escape) and not uiState.pendingQuantityPickup
+        and not uiState.escConsumedThisFrame then
         -- true = skip Locked windows: they stay up until closed deliberately
         -- (their X, the Lock checkbox, or a close-all path like Shift+Q).
         local mostRecent = refs.getMostRecentlyOpenedCompanion and refs.getMostRecentlyOpenedCompanion(true)
@@ -309,8 +308,14 @@ function M.render(refs)
     local shouldDraw = refs.getShouldDraw and refs.getShouldDraw()
     local isOpen = refs.getOpen and refs.getOpen()
     local uiState = refs.uiState
+    -- Native-UI hover tooltip / Shift+RClick menu / worn-slot inspect redirect must
+    -- run on EVERY frame — including when the hub and all companions are closed
+    -- (the native-first scenario). Keep it above the everything-closed early-out;
+    -- isolated so a hover error can't take down the frame.
+    pcall(NativeHover.render, refs)
     if not shouldDraw and not uiState.lootUIOpen and #registry.getDrawableModules() == 0 then return end
     uiState.lastPickupSetThisFrame = false
+    uiState.escConsumedThisFrame = false
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
     local layoutConfig = refs.layoutConfig or {}
     local layoutDefaults = refs.layoutDefaults or {}
@@ -404,6 +409,9 @@ function M.render(refs)
                 uiState.pendingQuantityPickup = nil
                 uiState.pendingQuantityPickupTimeoutAt = nil
                 uiState.quantityPickerValue = ""
+                -- This ESC is spent: don't let renderCompanions' LIFO handler also
+                -- close a companion window in the same frame.
+                uiState.escConsumedThisFrame = true
             else
                 -- Companion closing is handled by renderCompanions' ESC handler (LIFO,
                 -- works with the hub hidden too); ESC here only closes the hub itself
@@ -880,7 +888,7 @@ function M.render(refs)
             if #failedList > constants.UI.FAILED_LIST_TRUNCATE_LEN then failedList = failedList:sub(1, constants.UI.FAILED_LIST_DISPLAY_MAX) .. "..." end
             refs.theme.TextWarning(failedList)
             ImGui.SameLine()
-            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "— Rerun /macro sell confirm to retry.")
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "— Click Auto Sell (or /dosell) to retry.")
         end
         if uiState.statusMessage ~= "" then
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), uiState.statusMessage)

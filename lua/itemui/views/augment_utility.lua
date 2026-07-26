@@ -99,7 +99,6 @@ function AugmentUtilityView.render(ctx)
             layoutConfig.AugmentUtilityWindowX = cx
             layoutConfig.AugmentUtilityWindowY = cy
             if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
-            if ctx.flushLayoutSave then ctx.flushLayoutSave() end
         end
     end
 

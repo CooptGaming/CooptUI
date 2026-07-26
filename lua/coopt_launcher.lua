@@ -56,21 +56,34 @@ local function readChecked(name)
     return v
 end
 
+-- Same guards the itemui native_bridge uses (they are load-bearing there):
+-- un-latch only after the click has settled, and swallow the echo of our own
+-- synthetic /notify toggle if it lands after the next poll.
+local UNLATCH_SETTLE_MS = 350
+local UNLATCH_ECHO_MS = 1000
+local clickAt = {}    -- [name] = ms of the last accepted click
+local echoUntil = {}  -- [name] = ignore transitions until this ms (/notify echo)
+
 -- One click = one Checked transition (either direction).
-local function clicked(name)
+local function clicked(name, now)
     local v = readChecked(name)
     if v == nil then return false end
     local last = btnLast[name]
     btnLast[name] = v
     if last == nil then return false end
-    return v ~= last
+    if v == last then return false end
+    if echoUntil[name] and now < echoUntil[name] then return false end
+    clickAt[name] = now
+    return true
 end
 
--- Pop a latched button back out, only while the cursor is off it — touching
--- bChecked inside the click window makes the release re-toggle it (phantom
--- second click). The plugin only upgrades the mechanism: silent state write
+-- Pop a latched button back out, only after the settle delay AND while the
+-- cursor is off it — touching bChecked inside the click window makes the
+-- release re-toggle it (phantom second click: a spurious Start, or worse, a
+-- spurious Stop). The plugin only upgrades the mechanism: silent state write
 -- instead of a synthetic click.
-local function unlatch(name)
+local function unlatch(name, now)
+    if (now - (clickAt[name] or 0)) < UNLATCH_SETTLE_MS then return end
     local c = child(name)
     if not c then return end
     local okc, v = pcall(function() return c.Checked() end)
@@ -84,6 +97,7 @@ local function unlatch(name)
         else
             mq.cmdf('/notify %s %s leftmouseup', WND, name)
             btnLast[name] = false -- swallow our own synthetic toggle
+            echoUntil[name] = now + UNLATCH_ECHO_MS -- ...even if it lands after the next poll
         end
     end
 end
@@ -124,19 +138,20 @@ while true do
     end
 
     if windowOpen() then
-        if clicked(START) then
+        local now = mq.gettime()
+        if clicked(START, now) then
             local itemuiUp = luaRunning('itemui')
             if itemuiUp ~= true then mq.cmd('/lua run itemui') end
             if luaRunning('scripttracker') ~= true then mq.cmd('/lua run scripttracker') end
             setStatus('Starting CoOpt...')
         end
-        if clicked(STOP) then
+        if clicked(STOP, now) then
             if luaRunning('scripttracker') == true then mq.cmd('/lua stop scripttracker') end
             if luaRunning('itemui') == true then mq.cmd('/lua stop itemui') end
             setStatus('CoOpt stopped - press Start')
         end
-        unlatch(START)
-        unlatch(STOP)
+        unlatch(START, now)
+        unlatch(STOP, now)
         -- Own the status line only while itemui is down.
         if luaRunning('itemui') == false then
             setStatus('CoOpt stopped - press Start')

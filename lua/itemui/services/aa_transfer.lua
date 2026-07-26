@@ -71,12 +71,12 @@ local function safeCharName()
     return n and n:gsub("[^%w_%-]", "_") or nil
 end
 
-local dirEnsured = false
+local ensuredDirs = {}
 local migratedLegacy = false
 
 local function ensureDir(d)
-    if dirEnsured or not d or d == "" then return end
-    dirEnsured = true
+    if not d or d == "" or ensuredDirs[d] then return end
+    ensuredDirs[d] = true
     pcall(function() os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul') end)
 end
 
@@ -106,8 +106,13 @@ end
 function M.getBackupDir()
     local lc = deps.layoutConfig
     local p = lc and lc.AABackupPath or ""
-    if p and p ~= "" then return p end
-    local d = config.AA_BACKUP_PATH or ""
+    if p and p ~= "" then
+        -- Custom folder gets created too, else the first export to a
+        -- not-yet-created path fails with an opaque "could not open file".
+        ensureDir(p)
+        return p
+    end
+    local d = (config.getAABackupPath and config.getAABackupPath()) or config.AA_BACKUP_PATH or ""
     if d ~= "" then
         ensureDir(d)
         migrateLegacyFiles(d)
@@ -233,40 +238,61 @@ local function doExportNow()
     local dir = backupDir()
     local path = (dir ~= "") and (dir .. "/" .. fname) or config.getConfigFile(fname)
     if not path then say("Export failed: no config path") return end
+    -- Ranks come from the plugin owned-ranks store when available - the SAME
+    -- truth source import plans against. The scan records' TLO rank is
+    -- inflated for partially-trained lines; exporting it would make a later
+    -- import buy ranks the character never owned.
+    local owned = ownedRanks(mq.gettime())
+    local function exportRank(aa)
+        if owned and aa.id then return tonumber(owned[aa.id]) or 0 end
+        return tonumber(aa.rank) or 0
+    end
     local count = 0
+    local tmpPath = path .. ".tmp"
     local ok, err = pcall(function()
-        local f = io.open(path, "w")
+        local f = io.open(tmpPath, "w")
         if not f then error("could not open file") end
-        f:write("[Meta]\n")
-        f:write("Character=" .. cname .. "\n")
-        f:write("Class=" .. class .. "\n")
-        f:write("Classes=" .. tagStr .. "\n")
-        f:write("Exported=" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
-        for _, aa in ipairs(list) do
-            if aa.rank and aa.rank > 0 and aa.name then count = count + 1 end
-        end
-        f:write("TotalAAs=" .. tostring(count) .. "\n")
-        f:write("[AAs]\n")
-        for _, aa in ipairs(list) do
-            if aa.rank and aa.rank > 0 and aa.name then
-                f:write(aa.name .. "=" .. tostring(aa.rank) .. "\n")
+        local wok, werr = pcall(function()
+            f:write("[Meta]\n")
+            f:write("Character=" .. cname .. "\n")
+            f:write("Class=" .. class .. "\n")
+            f:write("Classes=" .. tagStr .. "\n")
+            f:write("Exported=" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
+            for _, aa in ipairs(list) do
+                if aa.name and exportRank(aa) > 0 then count = count + 1 end
             end
-        end
-        -- Group ids as an import-resolution fallback (names are primary;
-        -- ids survive if a name lookup ever fails against a fresh scan).
-        f:write("[AAIds]\n")
-        for _, aa in ipairs(list) do
-            if aa.rank and aa.rank > 0 and aa.name and aa.id then
-                f:write(aa.name .. "=" .. tostring(aa.id) .. "\n")
+            f:write("TotalAAs=" .. tostring(count) .. "\n")
+            f:write("[AAs]\n")
+            for _, aa in ipairs(list) do
+                local r = aa.name and exportRank(aa) or 0
+                if r > 0 then
+                    f:write(aa.name .. "=" .. tostring(r) .. "\n")
+                end
             end
-        end
+            -- Group ids as an import-resolution fallback (names are primary;
+            -- ids survive if a name lookup ever fails against a fresh scan).
+            f:write("[AAIds]\n")
+            for _, aa in ipairs(list) do
+                if aa.name and aa.id and exportRank(aa) > 0 then
+                    f:write(aa.name .. "=" .. tostring(aa.id) .. "\n")
+                end
+            end
+        end)
         f:close()
+        if not wok then error(werr) end
     end)
+    -- Write to .tmp then rename: an interrupted export must never leave a
+    -- truncated, valid-looking aa_*.ini that a later import would restore.
+    if ok then ok, err = pcall(function()
+        os.remove(path)
+        if not os.rename(tmpPath, path) then error("rename failed") end
+    end) end
     if ok then
         fileList = nil
         fileShown = false
         say(string.format("Exported %d AAs -> %s", count, fname))
     else
+        pcall(os.remove, tmpPath)
         say("Export failed: " .. tostring(err))
     end
 end
@@ -453,7 +479,10 @@ local function planImport(aas, nameIds, nameRecs)
             for _, q in ipairs(plan.queue) do
                 if not emitted[q.name] then
                     local rec = nameRecs[q.name]
-                    local prereq = rec and rec.requiresAbility
+                    -- requiresAbilityName is the scan's gid->name translation of
+                    -- the raw requiresAbility field (which the TLO renders as the
+                    -- required GROUP ID string - useless against name-keyed maps).
+                    local prereq = rec and rec.requiresAbilityName
                     if type(prereq) ~= "string" or prereq == "" then prereq = nil end
                     if not (prereq and queued[prereq] and not emitted[prereq]) then
                         ordered[#ordered + 1] = q
@@ -499,7 +528,10 @@ function M.startImport(path, force, prebuilt)
         if #aas == 0 then say("No AAs in file") return false end
         local metaTotal = tonumber(meta and meta.TotalAAs) or 0
         if metaTotal > 0 and #aas < metaTotal then
-            say(string.format("Warning: parsed %d of %d file entries", #aas, metaTotal))
+            -- Fatal, matching the arm flow: a short parse means a truncated or
+            -- corrupted export - importing it would silently restore a partial set.
+            say(string.format("Import aborted: parsed only %d of %d file entries", #aas, metaTotal))
+            return false
         end
         plan = planImport(aas, nameIds, nameRecs)
     end
@@ -705,8 +737,12 @@ local function finishImport()
         local retryQueue = {}
         for _, f in ipairs(imp.failed) do
             if retryable(f) then
+                -- Reuse the ORIGINAL gid (may have come from the export's [AAIds]
+                -- or a global-TLO probe for scan-invisible lines); the scan record
+                -- is only a fallback. Retrying with gid=nil falls back to the
+                -- lying character TLO and silently drops partially-trained lines.
                 local rec = imp.nameRecs and imp.nameRecs[f.name]
-                retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted, gid = rec and rec.id or nil }
+                retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted, gid = f.gid or (rec and rec.id) or nil }
             end
         end
         if #retryQueue > 0 then
@@ -768,7 +804,18 @@ local function tickImport(now)
         return
     elseif imp.phase == "floodsettle" then
         local fl = imp.flood
-        local m = ownedRanks(now) or {}
+        -- No owned-ranks truth (plugin fault / not ready): HOLD, don't reconcile
+        -- against an empty map - that would zero doneRanks and re-queue every
+        -- line as a shortfall. Bail to the careful lane only if truth stays
+        -- unavailable for 10s straight.
+        local m = ownedRanks(now)
+        if not m then
+            fl.noTruthSince = fl.noTruthSince or now
+            if (now - fl.noTruthSince) <= 10000 then return end
+            m = {}
+        else
+            fl.noTruthSince = nil
+        end
         local allMet, doneCount = true, 0
         for _, t in ipairs(fl.targets) do
             local got = tonumber(m[t.gid]) or 0
@@ -828,7 +875,7 @@ local function tickImport(now)
         if myPoints() <= 0 then
             -- Out of points: drain the rest fast with a clear reason instead
             -- of burning two 2s timeouts per remaining entry.
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "out of AA points" }
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, gid = entry.gid, reason = "out of AA points" }
             imp.idx = imp.idx + 1
             imp.retries = 0
             return
@@ -863,7 +910,7 @@ local function tickImport(now)
         end
         local buyId, why = resolveBuyId(entry, imp.rankIndexes, cur)
         if not buyId then
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = why or "unresolvable" }
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, gid = entry.gid, reason = why or "unresolvable" }
             imp.idx = imp.idx + 1
             imp.retries = 0
             return
@@ -900,7 +947,7 @@ local function tickImport(now)
             local reason = refused
                 and string.format("server refused training at rank %d/%d", cur, entry.target)
                 or string.format("burst stalled at rank %d/%d", cur, entry.target)
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = reason }
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, gid = entry.gid, reason = reason }
             imp.idx = imp.idx + 1
             imp.retries = 0
             imp.phase = "begin"
@@ -915,7 +962,7 @@ local function tickImport(now)
             statusLine = string.format("Importing %d/%d...", imp.doneRanks, imp.totalRanks)
         elseif lastUnableAt >= imp.buyAt and (now - lastUnableAt) > 250 then
             -- The server said no in chat: fail this entry now, no timeout.
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur,
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, gid = entry.gid,
                 reason = string.format("server refused training at rank %d", imp.expectRank) }
             imp.idx = imp.idx + 1
             imp.retries = 0
@@ -928,7 +975,10 @@ local function tickImport(now)
                 -- always why a server refuses a buy.
                 local reason = "buy timed out (rank never moved)"
                 local rec = imp.nameRecs and imp.nameRecs[entry.name]
-                local prereq = rec and rec.requiresAbility
+                -- Diagnose via the gid->NAME translation; the raw requiresAbility
+                -- is a group-id string that matches nothing in name-keyed maps
+                -- (it produced reports like "prereq not met: 487 ... have 0").
+                local prereq = rec and rec.requiresAbilityName
                 if type(prereq) == "string" and prereq ~= "" then
                     local need = tonumber(rec.requiresAbilityPoints) or 0
                     local prereqRec = imp.nameRecs and imp.nameRecs[prereq]
@@ -937,7 +987,7 @@ local function tickImport(now)
                         reason = string.format("prereq not met: %s rank %d (have %d)", prereq, need, haveR)
                     end
                 end
-                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = reason }
+                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, gid = entry.gid, reason = reason }
                 imp.idx = imp.idx + 1
                 imp.retries = 0
                 imp.phase = "begin"
@@ -957,7 +1007,25 @@ function M.tick(now)
         end
         return
     end
-    if imp then tickImport(now) end
+    if imp then
+        -- Zoning/death guard: TLO reads go nil (myPoints()=0, ownedRanks()=nil)
+        -- and would drain the queue as "out of AA points" / reconcile against
+        -- nothing. Freeze the import by refreshing every timing reference each
+        -- tick until the world is back.
+        local okGS, gs = pcall(function()
+            return mq.TLO and mq.TLO.EverQuest and mq.TLO.EverQuest.GameState and mq.TLO.EverQuest.GameState()
+        end)
+        if not okGS or gs ~= "INGAME" then
+            imp.nextActionAt = now + 500
+            imp.buyAt = now
+            if imp.flood then imp.flood.lastProgressAt = now end
+            local e = imp.queue[imp.idx]
+            if e and e.burstT0 then e.burstT0 = now end
+            statusLine = "Import paused (zoning)..."
+            return
+        end
+        tickImport(now)
+    end
     if armed and now >= armed.armedUntil then armed = nil end
 end
 

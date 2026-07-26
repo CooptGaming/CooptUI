@@ -97,6 +97,11 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightFavorites then layoutDefaults.HeightFavorites = tonumber(d.HeightFavorites) or layoutDefaults.HeightFavorites end
     if d.FavoritesWindowX then layoutDefaults.FavoritesWindowX = tonumber(d.FavoritesWindowX) or layoutDefaults.FavoritesWindowX end
     if d.FavoritesWindowY then layoutDefaults.FavoritesWindowY = tonumber(d.FavoritesWindowY) or layoutDefaults.FavoritesWindowY end
+    if d.WidthEffectsPanel then layoutDefaults.WidthEffectsPanel = tonumber(d.WidthEffectsPanel) or layoutDefaults.WidthEffectsPanel end
+    if d.HeightEffects then layoutDefaults.HeightEffects = tonumber(d.HeightEffects) or layoutDefaults.HeightEffects end
+    if d.EffectsWindowX then layoutDefaults.EffectsWindowX = tonumber(d.EffectsWindowX) or layoutDefaults.EffectsWindowX end
+    if d.EffectsWindowY then layoutDefaults.EffectsWindowY = tonumber(d.EffectsWindowY) or layoutDefaults.EffectsWindowY end
+    if d.EffectsCompact then layoutDefaults.EffectsCompact = tonumber(d.EffectsCompact) or layoutDefaults.EffectsCompact end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -596,6 +601,13 @@ function LayoutUtils.loadLayoutConfig()
     layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
     layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
     layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
+    -- Equipment geometry: the cache branch loads these; missing them here meant any
+    -- file re-parse (layoutNeedsReload) dropped the saved Equipment position and the
+    -- window's own >1px move-save then overwrote the stored values with defaults.
+    layoutConfig.EquipmentWindowX = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowX", layoutDefaults.EquipmentWindowX or 191)
+    layoutConfig.EquipmentWindowY = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowY", layoutDefaults.EquipmentWindowY or 31)
+    layoutConfig.WidthEquipmentPanel = LayoutUtils.loadLayoutValue(layout, "WidthEquipmentPanel", layoutDefaults.WidthEquipmentPanel or 261)
+    layoutConfig.HeightEquipment = LayoutUtils.loadLayoutValue(layout, "HeightEquipment", layoutDefaults.HeightEquipment or 497)
     layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
     layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
     layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)

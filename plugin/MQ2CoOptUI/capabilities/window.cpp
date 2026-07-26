@@ -35,6 +35,11 @@ bool isWindowOpenImpl(const std::string& name) {
 // forced the old deferred, MouseOver-gated un-latch dance).
 
 eqlib::CXWnd* findChild(const std::string& wndName, const std::string& childName) {
+  // MQ core's FindMQ2WindowPath copies the name into a char[256] with strcpy_s;
+  // an oversized Lua-supplied name would trip the CRT invalid-parameter abort
+  // (process death, no SEH). Bound it here so bad input just fails the lookup.
+  if (wndName.empty() || wndName.size() >= 255 || childName.size() >= 255)
+    return nullptr;
   eqlib::CXWnd* wnd = mq::FindMQ2Window(wndName.c_str());
   if (!wnd) return nullptr;
   if (childName.empty()) return wnd;
@@ -87,14 +92,14 @@ void registerLua(sol::state_view L, sol::table& table) {
   });
 
   // Real click: dispatch XWM_LCLICK to the child's parent handler chain - the
-  // same code path a mouse click ends in, minus the mouse. Works on stock EQ
-  // buttons (their action lives in the parent's WndNotification).
+  // same code path a mouse click ends in, minus the mouse. Buttons only: list
+  // children pass a row index as the notification data (we'd send nullptr and
+  // the parent would act on row 0), so anything else fails the lookup.
   table.set_function("click",
                      [](const std::string& wnd, const std::string& child) -> bool {
-    eqlib::CXWnd* c = findChild(wnd, child);
-    if (!c) return false;
-    eqlib::CXWnd* target = c->GetParentWindow() ? c->GetParentWindow() : c;
-    target->WndNotification(c, eqlib::XWM_LCLICK, nullptr);
+    eqlib::CButtonWnd* c = findButton(wnd, child);
+    if (!c || !c->GetParentWindow()) return false;
+    c->GetParentWindow()->WndNotification(c, eqlib::XWM_LCLICK, nullptr);
     return true;
   });
 

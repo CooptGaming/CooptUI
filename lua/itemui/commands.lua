@@ -1,5 +1,6 @@
 --[[ commands.lua: /itemui command handler.
-     Subcommands: toggle, show, hide, sell, exit, scan, config, debug, version, help.
+     Subcommands: toggle, show, hide, center, refresh, setup, config, onboarding,
+     reroll, sell [legacy|lua], exit/quit/unload, help.
      Dispatched from app.lua via mq.bind('/itemui', ...).
 ]]
 local mq = require('mq')
@@ -93,7 +94,9 @@ function M.handleCommand(...)
     elseif cmd == "setup" then
         deps.uiState.setupMode = not deps.uiState.setupMode
         if deps.uiState.setupMode then
-            deps.uiState.setupStep = 0
+            -- The wizard renders steps 1-13 only; step 0 with setupMode on
+            -- draws nothing (the Welcome screen requires setupMode OFF).
+            deps.uiState.setupStep = 1
             if deps.loadConfigCache then deps.loadConfigCache() end
             if deps.loadLayoutConfig then deps.loadLayoutConfig() end
         else
@@ -101,7 +104,7 @@ function M.handleCommand(...)
         end
         setShouldDraw(true)
         setIsOpen(true)
-        print(deps.uiState.setupMode and "\ag[ItemUI]\ax Setup: Step 0 of 8 — Epic protection (optional), then layout and rules." or "\ar[ItemUI]\ax Setup off.")
+        print(deps.uiState.setupMode and "\ag[ItemUI]\ax Setup wizard started - follow the 13 steps in the main window." or "\ar[ItemUI]\ax Setup off.")
     elseif cmd == "config" then
         deps.uiState.configWindowOpen = true
         deps.uiState.configNeedsLoad = true
@@ -157,8 +160,9 @@ function M.handleCommand(...)
             print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
         end
     elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|refresh|setup|config|onboarding|reroll|exit|help]")
-        print("  setup = resize and save window/column layout for Inventory, Sell, and Inventory+Bank")
+        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|center|refresh|setup|config|onboarding|reroll|sell|exit|help]")
+        print("  center = open the native Command Center window (requires /loadskin coopt)")
+        print("  setup = run the 13-step setup wizard (layout, sell/loot rules, epic protection)")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
         print("  onboarding = show the first-run welcome panel again")
         print("  reroll = open Reroll Companion (augment and mythical reroll lists)")

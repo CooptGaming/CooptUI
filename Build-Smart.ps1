@@ -1796,6 +1796,24 @@ foreach ($t in $targets) {
                         $removedCount += $c
                     }
                 }
+                # 6b. Personal config never ships: the working copy's sell/loot/shared
+                # INIs are the maintainer's own lists and settings (untracked in git for
+                # the same reason). Replace every config INI with the curated defaults
+                # from config_templates so the bundle starts new users on the official
+                # baseline (docs/DEFAULT_SETTINGS.md). Runtime strips below still apply.
+                foreach ($sub in @('sell_config', 'loot_config', 'shared_config')) {
+                    $cfgDstDir = Join-Path $staging "Macros\$sub"
+                    if (-not (Test-Path $cfgDstDir)) { continue }
+                    Get-ChildItem $cfgDstDir -File -Filter '*.ini' -EA SilentlyContinue |
+                        ForEach-Object { Remove-Item $_.FullName -Force; $removedCount++ }
+                    $cfgTplDir = Join-Path $RepoRoot "config_templates\$sub"
+                    if (Test-Path $cfgTplDir) {
+                        Get-ChildItem $cfgTplDir -File -Filter '*.ini' |
+                            Copy-Item -Destination $cfgDstDir -Force
+                    }
+                }
+                Write-Ok 'Macros config INIs replaced with config_templates defaults'
+
                 # Remove user-specific loot/sell runtime files
                 $lootCfg = Join-Path $staging 'Macros\loot_config'
                 if (Test-Path $lootCfg) {

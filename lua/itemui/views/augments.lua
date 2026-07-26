@@ -68,7 +68,7 @@ function AugmentsView.render(ctx)
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.AugmentsWindowX or 0
     local ay = layoutConfig.AugmentsWindowY or 0
-    if ax and ay and ax ~= 0 and ay ~= 0 then
+    if ax and ay and (ax ~= 0 or ay ~= 0) then
         ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
 
@@ -106,7 +106,6 @@ function AugmentsView.render(ctx)
             layoutConfig.AugmentsWindowX = cx
             layoutConfig.AugmentsWindowY = cy
             ctx.scheduleLayoutSave()
-            ctx.flushLayoutSave()
         end
     end
 
