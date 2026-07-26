@@ -161,6 +161,10 @@
       "installPath": "Macros/shared_config/valuable_types.ini"
     },
     {
+      "repoPath": "config/MQ2CustomBinds.txt",
+      "installPath": "config/MQ2CustomBinds.txt"
+    },
+    {
       "repoPath": "config/ingame.cfg",
       "installPath": "config/ingame.cfg"
     },

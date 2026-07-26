@@ -1,31 +1,104 @@
 {
-  "version": "0.9.7",
+  "version": "0.9.8",
   "changelog": [
     "### Added",
-    "**Consumables list** \u2014 Right-click any item \u2192 **Add to Consumables**. Items on the list get **Use (consume one)** and **Use all (xN)** options that right-click/consume them in-game (e.g. \"Book of Titles\"). The list is the safety gate, so only items you flag ever show a consume option.",
-    "**Patcher \u2014 Full Install / Repair** \u2014 Point the patcher at any folder (an empty one, a vanilla MacroQuest you downloaded, the E3 distribution, or an existing CoOpt install) and it downloads the complete bundle and installs everything needed, **preserving your config** (EQ path, server list, character data, sell/loot rules). Fresh-install and update now share this one preserve-aware installer.",
-    "**CI** \u2014 luacheck static-analysis gate on every push/PR, catching undefined-global / use-before-declaration bugs before release.",
+    "**Effects and Clickies reachable from every launcher** \u2014 the ImGui Command Center, the NATIVE Command Center, and the Actions window's CoOpt tab all gained Effects and Clickies buttons, so the two newest companions open from anywhere like the rest.",
+    "**Sell Failed sound** \u2014 the sound service now actually defines the \"Sell Failed\" event the README promised (double beep by default; per-event toggle and custom .wav in Settings \u2192 Advanced \u2192 Sound Notifications).",
+    "**Player guide + defaults record** \u2014 new `docs/PRODUCT_GUIDE.md` (every feature, first-time setup, workflows, commands \u2014 the Discord onboarding doc) and `docs/DEFAULT_SETTINGS.md` (what a fresh install does out of the box, and why).",
+    "**Native AA window: Export / Import your AAs (CoOpt skin)** \u2014 the game's own AA window (where AA visibility and purchasing already work perfectly) gains CoOpt **Export**, **Import**, and **File** buttons stacked below Train and Hotkey, with a word-wrapping status line above Done. **File** cycles through your exports (newest first) to pick which one Import restores. Exports live in their own **`Macros\\aa_backups`** folder now (they historically landed in `sell_config`, a leftover from the sell-manager days) \u2014 existing files are moved over automatically the first time the folder is used, and a custom `AABackupPath` is still honored. \"Rebirth \\<Class\\>\" entries are recognized as server-granted class markers and skipped on import (they stay in the export as a record of the spec), and any purchases that fail get one automatic retry pass \u2014 simple prerequisite chains resolve themselves on the second sweep. **Export** writes every purchased AA to `aa_<Character>_<date>.ini`. **Import** \u2014 for after a reset \u2014 re-buys everything from your latest export: first click reports how many ranks and AA points it needs and **refuses to run if you don't have enough points** (exact per-rank costs read from the AA table via the plugin); clicking Import again within 10 seconds starts it. Every purchase is **verified** \u2014 the rank must actually increase before the next buy fires (with timeout, retry, and a failure summary) \u2014 replacing the old fire-and-forget trainer. The CoOpt AA Browser's Export/Import buttons run on the same engine, and an import keeps running with every CoOpt window closed.",
+    "**Native window strips (CoOpt skin)** \u2014 With the new CoOpt UI skin loaded (`/loadskin coopt`), CoOpt controls appear inside the game's **own windows**, driven by CoOpt UI through MacroQuest: the **Merchant window** gains Auto Sell, Preview (dry run), and a live status line (sell/keep/protected counts, macro progress), and the **Actions window** gains a **CoOpt tab** with launcher buttons for the companions. Routine vendoring no longer needs the CoOpt window open. Master toggle under Settings \u2192 General (\"Native window strips\"); everything no-ops unless the skin is loaded. The skin ships in `uifiles/coopt` and only overrides those windows \u2014 everything else stays your normal UI. (A loot-window strip was trialed and removed: launching the loot macro from an open corpse window reliably missed that corpse, so rules-based looting stays on `/doloot` and the Command Center's Loot All.)",
+    "**Mythicals Companion** \u2014 New pop-out window (toolbar button + Actions-tab launcher) listing every Mythical item in your bags in the Augments Companion layout \u2014 Reroll button, icon, name, effects, value \u2014 for fast reroll-list triage.",
+    "**Unusable-item indicator** \u2014 In the Augments and Mythicals Companions, items your character can't use render with a red name and show the reason (class/race/deity/level) on hover. Cached per item so it costs nothing per frame.",
+    "**Command Center** \u2014 New pop-out control panel (toolbar \"Cmd\" button): live status (plugin connection, sell/loot macro state, guild hall), process controls (Loot All / Stop Loot, Auto Sell, ScriptTracker), and launcher buttons for every CoOpt window \u2014 everything reachable without the hub open.",
+    "**Native inventory hover tooltips** \u2014 With the game's own Inventory window open, hovering a worn equipment slot shows the full CoOpt stats tooltip (same renderer as the Equipment Companion). Settings \u2192 General toggle, on by default. **With the updated MQ2CoOptUI plugin, this now extends to bag and bank slot contents** \u2014 the plugin resolves the nameless native slot windows through the game's own slot manager, so hovering any real item slot (worn, bags, open bank) shows the CoOpt tooltip. Without the plugin it stays worn-only.",
+    "**Plugin window API (MQ2CoOptUI)** \u2014 the plugin now drives native windows directly: `setChecked` (strip buttons un-latch via a silent state write \u2014 no synthetic clicks, no mouse-capture risk, no notification echo; the settle delay stays, since touching a button inside its click window re-toggles it), `setText` (status lines on any label, not just EditBoxes), `click` (dispatches a real click notification to a native button's handler), and `getMouseOverSlot` (the bag/bank hover above). The Lua side auto-detects the capability and falls back to the old paths on older plugin builds.",
+    "**CoOpt right-click menu on native slots** \u2014 **Shift+Right-click** any native item slot (worn, bags, open bank \u2014 plugin required for bag/bank) to open the same right-click menu the companions use: Clicky Lists, Add to Reroll, Move to Bank, Delete, and the rest. Plain right-click keeps its native meaning (use item / inspect) \u2014 the game always processes its own clicks, so the modifier avoids drinking a potion while opening its menu. The hover tooltip shows a reminder hint.",
+    "**Effects Companion \u2014 buffs, songs, and auras in ONE window** \u2014 the game splits your effects across three windows and RoF2's buff windows can't be extended (no EQTypes), so the new **Effects** companion replaces them: every buff, song, and aura in one compact list with spell icons, hit counters, and color-coded time remaining (yellow under 2 minutes, red under 30 seconds). Two modes: detailed rows, or a dense **icon grid** with tiny time labels. Hover any effect for slot, exact time, and hits left; right-click to remove it. Auras are display-only. Toolbar \"Effects\" button; close the native buff windows if you want it as your only buff UI.",
+    "**NATIVE Command Center** \u2014 The Tip of the Day window (nobody will miss it) is repurposed by the CoOpt skin into a fully native control panel: Loot All / Stop Loot / Auto Sell / ScriptTracker plus launcher buttons for every CoOpt window and a live status line (plugin + macro state). Open it with `/itemui center`, the EQ menu's Tip of the Day entry, or the \"Native Panel\" button in the ImGui Command Center. Titlebar, ESC-close, sizable \u2014 because it IS a native window.",
+    "**Equipped-item inspect redirects to the CoOpt Item Display** \u2014 This server's custom item data garbles the stock inspect window's layout. Right-clicking a worn slot in the game's own Inventory window now opens the CoOpt Item Display for that slot \u2014 with full equipped enrichment (augment slots, worn totals) \u2014 and squashes the native window that pops. Settings \u2192 General toggle, on by default. Bag items stay with the CoOpt Inventory Companion, which already handles them.",
+    "**Clickies (Favorites) Companion** \u2014 Create named clicky lists (\"Buffs\", \"Damage\", \u2026) in the new Clickies window, then right-click any item \u2192 **Clicky Lists** to toggle it onto a list. Each list is a tab of one-click activation rows: icon (hover = stats), name, clicky effect with live cooldown, **Use**, and **Remove**. Items on any list are **protected from selling** (new \"Favorites\" protection layer, shown in sell status/preview) and from the **Delete** menu until removed from their lists. Lists persist per character alongside the reroll lists.",
+    "**Command Center opens itself, with Start/Stop CoOpt buttons** \u2014 A tiny always-on `coopt_launcher` script (auto-started by itemui; add `/lua run coopt_launcher` to your MQ autoexec for login-time availability) opens the native Command Center automatically and owns its new **Start CoOpt** / **Stop CoOpt** buttons \u2014 so starting itemui + ScriptTracker is one native click even when nothing CoOpt is running. Bonus: characters with tips enabled get the Command Center at every login, courtesy of the Tip window's own auto-show.",
+    "**Lock a window open** \u2014 Every companion window (Clickies, Effects, Bank, Augments, Mythicals, Reroll, AA, Equipment, Item Display, Augment Utility, Command Center, Loot) now has a **Lock** checkbox at its top right. A locked window simply stays up while you play: ESC, the toggle keybind (default Shift+Q), `/itemui hide`, and the hub's X all leave it open. Close it with its own X, or untick Lock. Locks persist per character in the layout.",
+    "**Unified \"Add to Reroll\"** \u2014 One action everywhere instead of separate aug-list / mythical-list buttons: the UI routes each item automatically (name starts with \"Mythical\" \u2192 mythical list, augments \u2192 aug list). Applies to the right-click item menu, the Augments Companion's per-row button, and the Reroll Companion's **Add to Reroll (from Cursor)** \u2014 which now adds to the correct list no matter which tab is active.",
+    "**\"Recently looted\" in the Inventory Companion** \u2014 New hidden-by-default **Acquired** column tracks when each item was first seen (stamps survive stack moves and reshuffles), a **Newest** button next to search sorts newest-first (click again to restore Name), and items looted since UI start show a green **NEW** badge by their name.",
+    "**Sell Preview (dry run)** \u2014 New **Preview** button next to Auto Sell opens a modal listing exactly what would be sold, with quantity, value, total, and the rule behind each decision \u2014 catch config mistakes before the macro runs.",
+    "**Quick loot rules** \u2014 Right-click any item name in the Loot window's looted list, Loot History, or Skip History \u2192 **Always loot this** / **Never loot this** (or undo a never-loot). Rules apply immediately to the real loot lists.",
+    "### Changed",
+    "**The EMU bundle ships the curated defaults, not the maintainer's config** \u2014 Build-Smart's staging used to copy the working tree's `Macros` config INIs (personal keep/sell/loot lists) into the full bundle; it now replaces every config INI with the `config_templates` baseline, so bundle users start exactly where patcher/zip users do.",
+    "**New-install defaults curated for new players** \u2014 `config_templates` now ships `protectEpic=TRUE` and `alwaysLootEpic=TRUE` (matching the code's own fallbacks \u2014 the templates used to ship FALSE, giving fresh installs *worse* epic protection than having no file at all), keeps augments by default (`sell_keep_types=Augmentation`; per-item exceptions via the Augment Always Sell list), and ships `enableLiveLootFeed=TRUE` so macro-path looting feeds the Loot UI live.",
+    "**Personal config removed from the repo** \u2014 the maintainer's own `Macros/sell_config`, `Macros/loot_config`, and `Macros/shared_config` INIs (41 files: personal keep/sell/loot lists, onboarding state, runtime markers) are untracked; `config_templates/` is the only defaults source, exactly as the gitignore always intended. Release zips and the patcher were already template-only, so shipped installs are unchanged.",
+    "**AA Browser drops the \"(Work in Progress)\" title** \u2014 browsing, training, and Export/Import are done features.",
+    "**Actions window CoOpt tab** now holds 8 launchers in two columns (adds Loot UI and Settings), and the window's default width grew 124\u2192150 so the extra tab and grid fit cleanly.",
+    "**C++ plugin now enforces reroll-list protection natively** in both sell and loot rule ladders (ids pushed live from the UI). Previously the plugin's loot decisions could mark reroll-staged items as lootable.",
+    "**Bank view updates while the bank stays open** when the plugin is loaded (deposits/withdrawals by in-game drag were invisible until reopen).",
+    "**Performance** \u2014 major per-frame cost reductions across the UI: hover tooltips no longer rebuild full stat tables every frame (~85 TLO reads per hovered augment socket per frame eliminated), equipment refresh only rebuilds changed slots (~5,000 TLO evals/sec \u2192 ~60 while visible), the uiState proxy no longer allocates tables on every access, augment/candidate/filter/sort pipelines are cached instead of rebuilt per frame, history tables use clippers, sell progress polling is throttled, and idle-tick TLO window checks are skipped.",
+    "**Patcher hardening for public release** \u2014 removed a faulty auto-migration that corrupted the shared core on every install; network failures now show actionable errors instead of freezing; downloads write atomically; verification failures show as failures (with Retry) instead of green \"complete\"; user keybinds (`MQ2CustomBinds.txt`) and ScriptTracker settings are preserved; MacroQuest-running is detected before patching; full-install extraction shows progress and disk-space errors.",
     "### Fixed",
-    "**E3 crash on launch** \u2014 The distributed bundle was *deleting* required E3 runtime files (e.g. `Saved Groups.ini`), so E3 died on load with \"Error: Please reload. Terminating.\" Those files are now emptied, not deleted.",
-    "**Reroll \u2014 Remove** no longer crashes the UI.",
-    "**Reroll \u2014 Sync** now works per item: pick up \u2192 add \u2192 **wait for the server's confirmation** \u2192 put back, and confirmed items are removed from the to-be-synced list. (Previously items got stuck on the cursor and never confirmed.)",
-    "**Equip attuneable items** \u2014 The attunement dialog is now auto-confirmed (items no longer bounce back to your bags).",
-    "**Augment ranking** \u2014 Heroic stats are now scored correctly (were treated as base stats).",
-    "**First-run onboarding** \u2014 New installs now correctly show the welcome/setup wizard.",
-    "Several internal crash-class fixes (filters/searchbar helpers, layout reset) and companion-window render isolation so one window's error can't take down the whole UI.",
-    "### Build",
-    "MacroQuest pinned to a known-good commit (upstream `master` regressed with a missing `eqlib/game/ClassInfo.h`).",
-    "`E3.dll` is now packaged even when an auxiliary E3Next project (E3NextSysTray) fails to build.",
-    "MSVC toolset pinned and additional from-source build fixes for a reliable clean build."
+    "**Command Center window grew forever** \u2014 the per-window Lock checkbox was placed at a fixed offset from the window's right edge; when the checkbox rendered wider than the offset (font-scale dependent), the AlwaysAutoResize Command Center re-fit to the overshoot every frame and widened without end (and other windows could inherit odd widths from the same overshoot during auto-fit). The lock now right-aligns by measured width and can never extend past the content edge.",
+    "**Game crash right-clicking Script items and reroll books** \u2014 the shared context menu's \"Script of ...\" and \"Book of Mythical Reroll\" branches closed the popup themselves and then the calling code closed it again (a leftover from the menu-contents refactor); the double EndPopup corrupted ImGui's window stack (\"Missing EndTable()\", overlay pause, script death). One close per popup now.",
+    "**AA export recorded inflated ranks** \u2014 export read the character TLO's Rank (known to overstate partially-trained lines) while import plans against the plugin's true owned-ranks store, so a backup could claim ranks you never owned and a later import would buy them. Export and the AA Browser's Cur/Max column now use the same owned-ranks truth as import.",
+    "**AA import's prerequisite ordering was a no-op** \u2014 the AA table's \"requires\" field arrives as a group-ID string, which never matched the name-keyed plan queue, so prereq lines imported in file order (and the \"prereq not met: 487 (have 0)\" report named bare ids). The scan now translates required-group \u2192 name; ordering, the timeout diagnosis, and the row tooltip's \"Requires:\" line all work from it.",
+    "**AA import hardening** \u2014 retries keep the original group id (scan-invisible lines like rebirth-class AAs no longer fall back to the lying TLO and silently vanish from the failure report); the whole import freezes while zoning/dead instead of draining the queue as \"out of AA points\"; the flood settle holds when the owned-ranks read is unavailable instead of reconciling against an empty map; exports write to a temp file and rename (no truncated, valid-looking backups); a short-parsed backup now refuses to import in both entry points; a custom AABackupPath folder is created before first use.",
+    "**AA Browser served stale rows after training** \u2014 the sort/filter cache key only changed when a rebuild was *requested*, not when it completed, so freshly rebuilt ranks kept showing old Cur/Max until you changed tabs. The cache now invalidates on rebuild completion (any trigger, including the Refresh button), and the tab/search filter pass is cached too instead of re-running per frame.",
+    "**Two quick reroll adds could revert a confirmed one** \u2014 the server-ack slot was single: a second \"Add to Reroll\" re-armed it before the first confirmation arrived, so the first add's 10s timeout rolled back an entry the server had actually accepted (losing its sell protection until a refresh). Acks are now tracked per item id.",
+    "**Reroll Sync cleared equipped pending items** \u2014 the \"not owned anywhere \u2192 clear from pending\" self-heal only checked bags and bank; a pending mythical you'd equipped was dropped as \"Not owned\". Worn gear now counts, with an \"Equipped \u2014 unequip to sync\" reason.",
+    "**Sell-settings edits didn't refresh visible statuses** \u2014 protection-flag toggles, epic class selection, and value-threshold edits wrote the INI and cache but skipped the change event, so open windows kept advertising the old Will Sell ruling until an unrelated rescan (Auto Sell itself was always correct). All those paths emit the event now.",
+    "**ESC double-action with the quantity picker** \u2014 one ESC that cancelled the quantity picker also closed your newest companion window in the same frame.",
+    "**Native-first features died when everything was closed** \u2014 with the hub and all companions closed, the render early-out also skipped native hover tooltips, the Shift+Right-click native menu, and the equipped-inspect redirect \u2014 exactly the \"play with native windows only\" scenario they exist for. They now run on every frame.",
+    "**Layout fixes** \u2014 the Equipment window's saved position/size survives layout file re-parses (one load path skipped those keys, letting defaults overwrite your saved spot); the Effects window is now included in save-as-default / reset-to-default; window drags no longer rewrite the entire layout INI every frame (six windows flushed to disk continuously while dragging); windows parked at the screen's left or top edge (x=0 or y=0) restore their position again.",
+    "**Native Command Center launcher phantom clicks** \u2014 the standalone `coopt_launcher` un-latched Start/Stop without the settle delay the main bridge uses, so a click-and-drag-off could re-toggle the button and fire a spurious Start \u2014 or Stop \u2014 of CoOpt. Same guards ported over.",
+    "**Steady-state overhead trimmed** \u2014 the window registry rebuilt its draw caches every frame (every open companion re-dirtied them after Begin); the Command Center probed the ScriptTracker TLO every frame for a value only used on click; skin files now write atomically (a crash mid-copy can no longer leave a truncated EQUI xml for the next `/loadskin`).",
+    "**Plugin hardening (MQ2CoOptUI)** \u2014 window-name lookups bound their input (an oversized name tripped a CRT abort in MQ core's fixed buffer \u2014 process death, no SEH); owned-AA slot reads clamp the table index to the proven-safe GetAAById range; `getOwnedRanks` gains the same AA-manager guard as its siblings (a faulted read could return an empty table that import would treat as \"owns nothing\"); `click` is restricted to real buttons (clicking a list child passed a null row index to the parent handler); item Class/Race display no longer shows \"All\" for most multi-class items (popcount, not raw-mask compare); the cursor scanner null-checks the profile during shroud/char handoff.",
+    "**Docs and tooltips truth pass** \u2014 `/itemui setup` now actually starts the wizard (it toggled setup mode into a step that rendered nothing, printing \"Step 0 of 8\" for a 13-step wizard); the tutorial no longer promises a \"re-open from Settings\" option that doesn't exist (names the real commands), describes the Settings tabs as they are, and covers Effects/Clickies/Mythics/Command Center in the companions step; Auto Sell texts no longer tell Lua-mode users to run a macro; the epic-classes dropdown no longer reads \"All classes (none selected)\" when none selected means *inactive*; Clicky-list protection shows as \"ClickyList\" in sell status instead of the old \"Favorites\"; ScriptTracker docs say `/st` (the `/scripttracker` bind never existed); Loot UI \"Suppress\" note points at the real setting; keybind mentions show your actual configured key; plus a dozen smaller corrections across README/INSTALL and window texts.",
+    "**The CoOpt skin now ships \u2014 as an optional install** \u2014 no release channel (patcher manifest, CoOpt UI zip, EMU deploy) actually included `uifiles\\coopt` or the `coopt_launcher` script, so every native-window feature would have arrived dead for patched users. All three channels now carry them under the MacroQuest folder. Because EQ loads skins from its **own** uifiles folder (not MacroQuest's), the skin is **opt-in**: nothing touches your EQ client unless you click **Install skin (optional)** in Settings \u2192 General (or copy `uifiles\\coopt` over yourself). Once installed, itemui keeps that copy current on startup \u2014 updating changed files and deleting retired ones (the trialed loot-window strip) so stale overrides with dead buttons can't linger. itemui also no longer tries to start `coopt_launcher` when the script isn't installed.",
+    "**Worn clickies work with Clicky Lists** \u2014 right-clicking a worn item in the Equipment Companion never offered the Clicky Lists menu (the menu silently dropped id-keyed entries for equipped items), and the Clickies window treated anything not in bags as missing. Worn items now show in your lists with a \"(worn)\" tag, live cooldown, working stats hover, and a **Use** button that activates them in their equipment slot \u2014 so epics and other worn clickies are first-class list citizens.",
+    "**Equipped-inspect redirect no longer dies with unrelated toggles** \u2014 turning off native hover tooltips silently disabled the redirect (they shared an early-out), and turning off the native-strips master toggle disabled the redirect's squash of the native window. Each feature now honors only its own setting.",
+    "**AA Browser only lists abilities your character can actually see** \u2014 the full id-space scan surfaced every AA in the game's table, including other classes' lines (e.g. Rebirth for classes you don't have active) and unavailable Special entries (the \"breath\" line). With the updated plugin, the scan is filtered from the AA table itself: class lines must include your class in their class mask (the server maintains those per character, which is how multi-class actives surface), and granted-only (quest) abilities you don't own are hidden. Bonus: the filtered scan finishes near-instantly. Without the plugin it falls back to the old full scan.",
+    "**AA Browser: an empty scan no longer loops** \u2014 a character with no visible AAs re-triggered the full id-space scan endlessly while the window was open (\"Scanning AA tables...\" forever). An empty result now counts as a completed scan and waits for a real change (zone/level/points) before rescanning.",
+    "**Reroll Sync won't clear pending items blind** \u2014 the \"not owned anywhere \u2192 clear from pending\" self-heal now also requires actual bank knowledge (live window or cached contents), so a banked item on a character whose bank was never scanned can't be silently dropped from pending.",
+    "**Buttons left visually \"pushed in\"** \u2014 a strip button whose un-latch state was wiped by window churn is now detected as stale on next sight and pops back out on its own.",
+    "**loot.mac honors a pre-targeted corpse on its first pass** \u2014 opening a corpse flags it \"looted\" and `/hidecorpse looted` hides it from `/tar npccorpse`, so a corpse you'd already peeked at was skipped by loot runs. If you target a corpse before `/doloot`, the macro now loots it first (first pass only, so skipped-items corpses can't loop).",
+    "**Reroll Sync self-heals bank/not-owned pending items** \u2014 a pending item that's in the bank now reports \"In bank \u2014 move to bags to sync\" instead of a generic failure, and one you no longer own anywhere (sold, rolled, consumed) is cleared from pending automatically instead of sticking forever. (The pending list's per-item Remove button remains for manual cleanup.)",
+    "**AA Browser only showed General AAs** \u2014 the scan iterated AA ids 1\u20132000 and bailed after 50 consecutive empty ids, but the emu's class/archetype AA ids live far above that in a sparse id space. The scan now covers the full id range, chunked across main-loop ticks (no frame hitch, \"Scanning AA tables...\" shows while it runs), deduped by name, serving the old list until the rebuild completes.",
+    "**AA Browser tabs now sort correctly** \u2014 tab placement used the Category *string*, which is a live-EQ database lookup that comes back empty on the emu, dumping everything into General. Tabs now use the numeric Type field \u2014 the same field the game's own AA window uses \u2014 so General/Archetype/Class/Special populate properly (and the Category column shows the derived name). With the full list correct, the existing **Export/Import** buttons in the AA Browser cover spec-swap workflows: Export snapshots your purchased AAs to a file, Import re-trains them one rank per frame.",
+    "**The CoOpt toggle keybind (default Shift+Q) and `/itemui hide` close every CoOpt window again** \u2014 after companions became hub-independent, hiding the hub left them open; both paths (and the hub's X button) now LIFO-close all companion windows including the Loot UI.",
+    "**ESC now closes CoOpt windows no matter how they were opened** \u2014 companions launched from the native Actions tab (or with the hub closed entirely) ignored Escape; the LIFO close handler now runs independently of the hub window, so ESC always closes the most recently opened CoOpt window first.",
+    "**Native-strip toggles load as real booleans** \u2014 the layout loader returned them as numbers, and `0` is truthy in Lua, so off toggles behaved as on. (The auto-loot-on-corpse experiment this surfaced was later removed: closing the freshly opened corpse window mid-handshake fought the client, so rules-based looting stays on the loot window's CoOpt: Loot All button, which works reliably.)",
+    "**Native launcher buttons only worked while the CoOpt hub was open** \u2014 companion windows (Bank, Augments, Mythicals, Reroll, AA, Settings, \u2026) now render independently of the hub window, so the Actions-tab launchers open them any time.",
+    "**Reroll Sync could leave items stuck \"pending\"** \u2014 items already on the server list are cleared from pending instead of being re-sent (the top stuck cause); late server confirmations now complete the bookkeeping even after the wait window; the wrong-item-on-cursor case is detected before sending; sync stops cleanly if you leave the guild hall; only one track can sync at a time; pickup/confirm timeouts raised (0.8s\u21921.5s, 5s\u219210s); and the pending list now shows each item with a **Remove** button for manual cleanup.",
+    "**Augment Utility suggested augments your deity can't use** \u2014 the usability check trusted the game's CanUse property, which doesn't reflect the server's deity restrictions; deity is now always verified (\"only show usable\" and tooltips honor it).",
+    "**Sell rules: protections now always win.** Items on the never-loot list that were also NoDrop, epic, or on your Keep list could be sold (\"sell to clear inventory\" ran before protections). Protections (NoDrop \u2192 NoTrade \u2192 Epic \u2192 Keep) now run first, matching sell.mac's canonical order.",
+    "**Keep lists longer than ~2000 characters were silently truncated** for sell decisions (the UI showed items as Keep; the seller didn't). All keep/valuable/augment lists now read every chunk.",
+    "**Stale sell cache could sell newly-kept items** \u2014 when everything became protected, the old cache file survived and sell.mac's cache mode (which skips all rule checks) still sold from it. An empty computed list now writes an empty cache.",
+    "**Right-click item menu was dead with default columns** in Inventory and Bank (it only rendered when the hidden-by-default Icon column was enabled). The menu now works regardless of column setup.",
+    "**Settings changes now take effect immediately** \u2014 the deferred sell-status refresh after config changes was a no-op (Status column stayed stale until an unrelated rescan); loot flag/value changes never invalidated the loot rules cache; list adds via right-click could be erased by a later Filters-tab removal (stale cache write-back).",
+    "**Filter conflict dialog never opened** (ImGui popup ID scope) \u2014 adding a conflicting entry silently did nothing. The conflict-resolution dialog now appears.",
+    "**Macros: standalone `/else` lines never execute in MQ2** \u2014 epic protection loaded zero items in sell.mac's fallback mode, and single-entry always-loot lists never matched in loot.mac. All six sites converted to valid brace syntax.",
+    "**Loot receipts counted items that were never looted** (decisions were logged before the loot attempt; failed loots and lore-duplicate aborts inflated totals and history). Accounting now happens only after a verified pickup.",
+    "**Aborted loot runs no longer wedge the UI** \u2014 a bags-full abort (or crash) left `running=1` in the progress file forever, freezing the Loot window state and blocking inventory persistence. The macro now writes a heartbeat and finishes cleanly on inventory-full; the UI treats a 30s-stale heartbeat as not-running.",
+    "**UI can now be closed at the bank** \u2014 the X button and Escape were immediately overridden by the bank auto-show; also fixed the loot-window/bank flicker fight.",
+    "**AA window: training no longer fires from stray input** \u2014 pressing Enter (e.g. to chat) or double-clicking anywhere could spend AA points; both now require the window focused and the row actually hovered.",
+    "**Augment Utility \"Fill with best\" could stick at \"Optimizing 0/0\"** and re-run a stale plan against wrong slots after inventory changed; the plan is now copied, invalidated on completion, and the button disabled while running.",
+    "**Equip auto-confirm only answers the attunement dialog for attuneable items** (it previously clicked Yes on any confirmation dialog that appeared during the equip window).",
+    "**First launch on an alt no longer resets your customized layout** (the first-run marker is account-wide now, not per-character).",
+    "**Item tooltips can no longer crash the game on a mid-render error** (ImGui child/columns are rebalanced if a stat load fails while zoning); item-validity guards no longer fail open on nil IDs.",
+    "**Reroll list refresh no longer picks up stray guild chat** during the 6-second parse window (\"meet at 5:30\" could become a bogus list entry that then protected item ID 5).",
+    "**Roll after bank moves waits for the last move to finish** (stacked items could trigger the roll before the server saw all 10 items).",
+    "**Destroy now verifies the right item is on the cursor** before `/destroy` (a failed pickup could destroy whatever was actually held).",
+    "**Loot decisions on the no-plugin path**: clicky and NoDrop detection used checks that never fired (`lootClickies` was dead; NoDrop never flagged). Also fixed `lootClickies` treating every item as a clicky on the live-loot feed, and aligned loot defaults (tribute override 1000, clickies on) with loot.mac.",
+    "**Sound test button** reported valid sound files as missing when MQ's working directory wasn't the EQ root.",
+    "**ScriptTracker** now notices stack-size changes (looted scripts merging into stacks, partial consumes) instead of only slot-count changes.",
+    "**Layout round-trips**: Loot-view width survived cold starts, AA sort column persists, Settings remembers the Advanced tab, and layout files are written atomically (a crash mid-write can no longer blank your layout).",
+    "**Welcome wizard**: the environment checklist now expands when something failed (it collapsed exactly when you needed it), gained a Re-check button, and default sell protection actually seeds on first run."
   ],
   "files": [
     {
       "path": "Macros/loot.mac",
-      "hash": "088fb5c51c3670aecaf6d8117ff696843df914d16e3e1389d08e229e51e5d1a6"
+      "hash": "46bfef83227b4e3b152c17652102d9150115902e969475fdf0d2bee39c365580"
     },
     {
       "path": "Macros/sell.mac",
-      "hash": "749dbed7f006644b8e1e0b27171ecb9a6beaba5577a1659be72c371831a80374"
+      "hash": "6baeb3d58fced8b7b3a64c7973078d6d35ba45ea8245e738dddaa5dbd1c94828"
     },
     {
       "path": "Macros/shared_config/log_item.mac",
@@ -33,15 +106,15 @@
     },
     {
       "path": "Macros/shared_config/validate_config.mac",
-      "hash": "7d0acdd8dd20b89a46e203de05cd626236b935070f34c932087c23e2e8bd454d"
+      "hash": "389cad3068766d7b4279c1e5c01e2c8cb0c4c7d965db6454c56b660cc4032f7a"
     },
     {
-      "path": "config/MQ2CustomBinds.txt",
-      "hash": "d3a6627731f781bd4a42f5a98e7e360cb42b79bad313a95bbe2ef4518f1fcd0f"
+      "path": "lua/coopt_launcher.lua",
+      "hash": "cbfe0ccab250e7f4737cdfbff4a646e45ed7ec0c7b5239fc3944f45a8d8521ea"
     },
     {
       "path": "lua/coopui/core/cache.lua",
-      "hash": "fbcd28fca558a72bd8dd7b51e4477fd6d135794a3094d5def4f5ccbf0aecf66a"
+      "hash": "7d7e361a839f543381c5d400da5ae468325f116f03001e96620921b4c203cfa9"
     },
     {
       "path": "lua/coopui/core/events.lua",
@@ -53,7 +126,7 @@
     },
     {
       "path": "lua/coopui/version.lua",
-      "hash": "0137643910097b60ea11b7ca8b2d2e79082c15f741af41017c265d009cc5bbb0"
+      "hash": "25a7935a237ee6f723af194ede170f20ca636f3b853ddc8ccad51452d70c8563"
     },
     {
       "path": "lua/itemui/README.md",
@@ -61,39 +134,31 @@
     },
     {
       "path": "lua/itemui/app.lua",
-      "hash": "6cd120b6910b9bd3ddaab9ee4e65ca30854e51cef23f17530cafa3d901c22edd"
+      "hash": "3286b7b43db021859a5ee2fa76d9edeabc48ef10c454732ed5cd1e2eebfd28f3"
     },
     {
       "path": "lua/itemui/commands.lua",
-      "hash": "fd81eaa70b18dcf8965f248889744fae814417313f8473db1c165f4598786483"
+      "hash": "e547927c142fb0b53a5d7bfc8e790cbb3a781e9a7159a31eef383f50d4f2df98"
     },
     {
       "path": "lua/itemui/components/character_stats.lua",
-      "hash": "e05f70ced462cce50e00f5ae9a4856618008563148fab2a3ec401950f446e418"
-    },
-    {
-      "path": "lua/itemui/components/filters.lua",
-      "hash": "41527dbe3ca12ad1df92bec49f92e2eb0e38b91e93db6df51ea8056b273d0b66"
-    },
-    {
-      "path": "lua/itemui/components/searchbar.lua",
-      "hash": "1d2fe466e2cf496ef3fa876db782e2430b1bdb1966e3a213dbf35e6bc805f44e"
+      "hash": "0d7c89cb582618ce10a6f65aa5a09af41184b8c1a317f83cb8fc2ce99c489955"
     },
     {
       "path": "lua/itemui/components/ui_common.lua",
-      "hash": "5b26b74f2eab74fd8ad04d8e9cd09fdeb208e85a99395f767bc9488a84f357e6"
+      "hash": "53913518986c82366678546ddcc1d167a70eb997e0918f795b0dbb12a7417298"
     },
     {
       "path": "lua/itemui/config.lua",
-      "hash": "bada74b4fbe17987a9efb7fdc2ced8a125635d9596b7d139ed45fd3f1aa16ec2"
+      "hash": "1a8d36e566186cbf7a0626011fbb32f6584a7147adf79dd6c9290875dde570b2"
     },
     {
       "path": "lua/itemui/config_cache.lua",
-      "hash": "43ffda808dec1be1566e6eae0300e6aa4cacedb4f23e26586f0d8c65662e5323"
+      "hash": "4df81dc9a1d883843e3d6f6325e92d2187710c480d789479fe740a159c5dac79"
     },
     {
       "path": "lua/itemui/constants.lua",
-      "hash": "3feeab5775b010fc40e6d2ec7c255650a42ceffc13b8d422edc54b8ad6015b7a"
+      "hash": "0c95e00e2c13405eafa9109f8bcdde12556623332eea3106bd47fc8f73e88102"
     },
     {
       "path": "lua/itemui/context.lua",
@@ -117,7 +182,7 @@
     },
     {
       "path": "lua/itemui/core/registry.lua",
-      "hash": "58a35f9dcc30f42073e286e8bf0b0e7ed794878cf1eeb3cfa4c11699d7e890e9"
+      "hash": "7188fad9e5aaf0059d87fc2f0cf390f471d88137b9b5704a5747456a2a83518c"
     },
     {
       "path": "lua/itemui/core/welcome_env_manifest.lua",
@@ -145,27 +210,35 @@
     },
     {
       "path": "lua/itemui/rules.lua",
-      "hash": "2bdb5e054631601184b734d100906727e80c7522b1ec1b9b15a14092ab571fb2"
+      "hash": "c4483fc9e239ca28cd5cc026e37dd151bfc1243392cd436418e4647a40f5c4ff"
     },
     {
       "path": "lua/itemui/services/aa_data.lua",
-      "hash": "a249ad03f137cb4491c04ae658f289ad4e213bbdcd38a89aa9f420550a4cd81f"
+      "hash": "e33190270fccde48d1020da95e4626339986a2ba71dfeaec868cc5ed14e3f6fe"
+    },
+    {
+      "path": "lua/itemui/services/aa_transfer.lua",
+      "hash": "7363f47620b5594910ea6f7174c668958c5f997f3393d2fc0b2ba0527843b825"
     },
     {
       "path": "lua/itemui/services/augment_ops.lua",
-      "hash": "69c476f70118fda0971684df9e672af428a377258b52fd6782af740d9eab5901"
+      "hash": "bf7a315ca548fbfc3f491a0982ed5187f6f44c7ea2a4dbeef3716f3b5eb12e7b"
     },
     {
       "path": "lua/itemui/services/backup_service.lua",
       "hash": "eee68048aee57d83f2fa4aa0a35533caab4ea8e82ec3395a9cbaa48208a50354"
     },
     {
+      "path": "lua/itemui/services/favorites_service.lua",
+      "hash": "3655285cdbd32704b4ac7a650d1ae69fb21f65d6af48e6e1a6aafa0c4f197e56"
+    },
+    {
       "path": "lua/itemui/services/filter_service.lua",
-      "hash": "1ade4c3fbb65d80edf1ba4e72e9fe90337ba2a2a978a2e68daf2513b9f000f5c"
+      "hash": "5e2ad72dbd76aee42aa57db93b710ee79ebfa9ac30436f5f77a15c911eb51e8f"
     },
     {
       "path": "lua/itemui/services/item_ops.lua",
-      "hash": "d66f628fea09a1951c5236f0dcea017a2ea240fb7f52d6d25d1f5f619cf6114e"
+      "hash": "82834ee1c9cb47cc2de3ee8dc25c9a1f46906584a08ce644f754266f1f0916cb"
     },
     {
       "path": "lua/itemui/services/loot_feed_events.lua",
@@ -173,19 +246,23 @@
     },
     {
       "path": "lua/itemui/services/macro_bridge.lua",
-      "hash": "f06b6010b5cc3fc7c15266c6e64fc40dbf737468b62f66d6334d888bf4bce2d9"
+      "hash": "de1adc1fe1526c882b486d75eea77316c6f2af2c148f1f4cbf2f05c8751cb49d"
     },
     {
       "path": "lua/itemui/services/main_loop.lua",
-      "hash": "6667a7a95bf1c67b2b1a8fd57ce6aede8a60fef614ee18bb42a863b242f95b46"
+      "hash": "84bda958722593e8995cc8c2ec34be2feb1c98b247b50050819b0de7e3bc817a"
+    },
+    {
+      "path": "lua/itemui/services/native_bridge.lua",
+      "hash": "8a9c91fb262044ab6a2acb96d46e24615180e654369d721dda8fe69c0483ff08"
     },
     {
       "path": "lua/itemui/services/reroll_service.lua",
-      "hash": "ea49951ca106f2e6d8718aa36d7e187da9757205344a6f931bb02dd36a33ee59"
+      "hash": "aaddffb227894ab8c1fa4faa38ec739979ab5dcb6dd2b1ba695dbe9c59571a70"
     },
     {
       "path": "lua/itemui/services/scan.lua",
-      "hash": "2d90b55853ad66faf1fad13be906ce04695b30cd96150d97040116947de17ee8"
+      "hash": "c728ad888fdd8f76a15115cc0cab5f661fcefe22c9163e1cb2643adc99616538"
     },
     {
       "path": "lua/itemui/services/script_consume_events.lua",
@@ -193,23 +270,27 @@
     },
     {
       "path": "lua/itemui/services/sell_batch.lua",
-      "hash": "a97ef838b34845daa0682f4158d5190bed42073ac4267ee6a934a4bfe1b30230"
+      "hash": "a453725cb383aba7c3fc161910bf41642996eab45a6b4b51ae895a06ef42b22f"
     },
     {
       "path": "lua/itemui/services/sell_status.lua",
-      "hash": "d7f33d6872fb9555441fc8adddf5353df900fef0d3a75fc7fdcfaec4d51429dc"
+      "hash": "e687bf32dda25474861e551036b2dd6785bf25ae05a910f3a04b240108e044d8"
+    },
+    {
+      "path": "lua/itemui/services/skin_sync.lua",
+      "hash": "f0350d91f7f3b93bfab3cb24fbf6ef28d4bf4e4a563c8758e096f2d3fc2c08f9"
     },
     {
       "path": "lua/itemui/services/sound.lua",
-      "hash": "b89a87563a7df0b8b1bb4ea60c10d565685f4a5da8eae3c7fbfd1f44fade3be6"
+      "hash": "f5728ac6f2330a2755540ce21c28553d32e354449449e508f56f92128bd7418a"
     },
     {
       "path": "lua/itemui/state.lua",
-      "hash": "4b4ce9e1bb92dcaff1702e75ee1d380e11be502d16dbeb80e9521370dee9ef27"
+      "hash": "92b99f295f001e6a3943e878fa42bfcf4bb8a1162c18c8a7385c54b8aab3a561"
     },
     {
       "path": "lua/itemui/storage.lua",
-      "hash": "cb1d3d478a636565343af9094f92b0caced5a064b255f498adc5f8d1b06279e3"
+      "hash": "fb5c55ffe0c7b81d39057c72535f842cc27f26adab1a0cb547039153aa4027bf"
     },
     {
       "path": "lua/itemui/utils/augment_helpers.lua",
@@ -225,7 +306,7 @@
     },
     {
       "path": "lua/itemui/utils/columns.lua",
-      "hash": "3884e21e69861cc26a693f1d89170e41e55a36d26e4f7f6c632dc35c50a663c7"
+      "hash": "4d7f45e5642b0a8fa194a8c30be165f61fb7f74d9cfb9da3a593d3ddafcededf"
     },
     {
       "path": "lua/itemui/utils/coopui_plugin.lua",
@@ -233,11 +314,11 @@
     },
     {
       "path": "lua/itemui/utils/default_layout.lua",
-      "hash": "90a399909e96147ebad5f5f83be501c8d22846b88db0fd6ae4d5e992f08d3537"
+      "hash": "703f4508af9c283e8c6842aeb26381b5cad1d0a07dce7ddad65ce97192ac6c52"
     },
     {
       "path": "lua/itemui/utils/file_safe.lua",
-      "hash": "c0146f7c8ecfb572ba95d41776aa8e92c2cc4b3ff45ea9ba482efa975ea47198"
+      "hash": "1dbe51d1fe5ed69d68e1ae5dbb6968cc47cc1e3463ce53732c8a64d250568c43"
     },
     {
       "path": "lua/itemui/utils/icons.lua",
@@ -245,7 +326,7 @@
     },
     {
       "path": "lua/itemui/utils/item_helpers.lua",
-      "hash": "b49df68e6ada0e1f753ba60b20ad31370e4285326021a6143e082c1ffd04fbae"
+      "hash": "5a6bc826556a0af02b53f14a815b567a8cfbcd2d78a55f4b2e6d3207303ddea1"
     },
     {
       "path": "lua/itemui/utils/item_name.lua",
@@ -257,31 +338,31 @@
     },
     {
       "path": "lua/itemui/utils/item_tooltip.lua",
-      "hash": "0f13f918bc5bcb422be7d5f4cb7262a79d467b04b79503177b561ff552b8e805"
+      "hash": "64d827216e489de3c80ab495509474eea803c351fea94e98385d631555a41553"
     },
     {
       "path": "lua/itemui/utils/layout.lua",
-      "hash": "bf2279a735d89306f2120c95ca0862d211cfb7b8d9745faf95b3bc29c8a89a0e"
+      "hash": "2ffbdd2d6ae714da7111615c9e213e7c170025e723a81e6a32984eef701d6a28"
     },
     {
       "path": "lua/itemui/utils/layout_columns.lua",
-      "hash": "b160f0c6ab412ca96736cecf903b0cb2b1fc6af8f599c421d777f6307821a57d"
+      "hash": "afc9b8c610d79444d364d77dc9907e9b6c559f27cef7661c6b617e1dc56f0e91"
     },
     {
       "path": "lua/itemui/utils/layout_io.lua",
-      "hash": "54b80b6977c2b12088ff6ba59047655ab2279e09a4600b139eb197a4a0dc542e"
+      "hash": "f603a4a670f1370ce09084f7cd1ef8b900e9b40be55f20bf8140f3229687ad71"
     },
     {
       "path": "lua/itemui/utils/layout_setup.lua",
-      "hash": "1055a0c7f4ab6c9f008d1690651e63896e15a54993d632d918cf7df3645248a4"
+      "hash": "19cd6a6718d340c6d3b8e5d4911b3cb82cee9383d6892ca081459fc69d51da88"
     },
     {
       "path": "lua/itemui/utils/sort.lua",
-      "hash": "fb1f2b8de469398a02463c7795849634cd0bcb917e35d5acd590a6ebb6a0fb97"
+      "hash": "408151b111aaf3613588b33ce2cd8830e11734b818b2458db85c8620afb29dcb"
     },
     {
       "path": "lua/itemui/utils/table_cache.lua",
-      "hash": "a4ddbaa372868882903d2408f1c3965594df83e1b0a4fcb65e72de80d9ade309"
+      "hash": "053f7ea05df3f95b8741d3d7ab8378a5784ddb771fcf6bdfdd910a0f3076b85c"
     },
     {
       "path": "lua/itemui/utils/theme.lua",
@@ -289,15 +370,15 @@
     },
     {
       "path": "lua/itemui/utils/tooltip_data.lua",
-      "hash": "4577efb8afb84b2db849e116a3e9ca63f4c2b30ef289cae11bfeceae33fc5a7b"
+      "hash": "d4822278e26bd413a13ee061ebb50c0cc8a3a7c76870a934d813965cf4461f6f"
     },
     {
       "path": "lua/itemui/utils/tooltip_layout.lua",
-      "hash": "462eaca288c9faa654d12ebefcfa0f0a7ad2bcf9c0f25ad27f74f0e60bedd458"
+      "hash": "4e5b1f3770e063049a263a2ced91c9a2c5477ea90f76cd1265da5ce6b9d3339b"
     },
     {
       "path": "lua/itemui/utils/tooltip_render.lua",
-      "hash": "bbf76a5f7e97702487c1a4c989e6ede25c68118fb6ccfe3928902e84f6998f59"
+      "hash": "36019d3217c2293a7f5777225e2f652d63fc50726b4db0be1b9a6eb773178300"
     },
     {
       "path": "lua/itemui/utils/window_state.lua",
@@ -305,19 +386,23 @@
     },
     {
       "path": "lua/itemui/views/aa.lua",
-      "hash": "c17289f40a9041f344d0f864da7bd1924931bae1b78f4df506240ee2fa8c0d2f"
+      "hash": "84bde5a173bfbfe7591d148674fc58ac39a0b79bc080c261623e2eda73fc46ba"
     },
     {
       "path": "lua/itemui/views/augment_utility.lua",
-      "hash": "ec5e34ba404802d28d51ec2aac9cb40522d90fc1ce13fabdb94723a207782d6d"
+      "hash": "8a43eca443558cac3304250b46c977a85973fdb869f425be2131ab1134788870"
     },
     {
       "path": "lua/itemui/views/augments.lua",
-      "hash": "a76dc78bfe696ea50f4f27c5d9bf92b7438f58eb824c48d2300c0e93093b9740"
+      "hash": "048613b7c0bfdb3775fd84e1f788a4f1c0529698cc9e08a1182e18b04ffd73c6"
     },
     {
       "path": "lua/itemui/views/bank.lua",
-      "hash": "86d11b4625edb16a0b5bb67539db8d1ace8bc4d2bf2ae791b24a590eb693b05a"
+      "hash": "ba9ce1142c44184f531dab3b35bc946be9b79b613bf9fb5a3f62e90be2bdd7f6"
+    },
+    {
+      "path": "lua/itemui/views/command_center.lua",
+      "hash": "32127eb2b3bb7a6bb93a8eb0bbc7e4aad62899cbe126c930c620b3cacfb69b89"
     },
     {
       "path": "lua/itemui/views/config_advanced.lua",
@@ -337,11 +422,11 @@
     },
     {
       "path": "lua/itemui/views/config_filters_ui.lua",
-      "hash": "4b3bb9ef13138b0f9b1e75dc65cc7388bd09b8ae5773491f6327e6915905cc26"
+      "hash": "158d8419ebb3ae8bb6d39cdd813b84493d4043ac3f7b4eb05b97db5b3d9a4306"
     },
     {
       "path": "lua/itemui/views/config_general.lua",
-      "hash": "6d5d615762456cd48e783781baf6e6ed647cb58c71500ede32d20b25b3c0cd06"
+      "hash": "c28948ab9437060e4e662a084690fd5cd7295397f05c9dd5f3cbc0df98f98b66"
     },
     {
       "path": "lua/itemui/views/config_loot.lua",
@@ -356,44 +441,60 @@
       "hash": "f373b13c0cda8fd3057b0c7bd03220c94d4131fe6bbb664132c78d5a4db192ad"
     },
     {
+      "path": "lua/itemui/views/effects.lua",
+      "hash": "4a0abf2d26c601ecb84e335b8e146f0c19bd5f1231ed4794d91cd39df6ba5b59"
+    },
+    {
       "path": "lua/itemui/views/equipment.lua",
-      "hash": "00b190151e48e9f85326f47169a94fcf46e4b9634362824fb8358cf8146c209b"
+      "hash": "edc72fc8b6bb452751e2ab31db13d735c064aa3e840ca52d90131d7d23315fa4"
+    },
+    {
+      "path": "lua/itemui/views/favorites.lua",
+      "hash": "6078867f0204134665064ab9e2c9ddb711071e57a344c1aea1bcd11eb116c0e4"
     },
     {
       "path": "lua/itemui/views/inventory.lua",
-      "hash": "5bde7bb47665a3394d41f7eddbf31e4e827b5cbff7b683eb5243f58d1e36d16e"
+      "hash": "80a81b2aa421fca4f966f18bc99d0496d3e1c95098a556ead27b7abb5e0b7869"
     },
     {
       "path": "lua/itemui/views/item_display.lua",
-      "hash": "17c2ac34b0555f7a946f0a36b1b02cba6c9b2f02c37247a8577a35cd880a80c4"
+      "hash": "4485659078fb0700ed9d5ca01786b00936ee29a8820c012c74d67e0559504151"
     },
     {
       "path": "lua/itemui/views/loot.lua",
-      "hash": "6e37c7945d43852baa49cbca0113ab6f362978831e3ca212fd845c1ea5cd26db"
+      "hash": "161183ee3de53af8e5733ba4b7f51fd192f78f332cd032ab3eca5bda02de9f00"
     },
     {
       "path": "lua/itemui/views/loot_ui.lua",
-      "hash": "388a3fc99ed1e18ce0bd92e4399caa8f1d6a9a1e7586f022f9e52bc64700cf9e"
+      "hash": "0f1ed643729111f3b751cda74061543f7177d5a1a11dad12d74c179a46aaf475"
     },
     {
       "path": "lua/itemui/views/main_window.lua",
-      "hash": "6eb63e69ec6872044fc63849937410db719f2d66daecf6932ca690b6881fcac2"
+      "hash": "57a5914c00a0def63ba456ff7b326bc5aeae4418bdf616450592f0b25893eb56"
+    },
+    {
+      "path": "lua/itemui/views/mythicals.lua",
+      "hash": "140c9257975641fdc34c6a8fea8431c74609315a92e2ce36e97cfe353ef8d603"
+    },
+    {
+      "path": "lua/itemui/views/native_hover.lua",
+      "hash": "fd4c3c81e6425fcf21ccf04cdaa565e1c1f3108ff0c5283feb514a2534381664"
     },
     {
       "path": "lua/itemui/views/reroll.lua",
-      "hash": "14dea19dee704779607e3dd0ec1bd584112614f9465aecd061b25f3c49e5337e"
+      "hash": "c8cdfeb0de68b2e933cae1a053e99cc18de3f209d887847a1c22523076f3cb6b"
     },
     {
       "path": "lua/itemui/views/sell.lua",
-      "hash": "7f75d4be2a702eefdc00ba9d4f0f54c4ebdc70b9fc9a1afc66e208504c414624"
+      "hash": "c3865d0caf4e3da9f2220d97754afe9d9dffae979c40ec7ee95262ca57becaf6"
     },
     {
       "path": "lua/itemui/views/settings.lua",
-      "hash": "36e2ae745fefda808bab5f46582252569fa3ee0a1d17c9c604f3338987feb984"
+      "hash": "29dd2f2dbcbeec78aa901147f38e9e36a183e5befd52817348c16d55fb6e93e2"
     },
     {
       "path": "lua/itemui/views/tutorial.lua",
-      "hash": "e11c05ea7bc797e877293f221b48dde2ec29191ff046a55d0cbb69931c7149c1"
+      "hash": "acce8e06999169ef45a8f5aa0d9c1e5e97acfec3b247b65579ee798a4f691b51"
     },
     {
       "path": "lua/mq/ItemUtils.lua",
@@ -405,7 +506,7 @@
     },
     {
       "path": "lua/scripttracker/init.lua",
-      "hash": "509695a4787a5f5de8dd05a3ffed447ead5388175d656ef22a218366bda8a85e"
+      "hash": "09b163ca05fac02daeb222e652b3691e15aec35fab6ae94103823caee37dc256"
     },
     {
       "path": "resources/UIFiles/Default/EQUI.xml",
@@ -420,9 +521,25 @@
       "hash": "bf1227ace1c87d8838cd20ed1dd2236ac8ae9ea3e8398c864fcb947508d0496c"
     },
     {
+      "path": "uifiles/coopt/EQUI_AAWindow.xml",
+      "hash": "cec37fe7ee209f95592fa10f5575e7170b15d50b7ee288f4f2913bb1265300b7"
+    },
+    {
+      "path": "uifiles/coopt/EQUI_ActionsWindow.xml",
+      "hash": "c83191fd2f892b2c047353ab20fe83eaf3fff3424b6ef480c52cc3211240eca5"
+    },
+    {
+      "path": "uifiles/coopt/EQUI_MerchantWnd.xml",
+      "hash": "86726c693120432947a0a7a0a134b8fe6f62f030acc4bee06406071e5e7c1f3d"
+    },
+    {
+      "path": "uifiles/coopt/EQUI_TipWnd.xml",
+      "hash": "660979734bdf64fa404cd78d877dc8d19d75a241ccd8067a79832e3ae45722ae"
+    },
+    {
       "path": "plugins/MQ2CoOptUI.dll",
-      "hash": "41f6f838d962e0de11466d218e0938772576a7d6d4265d09725bff3d64431fa7",
-      "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.7/MQ2CoOptUI.dll"
+      "hash": "07fe5f53e488005224880c409828a686600c6392e676dd470cc5e071bd4033ee",
+      "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.8/MQ2CoOptUI.dll"
     }
   ]
 }
