@@ -92,6 +92,7 @@ local ITEMDISPLAY_WND = 'ItemDisplayWindow'
 local AA_WND       = 'AAWindow'
 local BTN_AAEXPORT = 'Coopt_AAExportBtn'
 local BTN_AAIMPORT = 'Coopt_AAImportBtn'
+local BTN_AAFILE   = 'Coopt_AAFileBtn'
 local AA_STATUS    = 'Coopt_AAStatus'
 
 local POLL_INTERVAL_MS   = 100
@@ -441,6 +442,9 @@ local function tickAAWindow(now)
     end
     if consumeClick(s, AA_WND, BTN_AAIMPORT, now) then
         aaTransfer.armOrStartImport()
+    end
+    if consumeClick(s, AA_WND, BTN_AAFILE, now) then
+        aaTransfer.cycleFile()
     end
     if (now - s.lastStatusAt) >= STATUS_INTERVAL_MS then
         s.lastStatusAt = now

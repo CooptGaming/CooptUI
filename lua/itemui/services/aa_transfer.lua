@@ -35,6 +35,10 @@ local exportPending = false
 local imp = nil            -- active import state
 local armed = nil          -- { path, until, ranks, cost, exact }
 local statusLine = "CoOpt: Export saves your AAs"
+-- File button selection (native window): newest-first backup list.
+local fileList = nil       -- { { path=, name= }, ... }
+local fileIdx = 1
+local fileShown = false
 
 local paCache
 local function plugAA()
@@ -129,6 +133,8 @@ local function doExportNow()
         f:close()
     end)
     if ok then
+        fileList = nil
+        fileShown = false
         say(string.format("Exported %d AAs -> %s", count, fname))
     else
         say("Export failed: " .. tostring(err))
@@ -166,23 +172,53 @@ function M.parseBackup(path)
     return aas, meta
 end
 
---- Newest aa_<ThisChar>_*.ini in the backup dir (timestamped names sort).
-function M.findLatestBackup()
+--- Rebuild the newest-first backup list for this character (timestamped
+--- names sort, so reverse lexicographic = newest first).
+local function refreshFileList()
+    fileList = {}
     local cn = safeCharName()
     local dir = backupDir()
-    if not cn or dir == "" then return nil end
-    local best = nil
+    if not cn or dir == "" then return end
+    local names = {}
     local ok, pipe = pcall(io.popen, 'dir /b "' .. dir:gsub("/", "\\") .. '\\aa_' .. cn .. '_*.ini" 2>nul')
     if ok and pipe then
         for line in pipe:lines() do
-            if line and line:match("^aa_.*%.ini$") then
-                if not best or line > best then best = line end
-            end
+            if line and line:match("^aa_.*%.ini$") then names[#names + 1] = line end
         end
         pipe:close()
     end
-    if not best then return nil end
-    return dir .. "/" .. best, best
+    table.sort(names, function(a, b) return a > b end)
+    for _, n in ipairs(names) do
+        fileList[#fileList + 1] = { path = dir .. "/" .. n, name = n }
+    end
+end
+
+--- Newest aa_<ThisChar>_*.ini in the backup dir.
+function M.findLatestBackup()
+    refreshFileList()
+    local f = fileList[1]
+    if not f then return nil end
+    return f.path, f.name
+end
+
+--- File button: first click shows the newest file, further clicks cycle
+--- toward older ones (wrapping). Changing the file disarms a pending import.
+function M.cycleFile()
+    if imp then say("Import already running") return end
+    if not fileShown or not fileList or #fileList == 0 then
+        refreshFileList()
+        fileIdx = 1
+        fileShown = #fileList > 0
+    else
+        fileIdx = (fileIdx % #fileList) + 1
+    end
+    armed = nil
+    if not fileList or #fileList == 0 then
+        fileShown = false
+        say("No aa_*.ini exports for this character")
+        return
+    end
+    say(string.format("File %d/%d: %s", fileIdx, #fileList, fileList[fileIdx].name))
 end
 
 --- Import -----------------------------------------------------------------
@@ -190,7 +226,7 @@ end
 --- Plan an import: entries needing ranks, total ranks, and the AA-point cost
 --- (exact when the plugin cost map is available). Pure - buys nothing.
 local function planImport(aas)
-    local plan = { queue = {}, ranks = 0, cost = 0, exact = false }
+    local plan = { queue = {}, ranks = 0, cost = 0, exact = false, skippedAuto = 0 }
     local costs = nil
     local pa = plugAA()
     if pa and type(pa.getGroupRankCosts) == 'function' then
@@ -199,21 +235,28 @@ local function planImport(aas)
     end
     plan.exact = costs ~= nil
     for _, entry in ipairs(aas) do
-        local cur = myRank(entry.name)
-        if entry.rank > cur then
-            plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur }
-            plan.ranks = plan.ranks + (entry.rank - cur)
-            if costs then
-                local aa = myAA(entry.name)
-                local okId, gid = pcall(function() return aa and aa.ID and aa.ID() end)
-                local groupCosts = (okId and gid) and costs[gid] or nil
-                if groupCosts then
-                    for r = cur + 1, entry.rank do
-                        local c = tonumber(groupCosts[r])
-                        if c then plan.cost = plan.cost + c else plan.exact = false end
+        -- Perky: "Rebirth <Class>" AAs are server-granted markers of your
+        -- chosen classes, never bought - buying would only burn timeouts.
+        -- They stay in exports as documentation of the spec.
+        if entry.name:match("^Rebirth ") then
+            plan.skippedAuto = plan.skippedAuto + 1
+        else
+            local cur = myRank(entry.name)
+            if entry.rank > cur then
+                plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur }
+                plan.ranks = plan.ranks + (entry.rank - cur)
+                if costs then
+                    local aa = myAA(entry.name)
+                    local okId, gid = pcall(function() return aa and aa.ID and aa.ID() end)
+                    local groupCosts = (okId and gid) and costs[gid] or nil
+                    if groupCosts then
+                        for r = cur + 1, entry.rank do
+                            local c = tonumber(groupCosts[r])
+                            if c then plan.cost = plan.cost + c else plan.exact = false end
+                        end
+                    else
+                        plan.exact = false
                     end
-                else
-                    plan.exact = false
                 end
             end
         end
@@ -245,13 +288,15 @@ function M.startImport(path)
         queue = plan.queue, idx = 1, phase = "begin",
         expectRank = 0, buyAt = 0, retries = 0, nextActionAt = 0,
         totalRanks = plan.ranks, doneRanks = 0, failed = {},
+        pass = 1, skippedAuto = plan.skippedAuto or 0,
     }
     return true
 end
 
 --- Native-button flow: first click reports what WOULD happen, second click
 --- within the window actually starts (a full re-buy from one click is too
---- easy to fat-finger on a native window with no dialog).
+--- easy to fat-finger on a native window with no dialog). Uses the File
+--- button's selection when one was made, the newest export otherwise.
 function M.armOrStartImport()
     if imp then say("Import already running") return end
     local now = mq.gettime()
@@ -262,7 +307,12 @@ function M.armOrStartImport()
         return
     end
     armed = nil
-    local path, fname = M.findLatestBackup()
+    local path, fname
+    if fileShown and fileList and fileList[fileIdx] then
+        path, fname = fileList[fileIdx].path, fileList[fileIdx].name
+    else
+        path, fname = M.findLatestBackup()
+    end
     if not path then say("No aa_*.ini export found for this character") return end
     local aas, err = M.parseBackup(path)
     if not aas then say("Import failed: " .. tostring(err)) return end
@@ -283,16 +333,37 @@ end
 
 local function finishImport()
     local nFailed = #imp.failed
+    -- One extra sweep over the failures: simple RequiresAbility chains
+    -- resolve themselves once the prerequisites bought later in pass 1 exist.
+    if nFailed > 0 and imp.pass == 1 then
+        local retryQueue = {}
+        for _, f in ipairs(imp.failed) do
+            retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted }
+        end
+        imp.queue = retryQueue
+        imp.failed = {}
+        imp.idx = 1
+        imp.phase = "begin"
+        imp.retries = 0
+        imp.pass = 2
+        say(string.format("Retrying %d failed...", nFailed))
+        return
+    end
     local msg
     if nFailed == 0 then
         msg = string.format("Import complete: %d ranks trained", imp.doneRanks)
     else
         local names = {}
         for i = 1, math.min(2, nFailed) do names[#names + 1] = imp.failed[i].name end
-        msg = string.format("Import: %d ranks trained, %d failed (%s%s)", imp.doneRanks, nFailed,
+        msg = string.format("Import: %d trained, %d failed (%s%s)", imp.doneRanks, nFailed,
             table.concat(names, ", "), nFailed > 2 and ", ..." or "")
     end
+    if (imp.skippedAuto or 0) > 0 then
+        msg = msg .. string.format(" [%d auto-granted skipped]", imp.skippedAuto)
+    end
     imp = nil
+    fileList = nil
+    fileShown = false
     if deps.refreshAA then deps.refreshAA() end
     say(msg)
 end

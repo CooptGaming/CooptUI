@@ -130,7 +130,7 @@
 			<CY>24</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: save every purchased AA to a file (aa_Character_date.ini) for re-import after a reset</TooltipReference>
+		<TooltipReference>CoOpt: save every purchased AA to a file (aa_Character_date.ini) for re-import after a class swap</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
 		<Text>Export</Text>
 		<TextColor>
@@ -152,7 +152,7 @@
 			<CY>24</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>CoOpt: re-buy all AAs from your latest export (checks you have enough AA points first; click twice to confirm)</TooltipReference>
+		<TooltipReference>CoOpt: re-buy all AAs from the selected export (checks AA points first; click twice to confirm)</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
 		<Text>Import</Text>
 		<TextColor>
@@ -162,27 +162,49 @@
 		</TextColor>
 		<Template>BDT_Square</Template>
 	</Button>
-	<Editbox item="Coopt_AAStatus">
+	<Button item="Coopt_AAFileBtn">
+		<ScreenID>Coopt_AAFileBtn</ScreenID>
+		<RelativePosition>true</RelativePosition>
+		<Location>
+			<X>585</X>
+			<Y>328</Y>
+		</Location>
+		<Size>
+			<CX>50</CX>
+			<CY>24</CY>
+		</Size>
+		<Style_Transparent>false</Style_Transparent>
+		<TooltipReference>CoOpt: choose which export file Import uses (cycles newest to oldest)</TooltipReference>
+		<Style_Checkbox>true</Style_Checkbox>
+		<Text>File</Text>
+		<TextColor>
+			<R>255</R>
+			<G>255</G>
+			<B>255</B>
+		</TextColor>
+		<Template>BDT_Square</Template>
+	</Button>
+	<Label item="Coopt_AAStatus">
 		<ScreenID>Coopt_AAStatus</ScreenID>
 		<RelativePosition>true</RelativePosition>
 		<Location>
 			<X>500</X>
-			<Y>360</Y>
+			<Y>354</Y>
 		</Location>
 		<Size>
 			<CX>135</CX>
-			<CY>16</CY>
+			<CY>44</CY>
 		</Size>
-		<Style_Transparent>true</Style_Transparent>
-		<Style_Border>false</Style_Border>
-		<TooltipReference>CoOpt AA export/import status</TooltipReference>
-		<Text>CoOpt</Text>
+		<Text>CoOpt: Export saves your AAs</Text>
 		<TextColor>
 			<R>255</R>
 			<G>255</G>
 			<B>0</B>
 		</TextColor>
-	</Editbox>
+		<NoWrap>false</NoWrap>
+		<AlignCenter>false</AlignCenter>
+		<AlignRight>false</AlignRight>
+	</Label>
 	<Button item="AAW_DoneButton">
 		<ScreenID>DoneButton</ScreenID>
 		<!--<Font>3</Font>-->
@@ -942,6 +964,7 @@
 		<Pieces>Coopt_AAStatus</Pieces>
 		<Pieces>Coopt_AAExportBtn</Pieces>
 		<Pieces>Coopt_AAImportBtn</Pieces>
+		<Pieces>Coopt_AAFileBtn</Pieces>
 		<Pieces>AAW_DoneButton</Pieces>
 		<Pieces>AAW_PercentLabel</Pieces>
 		<Pieces>AAW_PercentCount</Pieces>
