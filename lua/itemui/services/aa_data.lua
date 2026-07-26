@@ -4,8 +4,20 @@
 --]]
 
 local mq = require('mq')
+local coopuiPlugin = require('itemui.utils.coopui_plugin')
 
 local M = {}
+
+-- Plugin AA filter: the client's own CanSeeAbility (what the native AA window
+-- shows for THIS character - other classes' lines and unavailable specials
+-- excluded, including this server's multi-class rules). One-shot detection.
+local paCache
+local function plugAA()
+    if paCache ~= nil then return paCache or nil end
+    local p = coopuiPlugin.getPlugin()
+    paCache = (p and type(p.aa) == 'table' and type(p.aa.getVisibleAAIds) == 'function') and p.aa or false
+    return paCache or nil
+end
 
 -- Cache: list of AA records, fingerprint, last refresh time
 local aaList = {}
@@ -80,7 +92,17 @@ end
 
 --- Refresh: start an incremental rebuild. The old list stays served until the
 --- rebuild completes (stale-while-revalidate), so the view never goes blank.
+--- With the plugin, the rebuild walks only the ids the client itself would
+--- show (CanSeeAbility); otherwise it falls back to the full id-space scan.
 function M.refresh()
+    local pa = plugAA()
+    if pa then
+        local ok, ids = pcall(pa.getVisibleAAIds)
+        if ok and type(ids) == 'table' and #ids > 0 then
+            build = { ids = ids, cursor = 1, list = {}, seen = {} }
+            return
+        end
+    end
     build = { cursor = 1, list = {}, seen = {} }
 end
 
@@ -104,9 +126,13 @@ function M.pump()
         build = nil
         return
     end
-    local upper = math.min(build.cursor + IDS_PER_PUMP - 1, MAX_AA_ID)
-    for i = build.cursor, upper do
-        local aa = AltAbility(i)
+    -- Two id sources: the plugin's visible-id list (client-filtered), or the
+    -- full sparse range. Same record building and name-dedupe either way.
+    local last = build.ids and #build.ids or MAX_AA_ID
+    local upper = math.min(build.cursor + IDS_PER_PUMP - 1, last)
+    for k = build.cursor, upper do
+        local i = build.ids and build.ids[k] or k
+        local aa = i and AltAbility(i)
         if aa and aa.ID then
             local id = aa.ID()
             if id and id > 0 then
@@ -119,7 +145,7 @@ function M.pump()
         end
     end
     build.cursor = upper + 1
-    if build.cursor > MAX_AA_ID then
+    if build.cursor > last then
         aaList = build.list
         lastFingerprint = buildFingerprint()
         lastRefreshTime = mq.gettime()

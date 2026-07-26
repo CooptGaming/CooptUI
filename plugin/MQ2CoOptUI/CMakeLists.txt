@@ -15,6 +15,7 @@ set(MQ2CoOptUI_SOURCES
   core/Logger.cpp
   core/ItemDataPopulate.cpp
   core/ItemDataToTable.cpp
+  capabilities/aa.cpp
   capabilities/ini.cpp
   capabilities/ipc.cpp
   capabilities/cursor.cpp

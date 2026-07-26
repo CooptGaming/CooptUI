@@ -27,8 +27,8 @@ function M.renderWindowLock(ctx, id)
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Lock this window: ESC won't close it (it stays up while you play).")
-        ImGui.Text("Close-all (Shift+Q, /itemui hide, the hub's X) and this window's own X still close it.")
+        ImGui.Text("Lock this window: it stays up while you play. ESC, the toggle keybind (Shift+Q),")
+        ImGui.Text("/itemui hide, and the hub's X all leave it open. Close it with its own X, or untick Lock.")
         ImGui.EndTooltip()
     end
     ImGui.SetCursorPos(cx, cy)

@@ -851,8 +851,11 @@ local function closeCompanionWindowFn(name)
 end
 
 local function closeAllCompanionWindows()
+    -- Locked windows survive every close-all gesture (Shift+Q, /itemui hide,
+    -- the hub's X) as well as ESC - that's the point of the Lock. They close
+    -- only via their own X or by unticking Lock.
     for _ = 1, 32 do
-        local id = getMostRecentlyOpenedCompanionFn()
+        local id = getMostRecentlyOpenedCompanionFn(true)
         if not id then break end
         closeCompanionWindowFn(id)
     end

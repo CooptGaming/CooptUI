@@ -9,6 +9,7 @@
 #include <cstring>
 #include <string>
 
+#include "capabilities/aa.h"
 #include "capabilities/cursor.h"
 #include "capabilities/ini.h"
 #include "capabilities/ipc.h"
@@ -647,6 +648,10 @@ extern "C" PLUGIN_API bool CreateLuaModule(sol::this_state L, sol::object& outMo
   sol::table sound_table = lua.create_table();
   cooptui::sound::registerLua(lua, sound_table);
   mod["sound"] = sound_table;
+
+  sol::table aa_table = lua.create_table();
+  cooptui::aa::registerLua(lua, aa_table);
+  mod["aa"] = aa_table;
 
   // Top-level aliases: scan.lua calls these directly (no sub-table lookup needed)
   mod["scanInventory"] = items_table["scanInventory"];

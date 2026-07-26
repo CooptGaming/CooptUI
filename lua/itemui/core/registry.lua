@@ -16,11 +16,11 @@ local companionWindowOpenedAt
 local modules = {}
 local order = {}  -- registration order for stable iteration
 
--- id -> true for windows the user Locked (top-right checkbox): ESC's LIFO close
--- skips them so they stay up during play. Deliberate close-all paths (Shift+Q,
--- /itemui hide, hub X) still close locked windows. Plain table keyed by id so
--- uiState-managed windows (the Loot UI) can be locked too. Persisted in the
--- layout INI as PinnedWindows=id,id,...
+-- id -> true for windows the user Locked (top-right checkbox): every bulk
+-- close path skips them - ESC's LIFO close AND the close-alls (Shift+Q,
+-- /itemui hide, hub X) - so they stay up until closed via their own X or
+-- unlocked. Plain table keyed by id so uiState-managed windows (the Loot UI)
+-- can be locked too. Persisted in the layout INI as PinnedWindows=id,id,...
 local pinnedIds = {}
 
 -- Cache for getEnabledModules/getDrawableModules/getTickableModules (Task 6.1). Invalidated when registry state changes.
