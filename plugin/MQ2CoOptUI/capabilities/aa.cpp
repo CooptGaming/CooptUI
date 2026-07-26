@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "eqlib/game/AltAbilities.h"
-#include "eqlib/game/Containers.h"
+#include "eqlib/game/Constants.h"
 #include "eqlib/game/Globals.h"
 #include "eqlib/game/PcClient.h"
 
@@ -15,24 +15,42 @@ namespace aa {
 
 namespace {
 
-// The AA table holds EVERY ability in the game - other classes' lines
-// included. The client's own AA window filters with CanSeeAbility, which is
-// also where this emu server's per-character rules (multi-class actives etc.)
-// take effect. We enumerate via the manager's own hash table (the same walk
-// MQ's developer tools use) - no id-space probing.
+// Visibility filter built from RUNTIME-PROVEN primitives only. Two earlier
+// builds crashed the client here by trusting unexercised paths on this
+// 2013-era emu client:
+//   v1 probed GetAAById over 0..65535 - but the proven internal index range
+//      is 0..NUM_ALT_ABILITIES-1 (the AltAbility TLO's own loop bound; the
+//      Lua full scan exercised exactly that, billions of iterations). Beyond
+//      it: crash.
+//   v2 walked pAltAdvManager->abilities dev-tools-style - member offset /
+//      hash-table layout unproven on emu; faulted before the guarded call.
+// What IS proven: mq::GetAAById(n) for n in [0, NUM_ALT_ABILITIES), and
+// CAltAbilityData field reads (the TLO serves Type/Cost/MaxRank/GroupID from
+// the same struct). The Lua-side "AA id" is the GROUP id - dataAltAbility
+// matches szIndex against GroupID - so that's what we return.
 //
-// SEH-guarded per-entry check: this server ships a heavily customized AA
-// table, and a malformed row (or an unexercised client path) inside
-// CanSeeAbility must skip the row - or abort the listing - rather than take
-// down the client. v1 of this function called CanSeeAbility unguarded and
-// crashed the game. Plain locals only: x86 SEH cannot share a frame with
-// C++ unwinding.
-int visibleIndexSafe(eqlib::AltAdvManager* mgr, eqlib::PcClient* pc,
-                     eqlib::CAltAbilityData* ab, int* outIndex) {
+// Filter (conservative, targets the two user-visible problems):
+//   - bShowInAbilityWindow false -> hidden everywhere
+//   - Archetype/Class (Type 2/3) whose Classes bitmask excludes our class ->
+//     other classes' lines (the server maintains the masks per character,
+//     which is how multi-class actives surface in the native window)
+//   - Special (Type 4) that is QuestOnly with CurrentRank 0 -> granted
+//     abilities (the "breath" line) this character does not have
+//
+// Plain locals only: x86 SEH cannot share a frame with C++ unwinding.
+// Returns 1 = visible (outGroupId set), 0 = hidden/absent, -1 = faulted.
+int checkAbilitySafe(int classMask, int n, int* outGroupId) {
   __try {
-    if (!ab || !ab->bShowInAbilityWindow) return 0;
-    if (!mgr->CanSeeAbility(pc, ab)) return 0;
-    *outIndex = ab->Index;
+    eqlib::CAltAbilityData* ab = mq::GetAAById(n);
+    if (!ab) return 0;
+    if (!ab->bShowInAbilityWindow) return 0;
+    int type = ab->Type;
+    if ((type == 2 || type == 3) && classMask != 0 && ab->Classes != 0
+        && (ab->Classes & classMask) == 0) {
+      return 0;
+    }
+    if (type == 4 && ab->QuestOnly && ab->CurrentRank == 0) return 0;
+    *outGroupId = ab->GroupID;
     return 1;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return -1;
@@ -44,36 +62,38 @@ int visibleIndexSafe(eqlib::AltAdvManager* mgr, eqlib::PcClient* pc,
 void registerLua(sol::state_view L, sol::table& table) {
   lua_State* rawL = L.lua_state();
 
-  // Array of AltAbility TLO ids (CAltAbilityData::Index) visible to THIS
-  // character right now, ascending (rank ids stay - the Lua side dedupes by
-  // name keeping the lowest, same as its full scan). nil when the managers
-  // aren't up or the check is misbehaving - the Lua side then falls back to
-  // its full id-space scan.
+  // Array of AltAbility ids (GROUP ids - what the AltAbility TLO takes)
+  // visible to THIS character, ascending and unique. nil when unavailable or
+  // misbehaving - the Lua side then falls back to its full id-space scan.
   table.set_function("getVisibleAAIds", [rawL]() -> sol::object {
     sol::state_view sv(rawL);
     using namespace eqlib;
-    AltAdvManager* mgr = pAltAdvManager.get();
-    PcClient* pc = pLocalPC;
-    if (!mgr || !pc || !mgr->abilities) return sol::make_object(sv, sol::lua_nil);
+    if (!pAltAdvManager.get() || !pLocalPC) return sol::make_object(sv, sol::lua_nil);
+
+    int classId = 0;
+    if (PcProfile* prof = pLocalPC->GetCurrentPcProfile()) classId = prof->Class;
+    int classMask = (classId > 0 && classId < 31) ? (1 << classId) : 0;
 
     std::vector<int> ids;
     int faults = 0;
-    const auto& abilities = *mgr->abilities;
-    for (CAltAbilityData** pp = abilities.WalkFirst(); pp; pp = abilities.WalkNext(pp)) {
-      int index = -1;
-      int r = visibleIndexSafe(mgr, pc, *pp, &index);
-      if (r == 1 && index >= 0) {
-        ids.push_back(index);
+    for (int n = 0; n < NUM_ALT_ABILITIES; ++n) {
+      int groupId = -1;
+      int r = checkAbilitySafe(classMask, n, &groupId);
+      if (r == 1 && groupId > 0) {
+        ids.push_back(groupId);
       } else if (r == -1) {
         ++faults;
         if (faults > 25) {
-          // Systemic (bad offsets / hostile table): stop trusting ourselves.
+          // Systemic: stop trusting ourselves; Lua falls back to full scan.
           return sol::make_object(sv, sol::lua_nil);
         }
       }
     }
     if (ids.empty()) return sol::make_object(sv, sol::lua_nil);
+
+    // Ranks share a GroupID - return each group once, ascending.
     std::sort(ids.begin(), ids.end());
+    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 
     sol::table out = sv.create_table(static_cast<int>(ids.size()), 0);
     int n = 0;
