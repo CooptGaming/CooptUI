@@ -895,6 +895,23 @@ function Copy-CoOptUIFiles {
     New-Item -ItemType Directory -Path $mqDst -Force | Out-Null
     Copy-Item (Join-Path $RepoRoot 'lua\mq\ItemUtils.lua') -Destination (Join-Path $mqDst 'ItemUtils.lua') -Force
 
+    # Native Command Center watcher (autoexec-able; owns Start/Stop with itemui down)
+    $launcherSrc = Join-Path $RepoRoot 'lua\coopt_launcher.lua'
+    if (Test-Path $launcherSrc) {
+        Copy-Item $launcherSrc -Destination (Join-Path $luaDst 'coopt_launcher.lua') -Force
+    }
+
+    # uifiles\coopt: the native EQ skin. Ships under the MQ root; itemui's
+    # skin_sync copies it into the EQ client's uifiles folder on demand.
+    # (e9eb8bf added this to the patcher manifest and the CoOpt-only zip but
+    # missed this overlay, so the EMU bundle shipped without the native stack.)
+    $skinSrc = Join-Path $RepoRoot 'uifiles\coopt'
+    if (Test-Path $skinSrc) {
+        $skinDst = Join-Path $StagingDir 'uifiles\coopt'
+        New-Item -ItemType Directory -Path $skinDst -Force | Out-Null
+        Get-ChildItem $skinSrc -File | Copy-Item -Destination $skinDst -Force
+    }
+
     # Macros
     $macrosDst = Join-Path $StagingDir 'Macros'
     New-Item -ItemType Directory -Path $macrosDst -Force | Out-Null
