@@ -15,6 +15,22 @@ namespace aa {
 
 namespace {
 
+// One owned AA slot -> (groupId, rank position). SEH-guarded like the rest.
+// Returns 1 = valid, 0 = empty slot, -1 = faulted.
+int readOwnedSlotSafe(eqlib::PcProfile* prof, int slot, int* outGroupId, int* outRank) {
+  __try {
+    int aaIndex = prof->AAList[slot].AAIndex;
+    if (aaIndex <= 0) return 0;
+    eqlib::CAltAbilityData* ab = mq::GetAAById(aaIndex);
+    if (!ab) return 0;
+    *outGroupId = ab->GroupID;
+    *outRank = ab->CurrentRank;
+    return 1;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return -1;
+  }
+}
+
 // Visibility filter built from RUNTIME-PROVEN primitives only. Two earlier
 // builds crashed the client here by trusting unexercised paths on this
 // 2013-era emu client:
@@ -116,6 +132,35 @@ void registerLua(sol::state_view L, sol::table& table) {
     sol::table out = sv.create_table(static_cast<int>(ids.size()), 0);
     int n = 0;
     for (int id : ids) out[++n] = id;
+    return sol::make_object(sv, out);
+  });
+
+  // The character's ACTUAL trained rank per group: { [groupId] = rank },
+  // read from PcProfile::AAList - the store the server trains into. The
+  // char-side TLO Rank read resolves level-appropriate entries and inflates
+  // for partially-trained lines, which fooled both import planning AND
+  // per-buy verification. nil when unavailable.
+  table.set_function("getOwnedRanks", [rawL]() -> sol::object {
+    sol::state_view sv(rawL);
+    using namespace eqlib;
+    if (!pLocalPC) return sol::make_object(sv, sol::lua_nil);
+    PcProfile* prof = pLocalPC->GetCurrentPcProfile();
+    if (!prof) return sol::make_object(sv, sol::lua_nil);
+
+    sol::table out = sv.create_table();
+    int faults = 0;
+    for (int i = 0; i < AA_CHAR_MAX_REAL; ++i) {
+      int groupId = -1, rank = -1;
+      int r = readOwnedSlotSafe(prof, i, &groupId, &rank);
+      if (r == 1 && groupId > 0 && rank > 0) {
+        sol::object cur = out[groupId];
+        int prev = cur.is<int>() ? cur.as<int>() : 0;
+        if (rank > prev) out[groupId] = rank;
+      } else if (r == -1) {
+        ++faults;
+        if (faults > 25) return sol::make_object(sv, sol::lua_nil);
+      }
+    }
     return sol::make_object(sv, out);
   });
 

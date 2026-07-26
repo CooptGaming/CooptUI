@@ -135,6 +135,38 @@ local function myPoints()
     return (ok and tonumber(p)) or 0
 end
 
+-- The character's TRUE trained rank per group (plugin: PcProfile AAList -
+-- the store the server trains into). The char-side TLO Rank read resolves
+-- level-appropriate entries and inflates for partially-trained lines - it
+-- fooled both planning ("nothing missing" with 417 pts of holes) and
+-- per-buy verification (bursts "verified" instantly at cap). Short TTL:
+-- verification polls this while waiting for server confirms.
+local ownedCache = { at = 0, map = nil }
+local function ownedRanks(now)
+    now = now or mq.gettime()
+    if ownedCache.map and (now - ownedCache.at) < 100 then return ownedCache.map end
+    local pa = plugAA()
+    if pa and type(pa.getOwnedRanks) == 'function' then
+        local ok, m = pcall(pa.getOwnedRanks)
+        if ok and type(m) == 'table' then
+            ownedCache.map = m
+            ownedCache.at = now
+            return m
+        end
+    end
+    ownedCache.map = nil
+    return nil
+end
+
+--- Current trained rank for a group: plugin truth first, TLO fallback.
+local function curRankFor(gid, name, now)
+    if gid then
+        local m = ownedRanks(now)
+        if m then return tonumber(m[gid]) or 0 end
+    end
+    return myRank(name)
+end
+
 -- EQ class name -> 3-letter tag (title case). Unknown names fall back to
 -- their first three letters so server-custom classes still tag something.
 local CLASS_TAGS = {
@@ -367,12 +399,12 @@ local function planImport(aas, nameIds, nameRecs)
         if entry.name:match("^Rebirth ") then
             plan.skippedAuto = plan.skippedAuto + 1
         else
-            local cur = myRank(entry.name)
+            -- Group id: current scan first, the export's own [AAIds] as
+            -- fallback. Never the character-side TLO - post-reset it
+            -- resolves nothing.
+            local gid = nameIds[entry.name] or entry.id
+            local cur = curRankFor(gid, entry.name)
             if entry.rank > cur then
-                -- Group id: current scan first, the export's own [AAIds] as
-                -- fallback. Never the character-side TLO - post-reset it
-                -- resolves nothing.
-                local gid = nameIds[entry.name] or entry.id
                 plan.queue[#plan.queue + 1] = { name = entry.name, target = entry.rank, startRank = cur, gid = gid }
                 plan.ranks = plan.ranks + (entry.rank - cur)
                 local groupCosts = (costs and gid) and costs[gid] or nil
@@ -629,7 +661,7 @@ local function tickImport(now)
     if not entry then finishImport() return end
 
     if imp.phase == "begin" then
-        local cur = myRank(entry.name)
+        local cur = curRankFor(entry.gid, entry.name, now)
         if cur >= entry.target then
             imp.idx = imp.idx + 1
             imp.retries = 0
@@ -690,7 +722,7 @@ local function tickImport(now)
             imp.phase = "burstverify"
         end
     elseif imp.phase == "burstverify" then
-        local cur = myRank(entry.name)
+        local cur = curRankFor(entry.gid, entry.name, now)
         -- Server refusal announced in chat during/after this burst: settle
         -- briefly, then finalize from the actual rank - no timeout wait.
         local refused = lastUnableAt >= (entry.burstT0 or 0)
@@ -716,7 +748,7 @@ local function tickImport(now)
             imp.phase = "begin"
         end
     elseif imp.phase == "verify" then
-        local cur = myRank(entry.name)
+        local cur = curRankFor(entry.gid, entry.name, now)
         if cur >= imp.expectRank then
             imp.doneRanks = imp.doneRanks + 1
             imp.retries = 0
@@ -741,7 +773,8 @@ local function tickImport(now)
                 local prereq = rec and rec.requiresAbility
                 if type(prereq) == "string" and prereq ~= "" then
                     local need = tonumber(rec.requiresAbilityPoints) or 0
-                    local haveR = myRank(prereq)
+                    local prereqRec = imp.nameRecs and imp.nameRecs[prereq]
+                    local haveR = curRankFor(prereqRec and prereqRec.id or nil, prereq, now)
                     if need > 0 and haveR < need then
                         reason = string.format("prereq not met: %s rank %d (have %d)", prereq, need, haveR)
                     end
