@@ -89,6 +89,46 @@ local function myPoints()
     return (ok and tonumber(p)) or 0
 end
 
+-- EQ class name -> 3-letter tag (title case). Unknown names fall back to
+-- their first three letters so server-custom classes still tag something.
+local CLASS_TAGS = {
+    ["Warrior"] = "War", ["Cleric"] = "Clr", ["Paladin"] = "Pal", ["Ranger"] = "Rng",
+    ["Shadow Knight"] = "Shd", ["Shadowknight"] = "Shd", ["Druid"] = "Dru", ["Monk"] = "Mnk",
+    ["Bard"] = "Brd", ["Rogue"] = "Rog", ["Shaman"] = "Shm", ["Necromancer"] = "Nec",
+    ["Wizard"] = "Wiz", ["Magician"] = "Mag", ["Enchanter"] = "Enc", ["Beastlord"] = "Bst",
+    ["Berserker"] = "Ber",
+}
+
+local function classTag(name)
+    if not name or name == "" then return nil end
+    local t = CLASS_TAGS[name]
+    if t then return t end
+    local s = name:gsub("%s", ""):sub(1, 3)
+    if s == "" then return nil end
+    return s:sub(1, 1):upper() .. s:sub(2):lower()
+end
+
+-- Base class + rebirth classes found in the AA list ("Rebirth <Class>" with
+-- rank > 0 = an active class on Perky), e.g. Warrior + Berserker/Wizard
+-- rebirths -> "WarBerWiz". Base first, rebirths sorted for stable names.
+local function classTagString(list, baseClassName)
+    local base = classTag(baseClassName)
+    local seen, rebirth = {}, {}
+    for _, aa in ipairs(list or {}) do
+        if aa.rank and aa.rank > 0 and aa.name then
+            local cls = aa.name:match("^Rebirth%s+(.+)$")
+            local t = cls and classTag(cls) or nil
+            if t and t ~= base and not seen[t] then
+                seen[t] = true
+                rebirth[#rebirth + 1] = t
+            end
+        end
+    end
+    table.sort(rebirth)
+    local s = (base or "") .. table.concat(rebirth, "")
+    return s ~= "" and s or "Unk"
+end
+
 --- Export -----------------------------------------------------------------
 
 --- Start an export: refreshes the AA scan first so ranks are current
@@ -108,7 +148,8 @@ local function doExportNow()
     local cname = charName()
     if not cname then say("Export failed: no character") return end
     local class = (me.Class and me.Class()) and tostring(me.Class()) or "Unknown"
-    local fname = "aa_" .. safeCharName() .. "_" .. os.date("%Y%m%d_%H%M%S") .. ".ini"
+    local tagStr = classTagString(list, class)
+    local fname = "aa_" .. safeCharName() .. "_" .. tagStr .. "_" .. os.date("%Y%m%d_%H%M%S") .. ".ini"
     local dir = backupDir()
     local path = (dir ~= "") and (dir .. "/" .. fname) or config.getConfigFile(fname)
     if not path then say("Export failed: no config path") return end
@@ -119,6 +160,7 @@ local function doExportNow()
         f:write("[Meta]\n")
         f:write("Character=" .. cname .. "\n")
         f:write("Class=" .. class .. "\n")
+        f:write("Classes=" .. tagStr .. "\n")
         f:write("Exported=" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n")
         for _, aa in ipairs(list) do
             if aa.rank and aa.rank > 0 and aa.name then count = count + 1 end
@@ -172,8 +214,10 @@ function M.parseBackup(path)
     return aas, meta
 end
 
---- Rebuild the newest-first backup list for this character (timestamped
---- names sort, so reverse lexicographic = newest first).
+--- Rebuild the newest-first backup list for this character. Sort by the
+--- trailing timestamp, not the whole name - filenames carry the class tag
+--- (aa_Char_WarBerWiz_date.ini), and after a class swap the tag changes,
+--- which would break plain lexicographic "newest first".
 local function refreshFileList()
     fileList = {}
     local cn = safeCharName()
@@ -187,7 +231,8 @@ local function refreshFileList()
         end
         pipe:close()
     end
-    table.sort(names, function(a, b) return a > b end)
+    local function stamp(n) return n:match("_(%d+_%d+)%.ini$") or n end
+    table.sort(names, function(a, b) return stamp(a) > stamp(b) end)
     for _, n in ipairs(names) do
         fileList[#fileList + 1] = { path = dir .. "/" .. n, name = n }
     end
