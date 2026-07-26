@@ -418,32 +418,64 @@ function M.armOrStartImport()
     end
 end
 
+-- Full detail per non-trained entry -> aa_import_report.txt in the backup
+-- dir, so a bad run is diagnosable instead of a mystery count.
+local function writeImportReport()
+    local dir = backupDir()
+    if not dir or dir == "" then return nil end
+    local path = dir .. "/aa_import_report.txt"
+    local ok = pcall(function()
+        local f = io.open(path, "w")
+        if not f then error("open failed") end
+        f:write(string.format("CoOpt AA import report - %s - %s\n", charName() or "?", os.date("%Y-%m-%d %H:%M:%S")))
+        f:write(string.format("Trained %d/%d ranks. %d entries not trained:\n\n",
+            imp.doneRanks, imp.totalRanks, #imp.failed))
+        for _, fl in ipairs(imp.failed) do
+            f:write(string.format("%s  (wanted rank %d, had %s)  - %s\n",
+                fl.name, fl.wanted or 0, tostring(fl.had or "?"), fl.reason or "unknown"))
+        end
+        f:close()
+    end)
+    return ok and "aa_import_report.txt" or nil
+end
+
 local function finishImport()
-    local nFailed = #imp.failed
-    -- One extra sweep over the failures: simple RequiresAbility chains
-    -- resolve themselves once the prerequisites bought later in pass 1 exist.
-    if nFailed > 0 and imp.pass == 1 then
+    -- One extra sweep over TIMEOUT failures only: simple RequiresAbility
+    -- chains resolve once prerequisites bought later in pass 1 exist.
+    -- Unresolvable/unbuyable entries would just fail identically again.
+    if imp.pass == 1 then
         local retryQueue = {}
         for _, f in ipairs(imp.failed) do
-            retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted }
+            if f.reason == "buy timed out (rank never moved)" then
+                retryQueue[#retryQueue + 1] = { name = f.name, target = f.wanted }
+            end
         end
-        imp.queue = retryQueue
-        imp.failed = {}
-        imp.idx = 1
-        imp.phase = "begin"
-        imp.retries = 0
-        imp.pass = 2
-        say(string.format("Retrying %d failed...", nFailed))
-        return
+        if #retryQueue > 0 then
+            local keep = {}
+            for _, f in ipairs(imp.failed) do
+                if f.reason ~= "buy timed out (rank never moved)" then keep[#keep + 1] = f end
+            end
+            imp.queue = retryQueue
+            imp.failed = keep
+            imp.idx = 1
+            imp.phase = "begin"
+            imp.retries = 0
+            imp.pass = 2
+            say(string.format("Retrying %d failed...", #retryQueue))
+            return
+        end
     end
+    local nFailed = #imp.failed
     local msg
     if nFailed == 0 then
         msg = string.format("Import complete: %d ranks trained", imp.doneRanks)
     else
+        local report = writeImportReport()
         local names = {}
         for i = 1, math.min(2, nFailed) do names[#names + 1] = imp.failed[i].name end
-        msg = string.format("Import: %d trained, %d failed (%s%s)", imp.doneRanks, nFailed,
-            table.concat(names, ", "), nFailed > 2 and ", ..." or "")
+        msg = string.format("Import: %d trained, %d not trained (%s%s)%s", imp.doneRanks, nFailed,
+            table.concat(names, ", "), nFailed > 2 and ", ..." or "",
+            report and (" - see " .. report) or "")
     end
     if (imp.skippedAuto or 0) > 0 then
         msg = msg .. string.format(" [%d auto-granted skipped]", imp.skippedAuto)
@@ -468,10 +500,19 @@ local function tickImport(now)
             return
         end
         local aa = myAA(entry.name)
-        local okN, nextIdx = pcall(function() return aa and aa.NextIndex and aa.NextIndex() end)
+        if not aa or aa() == nil then
+            -- Name doesn't resolve for this character at all: an entry from
+            -- an old unfiltered export (system/other-class AA). Unbuyable.
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "name not resolvable" }
+            imp.idx = imp.idx + 1
+            imp.retries = 0
+            return
+        end
+        local okN, nextIdx = pcall(function() return aa.NextIndex and aa.NextIndex() end)
         nextIdx = okN and tonumber(nextIdx) or nil
         if not nextIdx or nextIdx <= 0 then
-            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target }
+            -- No purchasable next rank: auto-granted/innate or blocked line.
+            imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "no trainable next rank (auto-granted?)" }
             imp.idx = imp.idx + 1
             imp.retries = 0
             return
@@ -493,7 +534,7 @@ local function tickImport(now)
             if imp.retries >= 2 then
                 -- Two timeouts on the same rank: record and move on (points
                 -- exhausted, server refused, or rank mismatch).
-                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target }
+                imp.failed[#imp.failed + 1] = { name = entry.name, wanted = entry.target, had = cur, reason = "buy timed out (rank never moved)" }
                 imp.idx = imp.idx + 1
                 imp.retries = 0
                 imp.phase = "begin"
