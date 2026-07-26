@@ -30,7 +30,7 @@ local deps = {}            -- { setStatusMessage, layoutConfig, refreshAA, getAA
 local BUY_TIMEOUT_MS = 2000
 local BUY_PACE_MS = 25
 local ARM_WINDOW_MS = 10000
-local FLOOD_SENDS_PER_TICK = 4     -- /alt buy commands per main-loop tick in flood mode
+local FLOOD_SENDS_PER_TICK = 8     -- /alt buy commands per main-loop tick in flood mode
 local FLOOD_SETTLE_MS = 1500       -- flood ends when confirms stop arriving for this long
 
 local exportPending = false
@@ -476,26 +476,33 @@ end
 --- known exactly; refuses to start when nothing is missing. force = true
 --- (the native arm flow's confirmed click) allows a partial import when
 --- points fall short - safe because the plan only ever buys missing ranks,
---- so re-importing later resumes where it stopped.
-function M.startImport(path, force)
+--- so re-importing later resumes where it stopped. prebuilt (arm flow) is
+--- the plan already computed at arm time - re-planning walks the 50k-entry
+--- cost/index maps again for nothing.
+function M.startImport(path, force, prebuilt)
     if imp then say("Import already running") return false end
     if exportPending then say("Export running - wait for it") return false end
-    -- The global AA scan is the resolver for unowned names; without it the
-    -- whole import would misreport. Kick a scan and ask for a re-click.
-    local nameIds, nameRecs = buildNameMaps()
-    if next(nameIds) == nil then
-        if deps.refreshAA then deps.refreshAA() end
-        say("Scanning AA tables - click Import again in a moment")
-        return false
+    local nameIds, nameRecs, plan
+    if prebuilt and prebuilt.path == path then
+        nameIds, nameRecs, plan = prebuilt.nameIds, prebuilt.nameRecs, prebuilt.plan
+    else
+        -- The global AA scan is the resolver for unowned names; without it
+        -- the whole import would misreport. Kick a scan, ask for a re-click.
+        nameIds, nameRecs = buildNameMaps()
+        if next(nameIds) == nil then
+            if deps.refreshAA then deps.refreshAA() end
+            say("Scanning AA tables - click Import again in a moment")
+            return false
+        end
+        local aas, meta = M.parseBackup(path)
+        if not aas then say("Import failed: " .. tostring(meta)) return false end
+        if #aas == 0 then say("No AAs in file") return false end
+        local metaTotal = tonumber(meta and meta.TotalAAs) or 0
+        if metaTotal > 0 and #aas < metaTotal then
+            say(string.format("Warning: parsed %d of %d file entries", #aas, metaTotal))
+        end
+        plan = planImport(aas, nameIds, nameRecs)
     end
-    local aas, meta = M.parseBackup(path)
-    if not aas then say("Import failed: " .. tostring(meta)) return false end
-    if #aas == 0 then say("No AAs in file") return false end
-    local metaTotal = tonumber(meta and meta.TotalAAs) or 0
-    if metaTotal > 0 and #aas < metaTotal then
-        say(string.format("Warning: parsed %d of %d file entries", #aas, metaTotal))
-    end
-    local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing to import - all exported AAs already trained") return false end
     local have = myPoints()
     if plan.exact and plan.cost > have and not force then
@@ -520,6 +527,7 @@ function M.startImport(path, force)
         totalRanks = plan.ranks, doneRanks = 0, failed = {},
         pass = 1, skippedAuto = plan.skippedAuto or 0,
         nameRecs = nameRecs, rankIndexes = rankIndexes,
+        t0 = mq.gettime(), tSendDone = nil, tSettleDone = nil,
     }
     -- Flood mode: with exact per-rank ids, send EVERY missing rank of every
     -- line up front (prereq order preserved - the server processes serially)
@@ -600,8 +608,9 @@ function M.armOrStartImport()
     if armed and now < armed.armedUntil then
         local path = armed.path
         local force = armed.partial == true
+        local prebuilt = armed.prebuilt
         armed = nil
-        M.startImport(path, force)
+        M.startImport(path, force, prebuilt)
         return
     end
     armed = nil
@@ -628,19 +637,39 @@ function M.armOrStartImport()
     local plan = planImport(aas, nameIds, nameRecs)
     if plan.ranks == 0 then say("Nothing missing vs " .. fname) return end
     local have = myPoints()
+    local prebuilt = { path = path, nameIds = nameIds, nameRecs = nameRecs, plan = plan }
     if plan.exact and plan.cost > have then
         -- Not enough points: arm a PARTIAL import instead of dead-ending -
         -- the plan only buys missing ranks, so a later re-import resumes.
-        armed = { path = path, armedUntil = now + ARM_WINDOW_MS, partial = true }
+        armed = { path = path, armedUntil = now + ARM_WINDOW_MS, partial = true, prebuilt = prebuilt }
         say(string.format("Need %d pts, have %d. Import again for a PARTIAL import.", plan.cost, have))
         return
     end
-    armed = { path = path, armedUntil = now + ARM_WINDOW_MS }
+    armed = { path = path, armedUntil = now + ARM_WINDOW_MS, prebuilt = prebuilt }
     if plan.exact then
         say(string.format("%s: %d ranks, %d pts. Import again to start.", fname, plan.ranks, plan.cost))
     else
         say(string.format("%s: %d ranks. Import again to start.", fname, plan.ranks))
     end
+end
+
+-- Phase timing for the summary/report: shows where the seconds go (send =
+-- our pacing, confirm = the server working through the buys, careful = the
+-- per-rank tail). This is the data that decides any future speed work.
+local function timingLine()
+    local now = mq.gettime()
+    local total = (now - (imp.t0 or now)) / 1000
+    local parts = { string.format("total %.1fs", total) }
+    if imp.tSendDone then
+        parts[#parts + 1] = string.format("send %.1fs", (imp.tSendDone - imp.t0) / 1000)
+    end
+    if imp.tSettleDone and imp.tSendDone then
+        parts[#parts + 1] = string.format("confirm %.1fs", (imp.tSettleDone - imp.tSendDone) / 1000)
+    end
+    if imp.tSettleDone and now > imp.tSettleDone + 500 then
+        parts[#parts + 1] = string.format("careful %.1fs", (now - imp.tSettleDone) / 1000)
+    end
+    return "Timing: " .. table.concat(parts, ", ")
 end
 
 -- Full detail per non-trained entry -> aa_import_report.txt in the backup
@@ -653,8 +682,8 @@ local function writeImportReport()
         local f = io.open(path, "w")
         if not f then error("open failed") end
         f:write(string.format("CoOpt AA import report - %s - %s\n", charName() or "?", os.date("%Y-%m-%d %H:%M:%S")))
-        f:write(string.format("Trained %d/%d ranks. %d entries not trained:\n\n",
-            imp.doneRanks, imp.totalRanks, #imp.failed))
+        f:write(string.format("Trained %d/%d ranks. %d entries not trained:\n", imp.doneRanks, imp.totalRanks, #imp.failed))
+        f:write(timingLine() .. "\n\n")
         for _, fl in ipairs(imp.failed) do
             f:write(string.format("%s  (wanted rank %d, had %s)  - %s\n",
                 fl.name, fl.wanted or 0, tostring(fl.had or "?"), fl.reason or "unknown"))
@@ -696,11 +725,13 @@ local function finishImport()
         end
     end
     local nFailed = #imp.failed
+    -- Always written: clean runs record the phase timing breakdown too.
+    local report = writeImportReport()
     local msg
     if nFailed == 0 then
-        msg = string.format("Import complete: %d ranks trained", imp.doneRanks)
+        msg = string.format("Import complete: %d ranks trained (%.1fs)", imp.doneRanks,
+            (mq.gettime() - (imp.t0 or mq.gettime())) / 1000)
     else
-        local report = writeImportReport()
         local names = {}
         for i = 1, math.min(2, nFailed) do names[#names + 1] = imp.failed[i].name end
         msg = string.format("Import: %d trained, %d not trained (%s%s)%s", imp.doneRanks, nFailed,
@@ -731,6 +762,7 @@ local function tickImport(now)
         if fl.pos > #fl.sends then
             imp.buyAt = now
             fl.lastProgressAt = now
+            imp.tSendDone = now
             imp.phase = "floodsettle"
         end
         return
@@ -761,6 +793,7 @@ local function tickImport(now)
             end
             for _, q in ipairs(fl.deferred) do rest[#rest + 1] = q end
             imp.flood = nil
+            imp.tSettleDone = now
             if #rest == 0 then finishImport() return end
             imp.queue = rest
             imp.idx = 1
