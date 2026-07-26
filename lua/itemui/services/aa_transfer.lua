@@ -30,6 +30,8 @@ local deps = {}            -- { setStatusMessage, layoutConfig, refreshAA, getAA
 local BUY_TIMEOUT_MS = 2000
 local BUY_PACE_MS = 25
 local ARM_WINDOW_MS = 10000
+local FLOOD_SENDS_PER_TICK = 4     -- /alt buy commands per main-loop tick in flood mode
+local FLOOD_SETTLE_MS = 1500       -- flood ends when confirms stop arriving for this long
 
 local exportPending = false
 local imp = nil            -- active import state
@@ -519,6 +521,40 @@ function M.startImport(path, force)
         pass = 1, skippedAuto = plan.skippedAuto or 0,
         nameRecs = nameRecs, rankIndexes = rankIndexes,
     }
+    -- Flood mode: with exact per-rank ids, send EVERY missing rank of every
+    -- line up front (prereq order preserved - the server processes serially)
+    -- and verify the whole batch against the owned-ranks store in ONE settle,
+    -- instead of a verify round-trip per line. Shortfalls and lines without
+    -- complete id chains drop to the careful per-rank lane as pass 2.
+    if rankIndexes then
+        local sends, floodTargets, deferred = {}, {}, {}
+        for _, q in ipairs(plan.queue) do
+            local grp = q.gid and rankIndexes[q.gid] or nil
+            local ids, complete = {}, grp ~= nil
+            if complete then
+                for r = (q.startRank or 0) + 1, q.target do
+                    local ix = tonumber(grp[r])
+                    if ix and ix > 0 then
+                        ids[#ids + 1] = ix
+                    else
+                        complete = false
+                        break
+                    end
+                end
+            end
+            if complete and #ids > 0 then
+                for _, ix in ipairs(ids) do sends[#sends + 1] = ix end
+                floodTargets[#floodTargets + 1] = q
+            else
+                deferred[#deferred + 1] = q
+            end
+        end
+        if #sends > 0 then
+            imp.flood = { sends = sends, pos = 1, targets = floodTargets, deferred = deferred,
+                          lastProgressAt = 0, lastDone = -1 }
+            imp.phase = "floodsend"
+        end
+    end
     return true
 end
 
@@ -683,6 +719,59 @@ end
 
 local function tickImport(now)
     if now < (imp.nextActionAt or 0) then return end
+
+    if imp.phase == "floodsend" then
+        local fl = imp.flood
+        for _ = 1, FLOOD_SENDS_PER_TICK do
+            if fl.pos > #fl.sends then break end
+            mq.cmd("/alt buy " .. tostring(fl.sends[fl.pos]))
+            fl.pos = fl.pos + 1
+        end
+        statusLine = string.format("Buying %d/%d...", math.min(fl.pos - 1, #fl.sends), #fl.sends)
+        if fl.pos > #fl.sends then
+            imp.buyAt = now
+            fl.lastProgressAt = now
+            imp.phase = "floodsettle"
+        end
+        return
+    elseif imp.phase == "floodsettle" then
+        local fl = imp.flood
+        local m = ownedRanks(now) or {}
+        local allMet, doneCount = true, 0
+        for _, t in ipairs(fl.targets) do
+            local got = tonumber(m[t.gid]) or 0
+            if got < t.target then allMet = false end
+            doneCount = doneCount + math.max(0, math.min(got, t.target) - (t.startRank or 0))
+        end
+        if fl.lastDone ~= doneCount then
+            fl.lastDone = doneCount
+            fl.lastProgressAt = now
+            statusLine = string.format("Confirmed %d/%d...", doneCount, imp.totalRanks)
+        end
+        if allMet or (now - fl.lastProgressAt) > FLOOD_SETTLE_MS then
+            -- Reconcile against server truth: credit what landed, hand the
+            -- shortfalls + deferred lines to the careful per-rank lane.
+            imp.doneRanks = doneCount
+            local rest = {}
+            for _, t in ipairs(fl.targets) do
+                local got = tonumber(m[t.gid]) or 0
+                if got < t.target then
+                    rest[#rest + 1] = { name = t.name, target = t.target, gid = t.gid, startRank = got }
+                end
+            end
+            for _, q in ipairs(fl.deferred) do rest[#rest + 1] = q end
+            imp.flood = nil
+            if #rest == 0 then finishImport() return end
+            imp.queue = rest
+            imp.idx = 1
+            imp.phase = "begin"
+            imp.retries = 0
+            imp.pass = 2
+            statusLine = string.format("Finishing %d lines carefully...", #rest)
+        end
+        return
+    end
+
     local entry = imp.queue[imp.idx]
     if not entry then finishImport() return end
 
