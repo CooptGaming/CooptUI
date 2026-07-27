@@ -2126,6 +2126,15 @@ if ($Release) {
         # --- Generate manifests (so patcher can detect updates) ---
         # Pass the built plugin DLL path so patcher can also update the plugin
         $dllForManifest = if ($pluginDllPath -and (Test-Path $pluginDllPath)) { $pluginDllPath } else { '' }
+        # generate_manifest.py adds the plugins/MQ2CoOptUI.dll entry ONLY when --plugin-dll is
+        # supplied, and says nothing when it is not. A release cut with -Target CoOptOnly or
+        # -SkipPlugin therefore publishes a manifest with no plugin entry at all, and every
+        # patcher client silently stops updating MQ2CoOptUI.dll - drifting from the Lua that
+        # ships alongside it. That is legitimate for a deliberate Lua-only release, so this
+        # warns rather than fails, but it must never happen unnoticed.
+        if (-not $dllForManifest) {
+            Write-Warning "No MQ2CoOptUI.dll available: release_manifest.json will have NO plugin entry, so patcher clients will not update the plugin. This is correct only for a deliberate Lua-only release. Re-run with -Target FullBundle (and without -SkipPlugin) to include it."
+        }
         Generate-Manifests -RepoRoot $RepoRoot -PluginDllPath $dllForManifest -ReleaseTag "v$Version"
 
         # --- Git commit, tag, push ---

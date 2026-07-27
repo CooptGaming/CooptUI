@@ -186,7 +186,20 @@ def patch(
                 content = resp.read()
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                # File removed from repo (e.g. plugin paused); skip and continue
+                # A repo-path 404 means the file was removed from the repo (e.g. plugin
+                # paused) — skipping is right. An entry carrying an explicit "url" is a
+                # RELEASE ASSET, and a 404 there means the asset is missing, not retired.
+                # That happens whenever the manifest reaches raw master before the GitHub
+                # release is published (Build-Smart pushes the manifest commit first, and
+                # creates the release as a draft afterwards). Treating it as a skip made the
+                # patcher report "Update complete" while the plugin DLL was never downloaded,
+                # leaving the client on a stale DLL beside freshly updated Lua.
+                if entry.get("url"):
+                    return False, (
+                        f"{path_norm} is listed in the update but is not available for "
+                        "download yet (the release asset is missing or not published). "
+                        "Wait a few minutes and retry."
+                    ), skipped
                 skipped.append(path_norm)
                 if progress_callback:
                     progress_callback(i + 1, total, f"(skipped: {path_norm})")
