@@ -704,10 +704,16 @@ local ITEMUI_BIND_NAME = "itemui_inv"
 
 --- Ensure ItemUI toggle bind exists and runs /inv. Creates the bind name with /custombind add if needed
 --- (so it works even when MQ2CustomBinds.txt is missing), then sets the command. Uses /squelch to suppress echo.
+--- The bind command is wrapped in "/timed 1": MQ2CustomBinds executes its command
+--- directly on the keyboard-input path, and at least one MQ build in the field
+--- (the stock E3 bundle's MQ 3.1.4.9) crashes in mq2lua when a Lua-bound command
+--- is invoked from that context (mq2lua.DLL+1C87 on Shift+Q). /timed re-queues
+--- the command onto the normal pulse path — one decisecond later, same effect,
+--- crash path avoided — and is harmless on MQ builds that never had the problem.
 local function ensureItemUIBindExists()
     pcall(function()
         mq.cmd("/squelch /custombind add " .. ITEMUI_BIND_NAME)  -- no-op if name already exists from MQ2CustomBinds.txt
-        mq.cmd("/squelch /custombind set " .. ITEMUI_BIND_NAME .. "-down /inv")
+        mq.cmd("/squelch /custombind set " .. ITEMUI_BIND_NAME .. "-down /timed 1 /inv")
     end)
 end
 
