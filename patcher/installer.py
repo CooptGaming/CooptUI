@@ -341,7 +341,12 @@ def is_macroquest_running() -> bool:
     """Best-effort check for a live MacroQuest / EverQuest process. Installing over a running
     client is the usual cause of a first launch stuck on 'loop or previous error': MQ2Lua's
     require cache gets poisoned by a load against files that are still being replaced, and that
-    poison persists for the whole session until a restart. Never raises."""
+    poison persists for the whole session until a restart. Never raises.
+
+    NOTE: this is a process-NAME check and therefore has a blind spot — MacroQuest's tray
+    relaunches itself as a randomly-named copy of MacroQuest.exe inside the install folder
+    (e.g. JlQjc7cB.exe), which this cannot see. Use preflight_blockers() for the install
+    paths; it adds a file-lock probe that catches the renamed tray."""
     try:
         for image in ("MacroQuest.exe", "eqgame.exe"):
             out = subprocess.run(
@@ -354,6 +359,67 @@ def is_macroquest_running() -> bool:
     except Exception:
         pass
     return False
+
+
+# Binaries that a live MacroQuest (tray, injected client, or a renamed tray clone) holds
+# mapped. Windows refuses to open a mapped image for writing, so a failed r+b open is a
+# direct, name-independent test for "something is still using this install".
+_LOCK_PROBE_FILES = (
+    "MacroQuest.exe",
+    "MQ2Main.dll",
+    "eqlib.dll",
+    "imgui.dll",
+    "plugins/MQ2Lua.dll",
+    "plugins/MQ2CoOptUI.dll",
+)
+
+
+def find_locked_files(target_dir: str) -> list:
+    """
+    Return the names of install files that cannot currently be opened for writing.
+
+    Catches what is_macroquest_running() cannot: the MQ tray runs as a random-named copy of
+    MacroQuest.exe in the install root, so a process-name check reports a clean machine while
+    the tray still holds MQ2Main.dll / imgui.dll mapped. Overwriting those files then fails
+    part-way through the install and leaves a half-written instance — the user closes MQ,
+    retries, and it works, which is exactly how this bug reaches us as "it failed the first
+    time". Also catches read-only files. Never raises.
+    """
+    locked = []
+    for rel in _LOCK_PROBE_FILES:
+        path = os.path.join(target_dir, rel.replace("/", os.sep))
+        try:
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r+b"):
+                pass
+        except OSError:
+            locked.append(rel)
+        except Exception:
+            pass
+    return locked
+
+
+def preflight_blockers(target_dir: str) -> Optional[str]:
+    """
+    Return a user-facing reason the install/update must not start, or None when clear.
+
+    Every write path (update, full install/repair, fresh install) must call this first.
+    Starting a write over a live install is not recoverable mid-flight: os.replace fails on
+    the first locked binary and the install aborts having already written everything before
+    it.
+    """
+    if is_macroquest_running():
+        return "Close MacroQuest and EverQuest, then retry."
+    locked = find_locked_files(target_dir)
+    if locked:
+        return (
+            "These files are locked by another program (MacroQuest may still be running in "
+            "the system tray, possibly under a different name): "
+            + ", ".join(locked[:3])
+            + ". Exit MacroQuest completely, then retry."
+        )
+    return None
 
 
 def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb = None) -> tuple[bool, str]:
@@ -420,6 +486,17 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
     except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
         if getattr(e, "errno", None) == errno.ENOSPC:
             return False, "Not enough disk space."
+        # A write failure part-way through the overlay leaves a partially-updated folder.
+        # Say so plainly and name the usual cause, rather than surfacing a bare WinError:
+        # re-running after closing MacroQuest completes the install (the overlay is
+        # idempotent), but the user has to be told that.
+        if isinstance(e, OSError) and getattr(e, "errno", None) in (errno.EACCES, errno.EPERM, errno.EBUSY):
+            return False, (
+                f"Install stopped part-way through — a file could not be replaced: {e}\n\n"
+                "This almost always means MacroQuest or EverQuest is still running (the "
+                "MacroQuest tray can run under a different name). Exit both completely and "
+                "run the install again — it will pick up where it left off."
+            )
         return False, f"Install failed: {e}"
     finally:
         if zip_path:
