@@ -28,6 +28,7 @@ the game's own interpreter is to catch things a newer Lua would accept.
 |------|----------------|
 | `test_skin_sync.lua` | The CoOpt skin failing to install when `lfs` is unavailable in MQ2Lua, and a skin file being left **missing** in the EQ client when the tmp→destination rename fails. Also pins the opt-in contract (a maintenance sync must never install uninvited), incremental copy, and retired-file removal. |
 | `test_patcher_preflight.py` | The patcher starting a write over a live MacroQuest install. Covers the lock probe that catches a running MQ tray even when it runs under a randomised process name, which the process-name check cannot see. |
+| `test_reroll_service.lua` | The reroll id lists (a sell/loot **protection** set) being silently destroyed: (a) starting CoOpt before the character resolves persisting empty lists over the user's cache, (b) a stray chat line that looks like a list header wiping a list outside any request window. Also pins that a normal Refresh still resets and refills the list. |
 
 ## The other two gates
 

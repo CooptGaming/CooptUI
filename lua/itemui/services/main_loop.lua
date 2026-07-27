@@ -1314,6 +1314,17 @@ local function phase8b_pendingRerollAdd(now)
             sync = nil
             if setStatusMessage then setStatusMessage("Sync stopped: left the guild hall. Remaining items stay pending.") end
         end
+        -- The "is it equipped?" test below decides whether a pending entry is DELETED, so it
+        -- must run against live data. equipmentCache is otherwise only refreshed while the
+        -- Equipment Companion window is drawn (main_window.lua:270-282), so a user who never
+        -- opens it would have every worn item judged "not owned". Refresh once per sync;
+        -- equipKnown records that it actually happened, and only then may an entry be removed.
+        if sync and not sync.equipRefreshed then
+            sync.equipRefreshed = true
+            if d.refreshEquipmentCache then
+                sync.equipKnown = pcall(d.refreshEquipmentCache, true)
+            end
+        end
         -- Advance past any items not found in inventory
         while sync and sync.nextIndex <= #(sync.entries or {}) do
             local idx = sync.nextIndex
@@ -1383,7 +1394,10 @@ local function phase8b_pendingRerollAdd(now)
                     elseif inBank then
                         fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "In bank - move to bags to sync" }
                         if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s is in the bank)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end
-                    elseif #inventoryItems > 0 and bankKnown then
+                    elseif #inventoryItems > 0 and bankKnown and sync.equipKnown then
+                        -- Only delete when bags, bank AND worn slots have all actually been
+                        -- read. Without sync.equipKnown the equipped test above was a guess,
+                        -- and guessing wrong permanently destroys the user's pending entry.
                         rerollService.removeFromPending(sync.list, entry.id)
                         fi[#fi + 1] = { id = entry.id, name = entry.name or "", reason = "Not owned - cleared from pending" }
                         if setStatusMessage then setStatusMessage(string.format("Syncing %d/%d (%s not owned - cleared from pending)...", idx, sync.totalCount or 0, entry.name or tostring(entry.id))) end

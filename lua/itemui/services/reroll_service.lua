@@ -190,9 +190,19 @@ local function detectListHeader(line)
     return nil
 end
 
+-- True once the on-disk cache has actually been consulted for a KNOWN character. Until then
+-- the in-memory lists are "unknown", not "empty", and must never be written back over the
+-- user's file. Declared here because saveToFile() below is the first reader.
+-- See the deferred-init note in M.init.
+local listsLoaded = false
+
 -- Persist cache to char storage (same path pattern as inventory.lua / bank.lua).
 local function saveToFile()
     if not getRerollListStoragePathFn then return end
+    -- Never write lists we never managed to read. Without this, a start before the character
+    -- resolved would persist four empty tables over the user's real cache the moment the path
+    -- became valid - destroying their aug list, mythical list and the pending queue.
+    if not listsLoaded then return end
     local path = getRerollListStoragePathFn()
     if not path or path == "" then return end
     local ok, err = pcall(function()
@@ -231,10 +241,13 @@ local function saveToFile()
 end
 
 -- Load cache from char storage on init so lists persist across UI reloads.
+-- Returns true when the character's storage path resolved (whether or not a cache file
+-- existed - no file for a known character is a legitimately empty list); false when the
+-- character is not known yet, so the caller must retry rather than treat the lists as empty.
 local function loadFromFile()
-    if not getRerollListStoragePathFn then return end
+    if not getRerollListStoragePathFn then return false end
     local path = getRerollListStoragePathFn()
-    if not path or path == "" then return end
+    if not path or path == "" then return false end
     local ok, data = pcall(function()
         local f = io.open(path, "r")
         if not f then return nil end
@@ -256,6 +269,7 @@ local function loadFromFile()
         local diag = require('itemui.core.diagnostics')
         diag.recordError("Reroll", "Could not load reroll list cache", data)
     end
+    return true
 end
 
 -- Module table, declared before the chat handlers: onRerollAddConfirmation references
@@ -304,6 +318,18 @@ end
 -- Single window (receivingListSince): headers set currentList so both aug and mythical fill in one stream (fast).
 local function onRerollListLine(line)
     local now = mq.gettime()
+    -- The parse-window test MUST come first. The header branch below WIPES a list, and this
+    -- handler is registered for the whole session against very loose patterns ("#*#=#*#List#*#",
+    -- "#*#:#*#", "#*#-#*#"), so any chat line containing "=====" plus "aug"/"mythical" and
+    -- "list" reached it. Typing !auglist directly in chat - a documented server command the
+    -- README tells players about - made the server echo its header outside any request window:
+    -- the cached list was cleared, every following id/name line was then rejected because no
+    -- window was open, and the emptied list was persisted and pushed to the plugin. The reroll
+    -- ids are a SELL/LOOT PROTECTION set, so the next Auto Sell could vendor those items.
+    -- Refresh restored them, which is why this reads as "broke once, fine after retry".
+    -- All three request paths (requestAugList / requestMythicalList / requestBothLists) set
+    -- receivingListSince before sending, so a legitimate list is never rejected by this.
+    if not receivingListSince or (now - receivingListSince) >= LIST_PARSE_MS then return end
     local header = detectListHeader(line)
     if header == "aug" then
         augList = {}
@@ -318,7 +344,6 @@ local function onRerollListLine(line)
         return
     end
     if line:match("^%s*[Tt]otal") then return end
-    if not receivingListSince or (now - receivingListSince) >= LIST_PARSE_MS then return end
     if not currentList then return end
     local id, name = parseIdNameLine(line)
     if id then
@@ -365,21 +390,28 @@ function M.init(deps)
     lastListSaveAt = nil
     pendingAddAcks = {}
     state.pendingRerollAdd = nil
-    loadFromFile()
-    -- Server list requests only: (1) explicit Refresh in UI, (2) stored list empty on load. Both lists in one stream (fast).
-    if #augList == 0 and #mythicalList == 0 then
-        M.requestBothLists()
-    elseif #augList == 0 then
-        M.requestAugList()
-    elseif #mythicalList == 0 then
-        M.requestMythicalList()
-    end
-    -- User can Refresh in Reroll Companion to re-query; other automatic triggers (post-roll, zone, bank) removed.
+    -- Listeners FIRST, then any request. init() runs in app.lua's module body, i.e. at
+    -- require time, well before main()'s "wait for Me.Name()" loop - so nothing here may
+    -- assume the character exists, and nothing may send a command before its reply can be
+    -- heard.
     -- Match server list lines: "id=123 name=..." or "123: Name" or "123 - Name". Header "===== Aug List =====" also matched.
     mq.event("ItemUIRerollListLine", "#*#id=#*#name=#*#", onRerollListLine)
     mq.event("ItemUIRerollListLineColon", "#*#:#*#", onRerollListLine)
     mq.event("ItemUIRerollListLineDash", "#*#-#*#", onRerollListLine)
     mq.event("ItemUIRerollListHeader", "#*#=#*#List#*#", onRerollListLine)
+
+    -- Deferred load: the storage path is per-character, so it cannot resolve until Me.Name()
+    -- does. Starting CoOpt at character select or mid-zone (the native Command Center's Start
+    -- button runs "/lua run itemui" whenever it is pressed) used to leave the lists empty,
+    -- fire !auglist/!mythicallist into the void, and then - 6s later, once the character had
+    -- resolved - persist those empty lists over the user's cache via checkListRequestTimeout.
+    -- The reroll ids are a sell/loot PROTECTION set, so the user silently lost both their
+    -- lists and the protection. Retry the load each tick until the character is known.
+    listsLoaded = loadFromFile()
+    if listsLoaded then
+        M.requestListsIfEmpty()
+    end
+    -- User can Refresh in Reroll Companion to re-query; other automatic triggers (post-roll, zone, bank) removed.
     -- Add confirmation: "Aug list added: Name (id N)." / "Mythical list added: Name (id N)." — ack immediately to clear cursor fast.
     mq.event("ItemUIRerollAugAdded", "#*#Aug list added:#*#(id #*#).#*#", onRerollAddConfirmation)
     mq.event("ItemUIRerollMythicalAdded", "#*#Mythical list added:#*#(id #*#).#*#", onRerollAddConfirmation)
@@ -459,8 +491,27 @@ function M.requestBothLists()
     setStatusMessageFn("Requesting lists...")
 end
 
---- Call each tick: clear receiving window after timeout; persist once when done.
+--- Request whatever is missing. Both lists in one stream when both are empty (fast).
+function M.requestListsIfEmpty()
+    if #augList == 0 and #mythicalList == 0 then
+        M.requestBothLists()
+    elseif #augList == 0 then
+        M.requestAugList()
+    elseif #mythicalList == 0 then
+        M.requestMythicalList()
+    end
+end
+
+--- Call each tick: complete a deferred load once the character resolves; clear the receiving
+--- window after timeout; persist once when done.
 function M.checkListRequestTimeout(now)
+    if not listsLoaded then
+        -- init() ran before the character was known (see the note there). Keep retrying; only
+        -- once this succeeds are the in-memory lists meaningful or safe to persist.
+        listsLoaded = loadFromFile()
+        if listsLoaded then M.requestListsIfEmpty() end
+        return
+    end
     if receivingListSince and (now - receivingListSince) >= LIST_PARSE_MS then
         receivingListSince = nil
         currentList = nil

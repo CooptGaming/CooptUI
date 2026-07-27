@@ -1227,6 +1227,10 @@ local function buildMainLoopDepsState()
         sellItems = sellItems,
         bankItems = bankItems,
         bankCache = bankCache,
+        -- main_loop's reroll sync uses this to tell "worn" from "not owned" before
+        -- deleting a pending entry. It was only ever wired into the UI context table
+        -- below, so the guard in phase8b_pendingRerollAdd read nil and never fired.
+        equipmentCache = equipmentCache,
         C = C,
         LOOT_HISTORY_MAX = constants.LIMITS.LOOT_HISTORY_MAX,
         STATS_TAB_PRIME_MS = constants.TIMING.STATS_TAB_PRIME_MS,
@@ -1255,6 +1259,7 @@ end
 local function buildMainLoopDeps()
     local d = buildMainLoopDepsState()
     d.clearLootItems = clearLootItems
+    d.refreshEquipmentCache = refreshEquipmentCache  -- reroll sync refreshes worn slots before it may delete
     d.setStatusMessage = setStatusMessage
     d.storage = storage
     d.computeAndAttachSellStatus = computeAndAttachSellStatus
