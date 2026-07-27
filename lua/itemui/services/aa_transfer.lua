@@ -541,10 +541,13 @@ function M.startImport(path, force, prebuilt)
         say(string.format("Need %d AA pts for %d ranks - you have %d. Import aborted.", plan.cost, plan.ranks, have))
         return false
     end
+    -- The native AA window strip only ever shows this status line, so the degraded
+    -- state has to be said here too - the ImGui view's warning is invisible there.
+    local truthNote = M.hasRankTruth() and "" or " - rank data unavailable, result may be incomplete"
     if not plan.exact then
-        say(string.format("Importing %d ranks (point check unavailable)...", plan.ranks))
+        say(string.format("Importing %d ranks (point check unavailable)%s...", plan.ranks, truthNote))
     else
-        say(string.format("Importing %d ranks (%d pts, %d available)...", plan.ranks, plan.cost, have))
+        say(string.format("Importing %d ranks (%d pts, %d available)%s...", plan.ranks, plan.cost, have, truthNote))
     end
     -- Exact per-rank table ids (plugin): enables precise buys and burst mode.
     local rankIndexes = nil
@@ -1046,6 +1049,23 @@ end
 --- One-line status for the native AA window strip.
 function M.getStatusLine()
     return statusLine
+end
+
+--- True when the plugin's owned-ranks store (PcProfile AAList) is readable.
+---
+--- That store is the ONLY trustworthy source of "what rank do I actually have":
+--- the char-side TLO Rank read resolves level-appropriate entries and inflates on
+--- partially-trained lines, which is what made planning report "nothing missing"
+--- against 417 points of real holes and made per-rank verification "confirm"
+--- instantly at cap. Without the plugin both export and import silently fall back
+--- to that read, so results can be wrong while every message still reads as
+--- success. MQ2CoOptUI is deliberately force-disabled on stock-MacroQuest installs
+--- (ABI mismatch), so this is a real, shipped configuration - not a corner case.
+--- Callers use this to warn instead of promising accuracy they cannot deliver.
+function M.hasRankTruth()
+    local pa = plugAA()
+    if not pa or type(pa.getOwnedRanks) ~= 'function' then return false end
+    return ownedRanks(mq.gettime()) ~= nil
 end
 
 function M.init(d)

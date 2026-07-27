@@ -415,6 +415,22 @@ function AAView.render(ctx)
         ImGui.EndTooltip()
     end
     ImGui.Spacing()
+    -- Export/Import are only accurate when the plugin's owned-ranks store is readable.
+    -- Without it both fall back to the TLO rank read, which inflates on partially
+    -- trained lines - the profile can be wrong and every status message still reads
+    -- like success. Say so up front rather than letting the user find out later.
+    if not aa_transfer.hasRankTruth() then
+        ctx.theme.TextWarning("AA rank data unavailable - Export/Import may be incomplete")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("The MQ2CoOptUI plugin supplies your true trained AA ranks.")
+            ImGui.Text("It is not loaded (it is disabled on stock MacroQuest installs), so CoOpt")
+            ImGui.Text("falls back to the game's rank read, which over-reports partially trained lines.")
+            ImGui.Text("Exports can record ranks you do not have, and an import can skip AAs it")
+            ImGui.Text("believes are already trained. Verify the result in the AA window afterwards.")
+            ImGui.EndTooltip()
+        end
+    end
     local transferBusy = aa_transfer.isBusy()
     if ImGui.Button("Export", ImVec2(80, 0)) and not transferBusy then
         aa_transfer.requestExport()
