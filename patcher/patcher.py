@@ -807,11 +807,11 @@ class PatcherApp(ctk.CTk):
                 ))
 
             # Fresh install uses the same preserve-aware overlay as Full Install / Repair:
-            # smart_install downloads the stock E3NextAndMQNextBinary base bundle (full
-            # MacroQuest + Mono + E3 + the whole plugin ecosystem), then applies CoOpt on
-            # top via the release manifest — building a new instance from scratch in an
-            # empty folder, or safely overlaying onto an existing MacroQuest while keeping
-            # the user's config.
+            # smart_install downloads CoOpt's EMU bundle (MacroQuest + Mono + E3 + the whole
+            # plugin ecosystem, falling back to the stock E3NextAndMQNextBinary zipball), then
+            # applies CoOpt on top via the release manifest — building a new instance from
+            # scratch in an empty folder, or safely overlaying onto an existing MacroQuest
+            # while keeping the user's config.
             try:
                 success, message = smart_install(target_dir, REPO_BASE_URL, progress_cb)
             except Exception as e:

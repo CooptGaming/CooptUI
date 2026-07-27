@@ -427,11 +427,13 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
     Full install / repair in two phases — the same layering every working install in
     the field has. progress_cb(message, fraction_0_to_1).
 
-      Phase 1  BASE environment: the stock E3NextAndMQNextBinary bundle (full
-               MacroQuest + Mono + E3 + the whole plugin ecosystem and its seed
-               configs). CoOpt's own EMU zip is only the FALLBACK when that
-               download fails — it carries just the from-source plugin subset,
-               which boots but lacks plugins E3 uses (MQ2AdvPath etc.).
+      Phase 1  BASE environment: CoOpt's own EMU zip (CoOptUI-EMU-*.zip) — the
+               complete, self-consistent MQ family (core, Mono, E3 and the whole
+               plugin ecosystem compiled in one solution), so MQ2CoOptUI is safe
+               and stays ENABLED. FALLBACK when that download fails: the stock
+               E3NextAndMQNextBinary main-branch zipball, a foreign MQ family on
+               which MQ2CoOptUI is force-disabled (see ensure_plugin_keys) and
+               CoOpt UI runs in Lua mode.
       Phase 2  CoOpt overlay via the release manifest — exactly what the update
                path installs (Lua, macros, skin, MQ2CoOptUI.dll from the release
                asset). Deliberately NO MacroQuest core binaries, so the base's MQ
