@@ -12,12 +12,16 @@ There is no test framework. Each test is a standalone script that exits non-zero
 .\scripts\tests\run-tests.ps1
 ```
 
-`run-tests.ps1` needs a LuaJIT binary for the Lua tests. It looks for one in the build tree
-and accepts an override:
+`run-tests.ps1` needs a LuaJIT binary for the Lua tests. It finds one automatically inside any
+Build-Smart output tree (`<OutputDir>\.mq-source\...\tools\luajit\luajit.exe`), or you can point
+it at one:
 
 ```powershell
 .\scripts\tests\run-tests.ps1 -LuaJit "C:\path\to\luajit.exe"
 ```
+
+`$env:COOPT_LUAJIT` works too. **A skipped test exits non-zero on purpose** — this is a release
+gate, and "I could not run" must not look the same as "everything passed".
 
 Use **LuaJIT**, not Lua 5.4 — MQ2Lua is LuaJIT (Lua 5.1 semantics), and the point of running
 the game's own interpreter is to catch things a newer Lua would accept.

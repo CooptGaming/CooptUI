@@ -40,12 +40,22 @@ function Add-Result([string]$Name, [string]$Status, [string]$Detail = '') {
 
 # --- Locate LuaJIT -----------------------------------------------------------------
 if (-not $LuaJit) {
-    $candidates = @(
-        'C:\Claude_External\CoOptDeploy\.mq-source\macroquest\build\solution\vcpkg_installed\x86-windows-static\tools\luajit\luajit.exe'
-    )
-    # Any Build-Smart output tree on this machine.
-    $candidates += Get-ChildItem -Path 'C:\' -Directory -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path $_.FullName '.mq-source\macroquest\build\solution\vcpkg_installed\x86-windows-static\tools\luajit\luajit.exe' }
+    # Build-Smart clones MacroQuest into <OutputDir>\.mq-source, and vcpkg drops the LuaJIT
+    # that MQ links at this path inside it. No location is hardcoded: set COOPT_LUAJIT, pass
+    # -LuaJit, or let this find any Build-Smart output tree one level under a drive root.
+    $relative = '.mq-source\macroquest\build\solution\vcpkg_installed\x86-windows-static\tools\luajit\luajit.exe'
+    $candidates = @()
+    if ($env:COOPT_LUAJIT) { $candidates += $env:COOPT_LUAJIT }
+    $candidates += (Get-Command luajit -ErrorAction SilentlyContinue).Source
+    foreach ($drive in (Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+        # Depth 2: a Build-Smart OutputDir is typically <drive>\<folder>\<deploy> (it is kept
+        # outside the repo on purpose), so one level is not enough.
+        $roots = Get-ChildItem -Path $drive.Root -Directory -ErrorAction SilentlyContinue
+        $candidates += $roots | ForEach-Object { Join-Path $_.FullName $relative }
+        $candidates += $roots | ForEach-Object {
+            Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue
+        } | ForEach-Object { Join-Path $_.FullName $relative }
+    }
     $LuaJit = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 }
 if ($LuaJit -and -not (Test-Path $LuaJit)) { $LuaJit = $null }
@@ -101,5 +111,9 @@ $failedCount  = ($results | Where-Object Status -eq 'FAILED').Count
 $skippedCount = ($results | Where-Object Status -eq 'SKIPPED').Count
 $passedCount  = ($results | Where-Object Status -eq 'PASSED').Count
 "$passedCount passed, $failedCount failed, $skippedCount skipped"
-if ($skippedCount -gt 0) { Write-Warning "$skippedCount test(s) were SKIPPED - they did not pass, they did not run." }
-exit ([int]($failedCount -gt 0))
+if ($skippedCount -gt 0) {
+    Write-Warning "$skippedCount test(s) were SKIPPED - they did not pass, they did not run."
+}
+# A skip exits non-zero on purpose. This is a release gate: "I could not run" must not look
+# the same as "everything passed". Install the missing prerequisite, or pass -LuaJit.
+exit ([int](($failedCount -gt 0) -or ($skippedCount -gt 0)))
