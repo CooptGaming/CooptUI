@@ -48,6 +48,8 @@ docs/*
 !docs/ARCHITECTURE.md
 !docs/plugin/
 !docs/mono/
+# Pre-release review reports: each pass hands off to the next reviewer through the repo.
+!docs/release-review/
 
 # --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
