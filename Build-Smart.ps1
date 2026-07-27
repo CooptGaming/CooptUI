@@ -229,13 +229,22 @@ function Get-PluginSourceHash {
     )
 }
 
+# Hash of everything the CoOpt stage STAGES. If a shipped file is missing from this list a
+# change to it leaves the hash identical, Stage 4 reports "[SKIP] Output already exists", and
+# the PREVIOUS zip is what gets published - the fix is in git and in the patcher manifest, but
+# not in the bundle. Rule: if Copy-CoOptUIFiles copies it, it must be hashed here.
+# (uifiles\coopt, lua\coopt_launcher.lua and lua\itemui's non-.lua assets were all missing.)
 function Get-CoOptUISourceHash {
     param([string]$RepoRoot)
     return Get-MultiPathHash @(
-        @{ Path = (Join-Path $RepoRoot 'lua\itemui');        Include = @('*.lua'); Exclude = @('docs/*', 'upvalue_check.lua') }
+        # Include '*' not '*.lua': lua\itemui also ships default_layout\*.ini,
+        # layout_manifest.json and overlay_snippet.ini.
+        @{ Path = (Join-Path $RepoRoot 'lua\itemui');        Include = @('*'); Exclude = @('docs/*', 'upvalue_check.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\coopui');        Include = @('*.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\scripttracker'); Include = @('*.lua'); Exclude = @('scripttracker.ini') }
         @{ Path = (Join-Path $RepoRoot 'lua\mq\ItemUtils.lua') }
+        @{ Path = (Join-Path $RepoRoot 'lua\coopt_launcher.lua') }
+        @{ Path = (Join-Path $RepoRoot 'uifiles\coopt');     Include = @('*') }
         @{ Path = (Join-Path $RepoRoot 'Macros\sell.mac') }
         @{ Path = (Join-Path $RepoRoot 'Macros\loot.mac') }
         @{ Path = (Join-Path $RepoRoot 'Macros\shared_config'); Include = @('*.mac') }

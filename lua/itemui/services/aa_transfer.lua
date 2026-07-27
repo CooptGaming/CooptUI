@@ -73,9 +73,33 @@ end
 
 local ensuredDirs = {}
 local migratedLegacy = false
+local _warnedUnsafeBackupPath = false
+
+--- Reject paths that cannot be safely embedded in a quoted cmd.exe argument.
+---
+--- ensureDir and migrateLegacyFiles hand their argument to cmd.exe (os.execute /
+--- io.popen). Inside double quotes cmd already protects &, |, <, > and ^, so the
+--- only way out of the quoted string is a literal double quote - or a % , which
+--- cmd expands BEFORE parsing and which could therefore introduce one. Everything
+--- else is a legitimate Windows path character.
+---
+--- This matters because AABackupPath is free text the user (or a shared config
+--- bundle - EMU communities pass these around) sets in
+--- Macros\sell_config\itemui_layout.ini. A value like
+---   C:\aa" & powershell -c "..." & rem
+--- would otherwise close the quote and run as a second command, silently, with the
+--- player's privileges.
+---
+--- Rejecting % costs nothing real: Lua's io.open never expands %VAR%, so a path
+--- written that way could not be exported to anyway.
+local function pathIsShellSafe(p)
+    if not p or p == "" then return false end
+    return not p:find('[%"%%\r\n]')
+end
 
 local function ensureDir(d)
     if not d or d == "" or ensuredDirs[d] then return end
+    if not pathIsShellSafe(d) then return end
     ensuredDirs[d] = true
     pcall(function() os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul') end)
 end
@@ -88,6 +112,7 @@ local function migrateLegacyFiles(dstDir)
     migratedLegacy = true
     local legacy = config.CONFIG_PATH
     if not legacy or legacy == "" or not dstDir or dstDir == "" or legacy == dstDir then return end
+    if not pathIsShellSafe(legacy) then return end  -- same cmd.exe quoting rule as ensureDir
     local moved = 0
     local ok, pipe = pcall(io.popen, 'dir /b "' .. legacy:gsub("/", "\\") .. '\\aa_*.ini" 2>nul')
     if ok and pipe then
@@ -106,6 +131,15 @@ end
 function M.getBackupDir()
     local lc = deps.layoutConfig
     local p = lc and lc.AABackupPath or ""
+    if p and p ~= "" and not pathIsShellSafe(p) then
+        -- Refuse the custom path outright rather than silently writing exports into a
+        -- folder we would not create; fall through to the default below.
+        if not _warnedUnsafeBackupPath then
+            _warnedUnsafeBackupPath = true
+            say('AABackupPath contains \" or % and was ignored - using the default Macros\\aa_backups folder.')
+        end
+        p = ""
+    end
     if p and p ~= "" then
         -- Custom folder gets created too, else the first export to a
         -- not-yet-created path fails with an opaque "could not open file".
