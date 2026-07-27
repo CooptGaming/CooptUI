@@ -23,6 +23,13 @@ INSTALL_MAP = [
 
 # Config files that should be installed if missing (repo path -> MQ install path).
 # These are NOT overwritten if the user already has them.
+#
+# NOTE (E3 seed config): resources/e3_seed_config/"e3 Macro Inis" is deliberately
+# NOT listed here yet. Its paths contain spaces, and patcher exes built before the
+# _raw_url percent-encoding fix (post-0.9.8) fail spaced URLs with "Could not
+# reach GitHub" on every run. Fresh installs get the seeds from the EMU zip
+# (Build-Smart stage 0c2); existing installs already have them. Add the entries
+# once the pre-0.9.9 exe fleet has aged out.
 DIRECT_CONFIG_FILES = [
     ("config/ingame.cfg", "config/ingame.cfg"),
     ("config/zoned.cfg", "config/zoned.cfg"),

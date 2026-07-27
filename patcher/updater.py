@@ -9,6 +9,7 @@ import http.client
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Callable
 
@@ -17,9 +18,19 @@ INSTALLED_VERSION_PATH = "Macros/coopui_installed_version.txt"
 
 
 def _raw_url(base_url: str, path: str) -> str:
-    """Build raw GitHub URL for a repo path. base_url should not end with /."""
+    """Build raw GitHub URL for a repo path. base_url should not end with /.
+
+    Percent-encodes each path segment: Python's http.client rejects raw spaces
+    in a request target, so a manifest entry like "e3 Macro Inis/Saved
+    Groups.ini" would otherwise fail with a misleading "Could not reach
+    GitHub." NOTE: exes built before this fix still have that limitation -
+    keep manifest repoPaths space-free until the old-exe fleet ages out.
+    """
     path = path.replace("\\", "/").lstrip("/")
-    return f"{base_url.rstrip('/')}/{path}" if path else base_url
+    if not path:
+        return base_url
+    encoded = "/".join(urllib.parse.quote(seg) for seg in path.split("/"))
+    return f"{base_url.rstrip('/')}/{encoded}"
 
 
 _TEXT_EXTS = frozenset({
