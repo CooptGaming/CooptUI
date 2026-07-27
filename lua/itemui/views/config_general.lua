@@ -126,12 +126,16 @@ function ConfigGeneral.render(ctx)
             end
         else
             if ImGui.Button("Install skin (optional)") then
-                local res = skinSync.sync({ force = true })
+                local res, err = skinSync.sync({ force = true })
                 skinInstalledCache.at = 0
-                if res and #res.copied > 0 then
+                if res and #res.copied > 0 and not err then
                     if ctx.setStatusMessage then ctx.setStatusMessage("CoOpt skin installed. Use /loadskin coopt to enable it.") end
-                else
-                    if ctx.setStatusMessage then ctx.setStatusMessage("Skin install failed - check that MQ and EQ paths are available.") end
+                elseif ctx.setStatusMessage then
+                    -- Report the reason sync actually gave (unwritable EQ folder, folder
+                    -- could not be created). The old message always blamed missing MQ/EQ
+                    -- paths, which is only one of several causes and rarely the real one.
+                    ctx.setStatusMessage("Skin install failed - " ..
+                        (err or "check that MQ and EQ paths are available."))
                 end
             end
             if ImGui.IsItemHovered() then

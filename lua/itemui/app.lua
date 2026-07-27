@@ -1342,8 +1342,16 @@ local function main()
     -- copy - updates changed files, removes retired ones - and never installs
     -- uninvited (no-op when the folder is absent).
     do
-        local ok, res = pcall(skinSync.sync)
-        if ok and res then
+        local ok, res, syncErr = pcall(skinSync.sync)
+        if ok and syncErr then
+            -- A maintenance sync that cannot write leaves the EQ client running a STALE
+            -- skin - native controls silently keep old behaviour - so say so rather than
+            -- letting it pass as a no-op.
+            print("\ar[CoOpt UI]\ax CoOpt skin could not be updated: " .. tostring(syncErr))
+            local diag = require('itemui.core.diagnostics')
+            if diag and diag.recordError then diag.recordError("Skin sync", "Skin update failed", tostring(syncErr)) end
+        end
+        if ok and res and (#res.copied > 0 or #res.removed > 0) then
             local parts = {}
             if #res.copied > 0 then
                 parts[#parts + 1] = string.format("%d file%s %s", #res.copied, #res.copied == 1 and "" or "s",
