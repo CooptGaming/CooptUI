@@ -10,7 +10,7 @@ You set what to keep, sell, and loot in a modern UI; the auto-sell and auto-loot
 
 - **MacroQuest2 / MQNext** with Lua support (`/lua run` must work in-game)
 - **EverQuest** on an EMU server, on **Windows**
-- Optional but recommended: the **MQ2CoOptUI plugin** (included in releases) — fast native scanning, live loot feed, and the native-window integration. Everything falls back to Lua if it's not loaded.
+- Optional: the **MQ2CoOptUI plugin** — fast native scanning and extra native-window integration. Everything falls back to Lua if it's not loaded. **Note:** the plugin is built against CoOpt's own MacroQuest build, so patcher fresh installs (which run the stock E3 bundle's MacroQuest) keep it disabled and run in Lua mode — every feature works, big scans are just a little slower.
 
 Setting up from scratch? Use the prebuilt E3Next package first: [Getting started (EMU 32-bit)](https://github.com/RekkasGit/E3Next/wiki/1%29-Getting-started-EMU-32bit).
 

@@ -2,6 +2,13 @@
 
 All notable changes to CoOpt UI are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+- **Fresh install restored to the proven layering** — the patcher's fresh install downloads the stock E3NextAndMQNextBinary bundle as the base again (full MacroQuest + Mono + E3 + the whole plugin ecosystem; a July change had pointed it at CoOpt's EMU zip, whose 16 from-source plugins left E3 missing MQ2AdvPath and friends on first boot), then applies CoOpt on top via the release manifest. Also survives Windows' 260-character path limit during extraction (the bundle's Mono tree exceeded it via the temp folder) and shows progress on GitHub's size-less zipball downloads.
+- **MQ2CoOptUI plugin is disabled on stock-MQ installs** — the plugin links CoOpt's own MacroQuest build (MQ2Main/eqlib, statically embedded LuaJIT); loading it into the stock bundle's MQ corrupts the Lua runtime (crash in mq2lua when invoking a Lua-bound command like `/inv`; hard freeze on `/lua stop`). Fresh installs on the stock base now write `MQ2CoOptUI=0` and CoOpt UI runs fully in Lua/TLO fallback mode — every feature works, scans are just slower. Installs built on CoOpt's own MQ (the EMU bundle) keep the plugin on.
+- **Toggle keybind routed through `/timed`** — MQ2CustomBinds executes bind commands on the keyboard-input path; deferring one tick onto the pulse path is harmless everywhere and avoids input-path re-entrancy on foreign MQ builds.
+
 ## [0.9.8] — 2026-07-26
 
 ### Added

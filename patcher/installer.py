@@ -89,13 +89,24 @@ def should_preserve(rel_path: str) -> bool:
     return False
 
 
-def ensure_plugin_keys(ini_path: str) -> bool:
+def ensure_plugin_keys(ini_path: str, enable_coopt_plugin: bool = True) -> bool:
     """
-    Ensure config/MacroQuest.ini loads the plugins CoOpt UI needs (mq2mono, MQ2CoOptUI,
-    MQ2Lua) under [Plugins], without disturbing the rest of the file (EQ path, server list,
-    comments, formatting). Line-based on purpose. Returns True if the file was changed.
+    Ensure config/MacroQuest.ini loads the plugins CoOpt UI needs (mq2mono, MQ2Lua, and —
+    only when enable_coopt_plugin — MQ2CoOptUI) under [Plugins], without disturbing the
+    rest of the file (EQ path, server list, comments, formatting). Line-based on purpose.
+
+    enable_coopt_plugin=False is for installs running the STOCK MQ family (the E3 base
+    bundle): MQ2CoOptUI.dll is built against OUR MacroQuest (it links MQ2Main/eqlib and
+    statically embeds LuaJIT), and loading it into a different MQ build corrupts the Lua
+    runtime — field signature: crash in mq2lua invoking a Lua-bound command, hard freeze
+    on /lua stop. In that mode any existing MQ2CoOptUI=1 is forced to 0 (the DLL may sit
+    on disk; it just must never load). CoOpt UI runs fully in Lua/TLO fallback mode.
+
+    Returns True if the file was changed.
     """
-    needed = [("mq2mono", "1"), ("MQ2CoOptUI", "1"), ("MQ2Lua", "1")]
+    needed = [("mq2mono", "1"), ("MQ2Lua", "1")]
+    if enable_coopt_plugin:
+        needed.append(("MQ2CoOptUI", "1"))
     try:
         with open(ini_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.read().splitlines()
@@ -105,6 +116,7 @@ def ensure_plugin_keys(ini_path: str) -> bool:
     plugins_header = None
     existing = set()
     current = None
+    forced_off = False
     for i, line in enumerate(lines):
         s = line.strip()
         if s.startswith("[") and s.endswith("]"):
@@ -113,10 +125,18 @@ def ensure_plugin_keys(ini_path: str) -> bool:
                 plugins_header = i
             continue
         if current == "plugins" and "=" in s and not s.lstrip().startswith(";"):
-            existing.add(s.split("=", 1)[0].strip().lower())
+            key = s.split("=", 1)[0].strip()
+            existing.add(key.lower())
+            if not enable_coopt_plugin and key.lower() == "mq2cooptui":
+                val = s.split("=", 1)[1].strip()
+                if val != "0":
+                    lines[i] = f"{key}=0"
+                    forced_off = True
 
     missing = [(k, v) for (k, v) in needed if k.lower() not in existing]
-    if not missing:
+    if not enable_coopt_plugin and "mq2cooptui" not in existing:
+        missing.append(("MQ2CoOptUI", "0"))  # explicit 0 documents the decision in the ini
+    if not missing and not forced_off:
         return False
 
     additions = [f"{k}={v}" for (k, v) in missing]
@@ -213,7 +233,8 @@ def _bundle_source_root(extract_dir: str) -> str:
     return extract_dir
 
 
-def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = None) -> dict:
+def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = None,
+                   enable_coopt_plugin: bool = True) -> dict:
     """
     Extract `zip_path` to a temp dir, then copy each file into `target_dir`, skipping user
     config/data that already exists (per should_preserve). Finally make sure MacroQuest.ini
@@ -281,7 +302,7 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
                 progress_cb(f"Installing: {rel_norm}", 0.75 + 0.25 * (i + 1) / total)
 
         if macroquest_ini and os.path.isfile(_long_path(macroquest_ini)):
-            ensure_plugin_keys(macroquest_ini)
+            ensure_plugin_keys(macroquest_ini, enable_coopt_plugin=enable_coopt_plugin)
     finally:
         shutil.rmtree(_long_path(tmp), ignore_errors=True)
 
@@ -364,6 +385,10 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
     # --- Phase 1: base bundle ---
     base_note = ""
     zip_path = None
+    # True when the base is the STOCK bundle (their MQ family): our plugin DLL is
+    # ABI-incompatible with it and must not load (see ensure_plugin_keys docstring).
+    # The EMU-zip fallback is OUR MQ family, where the plugin is required-and-safe.
+    stock_base = True
     try:
         if progress_cb:
             progress_cb(f"Downloading base environment: {BASE_BUNDLE_NAME}...", 0.0)
@@ -374,6 +399,7 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
                 return False, "Not enough disk space."
             zip_path = None
         if zip_path is None:
+            stock_base = False
             # Fallback: CoOpt's EMU zip (reduced plugin set, still runnable).
             url, _ver, err = get_latest_release_zip_url()
             if err or not url or "emu" not in (url or "").lower():
@@ -390,7 +416,8 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
             if progress_cb:
                 progress_cb("Base unavailable - downloading CoOpt EMU bundle...", 0.0)
             zip_path = _download_zip(url, seg(0.0, 0.7))
-        summary = overlay_bundle(zip_path, target_dir, seg(0.0, 0.7))
+        summary = overlay_bundle(zip_path, target_dir, seg(0.0, 0.7),
+                                 enable_coopt_plugin=not stock_base)
     except zipfile.BadZipFile:
         return False, "Downloaded bundle is not a valid ZIP (the download may be corrupted)."
     except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
@@ -447,6 +474,12 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
     if progress_cb:
         progress_cb("Install complete!", 1.0)
     vtag = f" (CoOpt UI v{manifest_version})" if manifest_version else ""
+    plugin_note = ""
+    if stock_base:
+        plugin_note = (
+            "\n\nThis install runs the stock MacroQuest build, so the MQ2CoOptUI plugin is "
+            "disabled (it requires CoOpt's own MQ build) — CoOpt UI runs fully in Lua mode."
+        )
     mq_note = ""
     if is_macroquest_running():
         mq_note = (
@@ -458,5 +491,5 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
         f"Install/repair complete{vtag}: {summary['written']} base files written, "
         f"{coopt_written} CoOpt file(s) applied, {summary['preserved']} user config file(s) preserved."
         "\n\nNext: start MacroQuest fresh, then in-game run  /lua run itemui  "
-        "(and /lua run scripttracker)." + base_note + defaults_note + mq_note
+        "(and /lua run scripttracker)." + plugin_note + base_note + defaults_note + mq_note
     )
