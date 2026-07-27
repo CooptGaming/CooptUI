@@ -44,6 +44,17 @@ M.TIMING = {
     DEFERRED_SCAN_DELAY_MS = 120,   -- After put in bags / drop
     STATS_TAB_PRIME_MS = 250,
 
+    -- Dock / bars. One coarse clock: countdowns and timers on the bars refresh at
+    -- DOCK_TICK_MS, never per frame ("8s / 7s / 6s" reads better than a blur of decimals).
+    -- The three SLOW_* intervals stagger the expensive aggregations so a single tick never
+    -- walks buffs + songs + auras + 10 packs of free slots + a full sellItems pass -- that
+    -- burst is the stutter SELL_STATUS_DRAIN_PER_TICK / SESSION_MERGE_PER_TICK exist to avoid.
+    DOCK_TICK_MS = 250,
+    DOCK_SLOW_BAGS_MS = 1000,    -- countFreeInvSlots walks 10 packs, one TLO read per slot
+    DOCK_SLOW_BUFFS_MS = 750,    -- ~40-70 TLO reads (buffs + songs + auras)
+    DOCK_SLOW_STATS_MS = 1000,   -- XP / AA / script totals
+    DOCK_POPOVER_GRACE_MS = 250, -- mouse-out grace so the pointer can travel segment -> popover
+
     -- Character stats panel
     STATS_CACHE_TTL_MS = 500,
 

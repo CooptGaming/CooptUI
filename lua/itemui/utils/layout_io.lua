@@ -8,6 +8,20 @@ local LAYOUT_SECTION = constants.LAYOUT_SECTION
 
 local M = {}
 
+--- Keys whose value is a plain string (mode names, edge names, CSV lists). Checked by
+--- loadLayoutValue before its numeric fallthrough.
+local STRING_KEYS = {
+    UIMode = true,          -- classic | bars
+    DockPosition = true,    -- top | bottom
+    DockChat = true,        -- hidden | collapsed | peek
+    DockSegments = true,    -- CSV: segment ids, in order
+    DockLaunchers = true,   -- CSV: module ids for the six launcher slots
+    DockNative = true,      -- CSV: native window ids for the two native slots
+    ZoneAssign = true,      -- CSV: moduleId:zone pairs
+    WindowAttach = true,    -- CSV: moduleId:target:edge:align tuples
+    LayoutPreset = true,    -- active preset name
+}
+
 --- Get layout file path (ItemUI layout INI).
 function M.getLayoutFilePath()
     return config.getConfigFile(LAYOUT_INI)
@@ -74,11 +88,16 @@ function M.loadLayoutValue(layout, key, default)
     if key == "AlignToContext" or key == "UILocked" or key == "SuppressWhenLootMac" or key == "ConfirmBeforeDelete" or key == "ActivationGuardEnabled"
         or key == "EnableRealTimeLoot" or key == "EnableLootHistory" or key == "EnableSkipHistory"
         or key == "NativeMerchantStrip" or key == "NativeHoverTooltip"
-        or key == "NativeItemDisplayReplace" then
+        or key == "NativeItemDisplayReplace"
+        or key == "DockTop" or key == "DockBottom" then
         return (val == "1" or val == "true")
     end
     if key == "InvSortColumn" or key == "SellSortColumn" or key == "BankSortColumn" or key == "AASortColumn" then return val end  -- string (column key)
     if key == "PinnedWindows" then return val end  -- string (comma-joined window ids)
+    -- Dock/bars string keys. These MUST be listed here: the fallthrough below is
+    -- `tonumber(val) or default`, so an unlisted string key writes to the INI correctly,
+    -- is present in the file, and still reads back as its default forever.
+    if STRING_KEYS[key] then return val end
     if key == "ItemUIToggleKey" then return (layout[key] ~= nil) and layout[key] or default end  -- keybinding; empty = no bind
     return tonumber(val) or default
 end

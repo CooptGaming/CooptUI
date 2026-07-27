@@ -323,6 +323,21 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("AASortColumn=" .. tostring(sortState.aaColumn or "Title") .. "\n")
         f:write("AASortDirection=" .. tostring(sortState.aaDirection or ImGuiSortDirection.Ascending) .. "\n")
         f:write("AALastTab=" .. tostring(sortState.aaTab or 1) .. "\n")
+        -- Dock / bars mode. ZoneAssign and WindowAttach are single CSV keys rather than one
+        -- key per module (ZoneAssign_bank=…): [Layout] is fully regenerated from this f:write
+        -- list, so a per-module key would be erased on the next save. Same reason
+        -- PinnedWindows above is one comma-joined string.
+        f:write("UIMode=" .. tostring(layoutConfig.UIMode or layoutDefaults.UIMode or "classic") .. "\n")
+        f:write("DockTop=" .. (layoutConfig.DockTop ~= false and "1" or "0") .. "\n")
+        f:write("DockBottom=" .. (layoutConfig.DockBottom ~= false and "1" or "0") .. "\n")
+        f:write("DockPosition=" .. tostring(layoutConfig.DockPosition or layoutDefaults.DockPosition or "top") .. "\n")
+        f:write("DockChat=" .. tostring(layoutConfig.DockChat or layoutDefaults.DockChat or "collapsed") .. "\n")
+        f:write("DockSegments=" .. tostring(layoutConfig.DockSegments or layoutDefaults.DockSegments or "") .. "\n")
+        f:write("DockLaunchers=" .. tostring(layoutConfig.DockLaunchers or layoutDefaults.DockLaunchers or "") .. "\n")
+        f:write("DockNative=" .. tostring(layoutConfig.DockNative or layoutDefaults.DockNative or "") .. "\n")
+        f:write("ZoneAssign=" .. tostring(layoutConfig.ZoneAssign or "") .. "\n")
+        f:write("WindowAttach=" .. tostring(layoutConfig.WindowAttach or "") .. "\n")
+        f:write("LayoutPreset=" .. tostring(layoutConfig.LayoutPreset or "") .. "\n")
         f:write("\n[ColumnVisibility]\n")
         local fixedOrder = layoutConfig.fixedColumnOrder or {}
         for view, cols in pairs(columnVisibility) do
@@ -399,156 +414,18 @@ function LayoutUtils.resetLayoutToDefault()
 end
 
 -- Load layout config from INI file
-function LayoutUtils.loadLayoutConfig()
-    local perfCache = LayoutUtils.perfCache
+--- Apply every [Layout] key from a parsed layout table onto layoutConfig / uiState /
+--- sortState / filterState. ONE body, shared by both loadLayoutConfig paths (cache hit and
+--- file re-parse). These were ~120 hand-duplicated lines that had already drifted once —
+--- Equipment geometry was missing from the file branch, so any re-parse dropped the saved
+--- position and the window's own move-save then wrote defaults back over it. Add a new key
+--- HERE and both paths get it.
+local function applyLayoutSection(parsed)
     local layoutConfig = LayoutUtils.layoutConfig
     local layoutDefaults = LayoutUtils.layoutDefaults
     local uiState = LayoutUtils.uiState
     local sortState = LayoutUtils.sortState
     local filterState = LayoutUtils.filterState
-    local C = LayoutUtils.C
-    
-    local t0 = mq.gettime()
-    -- Skip parse if config unchanged (perfCache.layoutNeedsReload set when we save)
-    if not perfCache.layoutNeedsReload and perfCache.layoutCached then
-        dbg.log("Loading layout from CACHE")
-        LayoutUtils.initColumnVisibility()
-        LayoutUtils.applyDefaultsFromParsed(perfCache.layoutCached)
-        local layout = perfCache.layoutCached.layout or {}
-        uiState.alignToContext = LayoutUtils.loadLayoutValue(layout, "AlignToContext", layoutDefaults.AlignToContext == 1)
-        uiState.uiLocked = LayoutUtils.loadLayoutValue(layout, "UILocked", layoutDefaults.UILocked == 1)
-        layoutConfig.WidthInventory = LayoutUtils.loadLayoutValue(layout, "WidthInventory", layoutDefaults.WidthInventory)
-        layoutConfig.Height = LayoutUtils.loadLayoutValue(layout, "Height", layoutDefaults.Height)
-        layoutConfig.WidthSell = LayoutUtils.loadLayoutValue(layout, "WidthSell", layoutDefaults.WidthSell)
-        layoutConfig.WidthLoot = LayoutUtils.loadLayoutValue(layout, "WidthLoot", layoutDefaults.WidthLoot)
-        layoutConfig.WidthBankPanel = LayoutUtils.loadLayoutValue(layout, "WidthBankPanel", layoutDefaults.WidthBankPanel)
-        layoutConfig.HeightBank = LayoutUtils.loadLayoutValue(layout, "HeightBank", layoutDefaults.HeightBank)
-        layoutConfig.BankWindowX = LayoutUtils.loadLayoutValue(layout, "BankWindowX", layoutDefaults.BankWindowX)
-        layoutConfig.BankWindowY = LayoutUtils.loadLayoutValue(layout, "BankWindowY", layoutDefaults.BankWindowY)
-        layoutConfig.WidthAugmentsPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentsPanel", layoutDefaults.WidthAugmentsPanel)
-        layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
-        layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)
-        layoutConfig.AugmentsWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowY", layoutDefaults.AugmentsWindowY)
-        layoutConfig.WidthMythicalsPanel = LayoutUtils.loadLayoutValue(layout, "WidthMythicalsPanel", layoutDefaults.WidthMythicalsPanel)
-        layoutConfig.HeightMythicals = LayoutUtils.loadLayoutValue(layout, "HeightMythicals", layoutDefaults.HeightMythicals)
-        layoutConfig.MythicalsWindowX = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowX", layoutDefaults.MythicalsWindowX)
-        layoutConfig.MythicalsWindowY = LayoutUtils.loadLayoutValue(layout, "MythicalsWindowY", layoutDefaults.MythicalsWindowY)
-        layoutConfig.CommandCenterWindowX = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowX", layoutDefaults.CommandCenterWindowX)
-        layoutConfig.CommandCenterWindowY = LayoutUtils.loadLayoutValue(layout, "CommandCenterWindowY", layoutDefaults.CommandCenterWindowY)
-        layoutConfig.WidthFavoritesPanel = LayoutUtils.loadLayoutValue(layout, "WidthFavoritesPanel", layoutDefaults.WidthFavoritesPanel)
-        layoutConfig.HeightFavorites = LayoutUtils.loadLayoutValue(layout, "HeightFavorites", layoutDefaults.HeightFavorites)
-        layoutConfig.FavoritesWindowX = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowX", layoutDefaults.FavoritesWindowX)
-        layoutConfig.FavoritesWindowY = LayoutUtils.loadLayoutValue(layout, "FavoritesWindowY", layoutDefaults.FavoritesWindowY)
-        layoutConfig.WidthEffectsPanel = LayoutUtils.loadLayoutValue(layout, "WidthEffectsPanel", layoutDefaults.WidthEffectsPanel)
-        layoutConfig.HeightEffects = LayoutUtils.loadLayoutValue(layout, "HeightEffects", layoutDefaults.HeightEffects)
-        layoutConfig.EffectsWindowX = LayoutUtils.loadLayoutValue(layout, "EffectsWindowX", layoutDefaults.EffectsWindowX)
-        layoutConfig.EffectsWindowY = LayoutUtils.loadLayoutValue(layout, "EffectsWindowY", layoutDefaults.EffectsWindowY)
-        layoutConfig.EffectsCompact = LayoutUtils.loadLayoutValue(layout, "EffectsCompact", 0)
-        uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
-        uiState.nativeItemDisplayReplace = LayoutUtils.loadLayoutValue(layout, "NativeItemDisplayReplace", (layoutDefaults.NativeItemDisplayReplace or 1) == 1)
-        registry.setPinnedFromCSV(LayoutUtils.loadLayoutValue(layout, "PinnedWindows", ""))
-        layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
-        layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
-        layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)
-        layoutConfig.HeightItemDisplay = LayoutUtils.loadLayoutValue(layout, "HeightItemDisplay", layoutDefaults.HeightItemDisplay)
-        layoutConfig.AugmentUtilityWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowX", layoutDefaults.AugmentUtilityWindowX)
-        layoutConfig.AugmentUtilityWindowY = LayoutUtils.loadLayoutValue(layout, "AugmentUtilityWindowY", layoutDefaults.AugmentUtilityWindowY)
-        layoutConfig.WidthAugmentUtilityPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentUtilityPanel", layoutDefaults.WidthAugmentUtilityPanel)
-        layoutConfig.HeightAugmentUtility = LayoutUtils.loadLayoutValue(layout, "HeightAugmentUtility", layoutDefaults.HeightAugmentUtility)
-        layoutConfig.WidthLootPanel = LayoutUtils.loadLayoutValue(layout, "WidthLootPanel", layoutDefaults.WidthLootPanel)
-        layoutConfig.HeightLoot = LayoutUtils.loadLayoutValue(layout, "HeightLoot", layoutDefaults.HeightLoot)
-        layoutConfig.LootWindowX = LayoutUtils.loadLayoutValue(layout, "LootWindowX", layoutDefaults.LootWindowX)
-        layoutConfig.LootWindowY = LayoutUtils.loadLayoutValue(layout, "LootWindowY", layoutDefaults.LootWindowY)
-        layoutConfig.LootUIFirstTipSeen = LayoutUtils.loadLayoutValue(layout, "LootUIFirstTipSeen", layoutDefaults.LootUIFirstTipSeen or 0)
-        layoutConfig.WidthAAPanel = LayoutUtils.loadLayoutValue(layout, "WidthAAPanel", layoutDefaults.WidthAAPanel)
-        layoutConfig.HeightAA = LayoutUtils.loadLayoutValue(layout, "HeightAA", layoutDefaults.HeightAA)
-        layoutConfig.AAWindowX = LayoutUtils.loadLayoutValue(layout, "AAWindowX", layoutDefaults.AAWindowX)
-        layoutConfig.AAWindowY = LayoutUtils.loadLayoutValue(layout, "AAWindowY", layoutDefaults.AAWindowY)
-        layoutConfig.ShowAAWindow = LayoutUtils.loadLayoutValue(layout, "ShowAAWindow", layoutDefaults.ShowAAWindow)
-        layoutConfig.ShowEquipmentWindow = LayoutUtils.loadLayoutValue(layout, "ShowEquipmentWindow", layoutDefaults.ShowEquipmentWindow)
-        layoutConfig.EquipmentWindowX = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowX", layoutDefaults.EquipmentWindowX or 191)
-        layoutConfig.EquipmentWindowY = LayoutUtils.loadLayoutValue(layout, "EquipmentWindowY", layoutDefaults.EquipmentWindowY or 31)
-        layoutConfig.WidthEquipmentPanel = LayoutUtils.loadLayoutValue(layout, "WidthEquipmentPanel", layoutDefaults.WidthEquipmentPanel or 261)
-        layoutConfig.HeightEquipment = LayoutUtils.loadLayoutValue(layout, "HeightEquipment", layoutDefaults.HeightEquipment or 497)
-        layoutConfig.ShowBankWindow = LayoutUtils.loadLayoutValue(layout, "ShowBankWindow", layoutDefaults.ShowBankWindow)
-        layoutConfig.ShowAugmentsWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentsWindow", layoutDefaults.ShowAugmentsWindow)
-        layoutConfig.ShowAugmentUtilityWindow = LayoutUtils.loadLayoutValue(layout, "ShowAugmentUtilityWindow", layoutDefaults.ShowAugmentUtilityWindow)
-        layoutConfig.ShowItemDisplayWindow = LayoutUtils.loadLayoutValue(layout, "ShowItemDisplayWindow", layoutDefaults.ShowItemDisplayWindow)
-        layoutConfig.ShowConfigWindow = LayoutUtils.loadLayoutValue(layout, "ShowConfigWindow", layoutDefaults.ShowConfigWindow)
-        layoutConfig.ShowRerollWindow = LayoutUtils.loadLayoutValue(layout, "ShowRerollWindow", layoutDefaults.ShowRerollWindow)
-        layoutConfig.AABackupPath = (layout["AABackupPath"] and layout["AABackupPath"] ~= "") and layout["AABackupPath"] or (layoutDefaults.AABackupPath or "")
-        layoutConfig.WidthRerollPanel = LayoutUtils.loadLayoutValue(layout, "WidthRerollPanel", layoutDefaults.WidthRerollPanel)
-        layoutConfig.HeightReroll = LayoutUtils.loadLayoutValue(layout, "HeightReroll", layoutDefaults.HeightReroll)
-        layoutConfig.RerollWindowX = LayoutUtils.loadLayoutValue(layout, "RerollWindowX", layoutDefaults.RerollWindowX or 0)
-        layoutConfig.RerollWindowY = LayoutUtils.loadLayoutValue(layout, "RerollWindowY", layoutDefaults.RerollWindowY or 0)
-        layoutConfig.WidthConfig = LayoutUtils.loadLayoutValue(layout, "WidthConfig", constants.VIEWS.WidthConfig)
-        layoutConfig.HeightConfig = LayoutUtils.loadLayoutValue(layout, "HeightConfig", 420)
-        uiState.suppressWhenLootMac = LayoutUtils.loadLayoutValue(layout, "SuppressWhenLootMac", layoutDefaults.SuppressWhenLootMac == 1)
-        uiState.enableRealTimeLoot = LayoutUtils.loadLayoutValue(layout, "EnableRealTimeLoot", (layoutDefaults.EnableRealTimeLoot or 0) == 1)
-        uiState.enableLootHistory = LayoutUtils.loadLayoutValue(layout, "EnableLootHistory", (layoutDefaults.EnableLootHistory or 0) == 1)
-        uiState.enableSkipHistory = LayoutUtils.loadLayoutValue(layout, "EnableSkipHistory", (layoutDefaults.EnableSkipHistory or 0) == 1)
-        uiState.confirmBeforeDelete = LayoutUtils.loadLayoutValue(layout, "ConfirmBeforeDelete", (layoutDefaults.ConfirmBeforeDelete or 1) == 1)
-        uiState.nativeMerchantStrip = LayoutUtils.loadLayoutValue(layout, "NativeMerchantStrip", (layoutDefaults.NativeMerchantStrip or 1) == 1)
-        layoutConfig.ActivationGuardEnabled = LayoutUtils.loadLayoutValue(layout, "ActivationGuardEnabled", (layoutDefaults.ActivationGuardEnabled or 1) == 1)
-        layoutConfig.ItemUIToggleKey = LayoutUtils.loadLayoutValue(layout, "ItemUIToggleKey", layoutDefaults.ItemUIToggleKey or "shift+q")
-        local ct = LayoutUtils.loadLayoutValue(layout, "ConfigTab", 1)
-        -- Tabs 1-5 (5 = Advanced); legacy 10-12 map to 1
-        filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 5) and ct or 1
-        local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
-        filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
-        local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")
-        sortState.invColumn = (type(invCol) == "string" and invCol ~= "") and invCol or "Name"
-        local invDir = LayoutUtils.loadLayoutValue(layout, "InvSortDirection", ImGuiSortDirection.Ascending)
-        sortState.invDirection = (type(invDir) == "number") and invDir or ImGuiSortDirection.Ascending
-        -- Load Inventory column order (new feature)
-        local invColOrder = layout["InvColumnOrder"]
-        if invColOrder and invColOrder ~= "" then
-            sortState.invColumnOrder = {}
-            for colKey in invColOrder:gmatch("([^/]+)") do
-                table.insert(sortState.invColumnOrder, colKey:match("^%s*(.-)%s*$"))
-            end
-        else
-            sortState.invColumnOrder = nil  -- Use default ordering
-        end
-        local sellCol = LayoutUtils.loadLayoutValue(layout, "SellSortColumn", "Name")
-        sortState.sellColumn = (type(sellCol) == "string" and sellCol ~= "") and sellCol or "Name"
-        local sellDir = LayoutUtils.loadLayoutValue(layout, "SellSortDirection", ImGuiSortDirection.Ascending)
-        sortState.sellDirection = (type(sellDir) == "number") and sellDir or ImGuiSortDirection.Ascending
-        local bankCol = LayoutUtils.loadLayoutValue(layout, "BankSortColumn", "Name")
-        sortState.bankColumn = (type(bankCol) == "string" and bankCol ~= "") and bankCol or "Name"
-        local bankDir = LayoutUtils.loadLayoutValue(layout, "BankSortDirection", ImGuiSortDirection.Ascending)
-        sortState.bankDirection = (type(bankDir) == "number") and bankDir or ImGuiSortDirection.Ascending
-        -- Load Bank column order from cached layout
-        local bankColOrder = layout["BankColumnOrder"]
-        if bankColOrder and bankColOrder ~= "" then
-            sortState.bankColumnOrder = {}
-            for colKey in bankColOrder:gmatch("([^/]+)") do
-                table.insert(sortState.bankColumnOrder, colKey:match("^%s*(.-)%s*$"))
-            end
-        else
-            sortState.bankColumnOrder = nil  -- Use default ordering
-        end
-        local aaCol = LayoutUtils.loadLayoutValue(layout, "AASortColumn", "Title")
-        sortState.aaColumn = (type(aaCol) == "string" and aaCol ~= "") and aaCol or "Title"
-        local aaDir = LayoutUtils.loadLayoutValue(layout, "AASortDirection", ImGuiSortDirection.Ascending)
-        sortState.aaDirection = (type(aaDir) == "number") and aaDir or ImGuiSortDirection.Ascending
-        local aaTab = LayoutUtils.loadLayoutValue(layout, "AALastTab", 1)
-        sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
-        LayoutUtils.applyColumnVisibilityFromParsed(perfCache.layoutCached)
-        local e = mq.gettime() - t0
-        dbg.log(string.format("Loaded from CACHE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
-        if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
-            print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
-        end
-        return
-    end
-    -- Single file read: parse all sections at once (avoids 3x I/O on every UI open)
-    dbg.log("Loading layout from FILE (cache miss or invalidated)")
-    local parsed = LayoutUtils.parseLayoutFileFull()
-    perfCache.layoutCached = parsed
-    perfCache.layoutNeedsReload = false
-    LayoutUtils.initColumnVisibility()
-    LayoutUtils.applyDefaultsFromParsed(parsed)
     local layout = parsed.layout or {}
     uiState.alignToContext = LayoutUtils.loadLayoutValue(layout, "AlignToContext", layoutDefaults.AlignToContext == 1)
     uiState.uiLocked = LayoutUtils.loadLayoutValue(layout, "UILocked", layoutDefaults.UILocked == 1)
@@ -634,21 +511,21 @@ function LayoutUtils.loadLayoutConfig()
     filterState.configTab = (type(ct) == "number" and ct >= 1 and ct <= 5) and ct or 1
     local fst = LayoutUtils.loadLayoutValue(layout, "FilterSubTab", 1)
     filterState.filterSubTab = (type(fst) == "number" and fst >= 1 and fst <= 3) and fst or 1
-        local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")
-        sortState.invColumn = (type(invCol) == "string" and invCol ~= "") and invCol or "Name"
-        local invDir = LayoutUtils.loadLayoutValue(layout, "InvSortDirection", ImGuiSortDirection.Ascending)
-        sortState.invDirection = (type(invDir) == "number") and invDir or ImGuiSortDirection.Ascending
-        -- Load Inventory column order (new feature)
-        local invColOrder = layout["InvColumnOrder"]
-        if invColOrder and invColOrder ~= "" then
-            sortState.invColumnOrder = {}
-            for colKey in invColOrder:gmatch("([^/]+)") do
-                table.insert(sortState.invColumnOrder, colKey:match("^%s*(.-)%s*$"))
-            end
-        else
-            sortState.invColumnOrder = nil  -- Use default ordering
+    local invCol = LayoutUtils.loadLayoutValue(layout, "InvSortColumn", "Name")
+    sortState.invColumn = (type(invCol) == "string" and invCol ~= "") and invCol or "Name"
+    local invDir = LayoutUtils.loadLayoutValue(layout, "InvSortDirection", ImGuiSortDirection.Ascending)
+    sortState.invDirection = (type(invDir) == "number") and invDir or ImGuiSortDirection.Ascending
+    -- Load Inventory column order (new feature)
+    local invColOrder = layout["InvColumnOrder"]
+    if invColOrder and invColOrder ~= "" then
+        sortState.invColumnOrder = {}
+        for colKey in invColOrder:gmatch("([^/]+)") do
+            table.insert(sortState.invColumnOrder, colKey:match("^%s*(.-)%s*$"))
         end
-        local sellCol = LayoutUtils.loadLayoutValue(layout, "SellSortColumn", "Name")
+    else
+        sortState.invColumnOrder = nil  -- Use default ordering
+    end
+    local sellCol = LayoutUtils.loadLayoutValue(layout, "SellSortColumn", "Name")
     sortState.sellColumn = (type(sellCol) == "string" and sellCol ~= "") and sellCol or "Name"
     local sellDir = LayoutUtils.loadLayoutValue(layout, "SellSortDirection", ImGuiSortDirection.Ascending)
     sortState.sellDirection = (type(sellDir) == "number") and sellDir or ImGuiSortDirection.Ascending
@@ -672,13 +549,54 @@ function LayoutUtils.loadLayoutConfig()
     sortState.aaDirection = (type(aaDir) == "number") and aaDir or ImGuiSortDirection.Ascending
     local aaTab = LayoutUtils.loadLayoutValue(layout, "AALastTab", 1)
     sortState.aaTab = (type(aaTab) == "number" and aaTab >= 1 and aaTab <= 4) and aaTab or 1
+    -- Dock / bars mode. UIMode gates the whole feature: "classic" must render exactly what
+    -- master renders. Every string key here is listed in layout_io STRING_KEYS — without
+    -- that it would read back as its default no matter what is in the file.
+    layoutConfig.UIMode = LayoutUtils.loadLayoutValue(layout, "UIMode", layoutDefaults.UIMode or "classic")
+    layoutConfig.DockTop = LayoutUtils.loadLayoutValue(layout, "DockTop", (layoutDefaults.DockTop or 1) == 1)
+    layoutConfig.DockBottom = LayoutUtils.loadLayoutValue(layout, "DockBottom", (layoutDefaults.DockBottom or 1) == 1)
+    layoutConfig.DockPosition = LayoutUtils.loadLayoutValue(layout, "DockPosition", layoutDefaults.DockPosition or "top")
+    layoutConfig.DockChat = LayoutUtils.loadLayoutValue(layout, "DockChat", layoutDefaults.DockChat or "collapsed")
+    layoutConfig.DockSegments = LayoutUtils.loadLayoutValue(layout, "DockSegments", layoutDefaults.DockSegments)
+    layoutConfig.DockLaunchers = LayoutUtils.loadLayoutValue(layout, "DockLaunchers", layoutDefaults.DockLaunchers)
+    layoutConfig.DockNative = LayoutUtils.loadLayoutValue(layout, "DockNative", layoutDefaults.DockNative)
+    layoutConfig.ZoneAssign = LayoutUtils.loadLayoutValue(layout, "ZoneAssign", layoutDefaults.ZoneAssign or "")
+    layoutConfig.WindowAttach = LayoutUtils.loadLayoutValue(layout, "WindowAttach", layoutDefaults.WindowAttach or "")
+    layoutConfig.LayoutPreset = LayoutUtils.loadLayoutValue(layout, "LayoutPreset", layoutDefaults.LayoutPreset or "")
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
+end
+
+function LayoutUtils.loadLayoutConfig()
+    local perfCache = LayoutUtils.perfCache
+    local sortState = LayoutUtils.sortState
+    local t0 = mq.gettime()
+    -- Skip parse if config unchanged (perfCache.layoutNeedsReload set when we save)
+    if not perfCache.layoutNeedsReload and perfCache.layoutCached then
+        dbg.log("Loading layout from CACHE")
+        LayoutUtils.initColumnVisibility()
+        LayoutUtils.applyDefaultsFromParsed(perfCache.layoutCached)
+        applyLayoutSection(perfCache.layoutCached)
+        local e = mq.gettime() - t0
+        dbg.log(string.format("Loaded from CACHE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
+        if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
+            print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (cached): %d ms", e))
+        end
+        return
+    end
+    -- Single file read: parse all sections at once (avoids 3x I/O on every UI open)
+    dbg.log("Loading layout from FILE (cache miss or invalidated)")
+    local parsed = LayoutUtils.parseLayoutFileFull()
+    perfCache.layoutCached = parsed
+    perfCache.layoutNeedsReload = false
+    LayoutUtils.initColumnVisibility()
+    LayoutUtils.applyDefaultsFromParsed(parsed)
+    applyLayoutSection(parsed)
     local e = mq.gettime() - t0
     dbg.log(string.format("Loaded from FILE - InvSort: %s/%d", tostring(sortState.invColumn), sortState.invDirection))
-        if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
-            print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
-        end
+    if debugModule.isProfileEnabled() and e >= debugModule.getProfileThresholdMs() then
+        print(string.format("\ag[CoOpt UI Profile]\ax loadLayoutConfig (file read): %d ms", e))
     end
+end
 
 --- Normalize key combo for MQ2 /bind: "Shift C" -> "shift+c". MQ2 expects modifier+key with +; modifiers lowercase.
 local function normalizeBindKey(input)

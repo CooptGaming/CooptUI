@@ -116,6 +116,20 @@ do
     layoutDefaults.ConfirmBeforeDelete = 1
     layoutDefaults.ActivationGuardEnabled = 1
     layoutDefaults.ItemUIToggleKey = "shift+q"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind
+    -- Dock / bars mode. UIMode stays "classic" until the first-run rework ships: classic must
+    -- render exactly what master renders, so an existing install sees no change until the user
+    -- opts in from Settings -> Dock. The Dock* keys below only matter once UIMode is "bars".
+    layoutDefaults.UIMode = "classic"
+    layoutDefaults.DockTop = 1
+    layoutDefaults.DockBottom = 1
+    layoutDefaults.DockPosition = "top"
+    layoutDefaults.DockChat = "collapsed"
+    layoutDefaults.DockSegments = "status,bags,sell,loot,buffs,xp,session"
+    layoutDefaults.DockLaunchers = "bags,bank,equipment,augments,reroll,aa"
+    layoutDefaults.DockNative = "inventory,merchant"
+    layoutDefaults.ZoneAssign = ""
+    layoutDefaults.WindowAttach = ""
+    layoutDefaults.LayoutPreset = ""
 end
 
 local layoutConfig = {}
