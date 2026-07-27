@@ -1525,6 +1525,20 @@ foreach ($t in $targets) {
                     Write-Ok 'Config tree copied'
                 }
 
+                # 0c2: E3 seed config. E3Next READS several "e3 Macro Inis" files at
+                # type-init without creating them (SavedGroupDataFile et al. call
+                # IniParser.ReadFile directly), so a bundle without these seeds
+                # crashes E3 at first login ("type initializer for Basics threw").
+                # The stock E3NextAndMQNextBinary distribution ships them; from-source
+                # bundles must too. Pristine, character-neutral set in the repo.
+                $e3Seed = Join-Path $RepoRoot 'resources\e3_seed_config\e3 Macro Inis'
+                if (Test-Path $e3Seed) {
+                    $e3SeedDst = Join-Path $staging 'config\e3 Macro Inis'
+                    New-Item -ItemType Directory -Path $e3SeedDst -Force | Out-Null
+                    Copy-Item (Join-Path $e3Seed '*') -Destination $e3SeedDst -Recurse -Force
+                    Write-Ok 'E3 seed config staged (config\e3 Macro Inis)'
+                }
+
                 # 0d: Macros tree (all .mac files + config subdirs)
                 $repoMacros = Join-Path $RepoRoot 'Macros'
                 if (Test-Path $repoMacros) {

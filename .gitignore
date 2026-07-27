@@ -76,8 +76,9 @@ Macros/shared_config/*.ini
 Macros/bank_data/
 Macros/logs/
 
-# --- resources: only ItemUI-related UI files ---
+# --- resources: only ItemUI-related UI files + E3 seed config ---
 resources/*
+!resources/e3_seed_config/
 !resources/UIFiles/
 resources/UIFiles/*
 !resources/UIFiles/Default/
