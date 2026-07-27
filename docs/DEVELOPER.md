@@ -196,34 +196,85 @@ Lua has a 200-local limit per scope. Instead of 200 individual `local` variables
 
 ## Build & Release
 
-### Build Script
+### Prerequisites
 
-`scripts/build-release.ps1` packages the release zip:
+Everything the from-source build needs is third-party and separately licensed, so **none of it
+can be shipped with CoOpt UI** — it has to be installed from the vendor. All of it is free.
+
+Check your machine before you start:
 
 ```powershell
-.\scripts\build-release.ps1 -Version "0.2.0-alpha"
+.\Build-Smart.ps1 -CheckPrereqs
 ```
 
-The zip includes:
-- `lua/itemui/`, `lua/scripttracker/`, `lua/coopui/`, `lua/mq/ItemUtils.lua`
-- `Macros/sell.mac`, `Macros/loot.mac`, `Macros/shared_config/*.mac`
-- `config_templates/` (INI templates for first-time install)
-- `resources/UIFiles/Default/` (UI files)
-- `DEPLOY.md`, `CHANGELOG.md`
+That reports what is missing, why it is needed and where to download it, then exits `0` (ready)
+or `1` (something missing). It does not need `-OutputDir`, and it only checks what the selected
+`-Target` actually uses. Add `-Target FullBundle -Release` to check the full release toolchain.
 
-Dev files excluded: `lua/itemui/docs/`, `upvalue_check.lua`.
+| Tool | Needed for | Notes |
+|------|-----------|-------|
+| **Git** | Stage 1 clones MacroQuest, MQ2Mono, MQ2Mono-Framework32 and E3Next | [git-scm.com/download/win](https://git-scm.com/download/win) |
+| **CMake 3.x — *not* 4.x** | Configuring MacroQuest and its vcpkg dependencies | **This is the one that catches people.** CMake 4.x rejects the `cmake_minimum_required(<3.5)` still used by several vcpkg portfiles, so the dependency build cannot configure. Get 3.30.x from [cmake.org/download](https://cmake.org/download/) (under "Older Releases") or [the v3.30.5 release](https://github.com/Kitware/CMake/releases/tag/v3.30.5). The ZIP needs no install — extract it and pass `-CMakePath "…\bin\cmake.exe"`. A 4.x CMake elsewhere on PATH is fine; `-CMakePath` wins. |
+| **Visual Studio 2022** with *Desktop development with C++* | MacroQuest, the MQ2CoOptUI plugin, all vcpkg ports | Community edition is enough: [visualstudio.microsoft.com/vs/community](https://visualstudio.microsoft.com/vs/community/). **VS 2026 / VS 18 alone is not sufficient** — see the toolset pin below. |
+| **MSVC toolset `14.44.35207`** | The ABI pin | The build forces this exact toolset so vcpkg's port builds and the final link use the **same STL**. A newer toolset (e.g. 14.50 from VS 18) resolves symbols absent from the older `libcpmt.lib`, and the build dies at link time with `LNK1120` — long after the real cause, and looking like a source bug. Install via **Visual Studio Installer → Modify → Individual components → "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44)"**. It installs alongside existing toolsets. |
+| **.NET SDK** | E3Next and MQ2Mono (Stage 2b) | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). The C++ workload does **not** include this. |
+| **Python 3** | Release manifests (`patcher/generate_manifest.py`) and the PyInstaller patcher exe | [python.org/downloads/windows](https://www.python.org/downloads/windows/) — tick "Add python.exe to PATH". |
+| **GitHub CLI (`gh`)**, authenticated | `-Release` only: tags, creates the release, uploads assets | [cli.github.com](https://cli.github.com/), then `gh auth login`. |
+| *Developer Mode* (advisory) | Stage 1 symlinks `plugin\MQ2CoOptUI` into the MacroQuest clone | Settings → System → For developers. Without it the build falls back to a junction, which usually works — hence advisory, not blocking. |
+| *.NET Framework 4.8 Dev Pack* (advisory) | Only `E3NextSysTray` | Without it that one project fails with `MSB3103`. **This is expected and tolerated** — `E3.dll` still builds and packages. |
+
+`-Target CoOptOnly` needs **none** of the above: it only copies Lua/macros and zips them.
+
+`-SkipPrereqCheck` runs the checks without stopping on them. Escape hatch only — the build will
+almost certainly fail later.
+
+### Build Script
+
+`Build-Smart.ps1` (repo root) is the single entry point. It self-clones MacroQuest, MQ2Mono and
+E3Next into `<OutputDir>\.mq-source`, so **keep `-OutputDir` outside the repo folder.**
+
+```powershell
+.\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy"                     # full EMU bundle
+.\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Target CoOptOnly   # Lua/macros only (fast)
+.\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Force              # ignore the stage cache
+```
+
+Stages: **0** prerequisites → **1** source environment → **2** MacroQuest + plugin → **2b** E3Next
+→ **2c** patcher exe → **3** CoOpt source check → **4** assemble/zip → **5** release.
+
+Incremental rebuilds hash each stage's inputs and skip unchanged work (`.build_state.json` in
+`OutputDir`). If you change a shipped file and the build says "Changed: none (all cached)", the
+stage hash is missing that file — see `Get-CoOptUISourceHash`.
+
+The CoOpt payload is: `lua/itemui/`, `lua/scripttracker/`, `lua/coopui/`, `lua/mq/ItemUtils.lua`,
+`lua/coopt_launcher.lua`, `uifiles/coopt/` (the native skin), `Macros/sell.mac`, `Macros/loot.mac`,
+`Macros/shared_config/*.mac`, `config_templates/`, `resources/UIFiles/Default/`, `DEPLOY.md`,
+`CHANGELOG.md`. Dev files excluded: `lua/itemui/docs/`, `upvalue_check.lua`.
+
+`build/build.py` is an older Python build path, kept for reference — **not** current.
 
 ### Release Workflow
 
-`.github/workflows/release.yml` triggers on `v*` tags:
+Releases are cut **locally**, not by CI:
 
-1. Strips `v` prefix from tag name
-2. Runs `build-release.ps1` with the version
-3. Creates a draft GitHub release with the zip attached
-
-```bash
-git tag v0.2.0-alpha && git push origin v0.2.0-alpha
+```powershell
+.\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Release
 ```
+
+That regenerates manifests, commits, tags, pushes, and creates a **draft** GitHub release with the
+EMU bundle, patcher zip, patcher exe and plugin DLL. Publish it with:
+
+```powershell
+gh release edit vX.Y.Z --title "CoOpt UI vX.Y.Z" --notes-file notes.md --draft=false --latest
+```
+
+`.github/workflows/release.yml` is **manual dispatch only** and builds *only* the patcher exe. It
+is deliberately not tag-triggered: GitHub-hosted runners ship CMake 4.x and cannot build the
+bundle. See the comment at the top of that file, and `docs/RELEASE_AND_DEPLOYMENT.md`.
+
+> **Regenerate manifests only at release.** Clients fetch `release_manifest.json` from raw
+> `master`, so a manifest regenerated mid-development advertises hashes for files that are not
+> published yet.
 
 ### Release checklist (see .cursor/rules/release.mdc)
 
