@@ -27,7 +27,14 @@ import urllib.request
 import zipfile
 from typing import Callable, Optional
 
-from fresh_install import get_latest_release_zip_url
+from fresh_install import BASE_BUNDLE_NAME, BASE_BUNDLE_ZIP_URL, get_latest_release_zip_url
+from updater import (
+    check_for_default_config,
+    check_for_updates,
+    install_default_config,
+    patch,
+    write_installed_version,
+)
 
 ProgressCb = Optional[Callable[[str, float], None]]
 
@@ -145,11 +152,20 @@ def _download_zip(url: str, progress_cb: ProgressCb = None) -> str:
                         break
                     out.write(chunk)
                     done += len(chunk)
-                    if progress_cb and total:
-                        progress_cb(
-                            f"Downloading... {done // 1048576}MB / {total // 1048576}MB",
-                            min(done / total * 0.5, 0.5),
-                        )
+                    if progress_cb:
+                        if total:
+                            progress_cb(
+                                f"Downloading... {done // 1048576}MB / {total // 1048576}MB",
+                                min(done / total * 0.5, 0.5),
+                            )
+                        elif done % (8 * 1048576) < 65536:
+                            # No Content-Length (e.g. GitHub zipball streams chunked):
+                            # show a byte counter with a slow creep so a large download
+                            # doesn't look hung. Sized against ~1GB; clamps below 0.5.
+                            progress_cb(
+                                f"Downloading... {done // 1048576}MB",
+                                min(0.02 + (done / (1024 * 1048576)) * 0.45, 0.48),
+                            )
         return tmp_path
     except BaseException:
         if tmp_fd >= 0:
@@ -162,6 +178,23 @@ def _download_zip(url: str, progress_cb: ProgressCb = None) -> str:
         except OSError:
             pass
         raise
+
+
+def _long_path(p: str) -> str:
+    """
+    Extended-length form (\\\\?\\...) so file ops survive Windows' 260-char
+    MAX_PATH. The base bundle nests Mono files ~200 chars deep; add the temp
+    extract prefix and paths blow past the limit on stock systems (WinError 3).
+    Absolute-izes first ( \\\\?\\ requires absolute, backslash paths).
+    """
+    if os.name != "nt":
+        return p
+    p = os.path.abspath(p)
+    if p.startswith("\\\\?\\"):
+        return p
+    if p.startswith("\\\\"):  # UNC share -> \\?\UNC\server\share\...
+        return "\\\\?\\UNC" + p[1:]
+    return "\\\\?\\" + p
 
 
 def _bundle_source_root(extract_dir: str) -> str:
@@ -189,22 +222,28 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
     os.makedirs(target_dir, exist_ok=True)
     written = 0
     preserved = 0
-    with tempfile.TemporaryDirectory(prefix="coopui_bundle_") as tmp:
+    # Manual temp dir + extended-path rmtree: TemporaryDirectory's own cleanup walks
+    # the SHORT path and dies on the deep Mono tree (same MAX_PATH problem).
+    tmp = tempfile.mkdtemp(prefix="coopui_bundle_")
+    try:
         # Extract member-by-member so the UI shows progress instead of freezing on one
         # big extractall. Extraction covers 0.5→0.75 of the bar; the copy pass 0.75→1.0.
+        # All paths go through _long_path: the temp prefix + the bundle's deep Mono
+        # tree exceed MAX_PATH otherwise.
+        tmp_ext = _long_path(tmp)
         with zipfile.ZipFile(zip_path, "r") as zf:
             members = zf.namelist()
             n_members = len(members)
             for i, member in enumerate(members):
                 if member.endswith("/"):
                     continue
-                zf.extract(member, tmp)
+                zf.extract(member, tmp_ext)
                 if progress_cb and n_members:
                     progress_cb(
                         f"Extracting: {member}",
                         0.5 + 0.25 * (i + 1) / n_members,
                     )
-        src_root = _bundle_source_root(tmp)
+        src_root = _bundle_source_root(tmp_ext)
 
         files = []
         for dirpath, _dirs, filenames in os.walk(src_root):
@@ -218,18 +257,19 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
         for i, (full, rel) in enumerate(files):
             rel_norm = rel.replace("\\", "/")
             dest = os.path.join(target_dir, rel)
+            dest_ext = _long_path(dest)
             if rel_norm.lower() == "config/macroquest.ini":
                 macroquest_ini = dest
-            if os.path.exists(dest) and should_preserve(rel_norm):
+            if os.path.exists(dest_ext) and should_preserve(rel_norm):
                 preserved += 1
             else:
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                os.makedirs(os.path.dirname(dest_ext), exist_ok=True)
                 # Atomic install: copy to <dest>.tmp then os.replace, so a crash
                 # mid-copy can never leave a truncated target (e.g. MacroQuest.exe).
-                tmp_dest = dest + ".tmp"
+                tmp_dest = dest_ext + ".tmp"
                 try:
                     shutil.copy2(full, tmp_dest)
-                    os.replace(tmp_dest, dest)
+                    os.replace(tmp_dest, dest_ext)
                 except OSError:
                     try:
                         os.remove(tmp_dest)
@@ -240,8 +280,10 @@ def overlay_bundle(zip_path: str, target_dir: str, progress_cb: ProgressCb = Non
             if progress_cb and total:
                 progress_cb(f"Installing: {rel_norm}", 0.75 + 0.25 * (i + 1) / total)
 
-        if macroquest_ini and os.path.isfile(macroquest_ini):
+        if macroquest_ini and os.path.isfile(_long_path(macroquest_ini)):
             ensure_plugin_keys(macroquest_ini)
+    finally:
+        shutil.rmtree(_long_path(tmp), ignore_errors=True)
 
     return {"written": written, "preserved": preserved, "total": total}
 
@@ -293,29 +335,64 @@ def is_macroquest_running() -> bool:
     return False
 
 
-def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool, str]:
+def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb = None) -> tuple[bool, str]:
     """
-    Full install / repair: download the latest EMU bundle and overlay it onto `target_dir`,
-    preserving the user's config. Works for an empty folder, a vanilla MQ, the E3 distro, or
-    an existing CoOpt install. progress_cb(message, fraction_0_to_1).
-    """
-    if progress_cb:
-        progress_cb("Finding latest release...", 0.0)
-    url, version, err = get_latest_release_zip_url()
-    if err or not url:
-        return False, err or "No release bundle found on GitHub."
-    if "emu" not in url.lower():
-        return False, (
-            "The latest release has no full EMU bundle (only the CoOpt-UI-only zip). A full "
-            "install needs CoOptUI-EMU-*.zip published on the release."
-        )
+    Full install / repair in two phases — the same layering every working install in
+    the field has. progress_cb(message, fraction_0_to_1).
 
+      Phase 1  BASE environment: the stock E3NextAndMQNextBinary bundle (full
+               MacroQuest + Mono + E3 + the whole plugin ecosystem and its seed
+               configs). CoOpt's own EMU zip is only the FALLBACK when that
+               download fails — it carries just the from-source plugin subset,
+               which boots but lacks plugins E3 uses (MQ2AdvPath etc.).
+      Phase 2  CoOpt overlay via the release manifest — exactly what the update
+               path installs (Lua, macros, skin, MQ2CoOptUI.dll from the release
+               asset). Deliberately NO MacroQuest core binaries, so the base's MQ
+               family stays internally consistent (mixed plugin/core builds are a
+               crash vector).
+      Phase 3  Default config (create-if-missing) + installed-version marker.
+
+    Works for an empty folder, a vanilla MQ, the E3 distro, or an existing CoOpt
+    install (preserve rules keep user config in all cases).
+    """
+    def seg(lo: float, hi: float) -> ProgressCb:
+        def cb(msg: str, frac: float):
+            if progress_cb:
+                progress_cb(msg, lo + max(0.0, min(frac, 1.0)) * (hi - lo))
+        return cb
+
+    # --- Phase 1: base bundle ---
+    base_note = ""
     zip_path = None
     try:
-        zip_path = _download_zip(url, progress_cb)
-        summary = overlay_bundle(zip_path, target_dir, progress_cb)
+        if progress_cb:
+            progress_cb(f"Downloading base environment: {BASE_BUNDLE_NAME}...", 0.0)
+        try:
+            zip_path = _download_zip(BASE_BUNDLE_ZIP_URL, seg(0.0, 0.7))
+        except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
+            if getattr(e, "errno", None) == errno.ENOSPC:
+                return False, "Not enough disk space."
+            zip_path = None
+        if zip_path is None:
+            # Fallback: CoOpt's EMU zip (reduced plugin set, still runnable).
+            url, _ver, err = get_latest_release_zip_url()
+            if err or not url or "emu" not in (url or "").lower():
+                return False, (
+                    f"Could not download the base bundle ({BASE_BUNDLE_NAME}) and no "
+                    "CoOptUI-EMU-*.zip fallback was found on the release. Check your "
+                    "connection and try again."
+                )
+            base_note = (
+                "\n\nNOTE: the stock E3 base bundle could not be downloaded, so the reduced "
+                "CoOpt EMU bundle was installed instead (core plugins only). Run Install/"
+                "Repair again later to layer in the full plugin set."
+            )
+            if progress_cb:
+                progress_cb("Base unavailable - downloading CoOpt EMU bundle...", 0.0)
+            zip_path = _download_zip(url, seg(0.0, 0.7))
+        summary = overlay_bundle(zip_path, target_dir, seg(0.0, 0.7))
     except zipfile.BadZipFile:
-        return False, "Downloaded bundle is not a valid ZIP (the release may be corrupted)."
+        return False, "Downloaded bundle is not a valid ZIP (the download may be corrupted)."
     except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
         if getattr(e, "errno", None) == errno.ENOSPC:
             return False, "Not enough disk space."
@@ -327,7 +404,38 @@ def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool
             except OSError:
                 pass
 
-    # Catch a partial / locked extract before telling the user it worked.
+    # --- Phase 2: CoOpt overlay from the release manifest ---
+    p2 = seg(0.7, 0.95)
+    if progress_cb:
+        progress_cb("Applying CoOpt UI (release manifest)...", 0.7)
+    to_update, manifest_version, _changelog, err = check_for_updates(repo_base_url, target_dir)
+    if err:
+        return False, "Base environment installed, but the CoOpt overlay failed: " + err
+    coopt_written = 0
+    if to_update:
+        ok, msg, _skipped = patch(
+            to_update, repo_base_url, target_dir,
+            progress_callback=lambda i, t, p: p2(f"CoOpt: {p}", (i / t) if t else 1.0),
+        )
+        if not ok:
+            return False, "Base environment installed, but the CoOpt overlay failed: " + msg
+        coopt_written = len(to_update)
+
+    # --- Phase 3: defaults + version marker ---
+    p3 = seg(0.95, 1.0)
+    defaults_note = ""
+    defaults, derr = check_for_default_config(repo_base_url, target_dir)
+    if not derr and defaults:
+        ok, dmsg = install_default_config(
+            defaults, repo_base_url, target_dir,
+            progress_callback=lambda i, t, p: p3(f"Defaults: {p}", (i / t) if t else 1.0),
+        )
+        if not ok:
+            defaults_note = f"\n\nNOTE: default config install had a problem ({dmsg}) - the UI creates critical files on first run."
+    if manifest_version:
+        write_installed_version(target_dir, manifest_version)
+
+    # Catch a partial / locked install before telling the user it worked.
     missing = verify_install(target_dir)
     if missing:
         return False, (
@@ -338,7 +446,7 @@ def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool
 
     if progress_cb:
         progress_cb("Install complete!", 1.0)
-    vtag = f" (v{version})" if version else ""
+    vtag = f" (CoOpt UI v{manifest_version})" if manifest_version else ""
     mq_note = ""
     if is_macroquest_running():
         mq_note = (
@@ -347,8 +455,8 @@ def smart_install(target_dir: str, progress_cb: ProgressCb = None) -> tuple[bool
             'on "loop or previous error" until a restart.'
         )
     return True, (
-        f"Install/repair complete{vtag}: {summary['written']} files written, "
-        f"{summary['preserved']} user config file(s) preserved."
+        f"Install/repair complete{vtag}: {summary['written']} base files written, "
+        f"{coopt_written} CoOpt file(s) applied, {summary['preserved']} user config file(s) preserved."
         "\n\nNext: start MacroQuest fresh, then in-game run  /lua run itemui  "
-        "(and /lua run scripttracker)." + mq_note
+        "(and /lua run scripttracker)." + base_note + defaults_note + mq_note
     )

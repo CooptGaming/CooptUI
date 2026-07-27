@@ -1,14 +1,24 @@
 """
-Fresh install support: resolve the latest release ZIP URL from GitHub Releases.
+Fresh install support: URLs for the base environment and the CoOpt release ZIPs.
 
-The patcher prefers the full EMU ZIP (CoOptUI-EMU-*.zip) which contains MacroQuest + Mono +
-E3Next + CoOpt UI — everything needed to play. Falls back to the CoOpt-UI-only ZIP if the
-EMU ZIP is not available on the release. Download/extract is handled by installer.smart_install.
+A fresh install is layered exactly like every working install in the field:
+the stock E3NextAndMQNextBinary bundle (full MacroQuest + Mono + E3 + the whole
+plugin ecosystem and its configs) as the BASE, with CoOpt applied on top via the
+release manifest. CoOpt's own EMU ZIP (CoOptUI-EMU-*.zip) is only a fallback
+base — it carries just the from-source-built plugin subset (~16 plugins), which
+boots but is missing plugins E3 uses (MQ2AdvPath etc.). Download/extract is
+handled by installer.smart_install.
 """
 
 import json
 import urllib.error
 import urllib.request
+
+# The proven base environment: the E3NextAndMQNextBinary repo IS the binary
+# distribution (its main branch is the install), so the branch zipball is the
+# download. Static URL — no API call, no rate limiting.
+BASE_BUNDLE_ZIP_URL = "https://github.com/RekkasGit/E3NextAndMQNextBinary/archive/refs/heads/main.zip"
+BASE_BUNDLE_NAME = "E3NextAndMQNextBinary (main)"
 
 # GitHub API endpoints
 GITHUB_API_RELEASES = "https://api.github.com/repos/CooptGaming/CooptUI/releases/latest"
