@@ -538,7 +538,7 @@
     },
     {
       "path": "plugins/MQ2CoOptUI.dll",
-      "hash": "07fe5f53e488005224880c409828a686600c6392e676dd470cc5e071bd4033ee",
+      "hash": "73535fe5cb7690ee414f3743b5cb83b0607ed92a7f7eda5120766096f3f459d6",
       "url": "https://github.com/CooptGaming/CooptUI/releases/download/v0.9.8/MQ2CoOptUI.dll"
     }
   ]

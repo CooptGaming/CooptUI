@@ -846,6 +846,62 @@ if (Test-Path $mainCmake) {
     }
 }
 
+# --- #31: emu math-compat shims for legacy community plugins ---
+# RedGuides/community plugins (MQ2MoveUtils, MQ2AdvPath, MQ2LinkDB, MQ2NetBots,
+# MQ2GroupInfo, MQ2Mono) call math helpers live MQNext has but this emu vintage
+# lacks: GetDistance2D (float and spawn-pair forms), 6-arg GetDistance, and
+# spawn-pair GetDistance3D. Pure aliases over the helpers that DO exist.
+$inlinesH = Join-Path $MQClone "src\main\MQ2Inlines.h"
+$compatOld = "} // namespace mq"
+$compatNew = @"
+// COOPT #31: emu math-compat shims for legacy community plugins (pure aliases)
+inline float GetDistance2D(float X1, float Y1, float X2, float Y2)
+{
+	return GetDistance(X1, Y1, X2, Y2);
+}
+
+inline float GetDistance2D(SPAWNINFO* pSpawn1, SPAWNINFO* pSpawn2)
+{
+	return (pSpawn1 && pSpawn2) ? GetDistance(pSpawn1->X, pSpawn1->Y, pSpawn2->X, pSpawn2->Y) : 0.0f;
+}
+
+inline float GetDistance(float X1, float Y1, float Z1, float X2, float Y2, float Z2)
+{
+	return GetDistance3D(X1, Y1, Z1, X2, Y2, Z2);
+}
+
+inline float GetDistance3D(SPAWNINFO* pSpawn1, SPAWNINFO* pSpawn2)
+{
+	return (pSpawn1 && pSpawn2) ? GetDistance3D(pSpawn1->X, pSpawn1->Y, pSpawn1->Z, pSpawn2->X, pSpawn2->Y, pSpawn2->Z) : 0.0f;
+}
+
+} // namespace mq
+"@
+if (Replace-InFile $inlinesH $compatOld $compatNew "31") {
+    Write-Fix "31" "MQ2Inlines.h: emu math-compat shims (GetDistance2D / 6-arg GetDistance / spawn-pair GetDistance3D)"
+}
+
+# --- #31b: MQ2LinkDB generated vcxproj — vcpkg lib dir for bare .lib references ---
+# The vcxproj->CMake conversion keeps bare names (sqlite3.lib, zlib.lib, cpr.lib)
+# from the original project but the generated AdditionalLibraryDirectories lacks
+# the vcpkg tree, so the link dies with LNK1181 sqlite3.lib. Same pattern as #19c.
+if ($MQBuildDir) {
+    $linkdbVcxproj = Join-Path $MQBuildDir "plugins\MQ2LinkDB\MQ2LinkDB.vcxproj"
+    if (Test-Path $linkdbVcxproj) {
+        $content = Get-Content $linkdbVcxproj -Raw
+        $vcpkgLibRel = '..\..\vcpkg_installed\x86-windows-static\lib'
+        if ($content -notmatch [regex]::Escape($vcpkgLibRel + ';')) {
+            $content = $content -replace '(<AdditionalLibraryDirectories>)', "`$1$vcpkgLibRel;..\..\vcpkg_installed\x86-windows-static\debug\lib;"
+            Set-Content $linkdbVcxproj $content -NoNewline
+            Write-Fix "31b" "MQ2LinkDB.vcxproj: added vcpkg lib dirs (sqlite3.lib et al.)"
+        } else {
+            Write-Skip "31b" "MQ2LinkDB.vcxproj already has vcpkg lib dirs"
+        }
+    } else {
+        Write-Skip "31b" "Generated MQ2LinkDB.vcxproj not found (post-configure only)"
+    }
+}
+
 # Trigger reconfigure if any CMakeLists.txt was modified above (catches #30 too)
 if ($cmakeDirty -and $MQBuildDir -and (Test-Path (Join-Path $MQBuildDir 'CMakeCache.txt'))) {
     $mainVcxproj = Join-Path $MQBuildDir "src\main\MQ2Main.vcxproj"

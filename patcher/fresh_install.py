@@ -1,13 +1,13 @@
 """
 Fresh install support: URLs for the base environment and the CoOpt release ZIPs.
 
-A fresh install is layered exactly like every working install in the field:
-the stock E3NextAndMQNextBinary bundle (full MacroQuest + Mono + E3 + the whole
-plugin ecosystem and its configs) as the BASE, with CoOpt applied on top via the
-release manifest. CoOpt's own EMU ZIP (CoOptUI-EMU-*.zip) is only a fallback
-base — it carries just the from-source-built plugin subset (~16 plugins), which
-boots but is missing plugins E3 uses (MQ2AdvPath etc.). Download/extract is
-handled by installer.smart_install.
+The PRIMARY base is CoOpt's EMU ZIP (CoOptUI-EMU-*.zip): the complete,
+self-consistent MQ family — core, Mono, E3, and the full plugin ecosystem
+(nav/stick/advpath/casting + QoL set) compiled together in one solution, so
+MQ2CoOptUI is safe and enabled. The stock E3NextAndMQNextBinary main-branch
+zipball is the FALLBACK base when our release download fails; CoOpt runs in
+Lua mode there (foreign MQ family — our plugin must not load). Download and
+extraction are handled by installer.smart_install.
 """
 
 import json

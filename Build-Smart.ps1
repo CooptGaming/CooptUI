@@ -52,6 +52,28 @@ function Assert-FileExists {
     }
 }
 
+# Third-party plugin sources compiled IN-TREE against our MQ family (script scope:
+# Stage 1 clones them, Stage 2 reconfigures for missing targets and verifies DLLs).
+# Mixing prebuilt DLLs from a different MQ build is a proven crash vector
+# (MQ2CoOptUI inside the stock bundle corrupted its Lua runtime, 2026-07-26), so
+# every plugin builds from source in this solution, pinned like MQ itself. Bump
+# pins deliberately; MQ2Nav uses the dx9-compat branch (RoF2 emu client is DX9).
+$script:ThirdPartyPlugins = @(
+    @{ Name = 'MQ2MoveUtils'; Repo = 'https://github.com/RedGuides/MQ2MoveUtils.git'; Ref = '8b9b8574f749' }
+    @{ Name = 'MQ2Cast';      Repo = 'https://github.com/RedGuides/MQ2Cast.git';      Ref = 'b0a9acb68975' }
+    @{ Name = 'MQ2AdvPath';   Repo = 'https://github.com/RedGuides/MQ2AdvPath.git';   Ref = '0bad13f074ec' }
+    # MQ2Nav DEFERRED: dx9-compat vendors its own imgui (target collision with
+    # MQ's); master is a standalone VS solution with dependency projects — needs
+    # a dedicated port. The crew's proven config runs WITHOUT Nav (E3 follow via
+    # MQ2AdvPath on this server), so it is not a fresh-install blocker.
+    @{ Name = 'MQ2Twist';     Repo = 'https://github.com/RedGuides/MQ2Twist.git';     Ref = 'e757c89192a7' }
+    @{ Name = 'MQ2Exchange';  Repo = 'https://github.com/RedGuides/MQ2Exchange.git';  Ref = '2f43ef644f5b' }
+    @{ Name = 'MQ2Debuffs';   Repo = 'https://github.com/RedGuides/MQ2Debuffs.git';   Ref = 'd44416b1640a' }
+    @{ Name = 'MQ2GroupInfo'; Repo = 'https://github.com/RedGuides/MQ2GroupInfo.git'; Ref = 'de628d383791' }
+    @{ Name = 'MQ2LinkDB';    Repo = 'https://github.com/RedGuides/MQ2LinkDB.git';    Ref = '864f5d597237' }
+    @{ Name = 'MQ2NetBots';   Repo = 'https://github.com/RedGuides/MQ2NetBots.git';   Ref = '25e145edc947' }
+)
+
 function Get-RepoRoot {
     $dir = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
     return $dir.ToString()
@@ -496,11 +518,23 @@ set(VCPKG_PLATFORM_TOOLSET_VERSION "$pinnedToolsetVersion")
         # Check if existing cache is stale (missing MQ2CoOptUI target)
         $cacheFile = Join-Path $MQBuildDir 'CMakeCache.txt'
         $pluginVcxproj = Get-ChildItem $MQBuildDir -Filter 'MQ2CoOptUI.vcxproj' -Recurse -EA SilentlyContinue | Select-Object -First 1
-        $needsConfigure = (-not (Test-Path $cacheFile)) -or (-not $pluginVcxproj)
+        # Third-party plugin targets: a missing vcxproj means the solution was
+        # generated before that plugin's source was cloned. Plugin detection only
+        # runs at CONFIGURE time, so trigger a (plain, incremental) reconfigure.
+        $missingTpTargets = @()
+        foreach ($tp in $script:ThirdPartyPlugins) {
+            $tpV = Get-ChildItem $MQBuildDir -Filter "$($tp.Name).vcxproj" -Recurse -EA SilentlyContinue | Select-Object -First 1
+            if (-not $tpV) { $missingTpTargets += $tp.Name }
+        }
+        $needsConfigure = (-not (Test-Path $cacheFile)) -or (-not $pluginVcxproj) -or ($missingTpTargets.Count -gt 0)
 
         if ($needsConfigure -and (Test-Path $cacheFile)) {
-            Write-Info 'Stale CMake cache (MQ2CoOptUI target missing) — removing build dir for clean configure...'
-            Remove-Item $MQBuildDir -Recurse -Force
+            if (-not $pluginVcxproj) {
+                Write-Info 'Stale CMake cache (MQ2CoOptUI target missing) — removing build dir for clean configure...'
+                Remove-Item $MQBuildDir -Recurse -Force
+            } elseif ($missingTpTargets.Count -gt 0) {
+                Write-Info "Reconfiguring solution to add plugin target(s): $($missingTpTargets -join ', ')"
+            }
         }
 
         if ($needsConfigure) {
@@ -610,6 +644,16 @@ set(VCPKG_PLATFORM_TOOLSET_VERSION "$pinnedToolsetVersion")
             Write-Error "Build failed — missing critical artifacts: $($missing -join ', '). Check link errors above for unresolved externals (often MSVC toolset mismatch)."
         }
         Validate-DllArchitecture $criticalArtifacts[0].Path | Out-Null
+
+        # Third-party plugin verification: MSBuild does not fail the whole build
+        # when one plugin project fails — surface exactly which ones landed.
+        $tpBuilt = @(); $tpFailed = @()
+        foreach ($tp in $script:ThirdPartyPlugins) {
+            if (Test-Path (Join-Path $MQBinDir "plugins\$($tp.Name).dll")) { $tpBuilt += $tp.Name }
+            else { $tpFailed += $tp.Name }
+        }
+        if ($tpBuilt.Count) { Write-Ok "Third-party plugins built: $($tpBuilt -join ', ')" }
+        if ($tpFailed.Count) { Write-Warning "Third-party plugins NOT built (check compile errors above): $($tpFailed -join ', ')" }
 
         Write-Ok "MacroQuest built: $MQBinDir"
         return $MQBinDir
@@ -735,6 +779,24 @@ function Ensure-MQSourceEnv {
             } catch {
                 Write-Error "Could not create symlink/junction at $MQ2CoOptUILink. Enable Developer Mode or run as admin."
             }
+        }
+    }
+
+    # --- Third-party plugin sources: compiled IN-TREE against our MQ family ---
+    # (table at script scope: $script:ThirdPartyPlugins — see top of file)
+    foreach ($tp in $script:ThirdPartyPlugins) {
+        $tpDir = Join-Path $PluginsDir $tp.Name
+        if (-not (Test-Path $tpDir)) {
+            Write-Info "Cloning $($tp.Name)..."
+            git clone --recursive $tp.Repo $tpDir 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "$($tp.Name) clone failed"; continue }
+        }
+        $cur = (git -C $tpDir rev-parse HEAD 2>$null)
+        if (-not $cur -or $cur -notlike "$($tp.Ref)*") {
+            git -C $tpDir fetch --all --quiet 2>$null
+            git -C $tpDir checkout --quiet $tp.Ref 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "$($tp.Name): checkout $($tp.Ref) failed" }
+            git -C $tpDir submodule update --init --recursive 2>$null
         }
     }
 
@@ -993,8 +1055,20 @@ mq2chatwnd=1
 mq2custombinds=1
 mq2itemdisplay=1
 mq2map=1
-mq2nav=1
-mq2dannet=1
+mq2autologin=1
+mq2eqbugfix=1
+mq2labels=1
+mq2targetinfo=1
+mq2xtarinfo=1
+mq2moveutils=1
+mq2advpath=1
+mq2cast=1
+mq2twist=1
+mq2exchange=1
+mq2debuffs=1
+mq2groupinfo=1
+mq2linkdb=1
+mq2netbots=1
 "@
         Set-Content $mqIni $iniContent
         Write-Ok 'Created MacroQuest.ini'

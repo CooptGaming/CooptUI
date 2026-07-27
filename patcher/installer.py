@@ -383,39 +383,36 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
         return cb
 
     # --- Phase 1: base bundle ---
+    # PRIMARY: CoOpt's EMU zip — our complete, self-consistent MQ family (core,
+    # E3, and the whole plugin ecosystem compiled together in one solution, so
+    # MQ2CoOptUI is safe and enabled). FALLBACK: the stock E3NextAndMQNextBinary
+    # bundle, which keeps installs possible if our release download fails —
+    # MQ2CoOptUI is force-disabled there (foreign MQ family; see
+    # ensure_plugin_keys) and CoOpt runs in Lua mode.
     base_note = ""
     zip_path = None
-    # True when the base is the STOCK bundle (their MQ family): our plugin DLL is
-    # ABI-incompatible with it and must not load (see ensure_plugin_keys docstring).
-    # The EMU-zip fallback is OUR MQ family, where the plugin is required-and-safe.
-    stock_base = True
+    stock_base = False
     try:
-        if progress_cb:
-            progress_cb(f"Downloading base environment: {BASE_BUNDLE_NAME}...", 0.0)
-        try:
-            zip_path = _download_zip(BASE_BUNDLE_ZIP_URL, seg(0.0, 0.7))
-        except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
-            if getattr(e, "errno", None) == errno.ENOSPC:
-                return False, "Not enough disk space."
-            zip_path = None
+        url, _ver, err = get_latest_release_zip_url()
+        if not err and url and "emu" in (url or "").lower():
+            if progress_cb:
+                progress_cb("Downloading CoOpt EMU bundle...", 0.0)
+            try:
+                zip_path = _download_zip(url, seg(0.0, 0.7))
+            except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
+                if getattr(e, "errno", None) == errno.ENOSPC:
+                    return False, "Not enough disk space."
+                zip_path = None
         if zip_path is None:
-            stock_base = False
-            # Fallback: CoOpt's EMU zip (reduced plugin set, still runnable).
-            url, _ver, err = get_latest_release_zip_url()
-            if err or not url or "emu" not in (url or "").lower():
-                return False, (
-                    f"Could not download the base bundle ({BASE_BUNDLE_NAME}) and no "
-                    "CoOptUI-EMU-*.zip fallback was found on the release. Check your "
-                    "connection and try again."
-                )
+            stock_base = True
             base_note = (
-                "\n\nNOTE: the stock E3 base bundle could not be downloaded, so the reduced "
-                "CoOpt EMU bundle was installed instead (core plugins only). Run Install/"
-                "Repair again later to layer in the full plugin set."
+                "\n\nNOTE: the CoOpt EMU bundle could not be downloaded, so the stock E3 "
+                "base bundle was installed instead. CoOpt UI runs in Lua mode on it; run "
+                "Install/Repair again later to switch to the CoOpt bundle."
             )
             if progress_cb:
-                progress_cb("Base unavailable - downloading CoOpt EMU bundle...", 0.0)
-            zip_path = _download_zip(url, seg(0.0, 0.7))
+                progress_cb(f"Downloading base environment: {BASE_BUNDLE_NAME}...", 0.0)
+            zip_path = _download_zip(BASE_BUNDLE_ZIP_URL, seg(0.0, 0.7))
         summary = overlay_bundle(zip_path, target_dir, seg(0.0, 0.7),
                                  enable_coopt_plugin=not stock_base)
     except zipfile.BadZipFile:
