@@ -65,6 +65,7 @@ and §3.6 records two places where the agents' framing was wrong and I corrected
 | 8 | `78cf599` | Stale-bundle build cache · silent MQ downgrade · AA path injection | **High** |
 | 9 | `7528c4e` | Release: missing plugin asset must not read as success | **High** |
 | 10 | `120009a` | Tests: drop hardcoded toolchain path; a skip is not a pass | Low |
+| 11 | `f34de63` | Build: prerequisite preflight + corrected developer docs | Medium |
 
 Full problem/evidence/fix/validation for each is in its commit message. Below is what a reviewer
 needs to decide whether to trust the change.
@@ -277,6 +278,46 @@ LuaJIT — exactly the machine-specific value that should not be committed. Now 
 `$env:COOPT_LUAJIT`, `luajit` on PATH, or any Build-Smart output tree up to two levels under a drive
 root. **A SKIPPED test now exits non-zero**: this gates a release, and "I could not run" must not
 look like "everything passed". Verified by running with no arguments on a clean shell.
+
+---
+
+### 2.11 — `f34de63` Prerequisites were checked late, or not at all · Medium
+
+Raised by the maintainer after the review pass; verified and fixed here.
+
+The build did check *some* prerequisites, but too late to help. **CMake was validated only after
+Stage 1 had cloned MacroQuest and its vcpkg submodule** — hundreds of MB — and then said only
+*"CMake 3.30 not found. Install it and pass -CMakePath, or set PATH."*, with no link and no hint
+that the usual problem is having CMake **4.x**, which rejects the `cmake_minimum_required(<3.5)`
+still used by several vcpkg portfiles. A **missing pinned MSVC toolset only warned**, with the real
+symptom arriving much later as `LNK1120` — which reads like a source bug. git, the .NET SDK, Python
+and symlink capability were not checked at all.
+
+**Fix.** A new **Stage 0** running before anything expensive. It is target-aware (`-Target
+CoOptOnly` needs no external toolchain and says so), reports **every** problem at once rather than
+one per run, and for each states what was found, why the build needs it, and the official download
+URL — plus the non-obvious remedy, e.g. the toolset is *Visual Studio Installer → Modify →
+Individual components → MSVC v143 v14.44*, and CMake 3.30 can be used from a ZIP via `-CMakePath`
+without uninstalling a 4.x. Blocking and advisory are distinguished: Developer Mode being off and
+the missing .NET Framework 4.8 Dev Pack are explained but do not stop a build.
+
+New `-CheckPrereqs` (standalone "can this machine build?", exits 0/1, no `-OutputDir` needed) and
+`-SkipPrereqCheck` (escape hatch).
+
+**Behaviour change:** a missing pinned MSVC toolset now **blocks** instead of warning. Failing in
+two seconds with install instructions beats failing at link time; `-SkipPrereqCheck` restores the
+old behaviour.
+
+Also rewrote `docs/DEVELOPER.md`'s Build & Release section, which was stale enough to misdirect a
+new contributor: it named `scripts/build-release.ps1` as the build script (it is `Build-Smart.ps1`)
+and claimed `release.yml` triggers on `v*` tags (it is manual-dispatch only and builds just the
+patcher exe).
+
+**Validation.** Failure path **exercised, not just reasoned about** — ran the preflight against a
+simulated bare machine with discovery stubbed to find nothing, confirming 6 blocking items with
+correct instructions. That test caught a real defect in my own change (an empty result set unrolled
+to `$null` and printed a phantom `[NOTE] :` line). All 9 cited download URLs verified to return
+HTTP 200. Real `-Target CoOptOnly` build still succeeds with Stage 0 in place.
 
 ---
 
