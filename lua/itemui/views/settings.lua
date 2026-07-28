@@ -112,6 +112,7 @@ local function renderConfigWindow(ctx)
             local lc = ctx.layoutConfig or {}
             local keepMode, keepTop, keepBottom = lc.UIMode, lc.DockTop, lc.DockBottom
             local keepPos, keepChat = lc.DockPosition, lc.DockChat
+            local keepBotStyle, keepButtons = lc.DockBottomStyle, lc.DockButtons
             local ok, err = defaultLayout.revertToBundledDefaultLayout()
             if ok then
                 if ctx.perfCache then ctx.perfCache.layoutCached = nil; ctx.perfCache.layoutNeedsReload = true end
@@ -122,6 +123,8 @@ local function renderConfigWindow(ctx)
                     if keepBottom ~= nil then ctx.setLayoutValue("DockBottom", keepBottom) end
                     if keepPos ~= nil then ctx.setLayoutValue("DockPosition", keepPos) end
                     if keepChat ~= nil then ctx.setLayoutValue("DockChat", keepChat) end
+                    if keepBotStyle ~= nil then ctx.setLayoutValue("DockBottomStyle", keepBotStyle) end
+                    if keepButtons ~= nil then ctx.setLayoutValue("DockButtons", keepButtons) end
                 end
                 uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
                 ctx.setStatusMessage("Layout reverted to default. Companion windows will reposition; main window position applies after restarting MacroQuest.")

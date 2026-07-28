@@ -20,13 +20,6 @@ local AUGMENT_TYPE = REROLL.AUGMENT_TYPE_NAME or "Augmentation"
 
 local RerollView = {}
 
--- Build set of list IDs for "on list" checks.
-local function listIdSet(list)
-    local set = {}
-    if list then for _, e in ipairs(list) do if e.id then set[e.id] = true end end end
-    return set
-end
-
 -- Sort cache: avoid re-sorting every frame. Per-track cache keyed by sort params + data generation.
 local _sortCache = {
     aug = { sortCol = -1, sortAsc = true, listLen = 0, listGen = -1, locGen = -1, result = nil },
@@ -42,8 +35,6 @@ local function renderTabContent(ctx, track, rerollService)
     local isAug = (track == "aug")
     local list = isAug and rerollService.getAugList() or rerollService.getMythicalList()
     local pendingList = isAug and rerollService.getPendingAugList() or rerollService.getPendingMythicalList()
-    local pendingIdSet = {}
-    if pendingList then for _, e in ipairs(pendingList) do if e.id then pendingIdSet[e.id] = true end end end
     local inGuildHall = rerollService.isInGuildHall and rerollService.isInGuildHall()
     local inventoryItems = ctx.inventoryItems or {}
     local bankItems = ctx.bankItems or {}
@@ -496,10 +487,6 @@ local function renderTabContent(ctx, track, rerollService)
             if name:sub(1, #prefix) == prefix then table.insert(invFiltered, it) end
         end
     end
-    -- Prefer the service's generation-cached id set; fall back to a per-frame build.
-    local listIds = (rerollService.getListIdSet and rerollService.getListIdSet(list)) or listIdSet(list)
-    local pendingIds = pendingIdSet or {}
-
     ImGui.Spacing()
     if pendingCount and pendingCount > 0 then
         theme.TextHeader("Pending (sync in guild hall)")
@@ -547,8 +534,9 @@ local function renderTabContent(ctx, track, rerollService)
             for idx, it in ipairs(invFiltered) do
                 ImGui.PushID("RerollInv_" .. track .. "_" .. tostring(idx))
                 local id = it.id or it.ID
-                local onList = id and listIds[id]
-                local onPending = id and pendingIds[id]
+                local status = (id and rerollService.getListStatus) and rerollService.getListStatus(track, id) or nil
+                local onList = status == "listed"
+                local onPending = status == "pending"
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 local dispName = it.name or ("ID " .. tostring(id))

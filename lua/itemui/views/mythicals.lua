@@ -246,6 +246,14 @@ function MythicalsView.render(ctx)
                 local itemId = item.id or item.ID
                 local onMythicalList = (itemId and mythListById[itemId]) or false
 
+                -- Reroll status indicator: "listed" when confirmed on the server mythical
+                -- list, "pending" when only queued for sync, else nil. O(1) via the service's
+                -- cached ID sets (see reroll_service.getListStatus).
+                local listStatus
+                if showRerollColumns and rerollService and rerollService.getListStatus and itemId then
+                    listStatus = rerollService.getListStatus("mythical", itemId)
+                end
+
                 if showRerollColumns then
                     -- Column: Reroll (leftmost, like the Augments layout in use)
                     ImGui.TableNextColumn()
@@ -310,6 +318,13 @@ function MythicalsView.render(ctx)
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                     ImGui.OpenPopup("ItemContextMythIcon_" .. rid)
+                end
+                if listStatus == "listed" then
+                    ImGui.SameLine()
+                    ctx.theme.TextSuccess("(on list)")
+                elseif listStatus == "pending" then
+                    ImGui.SameLine()
+                    ctx.theme.TextWarning("(pending)")
                 end
 
                 -- Column: Effects

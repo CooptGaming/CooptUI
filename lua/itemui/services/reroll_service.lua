@@ -101,6 +101,10 @@ local _augIdSet = nil               -- cached { [id] = true } for augList
 local _augIdSetGen = -1
 local _mythIdSet = nil              -- cached { [id] = true } for mythicalList
 local _mythIdSetGen = -1
+local _pendingAugIdSet = nil        -- cached { [id] = true } for pendingAugList
+local _pendingAugIdSetGen = -1
+local _pendingMythIdSet = nil       -- cached { [id] = true } for pendingMythicalList
+local _pendingMythIdSetGen = -1
 local _uniqueAugList = nil          -- cached deduplicated augList
 local _uniqueAugGen = -1
 local _uniqueMythList = nil         -- cached deduplicated mythicalList
@@ -359,6 +363,7 @@ function M.init(deps)
     mythicalList = {}
     pendingAugList = {}
     pendingMythicalList = {}
+    markListDirty()  -- reset ID-set caches even if loadFromFile() below finds nothing to restore
     receivingListSince = nil
     currentList = nil
     strictLineSeenInWindow = false
@@ -412,6 +417,7 @@ function M.addToPendingList(listKind, id, name)
     for _, e in ipairs(list) do if e.id == id then return true end end
     if #list >= MAX_LIST_ENTRIES then return false end
     list[#list + 1] = { id = id, name = name or "" }
+    markListDirty()
     saveToFile()
     return true
 end
@@ -420,11 +426,11 @@ end
 function M.removeFromPending(listKind, id)
     if listKind == "aug" then
         for i = #pendingAugList, 1, -1 do
-            if pendingAugList[i].id == id then table.remove(pendingAugList, i); saveToFile(); return end
+            if pendingAugList[i].id == id then table.remove(pendingAugList, i); markListDirty(); saveToFile(); return end
         end
     elseif listKind == "mythical" then
         for i = #pendingMythicalList, 1, -1 do
-            if pendingMythicalList[i].id == id then table.remove(pendingMythicalList, i); saveToFile(); return end
+            if pendingMythicalList[i].id == id then table.remove(pendingMythicalList, i); markListDirty(); saveToFile(); return end
         end
     end
 end
@@ -563,6 +569,7 @@ function M.addAugFromCursor()
         for _, e in ipairs(pendingAugList) do if e.id == id then setStatusMessageFn("Already on pending list."); return end end
         if #pendingAugList >= MAX_LIST_ENTRIES then setStatusMessageFn("Pending list full."); return end
         pendingAugList[#pendingAugList + 1] = { id = id, name = name or "" }
+        markListDirty()
         saveToFile()
         setStatusMessageFn("Added to list (sync required in guild hall).")
     end
@@ -584,6 +591,7 @@ function M.addMythicalFromCursor()
         for _, e in ipairs(pendingMythicalList) do if e.id == id then setStatusMessageFn("Already on pending list."); return end end
         if #pendingMythicalList >= MAX_LIST_ENTRIES then setStatusMessageFn("Pending list full."); return end
         pendingMythicalList[#pendingMythicalList + 1] = { id = id, name = name or "" }
+        markListDirty()
         saveToFile()
         setStatusMessageFn("Added to list (sync required in guild hall).")
     end
@@ -673,6 +681,43 @@ end
 function M.getListIdSet(listEntries)
     if listEntries == augList then return getAugIdSet() end
     if listEntries == mythicalList then return getMythIdSet() end
+    return nil
+end
+
+--- Return cached ID set for pendingAugList (rebuilt only when list generation changes).
+local function getPendingAugIdSet()
+    if _pendingAugIdSetGen == _listGeneration and _pendingAugIdSet then return _pendingAugIdSet end
+    local s = {}
+    for _, e in ipairs(pendingAugList) do if e.id then s[e.id] = true end end
+    _pendingAugIdSet = s
+    _pendingAugIdSetGen = _listGeneration
+    return s
+end
+
+--- Return cached ID set for pendingMythicalList (rebuilt only when list generation changes).
+local function getPendingMythIdSet()
+    if _pendingMythIdSetGen == _listGeneration and _pendingMythIdSet then return _pendingMythIdSet end
+    local s = {}
+    for _, e in ipairs(pendingMythicalList) do if e.id then s[e.id] = true end end
+    _pendingMythIdSet = s
+    _pendingMythIdSetGen = _listGeneration
+    return s
+end
+
+--- Return "listed" if id is on the confirmed server list for listKind ("aug"/"mythical"),
+--- "pending" if it's only on that track's pending-sync list, or nil if it's on neither.
+--- O(1) per call via the cached ID sets above (same generation-invalidation as getAugIdSet/
+--- getMythIdSet); never scans a list per row. Read-only: views use this to render a status
+--- indicator without touching list state.
+function M.getListStatus(listKind, id)
+    if not id or (listKind ~= "aug" and listKind ~= "mythical") then return nil end
+    if listKind == "aug" then
+        if getAugIdSet()[id] then return "listed" end
+        if getPendingAugIdSet()[id] then return "pending" end
+    else
+        if getMythIdSet()[id] then return "listed" end
+        if getPendingMythIdSet()[id] then return "pending" end
+    end
     return nil
 end
 

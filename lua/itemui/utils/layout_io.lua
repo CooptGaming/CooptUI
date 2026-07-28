@@ -15,6 +15,8 @@ local STRING_KEYS = {
     DockPosition = true,    -- top | bottom
     DockChat = true,        -- hidden | collapsed | peek
     DockSegments = true,    -- CSV: segment ids, in order
+    DockBottomStyle = true, -- menus | buttons
+    DockButtons = true,     -- CSV: launcher ids, in order (DockBottomStyle = "buttons" only)
     ZoneAssign = true,      -- CSV: moduleId:zone pairs (user overrides of the registry's zone)
     WindowAttach = true,    -- CSV: moduleId:target:edge:align tuples
     LayoutPreset = true,    -- active preset name

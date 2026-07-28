@@ -130,6 +130,11 @@ do
     layoutDefaults.DockPosition = "top"
     layoutDefaults.DockChat = "collapsed"
     layoutDefaults.DockSegments = "status,bags,sell,loot,buffs,xp,session"
+    -- Bottom-bar style: hover menus (today's default, unchanged for existing installs) or a
+    -- flat row of launcher buttons (mockup's second option). DockButtons is only consulted
+    -- when DockBottomStyle is "buttons".
+    layoutDefaults.DockBottomStyle = "menus"
+    layoutDefaults.DockButtons = "bags,bank,equipment,augments,augmentUtility,mythicals,reroll,aa,effects"
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""

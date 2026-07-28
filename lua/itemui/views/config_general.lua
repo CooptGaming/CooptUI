@@ -484,6 +484,92 @@ function ConfigGeneral.render(ctx)
                 setLayoutValue("DockSegments", (#order > 0) and table.concat(order, ",") or "none")
             end
 
+            -- Command bar style (mockup's second option): hover menus (today's bar) or a flat
+            -- row of launcher buttons. DockButtons only matters once "buttons" is picked.
+            ImGui.Spacing()
+            local barStyle = tostring(layoutConfig.DockBottomStyle or "menus")
+            ImGui.Text("Command bar style:")
+            ImGui.SameLine()
+            if ImGui.RadioButton("Hover menus##dockBottomStyleMenus", barStyle ~= "buttons") then
+                if barStyle ~= "menus" then setLayoutValue("DockBottomStyle", "menus") end
+            end
+            ImGui.SameLine()
+            if ImGui.RadioButton("Launcher buttons##dockBottomStyleButtons", barStyle == "buttons") then
+                if barStyle ~= "buttons" then setLayoutValue("DockBottomStyle", "buttons") end
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Hover menus: four grouped menus (Items / Character / Actions / Game windows).")
+                ImGui.Text("Launcher buttons: one button per window, in the order below.")
+                ImGui.EndTooltip()
+            end
+
+            if barStyle == "buttons" then
+                -- Same list-with-arrows shape as the status bar slots above, copied verbatim:
+                -- enabled rows in CSV (bar) order with ^/v + checkbox, disabled registry
+                -- modules below re-enable at the end (canonical-relative insert).
+                ImGui.Spacing()
+                ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Command bar buttons (left to right):")
+                local ALL_BUTTONS = {
+                    { id = "bags",           label = "Bags" },
+                    { id = "bank",           label = "Bank" },
+                    { id = "equipment",      label = "Equipment" },
+                    { id = "augments",       label = "Augments" },
+                    { id = "augmentUtility", label = "Augment Utility" },
+                    { id = "mythicals",      label = "Mythicals" },
+                    { id = "reroll",         label = "Reroll" },
+                    { id = "aa",             label = "AA" },
+                    { id = "effects",        label = "Effects" },
+                }
+                local benabled, border = {}, {}
+                for part in tostring(layoutConfig.DockButtons or ""):gmatch("[^,]+") do
+                    local t = part:match("^%s*(.-)%s*$")
+                    if t ~= "" and t ~= "none" then benabled[t] = true; border[#border + 1] = t end
+                end
+                local bcanonPos, bbyId = {}, {}
+                for ci, cseg in ipairs(ALL_BUTTONS) do bcanonPos[cseg.id] = ci; bbyId[cseg.id] = cseg end
+                local bchanged = false
+                local bact = nil     -- one click per frame: { kind = "up"|"down"|"off", i = index }
+                for i, id in ipairs(border) do
+                    local seg = bbyId[id]
+                    if seg then
+                        if ImGui.SmallButton("^##dockBtnUp" .. id) then bact = { kind = "up", i = i } end
+                        ImGui.SameLine(0, 2)
+                        if ImGui.SmallButton("v##dockBtnDown" .. id) then bact = { kind = "down", i = i } end
+                        ImGui.SameLine(0, 8)
+                        if not ImGui.Checkbox(seg.label .. "##dockBtn" .. id, true) then
+                            bact = { kind = "off", i = i }
+                        end
+                    end
+                end
+                if bact then
+                    local id = border[bact.i]
+                    if bact.kind == "off" then
+                        table.remove(border, bact.i); benabled[id] = nil; bchanged = true
+                    elseif bact.kind == "up" and bact.i > 1 then
+                        table.remove(border, bact.i); table.insert(border, bact.i - 1, id); bchanged = true
+                    elseif bact.kind == "down" and bact.i < #border then
+                        table.remove(border, bact.i); table.insert(border, bact.i + 1, id); bchanged = true
+                    end
+                end
+                for _, seg in ipairs(ALL_BUTTONS) do
+                    if not benabled[seg.id] then
+                        if ImGui.Checkbox(seg.label .. "##dockBtn" .. seg.id, false) then
+                            bchanged = true
+                            benabled[seg.id] = true
+                            local at = #border + 1
+                            for i, oid in ipairs(border) do
+                                if (bcanonPos[oid] or math.huge) > bcanonPos[seg.id] then at = i; break end
+                            end
+                            table.insert(border, at, seg.id)
+                        end
+                    end
+                end
+                if bchanged then
+                    setLayoutValue("DockButtons", (#border > 0) and table.concat(border, ",") or "none")
+                end
+            end
+
             ImGui.Unindent()
         end
     end

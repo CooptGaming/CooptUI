@@ -257,6 +257,14 @@ function AugmentsView.render(ctx)
                 local onAugList = (itemId and augListById[itemId]) or false
                 local onMythicalList = (itemId and mythListById[itemId]) or false
 
+                -- Reroll status indicator (on the item's routed list, not just augList): "listed"
+                -- when confirmed on the server list, "pending" when only queued for sync, else nil.
+                local destList, listStatus
+                if showRerollColumns and rerollService and rerollService.getListStatus then
+                    destList = (ctx.resolveRerollList and ctx.resolveRerollList(item.name, AUGMENT_TYPE)) or "aug"
+                    if itemId then listStatus = rerollService.getListStatus(destList, itemId) end
+                end
+
                 -- Column: Icon (hover = full stats)
                 ImGui.TableNextColumn()
                 if ctx.drawItemIcon then
@@ -299,6 +307,13 @@ function AugmentsView.render(ctx)
                 end
                 if ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                     ImGui.OpenPopup("ItemContextAugmentsIcon_" .. rid)
+                end
+                if listStatus == "listed" then
+                    ImGui.SameLine()
+                    ctx.theme.TextSuccess("(on list)")
+                elseif listStatus == "pending" then
+                    ImGui.SameLine()
+                    ctx.theme.TextWarning("(pending)")
                 end
 
                 -- Column: Effects (only what exists)

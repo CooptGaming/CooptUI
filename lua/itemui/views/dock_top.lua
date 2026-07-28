@@ -42,15 +42,30 @@ local WIDEST = {
     -- The loot slot is deliberately the widest of all five states at once (mockup 12a: the
     -- slot is one fixed width whether it says "idle" or holds a progress bar and two buttons).
     loot    = { "stopped - bags full, 99 left on corpses", "decision - Mythical Faceplate of Blinding Fury" },
-    buffs   = { "buffs 99 . songs 99 . aura Y . 99 expiring" },
+    -- "aura Y" -> "aura 99": the buffs segment now shows the actual aura count once there is
+    -- more than one, so the reserved width has to cover two digits, not one glyph.
+    buffs   = { "buffs 99 . songs 99 . aura 99 . 99 expiring" },
     xp      = { "XP 100.0% . AA 99999 . scripts 9999" },
     session = { "session 9,999,999p" },
 }
 
--- Extra width for segments that hold inline buttons (Stop, Take/Pass/Reroll, Consolidate/Resume)
--- or an inline progress bar (sell/loot running states: 48px bar + gap). loot bumped
--- 198 -> 252 for the third "Reroll##dockLootReroll" button beside Take/Pass.
-local EXTRA = { loot = 252, sell = 54 }
+-- Extra width for segments that hold inline buttons (Stop, Take/Pass/Reroll, Consolidate/Resume,
+-- and now Loot All / Auto Sell) or an inline progress bar -- sell/loot running-state bars grew
+-- 48x12 -> 90x16 in the top-bar restyle (mockup 13d: more room for the readout that matters
+-- while a run is happening). loot bumped 198 -> 252 for the third "Reroll##dockLootReroll"
+-- button beside Take/Pass, then 252 -> 264 for the bigger looting-state bar: that state was
+-- already sitting well inside the 252 the decision state's three buttons demand (decision's own
+-- text is the widest sample here, so ITS button budget sets the floor everyone else inherits),
+-- so the extra 12px is margin for font variance, not a load-bearing fix -- the idle state's new
+-- Loot All button fits the same existing headroom with room to spare. sell bumped 54 -> 112:
+-- unlike loot, sell's two text samples are close in length (27 vs 29 chars), so there is no
+-- spare headroom to borrow, and the new idle-state "Auto Sell" button sits AHEAD of the offer
+-- text -- 112px clears the larger of (button + gap) and (90px bar + gap) with margin.
+-- TRADEOFF: both slots are now wider, so the default seven segments reserve more of a 1920px
+-- viewport before the render loop starts dropping segments from the right (see "usedW + needed
+-- > w" below) -- still comfortable at 1920px with the default seven, but it eats into the
+-- margin a narrower or already-crowded DockSegments list had.
+local EXTRA = { loot = 264, sell = 112 }
 
 local SEGMENT_ORDER_FALLBACK = { "status", "bags", "sell", "loot", "buffs", "xp", "session" }
 
@@ -164,19 +179,47 @@ end
 segments.sell = function(ctx, s)
     -- A running sell (macro or Lua batch) owns the slot: progress beats the static offer,
     -- and the keep-list warning stays quiet until the run is over — mid-run it is not
-    -- actionable anyway.
+    -- actionable anyway. The bar is enlarged to 90x16 (mockup 13d) so the readout that
+    -- matters mid-run gets more room.
     if s.sellRunning then
         theme.TextWarning("selling")
         ImGui.SameLine(0, 4)
         ImGui.Text(string.format("%d/%d", s.sellRunCurrent or 0, s.sellRunTotal or 0))
         ImGui.SameLine(0, 6)
-        theme.RenderProgressBar(math.min(1, math.max(0, s.sellRunFrac or 0)), ImVec2(48, 12), "")
+        theme.RenderProgressBar(math.min(1, math.max(0, s.sellRunFrac or 0)), ImVec2(90, 16), "")
         if (s.sellRunValue or 0) > 0 then
             ImGui.SameLine(0, 6)
             theme.TextSuccess(plat(s.sellRunValue) .. "p")
         end
         return
     end
+
+    -- Auto Sell now lives on the bar itself (mockup 13d), not just the sell popover / Command
+    -- Center. Same grey-but-clickable pattern as command_center.lua:115-121's own Auto Sell
+    -- button: always drawn so the bar always says what CAN happen right now, disabled-styled
+    -- and inert without a merchant rather than hidden.
+    theme.PushKeepButton(not s.merchantOpen)
+    -- Locally pcall'd, unlike the rest of this file's buttons: this one and Loot All below are
+    -- the first colour-pushed buttons reachable from the SLOT'S DEFAULT STATE (idle), so
+    -- scripts/tests/test_dock_render.lua's inject-a-throw-into-every-ImGui.SmallButton-call
+    -- sweep actually exercises this pairing where it never reached Take/Pass/Reroll/Stop
+    -- before. A push-call-pop with no guard leaks the 3 pushed colours the moment the call
+    -- itself throws, since Pop never runs -- re-raising afterward keeps the error surfaced
+    -- through dockLayout.contained exactly as before, just with the stack already balanced.
+    local ok, clickedOrErr = pcall(ImGui.SmallButton, "Auto Sell##dockSellAuto")
+    theme.PopButtonColors()
+    if not ok then error(clickedOrErr, 0) end
+    if not s.merchantOpen then
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            safeText("Auto Sell needs an open merchant.")
+            ImGui.EndTooltip()
+        end
+    elseif clickedOrErr then
+        M.queue(ctx, { kind = "auto_sell" })
+    end
+    ImGui.SameLine(0, 8)
+
     if s.sellCount <= 0 then
         theme.TextMuted("nothing to sell")
         return
@@ -296,7 +339,8 @@ segments.loot = function(ctx, s)
         end
         ImGui.SameLine(0, 6)
         local lootFrac = (s.lootTotalCorpses or 0) > 0 and (s.lootCorpse / s.lootTotalCorpses) or 0
-        theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(48, 12), "")
+        -- Enlarged to 90x16 (mockup 13d), same treatment as the sell segment's running bar.
+        theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(90, 16), "")
         ImGui.SameLine(0, 6)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         ImGui.SameLine(0, 8)
@@ -315,6 +359,18 @@ segments.loot = function(ctx, s)
         if ImGui.SmallButton("Review##dockLootReview") then M.queue(ctx, { kind = "window", id = "loot" }) end
 
     else
+        -- Loot All lives here and only here (mockup 13d): every other state above already has
+        -- its own verb -- Take/Pass/Reroll, Bags/Sell junk, Stop, Review -- so the button does
+        -- not exist in those branches rather than being disabled; there is nothing useful for
+        -- it to do mid-decision, mid-problem, or mid-run.
+        theme.PushKeepButton()
+        -- Locally pcall'd -- see the matching comment on the sell segment's Auto Sell button
+        -- above for why this pairing (and not Take/Pass/Reroll/Stop) needs the guard.
+        local ok, clickedOrErr = pcall(ImGui.SmallButton, "Loot All##dockLootAll")
+        theme.PopButtonColors()
+        if not ok then error(clickedOrErr, 0) end
+        if clickedOrErr then M.queue(ctx, { kind = "loot_all" }) end
+        ImGui.SameLine(0, 8)
         theme.TextMuted("loot")
         ImGui.SameLine(0, 4)
         theme.TextMuted("idle")
@@ -328,7 +384,16 @@ segments.buffs = function(ctx, s)
     ImGui.SameLine(0, 6)
     theme.TextMuted("aura")
     ImGui.SameLine(0, 4)
-    if s.auraCount > 0 then theme.TextSuccess("y") else theme.TextMuted("-") end
+    -- Plain ASCII, same reasoning as the loot decision name above: no \u{} glyphs. A single
+    -- aura keeps the honest "y" it always had; more than one swaps to the actual count, which
+    -- says more than a glyph once there is more than one to report.
+    if s.auraCount > 1 then
+        theme.TextSuccess(tostring(s.auraCount))
+    elseif s.auraCount == 1 then
+        theme.TextSuccess("y")
+    else
+        theme.TextMuted("-")
+    end
     -- Amber only when something is under five minutes, so a healthy character sees plain grey.
     if s.expiringCount > 0 then
         ImGui.SameLine(0, 6)
@@ -622,6 +687,13 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockPopover", true, flags)
     if not okBegin then
         ImGui.PopStyleVar(1)
+        -- hover.inPopover is normally re-derived from IsWindowHovered a few lines below, every
+        -- frame the popover actually draws. Begin never fails in practice, but if it ever did,
+        -- skipping that re-derivation would leave a stale `true` in place -- and the elseif
+        -- branch up top reads exactly that stale value to decide whether to keep refreshing
+        -- the close-grace timer, so a leftover `true` would hold the popover's countdown open
+        -- indefinitely on every following frame instead of it closing on schedule.
+        hover.inPopover = false
         return
     end
     if visible then

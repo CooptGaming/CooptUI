@@ -294,6 +294,81 @@ do
 end
 
 -- =================================================================
+-- 3c. Top-bar restyle: Loot All (idle-only) and Auto Sell (merchant-gated click, always drawn)
+-- =================================================================
+do
+    -- Idle loot state offers Loot All and enqueues loot_all on click.
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx))
+    warmState(1300000)
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    check('loot idle: offers Loot All', stub.drew(r, 'Loot All##dockLootAll'),
+        table.concat(r.buttons, '|'))
+    check('loot idle: still balanced with the button drawn', stub.balanced(r), stub.imbalance(r))
+
+    stub.click = { ['Loot All##dockLootAll'] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('loot idle: Loot All enqueues loot_all',
+        q and #q >= 1 and q[#q].kind == 'loot_all',
+        q and q[#q] and tostring(q[#q].kind) or 'nil')
+
+    -- The looting (running) state must NOT offer Loot All -- the button belongs to idle only;
+    -- Stop is still the only verb mid-run.
+    resetInput()
+    local uiState2 = {}
+    local ctx2 = newCtx({ uiState = uiState2 })
+    dockState.init(newDeps(ctx2, { lootRunning = true, inventoryItems = { {}, {} } }))
+    warmState(1310000)
+    local r2 = stub.frame(function() dockTop.render(ctx2) end)
+    check('looting: Loot All is not offered mid-run', not stub.drew(r2, 'Loot All##dockLootAll'),
+        table.concat(r2.buttons, '|'))
+    check('looting: Stop is still offered (unchanged)', stub.drew(r2, 'Stop##dockLootStop'),
+        table.concat(r2.buttons, '|'))
+end
+
+do
+    -- Auto Sell offers with a merchant open and enqueues auto_sell.
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx, { merchantOpen = true }))
+    warmState(1320000)
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    check('sell: offers Auto Sell with a merchant open', stub.drew(r, 'Auto Sell##dockSellAuto'),
+        table.concat(r.buttons, '|'))
+    check('sell: still balanced with a merchant open', stub.balanced(r), stub.imbalance(r))
+
+    stub.click = { ['Auto Sell##dockSellAuto'] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('sell: Auto Sell enqueues auto_sell',
+        q and #q >= 1 and q[#q].kind == 'auto_sell',
+        q and q[#q] and tostring(q[#q].kind) or 'nil')
+
+    -- No merchant: the button still draws (grey/disabled-styled per theme.PushKeepButton), but
+    -- a click enqueues nothing.
+    resetInput()
+    local uiState2 = {}
+    local ctx2 = newCtx({ uiState = uiState2 })
+    dockState.init(newDeps(ctx2, { merchantOpen = false }))
+    warmState(1330000)
+    local r2 = stub.frame(function() dockTop.render(ctx2) end)
+    check('sell: Auto Sell still draws without a merchant', stub.drew(r2, 'Auto Sell##dockSellAuto'),
+        table.concat(r2.buttons, '|'))
+    check('sell: balanced without a merchant', stub.balanced(r2), stub.imbalance(r2))
+
+    stub.click = { ['Auto Sell##dockSellAuto'] = true }
+    local r3 = stub.frame(function() dockTop.render(ctx2) end)
+    check('sell: Auto Sell click enqueues nothing without a merchant',
+        uiState2.dockActionQueue == nil or #uiState2.dockActionQueue == 0,
+        uiState2.dockActionQueue and #uiState2.dockActionQueue)
+    check('sell: still balanced after the inert click', stub.balanced(r3), stub.imbalance(r3))
+end
+
+-- =================================================================
 -- 4. A segment that throws must not unbalance the frame, must not take the other segments
 --    with it, and must SURFACE the error (a bare pcall here once hid a per-frame crash).
 --    (app.lua's outer pcall sits outside the PushStyleVar calls, so containment has to be
@@ -540,6 +615,151 @@ do
     check('chat: the action opens the chat window via the queue',
         a and a.kind == 'window' and a.id == 'chat' and a.toggle == true,
         a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
+end
+
+-- =================================================================
+-- 10b. Menus no longer pin on click: a click on the menu button behaves like hover (opens/
+--      keeps it open, nothing more), and once the mouse leaves both the button and the menu
+--      it closes DOCK_POPOVER_GRACE_MS later -- there is no pinned state left to fight that.
+-- =================================================================
+do
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx))
+    warmState(1250000)
+
+    -- Hover the Items button AND click it: still just open, same as hover alone would give.
+    stub.hover = { dockmenubtn_items = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    local r1 = stub.frame(function() dockBottom.render(ctx) end)
+    check('menu click: opens the menu (click behaves like hover)', #r1.windows == 2,
+        table.concat(r1.windows, ','))
+    check('menu click: balanced', stub.balanced(r1), stub.imbalance(r1))
+
+    -- Mouse leaves both the button and the menu window on the very next frame: still inside
+    -- the grace window, so it survives one more frame rather than vanishing instantly.
+    stub.hover = {}
+    stub.mouse = {}
+    stub.windowHovered = false
+    local r2 = stub.frame(function() dockBottom.render(ctx) end)
+    check('menu click: still shown just after the mouse leaves (inside the grace window)',
+        #r2.windows == 2, table.concat(r2.windows, ','))
+
+    -- Advance past the grace window: with no pin, nothing keeps it open any longer.
+    stub.advance(T.DOCK_POPOVER_GRACE_MS * 4)
+    local r3 = stub.frame(function() dockBottom.render(ctx) end)
+    check('menu click: closes after the mouse-out grace elapses', #r3.windows == 1,
+        table.concat(r3.windows, ','))
+    check('menu click: balanced once closed', stub.balanced(r3), stub.imbalance(r3))
+
+    -- Esc has nothing pinned to release anymore, and must stay harmless (dock_top's popover
+    -- Esc handling is the one still allowed to claim dockEscConsumed, for the thing that can
+    -- still be pinned).
+    resetInput()
+    stub.hover = { dockmenubtn_items = true }
+    stub.keys = { [ImGuiKey.Escape] = true }
+    stub.frame(function() dockBottom.render(ctx) end)
+    check('menu click: Esc no longer claims dockEscConsumed (nothing left to unpin)',
+        uiState.dockEscConsumed == nil, tostring(uiState.dockEscConsumed))
+end
+
+-- =================================================================
+-- 10c. Launcher-buttons style (DockBottomStyle = "buttons"): the row itself (registered test
+--      modules), lit-while-open, the {kind="window", toggle=true} enqueue, the reroll
+--      pending-count badge, and that "menus" stays the unaffected default.
+-- =================================================================
+do
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    ctx.layoutConfig.DockBottomStyle = 'buttons'
+    ctx.layoutConfig.DockButtons = 'bags,bank,reroll'
+    dockState.init(newDeps(ctx))
+    warmState(1260000)
+
+    local r = stub.frame(function() dockBottom.render(ctx) end)
+    check('buttons: bags/bank/reroll launcher buttons drawn',
+        stub.drew(r, 'Bags##dockbtn_bags') and stub.drew(r, 'Bank##dockbtn_bank')
+        and stub.drew(r, 'Reroll##dockbtn_reroll'), table.concat(r.buttons, '|'))
+    check('buttons: no hover-menu buttons in this style',
+        not stub.drew(r, '##dockmenubtn_items'), table.concat(r.buttons, '|'))
+    check('buttons: Settings still present (right anchor unchanged)',
+        stub.drew(r, 'Settings'), table.concat(r.buttons, '|'))
+    check('buttons: balanced', stub.balanced(r), stub.imbalance(r))
+    check('buttons: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
+    check('buttons: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
+
+    -- Clicking a launcher button enqueues, same shape as a menu entry click.
+    resetInput()
+    stub.click = { dockbtn_bank = true }
+    stub.frame(function() dockBottom.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('buttons: a click enqueues instead of acting inline', q and #q >= 1, q and #q)
+    local a = q and q[#q]
+    check('buttons: the action is a window toggle',
+        a and a.kind == 'window' and a.id == 'bank' and a.toggle == true,
+        a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
+
+    -- "bags" queues the hub, exactly like the menus' hub entry -- not a window toggle.
+    resetInput()
+    stub.click = { dockbtn_bags = true }
+    uiState.dockActionQueue = nil
+    stub.frame(function() dockBottom.render(ctx) end)
+    q = uiState.dockActionQueue
+    check('buttons: bags queues the hub', q and #q >= 1 and q[#q].kind == 'hub',
+        q and q[#q] and tostring(q[#q].kind) or 'nil')
+
+    -- An already-open companion is LIT (push/pop Button/Keep.Normal around its SmallButton --
+    -- the balance check is what proves the push and pop are paired).
+    resetInput()
+    if not registry.isOpen('bank') then registry.toggleWindow('bank') end
+    uiState.dockActionQueue = nil
+    local rLit = stub.frame(function() dockBottom.render(ctx) end)
+    check('buttons: an open (lit) companion button still draws', stub.drew(rLit, 'Bank##dockbtn_bank'),
+        table.concat(rLit.buttons, '|'))
+    check('buttons: balanced with a lit companion button', stub.balanced(rLit), stub.imbalance(rLit))
+    if registry.isOpen('bank') then registry.toggleWindow('bank') end
+
+    -- Reroll's pending count comes from getPendingAugList/getPendingMythicalList (not
+    -- getState(), which holds in-flight add/sync bookkeeping, not the pending lists).
+    resetInput()
+    local badgeCtx = newCtx({})
+    badgeCtx.layoutConfig.DockBottomStyle = 'buttons'
+    badgeCtx.layoutConfig.DockButtons = 'reroll'
+    badgeCtx.rerollService = {
+        getPendingAugList = function() return { { id = 1 }, { id = 2 } } end,
+        getPendingMythicalList = function() return { { id = 3 } } end,
+    }
+    dockState.init(newDeps(badgeCtx))
+    warmState(1270000)
+    local rBadge = stub.frame(function() dockBottom.render(badgeCtx) end)
+    check('buttons: reroll shows a pending-count badge (2 aug + 1 mythical)',
+        stub.drew(rBadge, 'Reroll 3##dockbtn_reroll'), table.concat(rBadge.buttons, '|'))
+    check('buttons: badge frame balanced', stub.balanced(rBadge), stub.imbalance(rBadge))
+
+    resetInput()
+    badgeCtx.rerollService.getPendingAugList = function() return {} end
+    badgeCtx.rerollService.getPendingMythicalList = function() return {} end
+    local rNoBadge = stub.frame(function() dockBottom.render(badgeCtx) end)
+    check('buttons: no pending entries -> plain label, no badge',
+        stub.drew(rNoBadge, 'Reroll##dockbtn_reroll') and not stub.drew(rNoBadge, 'Reroll 3##dockbtn_reroll'),
+        table.concat(rNoBadge.buttons, '|'))
+
+    -- "menus" (explicit, and the unset default) draws the hover menus exactly as before --
+    -- unaffected by the buttons-style code path.
+    resetInput()
+    local menusCtx = newCtx({})
+    menusCtx.layoutConfig.DockBottomStyle = 'menus'
+    dockState.init(newDeps(menusCtx))
+    warmState(1280000)
+    local rMenus = stub.frame(function() dockBottom.render(menusCtx) end)
+    check('menus (explicit): four menu buttons still drawn', stub.drew(rMenus, 'Items')
+        and stub.drew(rMenus, 'Character') and stub.drew(rMenus, 'Actions')
+        and stub.drew(rMenus, 'Game windows'), table.concat(rMenus.buttons, '|'))
+    check('menus (explicit): no launcher buttons drawn', not stub.drew(rMenus, '##dockbtn_'),
+        table.concat(rMenus.buttons, '|'))
+    check('menus (explicit): balanced', stub.balanced(rMenus), stub.imbalance(rMenus))
 end
 
 -- =================================================================

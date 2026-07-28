@@ -1386,6 +1386,10 @@ local function phase0b_dockActionQueue(now)
                     uiState.deferredBankScanRequested = true
                 end
                 if a.id == "config" then uiState.configNeedsLoad = true end
+                -- Bar-originated chat opens anchor against the command bar (chat_window.lua
+                -- consumes this). Only THIS drain sets it: a preset apply opens chat through
+                -- registry.setWindowState directly and must keep its saved geometry.
+                if a.id == "chat" then uiState.chatOpenedFromBar = true end
             end
         elseif a.id == "loot" then
             -- The Loot window is uiState-managed rather than registry-registered.

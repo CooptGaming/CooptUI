@@ -22,11 +22,18 @@ local theme = require('itemui.utils.theme')
 local chatFeed = require('itemui.services.chat_feed')
 local chatConsole = require('itemui.services.chat_console')
 local dockTop = require('itemui.views.dock_top')
+local dockLayout = require('itemui.utils.dock_layout')
+local dockBottom = require('itemui.views.dock_bottom')
 
 local ChatWindowView = {}
 
 local CHAT_WINDOW_WIDTH = 560
 local CHAT_WINDOW_HEIGHT = 380
+
+-- Set (and cleared) across frames the window is/ isn't drawing, so the popup anchor below can
+-- tell "just opened via the bar" from "still open, still being dragged/resized". Module-local
+-- by design, same as dock_bottom's old peek tab state -- one chat window per session.
+local wasDrawing = false
 
 local TABS = {
     { id = "all",   label = "All" },
@@ -62,14 +69,54 @@ local function fallbackLines()
 end
 
 function ChatWindowView.render(ctx)
-    if not registry.shouldDraw("chat") then return end
+    if not registry.shouldDraw("chat") then
+        wasDrawing = false
+        -- A queued bar-open that got closed before its first render must not leave a stale
+        -- flag behind to anchor some LATER open (e.g. a preset apply).
+        ctx.uiState.chatOpenedFromBar = nil
+        return
+    end
+    -- The open EDGE: the first render call after a stretch of not drawing. Checked before
+    -- anything else touches wasDrawing, so a throw further down (contained by the caller,
+    -- same as every other bar/companion render) can never leave it stuck true.
+    local justOpened = not wasDrawing
+    wasDrawing = true
+    -- The anchor fires ONLY for opens that came from the bar (main_loop's window-action
+    -- drain sets this flag for id=="chat"): a preset apply or zone placement opens through
+    -- registry.setWindowState with its own saved geometry, which the anchor must not eat.
+    local openedFromBar = justOpened and ctx.uiState.chatOpenedFromBar == true
+    ctx.uiState.chatOpenedFromBar = nil
 
     local layoutConfig = ctx.layoutConfig
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.ChatWindowX or 0
     local ay = layoutConfig.ChatWindowY or 0
-    if ax ~= 0 or ay ~= 0 then
+
+    -- Best-effort popup anchor (mockup): the first frame the chat window opens VIA THE BAR
+    -- in bars mode, while it has no saved position, place it against the command bar --
+    -- edge-aware: a bottom-docked bar opens the window UPWARD (bottom-left pivot on the
+    -- bar's top edge); a top-docked bar opens it DOWNWARD from under the strip (top-left
+    -- pivot), or a 380px window would sit entirely above the screen. One frame with
+    -- Always; the write-back below records the on-screen result and every later frame
+    -- takes the normal ax/ay path.
+    local neverDragged = (ax == 0 and ay == 0)
+    if openedFromBar and neverDragged and tostring(layoutConfig.UIMode or "classic") == "bars"
+            and dockBottom.isEnabled(layoutConfig) then
+        local barEdge = dockBottom.edge(layoutConfig)
+        local bx, by, _, bh = dockLayout.barRect(barEdge, 0)
+        if barEdge == "top" then
+            ImGui.SetNextWindowPos(ImVec2(bx, by + bh), ImGuiCond.Always, ImVec2(0, 0))
+        else
+            ImGui.SetNextWindowPos(ImVec2(bx, by), ImGuiCond.Always, ImVec2(0, 1))
+        end
+        -- The anchor is a programmatic move: hold window_zones' `applying` cover open so
+        -- the write-back it triggers is adopted, not misread as a user drag (the first
+        -- draw can lag the open by a couple of main-loop ticks). 2, not 1: the counter
+        -- decrements BEFORE the zones tick in the same pass.
+        local u = ctx.uiState
+        u.layoutRevertedApplyFrames = math.max(tonumber(u.layoutRevertedApplyFrames) or 0, 2)
+    elseif ax ~= 0 or ay ~= 0 then
         ImGui.SetNextWindowPos(ImVec2(ax, ay), condPos)
     end
     local w = layoutConfig.WidthChatPanel or CHAT_WINDOW_WIDTH
@@ -107,6 +154,16 @@ function ChatWindowView.render(ctx)
     end
 
     renderTabs()
+    -- Top-right hint line (mockup): muted "Esc collapses" on the tab row. Esc-close already
+    -- works for free via the registry's LIFO close, so this is purely a label -- no new key
+    -- handling. Deferred: the mockup's shift+Enter size-cycling is not implemented here.
+    do
+        local hintText = "Esc collapses"
+        local winW = ImGui.GetWindowWidth and ImGui.GetWindowWidth() or 0
+        local tw = dockLayout.textWidth(hintText)
+        ImGui.SameLine(math.max(winW - tw - 12, 0))
+        theme.TextMuted(hintText)
+    end
     ImGui.Separator()
 
     local availW, availH = ImGui.GetContentRegionAvail()

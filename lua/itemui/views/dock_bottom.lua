@@ -243,7 +243,6 @@ local function drawMenuEntries(ctx, menu, s)
             end
             if ImGui.Selectable("Save current as...##dockmenu_presetsave") and ctx.uiState then
                 ctx.uiState.dockPresetSavePrompt = true
-                ctx.uiState.dockPinnedMenu = nil
             end
         end
     end
@@ -251,9 +250,12 @@ local function drawMenuEntries(ctx, menu, s)
 end
 
 --- Draw the open menu, if any, as a sibling borderless window anchored to its button.
+--- Hover opens it; a click on the button does the same (you have to be hovering to click, so
+--- it adds nothing beyond keeping hover.lastAt fresh) -- there is no pin anymore. The menu
+--- closes DOCK_POPOVER_GRACE_MS after the mouse leaves both the button and the menu itself,
+--- exactly like dock_top's popovers (hover.inMenu is this file's equivalent of hover.inPopover).
 local function renderMenu(ctx, s, edge)
     local uiState = ctx.uiState
-    local pinned = uiState and uiState.dockPinnedMenu or nil
     local now = mq.gettime()
 
     local hoveredId = nil
@@ -264,17 +266,12 @@ local function renderMenu(ctx, s, edge)
     if hoveredId then
         hover.id = hoveredId
         hover.lastAt = now
-        if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) and uiState then
-            -- Hover opens, click pins (mockup 13c B).
-            uiState.dockPinnedMenu = (pinned == hoveredId) and nil or hoveredId
-            pinned = uiState.dockPinnedMenu
-        end
     elseif hover.inMenu then
-        hover.lastAt = now
+        hover.lastAt = now       -- the mouse is in the menu itself; keep it alive
     end
 
-    local showId = pinned
-    if not showId and hover.id and (now - hover.lastAt) <= constants.TIMING.DOCK_POPOVER_GRACE_MS then
+    local showId = nil
+    if hover.id and (now - hover.lastAt) <= constants.TIMING.DOCK_POPOVER_GRACE_MS then
         showId = hover.id
     end
     if not showId then
@@ -325,13 +322,87 @@ local function renderMenu(ctx, s, edge)
     end
     ImGui.End()
     ImGui.PopStyleVar(1)
+    -- No pin, so no Esc-unpin path: the menu has nothing to unpin, and Esc otherwise falls
+    -- through to the hub's own LIFO close undisturbed (dock_top's popover Esc handling is the
+    -- one that still stakes a claim on dockEscConsumed, for the thing that can still be pinned).
+end
 
-    if pinned and ImGui.IsKeyPressed and ImGui.IsKeyPressed(ImGuiKey.Escape) then
-        uiState.dockPinnedMenu = nil
-        -- See the note in dock_top's renderPopover: the hub resets escConsumedThisFrame after
-        -- the bars have drawn, so the claim is staked on dockEscConsumed and handed over there.
-        uiState.dockEscConsumed = true
-        hover.id, hover.inMenu = nil, false
+-- ---------------------------------------------------------------------------
+-- Launcher buttons (DockBottomStyle = "buttons" -- the mockup's second option: a row of
+-- direct buttons instead of hover menus). "bags" is the hub, same as the menus' hub entry;
+-- everything else is registry-driven exactly like drawMenuEntries' module branch, so a
+-- disabled companion simply is not listed here either.
+-- ---------------------------------------------------------------------------
+
+--- Reroll's pending count, for the badge on its launcher button. There is no direct "how many
+--- pending" field on rerollService.getState() -- that table holds in-flight add/sync
+--- bookkeeping (pendingRerollAdd, pendingRerollSync, ...), not the pending LISTS themselves.
+--- The lists live behind getPendingAugList()/getPendingMythicalList() (views/reroll.lua reads
+--- them the same way), so that is what is counted here.
+local function rerollPendingCount(ctx)
+    local rs = ctx and ctx.rerollService
+    if not rs then return 0 end
+    local aug = (rs.getPendingAugList and rs.getPendingAugList()) or {}
+    local myth = (rs.getPendingMythicalList and rs.getPendingMythicalList()) or {}
+    return #aug + #myth
+end
+
+--- The ordered, filtered list of launcher entries this frame: { id, label, isHub }. Shared by
+--- the width estimate and the actual draw so the two never disagree about what is on the bar.
+local function launcherEntries(ctx, layoutConfig)
+    local out = {}
+    for _, id in ipairs(dockTop.csv(layoutConfig.DockButtons)) do
+        if id == "bags" then
+            out[#out + 1] = { id = id, label = "Bags", isHub = true }
+        else
+            local label = moduleLabel(id)
+            if label then
+                if id == "reroll" then
+                    local n = rerollPendingCount(ctx)
+                    if n > 0 then label = string.format("%s %d", label, n) end
+                end
+                out[#out + 1] = { id = id, label = label, isHub = false }
+            end
+        end
+    end
+    return out
+end
+
+--- Rough reserved width for the whole launcher row, so the chat strip ahead of it (buttons
+--- style puts chat FIRST -- see M.render) knows how much room is left. Not pixel-exact: the
+--- bars' anti-jitter discipline (fixed measured slot widths) is for the top bar's segments,
+--- which hold the SAME content across frames; a launcher row's content (the reroll badge)
+--- can change, and re-measuring each frame is cheap enough that drift never accumulates.
+local function launcherRowWidth(ctx, layoutConfig)
+    local pad = (constants.UI.DOCK_SLOT_PADDING_X or 12) * 2
+    local total, first = 0, true
+    for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
+        if not first then total = total + constants.UI.DOCK_SLOT_GAP end
+        first = false
+        total = total + dockLayout.textWidth(e.label) + pad
+    end
+    return total
+end
+
+--- Draw the launcher row itself. "bags" queues the hub, same as the menus' hub entry; every
+--- other id toggles its companion window, LIT (Keep.Normal) while open -- the same
+--- push/pop-around-SmallButton idiom this file already used for the (now-removed) pinned menu
+--- button, repointed at registry.isOpen instead of a pin.
+local function drawLauncherButtons(ctx, layoutConfig)
+    local first = true
+    for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
+        if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
+        first = false
+        local open = (not e.isHub) and registry.isOpen(e.id) or false
+        if open then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
+        if ImGui.SmallButton(e.label .. "##dockbtn_" .. e.id) then
+            if e.isHub then
+                dockTop.queue(ctx, { kind = "hub" })
+            else
+                dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
+            end
+        end
+        if open then ImGui.PopStyleColor() end
     end
 end
 
@@ -545,6 +616,7 @@ function M.render(ctx)
     local s = dockState.get()
 
     M.buttons = {}
+    local style = tostring(layoutConfig.DockBottomStyle or "menus")
 
     local edge = M.edge(layoutConfig)
     local rows = M.rows(layoutConfig)
@@ -577,22 +649,6 @@ function M.render(ctx)
         dockLayout.contained(ctx.uiState, "dock command bar", function()
         ImGui.AlignTextToFramePadding()
 
-        -- The hover menus, left to right (Items / Character / Actions / Game windows / Layouts).
-        for _, menu in ipairs(MENUS) do
-            local lit = (ctx.uiState and ctx.uiState.dockPinnedMenu) == menu.id
-            if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
-            ImGui.SmallButton(menu.label .. "##dockmenubtn_" .. menu.id)
-            if lit then ImGui.PopStyleColor() end
-            local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-            -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
-            -- everything after the Items button (see dockLayout.itemRectMin).
-            local rx, ry = dockLayout.itemRectMin()
-            M.buttons[menu.id] = { x = rx, y = ry, hovered = hovered }
-            ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
-        end
-
-        -- Settings and Layouts keep the right-hand anchor, so muscle memory survives a
-        -- change of bottom-bar style (mockup 13c).
         -- GetWindowWidth, not the viewport width: SameLine's argument is an offset from the
         -- window's content origin, so it has to account for the strip's padding (the hub does
         -- the same thing for its Lock checkbox).
@@ -601,11 +657,35 @@ function M.render(ctx)
         -- landed as the fifth hover menu on the left (phase 4), so the right anchor stays
         -- Settings-only.
         local rightW = dockLayout.slotWidth("dockRight", { "Settings" }, 16)
-        local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
 
-        ImGui.BeginGroup()
-        dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
-        ImGui.EndGroup()
+        if style == "buttons" then
+            -- Second mockup: chat FIRST (left edge), then one button per DockButtons id, then
+            -- the same right-anchored Settings every style keeps.
+            local buttonsW = launcherRowWidth(ctx, layoutConfig)
+            local chatW = math.max(winW - buttonsW - rightW - constants.UI.DOCK_SLOT_PADDING_X * 2, 80)
+
+            ImGui.BeginGroup()
+            dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
+            ImGui.EndGroup()
+            ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+            dockLayout.contained(ctx.uiState, "dock launcher buttons", drawLauncherButtons, ctx, layoutConfig)
+        else
+            -- The hover menus, left to right (Items / Character / Actions / Game windows / Layouts).
+            for _, menu in ipairs(MENUS) do
+                ImGui.SmallButton(menu.label .. "##dockmenubtn_" .. menu.id)
+                local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+                -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
+                -- everything after the Items button (see dockLayout.itemRectMin).
+                local rx, ry = dockLayout.itemRectMin()
+                M.buttons[menu.id] = { x = rx, y = ry, hovered = hovered }
+                ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+            end
+
+            local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
+            ImGui.BeginGroup()
+            dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
+            ImGui.EndGroup()
+        end
 
         ImGui.SameLine(math.max(winW - rightW, 0))
         ImGui.AlignTextToFramePadding()
@@ -617,7 +697,13 @@ function M.render(ctx)
     ImGui.End()
     ImGui.PopStyleVar(4)
 
-    renderMenu(ctx, s, edge)
+    -- Menus style only: buttons style has no hover menus, and M.buttons stays empty for it
+    -- (populated only in the branch above), so renderMenu would just no-op anyway -- gating it
+    -- here avoids a stray leftover menu surviving a mid-session style switch during its grace
+    -- window.
+    if style ~= "buttons" then
+        renderMenu(ctx, s, edge)
+    end
     renderPresetSavePrompt(ctx)
     -- With the status bar off, this bar hosts the 14d degraded strip; rows (not 1) lands
     -- it above the whole strip even when peek chat makes the bar five rows tall.
