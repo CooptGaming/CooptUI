@@ -326,7 +326,13 @@ function M.render(refs)
     pcall(NativeHover.render, refs)
     if not shouldDraw and not uiState.lootUIOpen and #registry.getDrawableModules() == 0 then return end
     uiState.lastPickupSetThisFrame = false
-    uiState.escConsumedThisFrame = false
+    -- The bars draw BEFORE the hub in the same frame (app.lua's imgui callback), so if Esc
+    -- has already closed a pinned popover or command-bar menu, this frame's Esc is spent.
+    -- Clearing it unconditionally would let renderCompanions' LIFO handler below ALSO close
+    -- the newest companion off the same keypress. The bars flag it on dockEscConsumed, which
+    -- this hands over rather than clobbers.
+    uiState.escConsumedThisFrame = uiState.dockEscConsumed == true
+    uiState.dockEscConsumed = nil
     local merchOpen = refs.isMerchantWindowOpen and refs.isMerchantWindowOpen()
     local layoutConfig = refs.layoutConfig or {}
     local layoutDefaults = refs.layoutDefaults or {}

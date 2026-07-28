@@ -25,6 +25,18 @@ local function setIsOpen(v)
     if deps.isOpen and deps.isOpen.set then deps.isOpen.set(v) end
 end
 
+--- Write a [Layout] key so it survives until the debounced save lands. A bare
+--- scheduleLayoutSave would let the next loadLayoutConfig re-apply the stale cached value
+--- (and then persist it), so a /itemui dock followed quickly by Shift+Q would undo itself.
+local function setKey(key, value)
+    if deps.setLayoutValue then
+        deps.setLayoutValue(key, value)
+    elseif deps.layoutConfig then
+        deps.layoutConfig[key] = value
+        if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
+    end
+end
+
 local function setTerminate(v)
     if deps.terminate and deps.terminate.set then deps.terminate.set(v) end
 end
@@ -90,8 +102,7 @@ function M.handleCommand(...)
         local lc = deps.layoutConfig
         if lc and tostring(lc.UIMode or "classic") == "bars" then
             if lc.DockBottom == false then
-                lc.DockBottom = true
-                if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
+                setKey("DockBottom", true)
             end
             print("\ag[ItemUI]\ax Command bar is on screen (hover Items / Character / Actions / Game windows).")
         else
@@ -106,25 +117,23 @@ function M.handleCommand(...)
         if not lc then
             print("\ar[ItemUI]\ax Layout not loaded yet.")
         elseif sub == "off" or sub == "classic" then
-            lc.UIMode = "classic"
+            setKey("UIMode", "classic")
             print("\ag[ItemUI]\ax Bars off - back to the classic UI.")
         elseif sub == "on" or sub == "bars" then
-            lc.UIMode = "bars"
+            setKey("UIMode", "bars")
             print("\ag[ItemUI]\ax Bars on.")
         elseif sub == "top" or sub == "bottom" then
-            lc.UIMode = "bars"
-            lc.DockPosition = sub
+            setKey("UIMode", "bars")
+            setKey("DockPosition", sub)
             print(string.format("\ag[ItemUI]\ax Status bar moved to the %s edge.", sub))
         elseif sub == "" then
             -- No argument toggles, which is what a bare /itemui dock should do.
             local on = tostring(lc.UIMode or "classic") == "bars"
-            lc.UIMode = on and "classic" or "bars"
+            setKey("UIMode", on and "classic" or "bars")
             print(string.format("\ag[ItemUI]\ax Bars %s.", on and "off" or "on"))
         else
             print("\ar[ItemUI]\ax /itemui dock [on|off|top|bottom]")
-            return
         end
-        if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end

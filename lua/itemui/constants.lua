@@ -51,7 +51,11 @@ M.TIMING = {
     -- burst is the stutter SELL_STATUS_DRAIN_PER_TICK / SESSION_MERGE_PER_TICK exist to avoid.
     DOCK_TICK_MS = 250,
     DOCK_SLOW_BAGS_MS = 1000,    -- countFreeInvSlots walks 10 packs, one TLO read per slot
-    DOCK_SLOW_BUFFS_MS = 750,    -- ~40-70 TLO reads (buffs + songs + auras)
+    -- 500, matching what views/effects.lua used to run on its own. The shared walk replaced
+    -- that clock, so anything slower would make the Effects window's timers and urgency
+    -- colours refresh less often than they did before the bars existed -- a classic-mode
+    -- regression for the same cost per walk.
+    DOCK_SLOW_BUFFS_MS = 500,    -- ~40-70 TLO reads (buffs + songs + auras)
     DOCK_SLOW_STATS_MS = 1000,   -- XP / AA / script totals
     DOCK_SLOW_CLICKY_MS = 1000,  -- spell id -> clicky item map, only while a buffs popover is open
     DOCK_POPOVER_GRACE_MS = 250, -- mouse-out grace so the pointer can travel segment -> popover

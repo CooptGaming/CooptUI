@@ -955,6 +955,7 @@ context.init({
     -- Layout (module direct)
     -- (saveLayoutToFile is set once below, near itemOps — duplicate key here removed)
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end, flushLayoutSave = flushLayoutSave,
+    setLayoutValue = function(k, v) layoutUtils.setLayoutValue(k, v) end,
     saveColumnVisibility = function() layoutUtils.saveColumnVisibility() end,
     loadLayoutConfig = loadLayoutConfig,
     applyItemUIToggleBind = function() layoutUtils.applyItemUIToggleBind() end,
@@ -1216,6 +1217,7 @@ commands.init({
     flushLayoutSave = flushLayoutSave,
     layoutConfig = layoutConfig,
     scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
+    setLayoutValue = function(k, v) layoutUtils.setLayoutValue(k, v) end,
 })
 local handleCommand = commands.handleCommand
 

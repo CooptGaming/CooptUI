@@ -177,6 +177,35 @@ function LayoutUtils.loadLayoutValue(layout, key, default)
     return layout_io.loadLayoutValue(layout, key, default)
 end
 
+--- Set a [Layout] key that must survive until the debounced save lands.
+---
+--- scheduleLayoutSave() alone is not enough for anything the user can immediately act on.
+--- It only sets perfCache.layoutDirty; layoutNeedsReload is set exclusively by
+--- saveLayoutToFileImmediate, which phase9 defers by LAYOUT_SAVE_DEBOUNCE_MS. So during that
+--- 600ms window loadLayoutConfig still takes its CACHE branch and applyLayoutSection re-reads
+--- the STALE parsed value straight back over the change -- and because layoutDirty is never
+--- cleared, the save that follows then persists the reverted value. A user who toggles the
+--- bars in Settings and presses Shift+Q within 600ms (which reloads the layout) would watch
+--- the setting undo itself.
+---
+--- Patching the cached parse keeps the two views of the INI agreed until the write lands.
+--- Values are stored as the INI's own strings so loadLayoutValue converts them exactly as it
+--- would after a real re-read.
+function LayoutUtils.setLayoutValue(key, value)
+    local layoutConfig = LayoutUtils.layoutConfig
+    if layoutConfig then layoutConfig[key] = value end
+    local cached = LayoutUtils.perfCache and LayoutUtils.perfCache.layoutCached
+    local layout = cached and cached.layout
+    if layout then
+        if type(value) == "boolean" then
+            layout[key] = value and "1" or "0"
+        else
+            layout[key] = tostring(value)
+        end
+    end
+    LayoutUtils.scheduleLayoutSave()
+end
+
 -- Schedule layout save (debounced) - use for sort clicks, tab switches, etc.
 function LayoutUtils.scheduleLayoutSave()
     local perfCache = LayoutUtils.perfCache

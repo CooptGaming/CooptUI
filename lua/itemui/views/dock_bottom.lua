@@ -139,8 +139,11 @@ local function drawMenuEntries(ctx, menu, s)
                     -- Lit = already open. Clicking again closes it.
                     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header))
                 end
+                -- toggle: the entry is lit when open and says so, so clicking it again has to
+                -- actually close the window. The status bar's buttons omit this flag on
+                -- purpose -- clicking "Rules" twice should not close Settings.
                 if ImGui.Selectable(label .. "##dockmenu_" .. e.id, open == true) then
-                    dockTop.queue(ctx, { kind = "window", id = e.id })
+                    dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
                 end
                 if open then ImGui.PopStyleColor() end
             end
@@ -265,7 +268,9 @@ local function renderMenu(ctx, s, edge)
 
     if pinned and ImGui.IsKeyPressed and ImGui.IsKeyPressed(ImGuiKey.Escape) then
         uiState.dockPinnedMenu = nil
-        uiState.escConsumedThisFrame = true
+        -- See the note in dock_top's renderPopover: the hub resets escConsumedThisFrame after
+        -- the bars have drawn, so the claim is staked on dockEscConsumed and handed over there.
+        uiState.dockEscConsumed = true
         hover.id, hover.inMenu = nil, false
     end
 end
@@ -418,6 +423,11 @@ function M.render(ctx)
 
     local _, visible = ImGui.Begin("##CoOptDockBottom", true, dockTop.barFlags())
     if visible then
+        -- Everything between Begin and End runs inside a pcall for the same reason dock_top
+        -- isolates its segments: app.lua's outer pcall sits OUTSIDE the four PushStyleVar
+        -- calls above, so an error escaping this window would skip End() and PopStyleVar(4)
+        -- and leak four style-stack entries per frame until ImGui asserts.
+        pcall(function()
         ImGui.AlignTextToFramePadding()
 
         -- Four menus, left to right.
@@ -450,6 +460,7 @@ function M.render(ctx)
         if ImGui.SmallButton("Settings##dockSettings") then
             dockTop.queue(ctx, { kind = "window", id = "config" })
         end
+        end)
     end
     ImGui.End()
     ImGui.PopStyleVar(4)

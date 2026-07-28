@@ -244,15 +244,10 @@ end
 
 function M.render()
     local now = mq.gettime()
-    if not cachedStats or (now - cacheTime) > CACHE_TTL then
-        -- Script counts do a full inventory scan + table builds; refresh them on the TTL
-        -- cadence instead of every frame (and not on the per-frame retry while stats are nil).
-        if not cachedScriptData or (now - cacheTime) > CACHE_TTL then
-            cachedScriptData = getScriptCountsFromInventory(deps and deps.inventoryItems)
-        end
-        cachedStats = refreshStats()
-        cacheTime = now
-    end
+    -- Same body ensureFresh holds, so the TTL policy lives in exactly one place: whichever of
+    -- the panel and the dock's XP/AA segment runs first in a frame satisfies the other's guard,
+    -- and they really do share one walk.
+    ensureFresh(now)
 
     local s = cachedStats
     if not s then return end

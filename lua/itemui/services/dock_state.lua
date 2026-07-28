@@ -62,6 +62,7 @@ local snap = {
     expiring = {},            -- { {name=, seconds=, icon=, kind=, index=}, ... } soonest first
     expiringCount = 0,
     buffs = {}, songs = {}, auras = {},
+    effectsWalkedAt = 0,      -- 0 = never walked; distinguishes a cold cache from "no buffs"
     clickyBySpell = {},       -- spellId -> {bag, slot, name, ready}; drives popover Recast
     -- xp / aa / scripts
     exp = 0, aaTotal = 0, scriptAA = 0, platinum = 0,
@@ -179,6 +180,10 @@ local function walkEffects()
     snap.buffs, snap.songs, snap.auras = buffs, songs, auras
     snap.buffCount, snap.songCount, snap.auraCount = #buffs, #songs, #auras
     snap.maxBuffs = maxBuffs
+    -- Stamped so consumers can tell "walked, and the character genuinely has no buffs" from
+    -- "never walked yet". Without it, a buff-less character looks identical to a cold cache
+    -- and views/effects.lua would fall back to its own walk forever -- two walks, not one.
+    snap.effectsWalkedAt = mq.gettime()
     snap.expiringCount = #expiring
     local shown = {}
     for i = 1, math.min(#expiring, EXPIRING_SHOWN) do shown[i] = expiring[i] end
@@ -187,9 +192,12 @@ end
 
 --- Shared effects cache for views/effects.lua. Marks demand so the walk keeps running
 --- while that window is open, and returns the same tables the bar reads.
+--- Returns walked, buffs, songs, auras, maxBuffs. `walked` is false until the tick has done
+--- at least one pass, which is the signal a consumer needs to decide between trusting the
+--- shared cache and doing its own walk.
 function M.getEffects()
     request("buffs")
-    return snap.buffs, snap.songs, snap.auras, snap.maxBuffs
+    return (snap.effectsWalkedAt or 0) > 0, snap.buffs, snap.songs, snap.auras, snap.maxBuffs
 end
 
 --- Force the next tick to re-walk effects (e.g. right after /removebuff, so the row goes

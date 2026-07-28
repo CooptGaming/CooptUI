@@ -57,6 +57,13 @@ function ConfigGeneral.render(ctx)
     local config = ctx.config
     local theme = ctx.theme
     local scheduleLayoutSave = ctx.scheduleLayoutSave
+    -- Dock keys go through this rather than a bare scheduleLayoutSave: during the 600ms save
+    -- debounce loadLayoutConfig still serves the CACHED parse, which would re-apply the old
+    -- value over the change and then persist the revert. See LayoutUtils.setLayoutValue.
+    local setLayoutValue = ctx.setLayoutValue or function(k, v)
+        layoutConfig[k] = v
+        if scheduleLayoutSave then scheduleLayoutSave() end
+    end
     local invalidateSellConfigCache = ctx.invalidateSellConfigCache
     local invalidateLootConfigCache = ctx.invalidateLootConfigCache
 
@@ -347,8 +354,7 @@ function ConfigGeneral.render(ctx)
         local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
         local nextBarsOn = ImGui.Checkbox("Use the bars UI##dockUIMode", barsOn)
         if nextBarsOn ~= barsOn then
-            layoutConfig.UIMode = nextBarsOn and "bars" or "classic"
-            scheduleLayoutSave()
+            setLayoutValue("UIMode", nextBarsOn and "bars" or "classic")
         end
 
         if nextBarsOn then
@@ -357,8 +363,7 @@ function ConfigGeneral.render(ctx)
             local topOn = layoutConfig.DockTop ~= false
             local nextTop = ImGui.Checkbox("Status bar##dockTop", topOn)
             if nextTop ~= topOn then
-                layoutConfig.DockTop = nextTop
-                scheduleLayoutSave()
+                setLayoutValue("DockTop", nextTop)
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
@@ -370,8 +375,7 @@ function ConfigGeneral.render(ctx)
             local bottomOn = layoutConfig.DockBottom ~= false
             local nextBottom = ImGui.Checkbox("Command bar##dockBottom", bottomOn)
             if nextBottom ~= bottomOn then
-                layoutConfig.DockBottom = nextBottom
-                scheduleLayoutSave()
+                setLayoutValue("DockBottom", nextBottom)
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
@@ -384,11 +388,11 @@ function ConfigGeneral.render(ctx)
             ImGui.Text("Status bar edge:")
             ImGui.SameLine()
             if ImGui.RadioButton("Top##dockPosTop", not atBottom) then
-                if atBottom then layoutConfig.DockPosition = "top"; scheduleLayoutSave() end
+                if atBottom then setLayoutValue("DockPosition", "top") end
             end
             ImGui.SameLine()
             if ImGui.RadioButton("Bottom##dockPosBottom", atBottom) then
-                if not atBottom then layoutConfig.DockPosition = "bottom"; scheduleLayoutSave() end
+                if not atBottom then setLayoutValue("DockPosition", "bottom") end
             end
 
             local chatModes = { "hidden", "collapsed", "peek" }
@@ -398,7 +402,7 @@ function ConfigGeneral.render(ctx)
             for i, mode in ipairs(chatModes) do
                 ImGui.SameLine()
                 if ImGui.RadioButton(chatLabels[i] .. "##dockChat" .. mode, cur == mode) then
-                    if cur ~= mode then layoutConfig.DockChat = mode; scheduleLayoutSave() end
+                    if cur ~= mode then setLayoutValue("DockChat", mode) end
                 end
             end
 
@@ -437,8 +441,7 @@ function ConfigGeneral.render(ctx)
                 end
             end
             if changed then
-                layoutConfig.DockSegments = table.concat(order, ",")
-                scheduleLayoutSave()
+                setLayoutValue("DockSegments", table.concat(order, ","))
             end
 
             ImGui.Unindent()

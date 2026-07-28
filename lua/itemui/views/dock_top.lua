@@ -479,7 +479,11 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     -- hub's own LIFO Esc handling is untouched the rest of the time.
     if pinned and ImGui.IsKeyPressed and ImGui.IsKeyPressed(ImGuiKey.Escape) then
         uiState.dockPinnedPopover = nil
-        uiState.escConsumedThisFrame = true
+        -- dockEscConsumed, not escConsumedThisFrame: the hub renders after the bars and
+        -- resets escConsumedThisFrame at the top of its own render, so a write here would be
+        -- erased and the same Esc would also close the newest companion window.
+        -- main_window hands this flag over into escConsumedThisFrame instead.
+        uiState.dockEscConsumed = true
         hover.id, hover.inPopover = nil, false
     end
 end
@@ -564,7 +568,13 @@ function M.render(ctx)
                 if ImGui.BeginChild("dockseg_" .. id, ImVec2(slotW, h - constants.UI.DOCK_BAR_PADDING_Y * 2), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
                     ImGui.AlignTextToFramePadding()
-                    draw(ctx, s)
+                    -- Per-segment isolation. app.lua's pcall around the whole render is not
+                    -- enough on its own: it sits OUTSIDE the four PushStyleVar calls below, so
+                    -- an error escaping to it would skip End() and PopStyleVar(4) and leak four
+                    -- style-stack entries EVERY frame -- unbounded growth, and eventually an
+                    -- ImGui assert. Contained here, a bad segment costs its own slot and
+                    -- nothing else.
+                    pcall(draw, ctx, s)
                 end
                 ImGui.EndChild()
                 -- Slot screen rect + hover state, remembered for phase 2: a popover opens

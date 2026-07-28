@@ -1247,19 +1247,32 @@ local function phase0b_dockActionQueue(now)
         mq.cmd(a.cmd)
 
     elseif a.kind == "window" and a.id then
-        -- Same call the hub toolbar and Command Center buttons make.
+        -- Two callers with different needs. The bar's launcher menus TOGGLE (they light an
+        -- open entry and say "click again to close", so open-only would make a lit entry do
+        -- nothing at all). The status bar's buttons -- Review, Open Buffs window, Rules --
+        -- must be idempotent OPENS: clicking "Rules" twice should not close Settings.
         local registry = require('itemui.core.registry')
         if registry.isRegistered(a.id) then
-            if not registry.isOpen(a.id) then registry.toggleWindow(a.id) end
-            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened(a.id) end
-            -- A bank open needs its scan deferred, exactly as main_window.lua:545 does.
-            if a.id == "bank" and d.isBankWindowOpen and d.isBankWindowOpen() then
-                uiState.deferredBankScanRequested = true
+            local open = registry.isOpen(a.id)
+            if a.toggle and open then
+                registry.toggleWindow(a.id)          -- closes it
+            else
+                if not open then registry.toggleWindow(a.id) end
+                if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened(a.id) end
+                -- A bank open needs its scan deferred, exactly as main_window.lua:545 does.
+                if a.id == "bank" and d.isBankWindowOpen and d.isBankWindowOpen() then
+                    uiState.deferredBankScanRequested = true
+                end
+                if a.id == "config" then uiState.configNeedsLoad = true end
             end
-            if a.id == "config" then uiState.configNeedsLoad = true end
         elseif a.id == "loot" then
-            uiState.lootUIOpen = true
-            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+            -- The Loot window is uiState-managed rather than registry-registered.
+            if a.toggle and uiState.lootUIOpen then
+                uiState.lootUIOpen = false
+            else
+                uiState.lootUIOpen = true
+                if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+            end
         end
 
     elseif a.kind == "hub" then

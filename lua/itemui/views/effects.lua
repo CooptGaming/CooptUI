@@ -176,8 +176,10 @@ local function removePopup(e)
     if ImGui.BeginPopupContextItem("EffRemove_" .. e.kind .. "_" .. e.index) then
         if ImGui.MenuItem("Remove " .. e.name) then
             mq.cmdf('/removebuff "%s"', e.name)
-            cache.at = 0 -- rescan next frame so the row disappears promptly
-            dockState.invalidateEffects() -- and on the shared walk, so the bar agrees
+            -- Forces the shared walk to re-run on the next dock tick so the row disappears
+            -- promptly. (The old `cache.at = 0` here is gone: cache.at is now overwritten
+            -- every frame from the shared cache, so zeroing it no longer triggers anything.)
+            dockState.invalidateEffects()
         end
         ImGui.EndPopup()
     end
@@ -307,12 +309,16 @@ function EffectsView.render(ctx)
     -- app.lua, and this window can be opened on the very first frame after a /lua reload).
     local now = mq.gettime()
     do
-        local b, s, a, mb = dockState.getEffects()
-        if b and #b > 0 or (s and #s > 0) or (a and #a > 0) then
+        local walked, b, s, a, mb = dockState.getEffects()
+        if walked then
             cache.buffs, cache.songs, cache.auras = b, s, a
             cache.maxBuffs = mb or cache.maxBuffs
             cache.at = now
         elseif (now - cache.at) >= SCAN_INTERVAL_MS then
+            -- dock_state has not ticked yet (it needs init(d) from app.lua, and this window
+            -- can be opened on the first frame after a /lua reload). Gate on `walked` rather
+            -- than on the tables being non-empty: a character with genuinely no buffs looks
+            -- exactly like a cold cache, and we would walk forever alongside the shared walk.
             cache.at = now
             rescan()
         end
