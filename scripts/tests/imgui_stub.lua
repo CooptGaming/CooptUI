@@ -1,0 +1,299 @@
+-- A recording ImGui stub, so the bars' RENDER path can be exercised without the game.
+--
+-- It is not a layout engine and cannot tell you anything about pixels. What it does give you,
+-- mechanically rather than by code review:
+--
+--   * STACK BALANCE. Every Begin/End, BeginChild/EndChild, BeginGroup/EndGroup, PushStyleVar/
+--     PopStyleVar(n), PushStyleColor/PopStyleColor(n) and PushID/PopID is counted, including
+--     across a pcall that swallowed an error mid-frame. An imbalance here is the leak that
+--     ends in an ImGui assert after a few thousand frames -- the exact failure a regex over
+--     the source can only guess at.
+--   * WHAT WAS ACTUALLY DRAWN. Every string reaches `rec.text`, so a test can assert the loot
+--     slot really says "corpse 4/9" rather than trusting that the fields behind it are right.
+--   * RENDER-PATH PURITY. mq.TLO is a trap: any access is recorded, so "no TLO calls in the
+--     render path" becomes an assertion instead of a rule someone has to remember.
+--   * INPUT. Hover and click are scriptable per widget id, which is enough to drive the
+--     popover/menu open-close-pin logic and the Esc handling.
+--
+-- Usage:
+--   local stub = require('imgui_stub')
+--   stub.install()                       -- sets the ImGui global + enum tables + ImVec2/4
+--   stub.frame(function() ... end)        -- runs one frame, returns the recording
+--
+-- Deliberately NOT modelled: real widths (CalcTextSize returns len * a constant), clipping,
+-- z-order, and anything about focus. Tests must not assert on those.
+
+local M = {}
+
+local rec  -- current frame recording
+
+-- ---------------------------------------------------------------- recording
+local function newRec()
+    return {
+        text = {},          -- every string drawn, in order
+        buttons = {},       -- every button/selectable label offered, in order
+        windows = {},       -- names passed to Begin
+        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0 },
+        max = { win = 0, child = 0 },
+        tloAccess = {},     -- any mq.TLO.* touched during the frame
+        commands = {},      -- any mq.cmd/cmdf issued during the frame
+        errors = {},
+    }
+end
+
+--- Widgets that should report hovered / clicked this frame, keyed by the label substring.
+M.hover = {}
+M.click = {}
+M.keys  = {}    -- e.g. { Escape = true }
+M.mouse = {}    -- e.g. { [2] = true } for a middle-click (ImGuiMouseButton.Middle)
+
+local function matches(set, label)
+    if not label then return false end
+    for k, v in pairs(set) do
+        if v and string.find(tostring(label), tostring(k), 1, true) then return true end
+    end
+    return false
+end
+
+-- ---------------------------------------------------------------- vec types
+local function vec2(x, y) return { x = x or 0, y = y or 0 } end
+local function vec4(r, g, b, a) return { x = r or 0, y = g or 0, z = b or 0, w = a or 1 } end
+
+-- ---------------------------------------------------------------- the stub
+local lastLabel = nil
+
+local function addText(s)
+    if s ~= nil then rec.text[#rec.text + 1] = tostring(s) end
+end
+
+local ImGuiStub = {}
+
+-- windows -------------------------------------------------------------------
+function ImGuiStub.Begin(name, open, _flags)
+    rec.windows[#rec.windows + 1] = name
+    rec.depth.win = rec.depth.win + 1
+    if rec.depth.win > rec.max.win then rec.max.win = rec.depth.win end
+    return (open == nil) and true or open, true      -- (open, visible)
+end
+function ImGuiStub.End() rec.depth.win = rec.depth.win - 1 end
+
+-- Child names are stacked so EndChild can restore lastLabel. In real ImGui the child window
+-- becomes the "last item" once EndChild returns, which is what makes
+-- `EndChild(); IsItemHovered()` a valid way to ask "is the mouse over that child" -- the
+-- pattern dock_top uses for its slots. Without this the label is whatever the segment drew
+-- INSIDE the child, and hover never matches the slot.
+local childStack = {}
+function ImGuiStub.BeginChild(name, _size, _border, _flags)
+    lastLabel = name
+    childStack[#childStack + 1] = name
+    rec.depth.child = rec.depth.child + 1
+    if rec.depth.child > rec.max.child then rec.max.child = rec.depth.child end
+    return true
+end
+function ImGuiStub.EndChild()
+    rec.depth.child = rec.depth.child - 1
+    lastLabel = childStack[#childStack]
+    childStack[#childStack] = nil
+end
+
+function ImGuiStub.BeginGroup() rec.depth.group = rec.depth.group + 1 end
+function ImGuiStub.EndGroup() rec.depth.group = rec.depth.group - 1 end
+
+function ImGuiStub.BeginTooltip() rec.depth.win = rec.depth.win + 1 end
+function ImGuiStub.EndTooltip() rec.depth.win = rec.depth.win - 1 end
+
+-- stacks --------------------------------------------------------------------
+function ImGuiStub.PushStyleVar() rec.depth.sv = rec.depth.sv + 1 end
+function ImGuiStub.PopStyleVar(n) rec.depth.sv = rec.depth.sv - (n or 1) end
+function ImGuiStub.PushStyleColor() rec.depth.sc = rec.depth.sc + 1 end
+function ImGuiStub.PopStyleColor(n) rec.depth.sc = rec.depth.sc - (n or 1) end
+function ImGuiStub.PushID() rec.depth.id = rec.depth.id + 1 end
+function ImGuiStub.PopID() rec.depth.id = rec.depth.id - 1 end
+function ImGuiStub.PushTextWrapPos() end
+function ImGuiStub.PopTextWrapPos() end
+
+-- text ----------------------------------------------------------------------
+function ImGuiStub.Text(s) lastLabel = s; addText(s) end
+function ImGuiStub.TextUnformatted(s) lastLabel = s; addText(s) end
+function ImGuiStub.TextColored(_c, s) lastLabel = s; addText(s) end
+function ImGuiStub.TextWrapped(s) lastLabel = s; addText(s) end
+function ImGuiStub.TextDisabled(s) lastLabel = s; addText(s) end
+function ImGuiStub.Separator() end
+function ImGuiStub.SeparatorText(s) addText(s) end
+function ImGuiStub.Spacing() end
+function ImGuiStub.Dummy() end
+function ImGuiStub.Indent() end
+function ImGuiStub.Unindent() end
+function ImGuiStub.SameLine() end
+function ImGuiStub.AlignTextToFramePadding() end
+function ImGuiStub.SetWindowFontScale() end
+
+-- widgets -------------------------------------------------------------------
+local function widget(label)
+    lastLabel = label
+    rec.buttons[#rec.buttons + 1] = label
+    return matches(M.click, label)
+end
+function ImGuiStub.Button(label) return widget(label) end
+function ImGuiStub.SmallButton(label) return widget(label) end
+function ImGuiStub.Selectable(label, _sel) return widget(label) end
+function ImGuiStub.Checkbox(label, v) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return v end
+function ImGuiStub.RadioButton(label, active) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return matches(M.click, label) and not active end
+function ImGuiStub.CollapsingHeader(label) addText(label); return true end
+function ImGuiStub.ProgressBar() end
+function ImGuiStub.InputText(_id, buf) return buf, false end
+function ImGuiStub.BeginPopupContextItem() return false end
+function ImGuiStub.EndPopup() end
+function ImGuiStub.OpenPopup() end
+
+-- queries -------------------------------------------------------------------
+function ImGuiStub.IsItemHovered() return matches(M.hover, lastLabel) end
+function ImGuiStub.IsWindowHovered() return M.windowHovered == true end
+function ImGuiStub.IsItemDeactivatedAfterEdit() return false end
+function ImGuiStub.IsKeyPressed(k) return M.keys[k] == true end
+function ImGuiStub.IsMouseClicked(b) return M.mouse[b] == true end
+function ImGuiStub.IsMouseReleased() return false end
+function ImGuiStub.GetIO() return { KeyShift = false, WantTextInput = false, WantCaptureMouse = false } end
+
+-- geometry ------------------------------------------------------------------
+function ImGuiStub.GetMainViewport()
+    return { Pos = vec2(0, 0), Size = vec2(2560, 1440),
+             WorkPos = vec2(0, 0), WorkSize = vec2(2560, 1440), ID = 0 }
+end
+function ImGuiStub.GetTextLineHeight() return 14 end
+function ImGuiStub.GetTextLineHeightWithSpacing() return 18 end
+function ImGuiStub.CalcTextSize(s) return #tostring(s or "") * 7, 14 end
+function ImGuiStub.GetWindowWidth() return 2560 end
+function ImGuiStub.GetWindowHeight() return 30 end
+function ImGuiStub.GetWindowSize() return 2560, 30 end
+function ImGuiStub.GetCursorPosX() return 400 end
+function ImGuiStub.GetCursorPos() return 0, 0 end
+function ImGuiStub.SetCursorPos() end
+function ImGuiStub.SetCursorPosX() end
+function ImGuiStub.GetItemRectMin() return vec2(100, 0) end
+function ImGuiStub.GetItemRectMax() return vec2(200, 30) end
+function ImGuiStub.SetNextWindowPos() end
+function ImGuiStub.SetNextWindowSize() end
+function ImGuiStub.SetNextWindowSizeConstraints() end
+function ImGuiStub.SetNextFrameWantCaptureKeyboard() end
+function ImGuiStub.SetKeyboardFocusHere() end
+function ImGuiStub.GetWindowDrawList() return nil end
+function ImGuiStub.GetColorU32() return 0 end
+
+--- Anything the bars reach for that is not modelled returns nil rather than exploding, but
+--- the access is recorded so a test can notice a genuinely missing stub.
+M.missing = {}
+setmetatable(ImGuiStub, {
+    __index = function(_, k)
+        M.missing[k] = (M.missing[k] or 0) + 1
+        return nil
+    end,
+})
+
+-- ---------------------------------------------------------------- install
+function M.install()
+    _G.ImGui = ImGuiStub
+    _G.ImVec2 = vec2
+    _G.ImVec4 = vec4
+    package.loaded['ImGui'] = ImGuiStub
+
+    -- bit32 is a host shim in MQ; LuaJIT ships `bit`.
+    if not _G.bit32 then
+        local ok, b = pcall(require, 'bit')
+        _G.bit32 = ok and { bor = b.bor, band = b.band, bnot = b.bnot } or {
+            bor = function(a, c) return (a or 0) + (c or 0) end,
+        }
+    end
+
+    -- Enum tables. Values only have to be distinct; nothing here depends on the real numbers.
+    local function enum(names)
+        local t, i = {}, 1
+        for _, n in ipairs(names) do t[n] = i; i = i * 2 end
+        return t
+    end
+    _G.ImGuiWindowFlags = enum({ 'None', 'NoTitleBar', 'NoResize', 'NoMove', 'NoScrollbar',
+        'NoScrollWithMouse', 'NoCollapse', 'AlwaysAutoResize', 'NoSavedSettings',
+        'NoFocusOnAppearing', 'NoBringToFrontOnFocus', 'NoNav', 'NoDocking', 'NoBackground',
+        'AlwaysVerticalScrollbar', 'MenuBar' })
+    _G.ImGuiCol = enum({ 'Text', 'Button', 'ButtonHovered', 'ButtonActive', 'ChildBg',
+        'Border', 'PlotHistogram', 'Header' })
+    _G.ImGuiStyleVar = enum({ 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
+        'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding' })
+    _G.ImGuiKey = enum({ 'Escape', 'F1', 'F2', 'Tab', 'Enter' })
+    _G.ImGuiMouseButton = { Left = 0, Right = 1, Middle = 2 }
+    _G.ImGuiHoveredFlags = enum({ 'None', 'ChildWindows', 'AllowWhenBlockedByPopup' })
+    _G.ImGuiTreeNodeFlags = enum({ 'None', 'DefaultOpen' })
+    _G.ImGuiSelectableFlags = enum({ 'None' })
+    _G.ImGuiInputTextFlags = enum({ 'None', 'CharsDecimal' })
+    _G.ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
+    _G.ImGuiCond = enum({ 'None', 'Always', 'Once', 'FirstUseEver', 'Appearing' })
+    _G.ImGuiChildFlags = enum({ 'None', 'Border' })
+end
+
+--- An mq stub whose TLO is a trap: touching it during a frame is recorded, which is how the
+--- "no TLO calls in the render path" rule becomes testable.
+--- The stub clock, in milliseconds. Tests MUST advance it between frames when exercising
+--- anything time-based: the popover and menu close on a DOCK_POPOVER_GRACE_MS mouse-out
+--- window, so a frozen clock leaves them open forever and every later frame inherits a stray
+--- window. Advance with M.advance(ms).
+M.now = 100000
+function M.advance(ms) M.now = M.now + (ms or 1) end
+
+function M.newMq(opts)
+    opts = opts or {}
+    if opts.now then M.now = opts.now end
+    local trap
+    trap = setmetatable({}, {
+        __index = function(_, k)
+            if rec then rec.tloAccess[#rec.tloAccess + 1] = tostring(k) end
+            return trap
+        end,
+        __call = function() return nil end,
+    })
+    return {
+        gettime = function() return M.now end,
+        cmd     = function(c) if rec then rec.commands[#rec.commands + 1] = c end end,
+        cmdf    = function(f, ...) if rec then rec.commands[#rec.commands + 1] = string.format(f, ...) end end,
+        delay   = function() end,
+        event   = function() end,
+        TLO     = trap,
+        imgui   = { init = function() end, destroy = function() end },
+    }
+end
+
+--- Run one frame. Returns the recording; `ok`/`err` report whether fn threw.
+function M.frame(fn)
+    rec = newRec()
+    local ok, err = pcall(fn)
+    if not ok then rec.errors[#rec.errors + 1] = tostring(err) end
+    rec.ok = ok
+    rec.err = err
+    return rec
+end
+
+--- Convenience: did any drawn string contain `needle`?
+function M.drew(r, needle)
+    for _, s in ipairs(r.text) do
+        if string.find(s, needle, 1, true) then return true end
+    end
+    for _, s in ipairs(r.buttons) do
+        if s and string.find(tostring(s), needle, 1, true) then return true end
+    end
+    return false
+end
+
+--- Every stack back to zero, and no window/child left open.
+function M.balanced(r)
+    local d = r.depth
+    return d.win == 0 and d.child == 0 and d.group == 0 and d.id == 0 and d.sv == 0 and d.sc == 0
+end
+
+function M.imbalance(r)
+    local out, d = {}, r.depth
+    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc' }) do
+        if d[k] ~= 0 then out[#out + 1] = string.format('%s=%+d', k, d[k]) end
+    end
+    return table.concat(out, ' ')
+end
+
+return M
