@@ -71,6 +71,11 @@ local function dockError(source, err)
     dock.seenErrors[msg] = true
     local diag = require('itemui.core.diagnostics')
     if diag and diag.recordError then diag.recordError(source, "Render failed", msg) end
+    -- PRINT it too, not just record it. A render error inside a bar is swallowed by the pcall
+    -- above, so without this the only symptom is ImGui complaining about an unbalanced window
+    -- stack with no clue as to why — which is exactly the dead end it caused once already.
+    -- Deduplicated by message, so a bar failing every frame says this once.
+    print(string.format("\ar[CoOpt UI]\ax %s error: %s", source, msg))
 end
 
 -- Phase 7: Utility modules

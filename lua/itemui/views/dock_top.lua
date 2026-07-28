@@ -82,6 +82,22 @@ local function mmss(secs)
 end
 M.mmss = mmss
 
+--- Format-safe text, for anything the GAME or the user's config supplies: item names, buff
+--- names, corpse names, rule text. ImGui.Text treats its argument as a format string, so an
+--- item called "Potion of 50% Haste" makes it raise -- and because theme's text helpers are
+--- Push -> Text -> Pop, a raise there strands the pushed style colour for the rest of the
+--- frame. views/effects.lua:88-95 guards the same way for spell descriptions.
+--- Static strings we author ourselves do not need this.
+local function safeText(s)
+    s = tostring(s)
+    if ImGui.TextUnformatted then
+        ImGui.TextUnformatted(s)
+    else
+        ImGui.Text((s:gsub("%%", "%%%%")))
+    end
+end
+M.safeText = safeText
+
 --- Muted label + normal value on one line, without a trailing SameLine.
 local function labelled(label, value, valueColor)
     theme.TextMuted(label)
@@ -175,7 +191,7 @@ segments.loot = function(ctx, s)
         -- is not pinned anywhere here (it ships a bit32 shim), so don't be the first to rely
         -- on 5.3+ escape syntax in a file that has to load for the UI to come up at all.
         if #name > 28 then name = name:sub(1, 25) .. "..." end
-        ImGui.Text(name)
+        safeText(name)
         if s.lootDecisionSecs then
             ImGui.SameLine(0, 6)
             theme.TextMuted(mmss(s.lootDecisionSecs))
@@ -207,7 +223,7 @@ segments.loot = function(ctx, s)
         labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
         if s.lootCorpseName and ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("On: " .. tostring(s.lootCorpseName))
+            safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
         ImGui.SameLine(0, 6)
@@ -332,7 +348,7 @@ popovers.buffs = function(ctx, s)
             local col = (e.seconds and e.seconds <= 60) and theme.Colors.Error or theme.Colors.Warning
             ImGui.TextColored(theme.ToVec4(col), mmss(e.seconds))
             ImGui.SameLine(60)
-            ImGui.Text(tostring(e.name or "?"))
+            safeText(tostring(e.name or "?"))
             -- Recast is offered only when an item in bags actually casts this spell (matched
             -- by spell id, not name) and it is off cooldown. No item, no button -- rather
             -- than a button that does nothing.
@@ -378,7 +394,7 @@ popovers.sell = function(ctx, s)
     else
         for i, g in ipairs(groups) do
             ImGui.PushID("dockgrp" .. i)
-            ImGui.Text(tostring(g.reason))
+            safeText(tostring(g.reason))
             ImGui.SameLine(240)
             theme.TextMuted(tostring(g.count))
             ImGui.SameLine(285)
@@ -468,12 +484,16 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
     local _, visible = ImGui.Begin("##CoOptDockPopover", true, flags)
     if visible then
-        hover.inPopover = (ImGui.IsWindowHovered and ImGui.IsWindowHovered(
-            ImGuiHoveredFlags and ImGuiHoveredFlags.ChildWindows or 0)) or false
-        if pinned then
-            theme.TextMuted("pinned - middle-click the slot again, or Esc, to close")
-        end
-        pcall(draw, ctx, s)
+        -- Contained for the same reason as the bar body: an error escaping between Begin and
+        -- End would leave the popover window open and ImGui short an End().
+        pcall(function()
+            hover.inPopover = (ImGui.IsWindowHovered and ImGui.IsWindowHovered(
+                ImGuiHoveredFlags and ImGuiHoveredFlags.ChildWindows or 0)) or false
+            if pinned then
+                theme.TextMuted("pinned - middle-click the slot again, or Esc, to close")
+            end
+            draw(ctx, s)
+        end)
     else
         hover.inPopover = false
     end
@@ -558,8 +578,22 @@ function M.render(ctx)
     -- bar has no close button (NoTitleBar), so `open` is always true and it is the SECOND
     -- value that says whether to draw. End() is still called unconditionally either way,
     -- which is the Begin/End contract.
-    local _, visible = ImGui.Begin("##CoOptDockTop", true, barFlags())
+    -- Begin is guarded because the four style vars above it MUST be pushed first (they shape
+    -- the window itself), so a throw inside Begin would strand them for the rest of the frame.
+    -- If it fails there is no window to close -- unwind the pushes and give up on this frame.
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockTop", true, barFlags())
+    if not okBegin then
+        ImGui.PopStyleVar(4)
+        return
+    end
     if visible then
+        -- EVERYTHING between Begin and End is contained. app.lua pcalls this whole function,
+        -- which sits OUTSIDE the Begin -- so an error escaping from in here would swallow the
+        -- End() below and leave ImGui with an unbalanced window stack ("Missing End()"), with
+        -- no Lua error shown because the pcall ate it. Per-segment pcalls are not enough: the
+        -- slot-width measurement, SameLine, BeginChild/EndChild and the rect capture all sit
+        -- between the segments and can throw too.
+        pcall(function()
         ImGui.AlignTextToFramePadding()
         local first = true
         for _, id in ipairs(order) do
@@ -602,6 +636,7 @@ function M.render(ctx)
                 end
             end
         end
+        end)
     end
     ImGui.End()
     ImGui.PopStyleVar(4)

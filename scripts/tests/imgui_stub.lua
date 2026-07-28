@@ -44,6 +44,17 @@ end
 --- Widgets that should report hovered / clicked this frame, keyed by the label substring.
 M.hover = {}
 M.click = {}
+
+--- Make a named ImGui call raise, e.g. M.throwOn = { CalcTextSize = true }. This models the
+--- real failure the first in-game run hit: something between Begin and End threw, app.lua's
+--- pcall swallowed it, End() never ran, and ImGui reported "Missing End()" with no Lua error
+--- to go on. A stub where nothing ever throws cannot see that class at all.
+M.throwOn = {}
+
+--- Force BeginChild to report the child as clipped/invisible. Real ImGui does this routinely
+--- (a child scrolled out of view), and the original stub always returning true meant the
+--- false branch was never exercised.
+M.childInvisible = false
 M.keys  = {}    -- e.g. { Escape = true }
 M.mouse = {}    -- e.g. { [2] = true } for a middle-click (ImGuiMouseButton.Middle)
 
@@ -88,7 +99,9 @@ function ImGuiStub.BeginChild(name, _size, _border, _flags)
     childStack[#childStack + 1] = name
     rec.depth.child = rec.depth.child + 1
     if rec.depth.child > rec.max.child then rec.max.child = rec.depth.child end
-    return true
+    -- Real ImGui returns false for a clipped/invisible child, and EndChild must STILL be
+    -- called. Returning false here proves callers do that.
+    return not M.childInvisible
 end
 function ImGuiStub.EndChild()
     rec.depth.child = rec.depth.child - 1
@@ -179,6 +192,16 @@ function ImGuiStub.SetNextFrameWantCaptureKeyboard() end
 function ImGuiStub.SetKeyboardFocusHere() end
 function ImGuiStub.GetWindowDrawList() return nil end
 function ImGuiStub.GetColorU32() return 0 end
+
+--- Wrap every entry so M.throwOn can make a named call raise.
+for name, fn in pairs(ImGuiStub) do
+    if type(fn) == 'function' then
+        ImGuiStub[name] = function(...)
+            if M.throwOn[name] then error('injected failure in ImGui.' .. name, 2) end
+            return fn(...)
+        end
+    end
+end
 
 --- Anything the bars reach for that is not modelled returns nil rather than exploding, but
 --- the access is recorded so a test can notice a genuinely missing stub.

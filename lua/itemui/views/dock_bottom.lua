@@ -256,10 +256,13 @@ local function renderMenu(ctx, s, edge)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(8, 6))
     local _, visible = ImGui.Begin("##CoOptDockMenu", true, flags)
     if visible then
-        hover.inMenu = (ImGui.IsWindowHovered and ImGui.IsWindowHovered()) or false
-        theme.TextHeaderAlt(menu.label)
-        ImGui.Separator()
-        pcall(drawMenuEntries, ctx, menu, s)
+        -- Contained: nothing may escape between Begin and End (see dock_top's render).
+        pcall(function()
+            hover.inMenu = (ImGui.IsWindowHovered and ImGui.IsWindowHovered()) or false
+            theme.TextHeaderAlt(menu.label)
+            ImGui.Separator()
+            drawMenuEntries(ctx, menu, s)
+        end)
     else
         hover.inMenu = false
     end
@@ -434,7 +437,12 @@ function M.render(ctx)
         ImVec2(constants.UI.DOCK_SLOT_PADDING_X, constants.UI.DOCK_BAR_PADDING_Y))
     ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, ImVec2(constants.UI.DOCK_SLOT_GAP, 2))
 
-    local _, visible = ImGui.Begin("##CoOptDockBottom", true, dockTop.barFlags())
+    -- See dock_top: the style vars must precede Begin, so Begin failing has to unwind them.
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockBottom", true, dockTop.barFlags())
+    if not okBegin then
+        ImGui.PopStyleVar(4)
+        return
+    end
     if visible then
         -- Everything between Begin and End runs inside a pcall for the same reason dock_top
         -- isolates its segments: app.lua's outer pcall sits OUTSIDE the four PushStyleVar

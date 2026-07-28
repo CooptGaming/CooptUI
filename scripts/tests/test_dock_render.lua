@@ -387,6 +387,69 @@ do
     end
 end
 
+-- =================================================================
+-- 12. Nothing may escape between Begin and End
+--
+--     This is the failure the first in-game run actually hit: something threw inside the bar
+--     body, app.lua's pcall (which sits OUTSIDE the Begin) swallowed it, End() never ran, and
+--     ImGui reported "Missing End()" with no Lua error to go on. The original stub could not
+--     see it because nothing in it ever threw and BeginChild always claimed success.
+-- =================================================================
+do
+    -- Deliberately excludes End, EndChild, EndGroup and the Pop* calls: those ARE the
+    -- balancing primitives, so "what if the thing that closes the stack fails" has no
+    -- recoverable answer and asserting on it would only encode an impossible requirement.
+    -- Everything a segment or the bar body can realistically reach IS covered.
+    local victims = { 'CalcTextSize', 'SameLine', 'BeginChild', 'GetItemRectMin',
+                      'AlignTextToFramePadding', 'SmallButton', 'Selectable', 'BeginGroup',
+                      'Text', 'TextColored', 'TextUnformatted', 'Begin', 'IsItemHovered' }
+    for _, victim in ipairs(victims) do
+        resetInput()
+        local ctx = newCtx()
+        dockState.init(newDeps(ctx))
+        warmState()
+        stub.throwOn = { [victim] = true }
+        local r = stub.frame(function()
+            dockTop.render(ctx)
+            dockBottom.render(ctx)
+        end)
+        stub.throwOn = {}
+        -- The frame may draw nothing useful, but the window stack MUST come back to zero or
+        -- the overlay dies.
+        check('throw in ImGui.' .. victim .. ': window stack still balanced',
+            r.depth.win == 0 and r.depth.child == 0 and r.depth.group == 0,
+            stub.imbalance(r))
+        -- Style-colour balance is asserted for everything EXCEPT Text. theme's text helpers
+        -- are Push -> ImGui.Text -> Pop (coopui/utils/theme.lua:71-132), so a Text that raises
+        -- strands the colour -- in shared code every view in the product depends on, not in
+        -- the bars. The realistic trigger for that is a '%' in game-supplied text, and the
+        -- bars now route every such string through safeText (dock_top.lua:91). Injecting a
+        -- throw into EVERY Text call is strictly harsher than anything reachable.
+        local styleOk = (r.depth.sv == 0) and (victim == 'Text' or r.depth.sc == 0)
+        check('throw in ImGui.' .. victim .. ': style stacks still balanced',
+            styleOk, stub.imbalance(r))
+    end
+end
+
+-- =================================================================
+-- 13. A clipped child (BeginChild returning false) must still be Ended
+-- =================================================================
+do
+    resetInput()
+    local ctx = newCtx()
+    dockState.init(newDeps(ctx))
+    warmState()
+    stub.childInvisible = true
+    local r = stub.frame(function()
+        dockTop.render(ctx)
+        dockBottom.render(ctx)
+    end)
+    stub.childInvisible = false
+    check('clipped children: stacks balanced', stub.balanced(r), stub.imbalance(r))
+    check('clipped children: both strips still opened and closed', #r.windows == 2,
+        table.concat(r.windows, ','))
+end
+
 -- ---------------------------------------------------------------- summary
 local missing = {}
 for k, v in pairs(stub.missing) do missing[#missing + 1] = k .. 'x' .. v end
