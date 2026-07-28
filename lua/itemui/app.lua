@@ -1489,6 +1489,11 @@ local function main()
         firstLayoutDone = true
     end
     if charName ~= "" and (not defaultLayout.hasExistingLayout() or not firstLayoutDone) then
+        -- A TRULY new install (no layout file at all, before the bundled default lands) gets
+        -- bars mode as its default (phase 5). Existing users — anyone with a layout file,
+        -- including everyone upgrading — keep whatever mode they had; the bundled default
+        -- file itself still says classic so a Revert never flips an old install into bars.
+        local trulyNewInstall = not defaultLayout.hasExistingLayout()
         local ok, err = defaultLayout.applyBundledDefaultLayout()
         if ok then
             defaultLayoutAppliedThisRun = true
@@ -1496,6 +1501,10 @@ local function main()
             uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
             writeAccountLayoutMarker()
             defaultLayout.markFirstLayoutAppliedForChar(charName)
+            if trulyNewInstall then
+                -- After loadLayoutConfig below parses the bundled file, override the mode.
+                uiState._newInstallBarsDefault = true
+            end
         elseif err and err ~= "" then
             if print then print("\ar[ItemUI]\ax First-run default layout: " .. tostring(err)) end
             local diag = require('itemui.core.diagnostics')
@@ -1503,6 +1512,10 @@ local function main()
         end
     end
     loadLayoutConfig()  -- Single parse loads defaults, layout, column visibility
+    if uiState._newInstallBarsDefault then
+        uiState._newInstallBarsDefault = nil
+        layoutUtils.setLayoutValue("UIMode", "bars")   -- write-through: survives the debounce
+    end
     -- Sync enableRealTimeLoot with enableLiveLootFeed: if the macro feed is enabled but
     -- the UI-side flag is off (default), enable it now so IPC items are actually shown.
     if configLootFlags.enableLiveLootFeed and not uiState.enableRealTimeLoot then

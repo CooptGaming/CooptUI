@@ -28,8 +28,16 @@ local FILTER_PLACEHOLDERS = {"e.g. Rusty Dagger", "e.g. Epic", "e.g. Armor, Weap
 local filterListGeneration = 0
 local entryCache = { sell = nil, valuable = nil, loot = nil }
 
-local function bumpFilterListGeneration()
+local function bumpFilterListGeneration(silent)
     filterListGeneration = filterListGeneration + 1
+    -- Every USER rule add/remove lands here, which makes it the "first rule edit" signal
+    -- the hint system listens for (mockup 14c). Seeding paths (the default-protect button,
+    -- the first-run care profiles, the Settings defaults seed) pass silent=true — a hint
+    -- that says "rules explain themselves" must not fire because the PRODUCT edited the
+    -- rules. pcall: hints must never break rule editing.
+    if silent then return end
+    local ok, hints = pcall(require, 'itemui.services.hints')
+    if ok and hints and hints.noteRuleEdit then hints.noteRuleEdit() end
 end
 
 local function countDefEntries(def)
@@ -49,27 +57,75 @@ function M.classLabel(cls)
     return (cls:gsub("_", " "):gsub("(%a)(%S*)", function(a, b) return a:upper() .. b:lower() end))
 end
 
-function M.loadDefaultProtectList(ctx)
-    local cfg = ctx.config
-    local lists = ctx.configSellLists
-    local invSell = ctx.invalidateSellConfigCache
-    local setMsg = ctx.setStatusMessage
+--- Additive, idempotent list writers shared by the default-protect button and the
+--- first-run care-level profiles. Neither ever REMOVES an entry — a profile choice must
+--- not silently strip protections a user added by hand.
+local function addContainsEntries(ctx, words)
+    local cfg, lists = ctx.config, ctx.configSellLists
     local added = 0
-    for _, kw in ipairs(DEFAULT_PROTECT_KEYWORDS) do
+    for _, kw in ipairs(words) do
         local list = lists.keepContains
         local found = false
         for _, s in ipairs(list) do if s == kw then found = true; break end end
         if not found then list[#list + 1] = kw; cfg.writeListValue("sell_keep_contains.ini", "Items", "contains", cfg.joinList(list)); added = added + 1 end
     end
-    for _, typ in ipairs(DEFAULT_PROTECT_TYPES) do
+    return added
+end
+
+local function addTypeEntries(ctx, types)
+    local cfg, lists = ctx.config, ctx.configSellLists
+    local added = 0
+    for _, typ in ipairs(types) do
         local list = lists.protectedTypes
         local found = false
         for _, s in ipairs(list) do if s == typ then found = true; break end end
         if not found then list[#list + 1] = typ; cfg.writeListValue("sell_protected_types.ini", "Items", "types", cfg.joinList(list)); added = added + 1 end
     end
-    invSell()
-    bumpFilterListGeneration()
-    setMsg(added > 0 and string.format("Added %d default protect entries", added) or "Default protect list already loaded")
+    return added
+end
+
+function M.loadDefaultProtectList(ctx)
+    local added = addContainsEntries(ctx, DEFAULT_PROTECT_KEYWORDS) + addTypeEntries(ctx, DEFAULT_PROTECT_TYPES)
+    ctx.invalidateSellConfigCache()
+    bumpFilterListGeneration(true)
+    ctx.setStatusMessage(added > 0 and string.format("Added %d default protect entries", added) or "Default protect list already loaded")
+end
+
+-- Broad type protections for the Cautious first-run profile ("sells almost nothing",
+-- mockup 14c). protectedTypes matching is EXACT (rules.lua isProtectedType is a plain set
+-- lookup), so these must be strings Item.Type() actually returns — there is no generic
+-- "Weapon" type; weapons report per-skill classes. Both Jewelry spellings are listed
+-- because classic MQ szItemTypes carries the "Jewlery" misspelling; an entry that matches
+-- no type on this server is inert. Verify a sample sword tooltip in-game once.
+local CAUTIOUS_EXTRA_TYPES = {
+    "Armor", "Shield", "Jewelry", "Jewlery", "Potion", "Scroll", "Drink", "Combinable",
+    "1H Slashing", "2H Slashing", "Piercing", "2H Piercing", "1H Blunt", "2H Blunt",
+    "Martial", "Archery",
+}
+
+--- First-run care-level profile (mockup 14c Q1). Strictly additive:
+---   aggressive — name-keyword protections only (Epic/Mythical class safety stays)
+---   balanced   — the curated defaults (keywords + Food/Gem/Augment/Quest types)
+---   cautious   — balanced plus broad equipment/consumable type protections
+--- Coming back and picking a LOOSER profile later therefore never deletes rules; the
+--- Settings lists remain the single place protections are removed.
+function M.applyProtectProfile(ctx, level)
+    level = tostring(level or "balanced")
+    local added = addContainsEntries(ctx, DEFAULT_PROTECT_KEYWORDS)
+    if level ~= "aggressive" then
+        added = added + addTypeEntries(ctx, DEFAULT_PROTECT_TYPES)
+    end
+    if level == "cautious" then
+        added = added + addTypeEntries(ctx, CAUTIOUS_EXTRA_TYPES)
+    end
+    ctx.invalidateSellConfigCache()
+    -- silent: profile application is the product seeding rules, not the user editing them —
+    -- it must not pre-arm the "rules explain themselves" hint on the first bars tick.
+    bumpFilterListGeneration(true)
+    if ctx.setStatusMessage then
+        ctx.setStatusMessage(string.format("Sell protection set to %s (%d entries added).", level, added))
+    end
+    return added
 end
 
 local function renderFilterConflictModal(ctx)

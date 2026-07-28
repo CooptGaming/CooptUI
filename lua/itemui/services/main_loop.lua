@@ -19,6 +19,7 @@ local chatFeed = require('itemui.services.chat_feed')
 local windowZones = require('itemui.services.window_zones')
 local layoutPresets = require('itemui.services.layout_presets')
 local dockLayout = require('itemui.utils.dock_layout')
+local hintsService = require('itemui.services.hints')
 local dbgSell = require('itemui.core.debug').channel('Sell')
 local dbgLoot = require('itemui.core.debug').channel('Loot')
 local dbgAugment = require('itemui.core.debug').channel('Augment')
@@ -1435,6 +1436,14 @@ local function phase0b_dockActionQueue(now)
             setStatusMessage("Deleted layout preset '" .. tostring(a.name) .. "'.")
         end
         uiState.dockPresetsDirty = true
+
+    elseif a.kind == "hint_got_it" then
+        -- Dismissal writes the seen flag to coopui_onboarding.ini — file I/O, so it comes
+        -- through the queue instead of running inside the frame that drew the button.
+        pcall(hintsService.dismissActive)
+
+    elseif a.kind == "hint_show_all" then
+        pcall(hintsService.replayAll)
     end
 
     if #q > 0 and setStatusMessage then
@@ -2042,6 +2051,10 @@ function M.init(deps)
     -- "the event is registered once" true. mq.doevents() in phase 10 pumps it.
     chatFeed.init(d)
     nativeBridge.init(d)
+    -- Without this the hint tick early-returns on a nil deps table forever and every
+    -- organic hint trigger is dead code — the test suite passes because it inits the
+    -- service itself, which is exactly why the wiring lives here and not in a test.
+    hintsService.init(d)
 end
 
 function M.tick(now)
@@ -2103,6 +2116,8 @@ function M.tick(now)
     -- use, printed by phase0b next tick. d.uiState, not a bare global: contained() drops
     -- the error silently when handed nil, which is how a swallowed-error class starts.
     dockLayout.contained(d.uiState, "window_zones", windowZones.tick, now)
+    -- First-run hints: edge detection over the dock snapshot (bars mode no-ops inside).
+    dockLayout.contained(d.uiState, "hints", hintsService.tick, now)
     phase10_loopDelay()
 end
 

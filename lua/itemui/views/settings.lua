@@ -105,10 +105,24 @@ local function renderConfigWindow(ctx)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Companion windows will reposition immediately. The main Inventory Companion window position applies after you restart MacroQuest.")
         ImGui.Spacing()
         if ImGui.Button("Confirm##RevertLayout", ImVec2(120, 0)) then
+            -- The bundled default file says UIMode=classic (so upgrades never flip into
+            -- bars), which means a bars user's mode choice must survive the overwrite by
+            -- hand. Same for the bar toggles: reverting the LAYOUT should not silently
+            -- switch the whole UI paradigm out from under the player.
+            local lc = ctx.layoutConfig or {}
+            local keepMode, keepTop, keepBottom = lc.UIMode, lc.DockTop, lc.DockBottom
+            local keepPos, keepChat = lc.DockPosition, lc.DockChat
             local ok, err = defaultLayout.revertToBundledDefaultLayout()
             if ok then
                 if ctx.perfCache then ctx.perfCache.layoutCached = nil; ctx.perfCache.layoutNeedsReload = true end
                 if ctx.loadLayoutConfig then ctx.loadLayoutConfig() end
+                if ctx.setLayoutValue and keepMode ~= nil then
+                    ctx.setLayoutValue("UIMode", keepMode)
+                    if keepTop ~= nil then ctx.setLayoutValue("DockTop", keepTop) end
+                    if keepBottom ~= nil then ctx.setLayoutValue("DockBottom", keepBottom) end
+                    if keepPos ~= nil then ctx.setLayoutValue("DockPosition", keepPos) end
+                    if keepChat ~= nil then ctx.setLayoutValue("DockChat", keepChat) end
+                end
                 uiState.layoutRevertedApplyFrames = 5  -- Force SetNextWindowPos/Size to apply from layoutConfig for next 5 frames
                 ctx.setStatusMessage("Layout reverted to default. Companion windows will reposition; main window position applies after restarting MacroQuest.")
             else

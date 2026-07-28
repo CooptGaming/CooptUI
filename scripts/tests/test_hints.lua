@@ -1,0 +1,129 @@
+--[[
+    test_hints.lua — headless suite for services/hints.lua (the five 14c first-run hints).
+
+    dock_state is stubbed with a controllable snapshot; config with an in-memory INI, so
+    the suite proves edge detection, one-at-a-time discipline, INI persistence and replay
+    without files or a game.
+
+    Run:  COOPT_REPO=C:/Claude/CooptUI <luajit> scripts/tests/test_hints.lua
+]]
+
+local repo = os.getenv('COOPT_REPO') or 'C:/Claude/CooptUI'
+package.path = repo .. '/lua/?.lua;' .. repo .. '/lua/?/init.lua;' .. package.path
+
+local pass, fail = 0, 0
+local function check(name, cond, extra)
+    if cond then pass = pass + 1; print('PASS: ' .. name)
+    else fail = fail + 1; print('FAIL: ' .. name .. '  -> ' .. tostring(extra)) end
+end
+
+-- In-memory INI store.
+local ini = {}
+local function iniKey(file, section, key) return file .. '|' .. section .. '|' .. key end
+package.loaded['mq'] = { gettime = function() return 0 end, cmd = function() end, TLO = {} }
+package.loaded['itemui.config'] = {
+    readINIValue = function(f, s, k, def) return ini[iniKey(f, s, k)] or def end,
+    writeINIValue = function(f, s, k, v) ini[iniKey(f, s, k)] = v end,
+    getConfigFile = function(n) return n end,
+}
+package.loaded['itemui.core.diagnostics'] = { getErrorCount = function() return 0 end, recordError = function() end }
+
+-- Controllable dock snapshot.
+local snap = { merchantOpen = false, lootRunning = false, lootState = 'idle', bagFree = 10, bagItems = 50 }
+package.loaded['itemui.services.dock_state'] = { get = function() return snap end }
+
+local hints = require('itemui.services.hints')
+
+local lc = { UIMode = 'bars' }
+hints.init({ layoutConfig = lc })
+
+local now = 0
+local function tick() now = now + 260; hints.tick(now) end
+
+-- 1. Classic mode is inert.
+lc.UIMode = 'classic'
+snap.merchantOpen = true
+tick()
+check('classic mode never fires', hints.getActive() == nil)
+snap.merchantOpen = false
+lc.UIMode = 'bars'
+tick()   -- baseline in bars mode
+
+-- 2. Merchant edge fires exactly once, and only on the EDGE.
+snap.merchantOpen = true
+tick()
+local a = hints.getActive()
+check('merchant edge fires the merchant hint', a and a.id == 'merchant', a and a.id)
+tick()
+check('a held condition does not re-fire or replace', hints.getActive().id == 'merchant')
+
+-- 3. One at a time: a second trigger while one is up does not preempt.
+snap.lootRunning = true
+tick()
+check('active hint is not preempted by a new trigger', hints.getActive().id == 'merchant')
+
+-- 4. Dismiss persists and the hint never returns.
+hints.dismissActive()
+check('dismiss clears the active hint', hints.getActive() == nil)
+check('dismiss wrote the INI flag', ini[iniKey('coopui_onboarding.ini', 'Hints', 'hint_merchant')] == 'TRUE')
+snap.merchantOpen = false
+tick()
+snap.merchantOpen = true
+tick()
+check('a dismissed hint never fires again', hints.getActive() == nil)
+
+-- 5. The missed loot trigger fires on its own NEXT occurrence.
+snap.lootRunning = false
+tick()
+snap.lootRunning = true
+tick()
+check('loot hint fires on its next edge', hints.getActive() and hints.getActive().id == 'loot_run')
+hints.dismissActive()
+
+-- 6. Full-bag needs a plausible inventory (bagItems > 0), mirroring dock_state's own guard.
+snap.bagFree = 0; snap.bagItems = 0
+tick()
+check('bagFree==0 with empty inventory does not fire', hints.getActive() == nil)
+snap.bagFree = 10
+tick()
+snap.bagFree = 0; snap.bagItems = 120
+tick()
+check('full bag fires with a real inventory', hints.getActive() and hints.getActive().id == 'full_bag')
+hints.dismissActive()
+
+-- 7. Mythical decision edge.
+snap.lootState = 'decision'
+tick()
+check('decision edge fires the mythical hint', hints.getActive() and hints.getActive().id == 'mythical')
+hints.dismissActive()
+snap.lootState = 'idle'
+
+-- 8. Rule edit via the filters-UI hook.
+hints.noteRuleEdit()
+tick()
+check('rule edit fires the last hint', hints.getActive() and hints.getActive().id == 'rule_edit')
+hints.dismissActive()
+check('all five INI flags are now TRUE', (function()
+    for _, id in ipairs({ 'merchant', 'loot_run', 'mythical', 'full_bag', 'rule_edit' }) do
+        if ini[iniKey('coopui_onboarding.ini', 'Hints', 'hint_' .. id)] ~= 'TRUE' then return false end
+    end
+    return true
+end)())
+
+-- 9. Replay walks all five in declaration order, one Got-it at a time.
+hints.replayAll()
+local order = {}
+for _ = 1, 6 do
+    local h = hints.getActive()
+    if not h then break end
+    order[#order + 1] = h.id
+    hints.dismissActive()
+end
+check('replay shows all five in order', table.concat(order, ',') == 'merchant,loot_run,mythical,full_bag,rule_edit',
+    table.concat(order, ','))
+check('replay ends clean', hints.getActive() == nil)
+check('replayed hints are re-marked seen as dismissed',
+    ini[iniKey('coopui_onboarding.ini', 'Hints', 'hint_rule_edit')] == 'TRUE')
+
+print(string.format('\n%d passed, %d failed', pass, fail))
+os.exit(fail == 0 and 0 or 1)

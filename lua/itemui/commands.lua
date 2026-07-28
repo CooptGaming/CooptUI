@@ -183,19 +183,41 @@ function M.handleCommand(...)
         if deps.isMerchantWindowOpen and deps.isMerchantWindowOpen() and deps.scanSellItems then deps.scanSellItems() end
         print("\ag[ItemUI]\ax Refreshed")
     elseif cmd == "setup" then
-        deps.uiState.setupMode = not deps.uiState.setupMode
-        if deps.uiState.setupMode then
-            -- The wizard renders steps 1-13 only; step 0 with setupMode on
-            -- draws nothing (the Welcome screen requires setupMode OFF).
-            deps.uiState.setupStep = 1
-            if deps.loadConfigCache then deps.loadConfigCache() end
-            if deps.loadLayoutConfig then deps.loadLayoutConfig() end
+        -- Bare /itemui setup shows the two-question first-run screen (mockup 14c); the
+        -- 13-step wizard lives behind --full. Both remain reachable forever — the wizard
+        -- is the deep tour, the questions are the fast path.
+        local args = { ... }
+        local sub = tostring(args[2] or ""):lower()
+        if sub == "--full" or sub == "full" then
+            deps.uiState.setupMode = not deps.uiState.setupMode
+            if deps.uiState.setupMode then
+                -- The wizard renders steps 1-13 only; step 0 with setupMode on
+                -- draws nothing (the Welcome screen requires setupMode OFF).
+                deps.uiState.setupStep = 1
+                if deps.loadConfigCache then deps.loadConfigCache() end
+                if deps.loadLayoutConfig then deps.loadLayoutConfig() end
+            else
+                deps.uiState.setupStep = 0
+            end
+            setShouldDraw(true)
+            setIsOpen(true)
+            print(deps.uiState.setupMode and "\ag[ItemUI]\ax Setup wizard started - follow the 13 steps in the main window." or "\ar[ItemUI]\ax Setup off.")
         else
+            deps.uiState.setupMode = false
             deps.uiState.setupStep = 0
+            if deps.resetOnboarding then deps.resetOnboarding() end
+            if deps.loadConfigCache then deps.loadConfigCache() end
+            setShouldDraw(true)
+            setIsOpen(true)
+            print("\ag[ItemUI]\ax Setup: two questions in the main window. (/itemui setup --full for the 13-step wizard.)")
         end
-        setShouldDraw(true)
-        setIsOpen(true)
-        print(deps.uiState.setupMode and "\ag[ItemUI]\ax Setup wizard started - follow the 13 steps in the main window." or "\ar[ItemUI]\ax Setup off.")
+    elseif cmd == "hints" then
+        if deps.uiState then
+            local q = deps.uiState.dockActionQueue
+            if not q then q = {}; deps.uiState.dockActionQueue = q end
+            q[#q + 1] = { kind = "hint_show_all" }
+            print("\ag[ItemUI]\ax Replaying the five bar hints (bars mode).")
+        end
     elseif cmd == "config" then
         deps.uiState.configWindowOpen = true
         deps.uiState.configNeedsLoad = true
@@ -255,7 +277,7 @@ function M.handleCommand(...)
         print("  center = focus the command bar (bars mode) or open the native Command Center (classic)")
         print("  dock [on|off|top|bottom] = the two bars: status on one edge, launchers and chat on the other")
         print("  layout [name] = list or apply a layout preset  |  retidy = windows back into their zones")
-        print("  setup = run the 13-step setup wizard (layout, sell/loot rules, epic protection)")
+        print("  setup = the two-question first-run  |  setup --full = the 13-step wizard  |  hints = replay bar hints")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
         print("  onboarding = show the first-run welcome panel again")
         print("  reroll = open Reroll Companion (augment and mythical reroll lists)")

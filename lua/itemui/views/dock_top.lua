@@ -24,6 +24,7 @@ local theme = require('itemui.utils.theme')
 local constants = require('itemui.constants')
 local dockLayout = require('itemui.utils.dock_layout')
 local dockState = require('itemui.services.dock_state')
+local hintsService = require('itemui.services.hints')
 
 local M = {}
 
@@ -544,6 +545,57 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     end
 end
 
+--- The one-at-a-time first-run hint (mockup 14c), anchored to the segment it teaches.
+--- Drawn as its own sibling window AFTER the popover so the two never fight for the same
+--- screen spot; buttons queue through the action drain because dismissal writes an INI.
+--- Unlike popovers this DOES show during a mythical decision — the mythical hint's whole
+--- trigger is that moment.
+local function renderHint(ctx, s, edge, barX, barY, barW, barH)
+    local hint = hintsService.getActive()
+    if not hint then return end
+    local uiState = ctx.uiState
+
+    local slot = M.slots[hint.anchor or ""] or {}
+    local px = slot.x or barX
+    local py = (edge == "bottom") and barY or (barY + barH)
+    local pivotY = (edge == "bottom") and 1.0 or 0.0
+    if ImGui.SetNextWindowPos and pivotY == 1.0 then
+        ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.Always, ImVec2(0, 1))
+    else
+        ImGui.SetNextWindowPos(ImVec2(px, py))
+    end
+    ImGui.SetNextWindowSizeConstraints(ImVec2(320, 0), ImVec2(480, 300))
+
+    local flags = bit32.bor(barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
+    ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Warning))
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockHint", true, flags)
+    if not okBegin then
+        ImGui.PopStyleColor(1)
+        ImGui.PopStyleVar(1)
+        return
+    end
+    if visible then
+        dockLayout.contained(uiState, "dock hint", function()
+            theme.TextWarning(tostring(hint.title or ""))
+            ImGui.PushTextWrapPos(440)
+            ImGui.TextWrapped(tostring(hint.body or ""))
+            ImGui.PopTextWrapPos()
+            ImGui.Spacing()
+            if ImGui.SmallButton("Got it##dockHintGotIt") then
+                M.queue(ctx, { kind = "hint_got_it" })
+            end
+            ImGui.SameLine(0, 8)
+            if not hint.replay and ImGui.SmallButton("Show me all hints##dockHintAll") then
+                M.queue(ctx, { kind = "hint_show_all" })
+            end
+        end)
+    end
+    ImGui.End()
+    ImGui.PopStyleColor(1)
+    ImGui.PopStyleVar(1)
+end
+
 -- ---------------------------------------------------------------------------
 -- Action queue
 -- ---------------------------------------------------------------------------
@@ -719,6 +771,7 @@ function M.render(ctx)
 
     -- Popover after the bar's End(), so it is a sibling window and can extend past the strip.
     renderPopover(ctx, s, edge, x, y, w, h)
+    renderHint(ctx, s, edge, x, y, w, h)
 end
 
 return M

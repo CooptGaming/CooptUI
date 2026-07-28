@@ -112,47 +112,139 @@ local function renderWelcomeScreen(refs)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
     end
     ImGui.Spacing()
+
+    -- ------------------------------------------------------------------
+    -- The two questions (mockup 14c). "Two questions, then you're playing.
+    -- Everything here is changeable later."
+    -- ------------------------------------------------------------------
+    ImGui.TextWrapped("Two questions, then you're playing. Everything here is changeable later.")
     ImGui.Spacing()
 
-    -- Two buttons side-by-side, centered (disabled until env acknowledged if there were failures)
-    local runSetupW, skipW = 220, 260
-    local totalW = runSetupW + 24 + skipW
-    ImGui.SetCursorPosX((ImGui.GetWindowWidth() - totalW) * 0.5)
-    if not allowProceed then ImGui.BeginDisabled() end
-    if ImGui.Button("Run Setup", ImVec2(runSetupW, 0)) then
-        uiState.setupMode = true
-        uiState.setupStep = 1
-        if refs.loadConfigCache then refs.loadConfigCache() end
-        if refs.loadLayoutConfig then refs.loadLayoutConfig() end
+    uiState.welcomeCareLevel = uiState.welcomeCareLevel or "balanced"
+    -- Q2 seeds from the LIVE mode, not a hardcoded answer: this screen re-runs via
+    -- /itemui setup and /itemui onboarding, and an existing classic user who clicks
+    -- Start playing without touching Q2 must not have their whole UI paradigm flipped.
+    -- (Truly new installs still see bars pre-selected — app.lua set UIMode=bars for them
+    -- before this screen ever renders.) The seed is remembered so an untouched Q2 writes
+    -- nothing at all, which also protects combos the three radios cannot express.
+    if uiState.welcomeScreenUse == nil then
+        local lc = refs.layoutConfig or {}
+        if tostring(lc.UIMode or "classic") == "bars" then
+            uiState.welcomeScreenUse = (lc.DockBottom == false) and "topOnly" or "bars"
+        else
+            uiState.welcomeScreenUse = "classic"
+        end
+        uiState.welcomeScreenUseSeeded = uiState.welcomeScreenUse
     end
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        ImGui.Text("Walk through each window and set up layout and rules")
-        ImGui.EndTooltip()
+
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "1 - How careful should CoOpt be with your stuff?")
+    local careOpts = {
+        { id = "cautious",   label = "Cautious",   desc = "sells almost nothing" },
+        { id = "balanced",   label = "Balanced",   desc = "clears vendor trash, keeps anything interesting - recommended" },
+        { id = "aggressive", label = "Aggressive", desc = "empties bags fast" },
+    }
+    for _, o in ipairs(careOpts) do
+        if ImGui.RadioButton(o.label .. "##welcomeCare_" .. o.id, uiState.welcomeCareLevel == o.id) then
+            uiState.welcomeCareLevel = o.id
+        end
+        ImGui.SameLine(140)
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), o.desc)
     end
-    ImGui.SameLine()
-    if ImGui.Button("I Know What I'm Doing (Skip)", ImVec2(skipW, 0)) then
+
+    -- Dry-run strip: what the CURRENT rules would do to the current bags. Honest note:
+    -- the profile itself applies on Start playing (profiles only ADD protections, so
+    -- Cautious can only shrink this number and Aggressive can only grow it).
+    do
+        local sell, plat, kept, prot = 0, 0, 0, 0
+        for _, it in ipairs(refs.sellItems or {}) do
+            if it.isProtected then prot = prot + 1 end
+            if it.willSell then
+                sell = sell + 1
+                plat = plat + (tonumber(it.totalValue) or 0)
+            else
+                kept = kept + 1
+            end
+        end
+        ImGui.Spacing()
+        if sell + kept > 0 then
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "right now that means")
+            ImGui.SameLine(0, 8)
+            -- totalValue is COPPER (1000 = 1p), same convention as every bar readout.
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), string.format("%d would sell - %sp", sell, tostring(math.floor(plat / 1000))))
+            ImGui.SameLine(0, 10)
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Success), string.format("%d kept", kept))
+            ImGui.SameLine(0, 10)
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Header), string.format("%d protected", prot))
+        else
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "(the live sell/keep numbers appear after your first bag scan)")
+        end
+    end
+    ImGui.Spacing()
+
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "2 - How much screen do you want CoOpt to use?")
+    local useOpts = {
+        { id = "bars",    label = "Two bars + hub", desc = "recommended - everything reachable, a few percent of the screen" },
+        { id = "topOnly", label = "Top bar only",   desc = "quietest - windows open on command" },
+        { id = "classic", label = "Windows only",   desc = "the classic behaviour, no bars" },
+    }
+    for _, o in ipairs(useOpts) do
+        if ImGui.RadioButton(o.label .. "##welcomeUse_" .. o.id, uiState.welcomeScreenUse == o.id) then
+            uiState.welcomeScreenUse = o.id
+        end
+        ImGui.SameLine(160)
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), o.desc)
+    end
+    ImGui.Spacing()
+    ImGui.Spacing()
+
+    -- Apply both answers. Strictly additive on the rules side; the screen-use keys go
+    -- through setLayoutValue (write-through cache) like every other dock key.
+    local function applyChoices()
+        if refs.configSellLists and type(refs.configSellLists.keepContains) == "table" then
+            local okF, filtersUI = pcall(require, 'itemui.views.config_filters_ui')
+            if okF and filtersUI and filtersUI.applyProtectProfile then
+                pcall(filtersUI.applyProtectProfile, refs, uiState.welcomeCareLevel)
+            end
+        end
+        local setKey = refs.setLayoutValue
+        if setKey and uiState.welcomeScreenUse ~= uiState.welcomeScreenUseSeeded then
+            local use = uiState.welcomeScreenUse
+            if use == "classic" then
+                setKey("UIMode", "classic")
+            else
+                setKey("UIMode", "bars")
+                setKey("DockTop", true)
+                setKey("DockBottom", use ~= "topOnly")
+            end
+        end
         if refs.setOnboardingComplete then refs.setOnboardingComplete() end
+    end
+
+    if not allowProceed then ImGui.BeginDisabled() end
+    theme.PushKeepButton()
+    if ImGui.Button("Start playing", ImVec2(160, 0)) then
+        applyChoices()
+    end
+    theme.PopButtonColors()
+    ImGui.SameLine(0, 12)
+    if ImGui.Button("Tune rules first", ImVec2(150, 0)) then
+        applyChoices()
+        uiState.configWindowOpen = true
+        uiState.configNeedsLoad = true
+        if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened("config") end
     end
     if not allowProceed then ImGui.EndDisabled() end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Skip setup; re-run it anytime with /itemui setup (or /itemui onboarding for this welcome)")
+        ImGui.Text("Applies your answers, then opens Settings on the sell/loot rules.")
         ImGui.EndTooltip()
     end
 
     ImGui.Spacing()
-    ImGui.Spacing()
-    -- Bullet points under Run Setup (left column)
-    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Run Setup:")
-    ImGui.BulletText("Walks you through each window so you understand what it does.")
-    ImGui.BulletText("Resize and reorder columns to show the information you care about.")
-    ImGui.BulletText("Position windows to fit your screen and workflow.")
-    ImGui.BulletText("Set up sell protection, loot rules, and epic item handling.")
-    ImGui.Spacing()
-    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Skip:")
-    ImGui.BulletText("I'll figure it out as I go.")
-    ImGui.BulletText("You can re-run setup anytime: /itemui setup (or /itemui onboarding for this welcome).")
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+        "After this, the bar teaches itself: five hints, each on its first occurrence. /itemui hints replays them.")
+    ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+        "Prefer the guided tour? /itemui setup --full runs the 13-step wizard.")
 end
 
 --- Description overlay for step 1 (Inventory overview). Renders as a child region over the content.
