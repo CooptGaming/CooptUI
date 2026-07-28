@@ -197,6 +197,47 @@ local function refreshStats()
     return ok and stats or nil
 end
 
+--- Refresh the TLO/script caches if older than CACHE_TTL. Shared by M.render and
+--- M.getSnapshot so the panel and the dock's XP/AA segment do ONE walk between them.
+local function ensureFresh(now)
+    now = now or mq.gettime()
+    if not cachedStats or (now - cacheTime) > CACHE_TTL then
+        -- Script counts do a full inventory scan + table builds; refresh them on the TTL
+        -- cadence instead of every frame (and not on the per-frame retry while stats are nil).
+        if not cachedScriptData or (now - cacheTime) > CACHE_TTL then
+            cachedScriptData = getScriptCountsFromInventory(deps and deps.inventoryItems)
+        end
+        cachedStats = refreshStats()
+        cacheTime = now
+    end
+end
+
+--- The handful of fields the dock's XP / AA / scripts segment needs, refreshed on the
+--- panel's existing 500 ms TTL. Returns nil when the character TLO is not ready yet.
+--- Read-only: callers must not mutate the returned table (it is a fresh table each call,
+--- but the numbers come from the shared cache).
+--- Deliberately does NOT re-derive script AA -- that would mean a third copy of the
+--- SCRIPT_AA_* tables.
+function M.getSnapshot(now)
+    ensureFresh(now)
+    local s = cachedStats
+    if not s then return nil end
+    local sd = cachedScriptData
+    return {
+        exp = s.exp or 0,
+        aaPointsTotal = s.aaPointsTotal or 0,
+        platinum = s.platinum or 0,
+        scriptAA = sd and sd.totalAA or 0,
+        -- Weight is native window text and reads "N/A" whenever InventoryWindow is CLOSED,
+        -- which is most of the time for a bar that is always on screen. The dock omits the
+        -- sub-segment rather than showing "N/A"; callers check weightKnown.
+        weight = s.displayedWeight,
+        maxWeight = s.displayedMaxWeight,
+        weightKnown = (s.displayedWeight ~= nil and s.displayedWeight ~= "N/A"
+                       and s.displayedMaxWeight ~= nil and s.displayedMaxWeight ~= "N/A"),
+    }
+end
+
 -- ============================================================================
 -- Render
 -- ============================================================================

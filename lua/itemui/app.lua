@@ -54,6 +54,13 @@ local favoritesService = require('itemui.services.favorites_service')
 local skinSync = require('itemui.services.skin_sync')
 local MainWindow = require('itemui.views.main_window')
 local ConfigFilters = require('itemui.views.config_filters')
+-- The bars (UIMode=bars). One local for the whole dock on purpose: this chunk already
+-- declares ~185 locals against Lua's 200-per-function ceiling, so new modules share a slot
+-- rather than taking one each.
+local dock = {
+    top   = require('itemui.views.dock_top'),
+    state = require('itemui.services.dock_state'),
+}
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
@@ -97,6 +104,7 @@ do
         lootRunLootedList = true, lootRunLootedItems = true, lootHistory = true, skipHistory = true,
         lootRunFinished = true, lootMythicalAlert = true, lootMythicalDecisionStartAt = true, lootMythicalFeedback = true,
         lootRunTotalValue = true, lootRunTributeValue = true, lootRunBestItemName = true, lootRunBestItemValue = true,
+        lootRunSkipped = true,
         corpseLootedHidden = true,
     }
     local itemOpsKeys = {
@@ -1336,7 +1344,20 @@ local function main()
         end
         mq.cmd('/macro loot')
     end)
-    mq.imgui.init('ItemUI', function() MainWindow.render(context.build()) end)
+    mq.imgui.init('ItemUI', function()
+        -- One ctx for the whole frame (context.build() returns a cached proxy, but calling it
+        -- once keeps the frame's view of state consistent).
+        local ctx = context.build()
+        -- Bars BEFORE the hub, for two reasons that are easy to conflate:
+        --   * MainWindow.render early-outs when the hub and every companion is closed, so a
+        --     bar drawn from inside it would disappear exactly when it is most useful.
+        --   * Each bar is pcall-wrapped because bars sit outside renderCompanions' per-module
+        --     isolation -- an error in one would otherwise take down the whole frame.
+        -- Draw order does NOT keep the bars under the companion windows; ImGui z-order is
+        -- focus-ordered, so that job belongs to NoBringToFrontOnFocus in the bar flags.
+        pcall(dock.top.render, ctx)
+        MainWindow.render(ctx)
+    end)
     -- Native skin maintenance: the skin is OPT-IN (installed via the Settings
     -- button or by hand). sync() only refreshes an EXISTING <EQ>\uifiles\coopt
     -- copy - updates changed files, removes retired ones - and never installs
@@ -1493,6 +1514,7 @@ local function main()
     local d = buildMainLoopDeps()
     mainLoop.init(d)
     sellBatch.init(d)
+    dock.state.init(d)
     while not terminate do
         mainLoop.tick(mq.gettime())
     end

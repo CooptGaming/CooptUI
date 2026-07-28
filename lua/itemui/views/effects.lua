@@ -21,6 +21,7 @@ local mq = require('mq')
 require('ImGui')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local dockState = require('itemui.services.dock_state')
 
 local EffectsView = {}
 
@@ -176,6 +177,7 @@ local function removePopup(e)
         if ImGui.MenuItem("Remove " .. e.name) then
             mq.cmdf('/removebuff "%s"', e.name)
             cache.at = 0 -- rescan next frame so the row disappears promptly
+            dockState.invalidateEffects() -- and on the shared walk, so the bar agrees
         end
         ImGui.EndPopup()
     end
@@ -297,10 +299,23 @@ function EffectsView.render(ctx)
         end
     end
 
+    -- Buffs/songs/auras come from services/dock_state, which owns the single TLO walk shared
+    -- with the top bar's buffs segment. Calling getEffects() also registers demand, so the
+    -- walk keeps running on the dock tick while this window is open. Without the sharing this
+    -- window and the bar would each do 40-70 TLO reads on their own cadence.
+    -- Falls back to the local rescan if dock_state has not ticked yet (it needs init(d) from
+    -- app.lua, and this window can be opened on the very first frame after a /lua reload).
     local now = mq.gettime()
-    if (now - cache.at) >= SCAN_INTERVAL_MS then
-        cache.at = now
-        rescan()
+    do
+        local b, s, a, mb = dockState.getEffects()
+        if b and #b > 0 or (s and #s > 0) or (a and #a > 0) then
+            cache.buffs, cache.songs, cache.auras = b, s, a
+            cache.maxBuffs = mb or cache.maxBuffs
+            cache.at = now
+        elseif (now - cache.at) >= SCAN_INTERVAL_MS then
+            cache.at = now
+            rescan()
+        end
     end
 
     local iconMode = (tonumber(layoutConfig.EffectsCompact) or 0) == 1

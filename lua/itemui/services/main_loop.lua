@@ -14,6 +14,7 @@ local aaTransferService = require('itemui.services.aa_transfer')
 local ItemDisplayView = require('itemui.views.item_display')
 local item_name = require('itemui.utils.item_name')
 local soundService = require('itemui.services.sound')
+local dockState = require('itemui.services.dock_state')
 local dbgSell = require('itemui.core.debug').channel('Sell')
 local dbgLoot = require('itemui.core.debug').channel('Loot')
 local dbgAugment = require('itemui.core.debug').channel('Augment')
@@ -409,6 +410,10 @@ local function phase5_lootMacro(now)
                     local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
                     skipCount = tonumber(skipCountStr) or 0
                 end
+                -- Per-run skip count. skipHistory below is a capped ring buffer that
+                -- ACCUMULATES across runs (and is reloaded from disk), so #skipHistory is not
+                -- this run's figure -- the dock's "N skipped" needs the run-scoped number.
+                uiState.lootRunSkipped = skipCount
                 if skipCount > 0 then
                     if not uiState.skipHistory and loadSkipHistoryFromFile then loadSkipHistoryFromFile() end
                     if not uiState.skipHistory then uiState.skipHistory = {} end
@@ -1217,6 +1222,93 @@ local function phase8_windowStateDeferredScansAutoShowAugmentTimeouts(now)
     handleAugmentConfirmationTimeouts(now)
 end
 
+-- Phase 0b: Dock action queue drain. Every button on the bars enqueues here rather than
+-- acting inline: nothing that scans, sleeps or issues a game command may run inside the
+-- ImGui render callback. Sits beside phase0 (early in the tick) rather than at the end so
+-- it observes the same cursor guards -- an action that picks an item up must be seen by
+-- phase1b_activationGuard, or the guard treats the cursor item as unknown-source and
+-- /autoinventory's it straight back.
+-- One action per tick, matching the cursor queue: a burst of bar clicks should not turn into
+-- a burst of game commands in a single frame.
+local function phase0b_dockActionQueue(now)
+    local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    local q = uiState.dockActionQueue
+    if not q or #q == 0 then return end
+    -- Never race a cursor action that is already in flight.
+    if uiState.pendingDestroyAction or uiState.pendingRerollAdd
+        or uiState.pendingMoveAction or uiState.pendingEquipAction then return end
+
+    local a = table.remove(q, 1)
+    if #q == 0 then uiState.dockActionQueue = nil end
+    if type(a) ~= "table" or not a.kind then return end
+
+    if a.kind == "cmd" and type(a.cmd) == "string" and a.cmd ~= "" then
+        mq.cmd(a.cmd)
+
+    elseif a.kind == "window" and a.id then
+        -- Same call the hub toolbar and Command Center buttons make.
+        local registry = require('itemui.core.registry')
+        if registry.isRegistered(a.id) then
+            if not registry.isOpen(a.id) then registry.toggleWindow(a.id) end
+            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened(a.id) end
+            -- A bank open needs its scan deferred, exactly as main_window.lua:545 does.
+            if a.id == "bank" and d.isBankWindowOpen and d.isBankWindowOpen() then
+                uiState.deferredBankScanRequested = true
+            end
+            if a.id == "config" then uiState.configNeedsLoad = true end
+        elseif a.id == "loot" then
+            uiState.lootUIOpen = true
+            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+        end
+
+    elseif a.kind == "native" and a.window then
+        pcall(function() mq.TLO.Window(a.window).DoOpen() end)
+
+    elseif a.kind == "loot_take" or a.kind == "loot_pass" then
+        -- Reuse the Loot window's own callbacks so the bar and the window cannot drift
+        -- (they write the same loot_mythical_alert.ini and send the same /g message).
+        -- Required lazily: main_window is a view, and the loop should not pull the whole
+        -- view layer in at load time just for this.
+        local MainWindowView = require('itemui.views.main_window')
+        local cb = MainWindowView.getLootCallbacks and MainWindowView.getLootCallbacks(d)
+        local fn = cb and ((a.kind == "loot_take") and cb.mythicalTake or cb.mythicalPass)
+        if fn then pcall(fn) end
+
+    elseif a.kind == "loot_stop" then
+        mq.cmd('/endmacro')
+        if setStatusMessage then setStatusMessage("Loot run stopped.") end
+
+    elseif a.kind == "loot_all" then
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+            uiState.lootRunFinished = false
+            if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
+        end
+        mq.cmd('/macro loot')
+
+    elseif a.kind == "auto_sell" then
+        -- The already-deferred path; phase3 dispatches it by sellMode.
+        uiState.autoSellRequested = true
+
+    elseif a.kind == "sell_stop" then
+        -- Macro-mode sell stops the same way the Command Center does it. The Lua batch path
+        -- has no cancel today -- sell_batch.lua:210 aborts only when the merchant window
+        -- closes -- so say so rather than showing a button that silently does nothing.
+        if d.sellBatch and d.sellBatch.isRunning and d.sellBatch.isRunning() then
+            if setStatusMessage then
+                setStatusMessage("Lua sell has no stop - close the merchant to abort.")
+            end
+        else
+            mq.cmd('/endmacro')
+            if setStatusMessage then setStatusMessage("Sell stopped.") end
+        end
+    end
+
+    if #q > 0 and setStatusMessage then
+        setStatusMessage(string.format("Dock action queued (%d in queue).", #q))
+    end
+end
+
 -- Phase 0: Unified cursor-action queue drain. Runs every tick before phase7/phase8b.
 -- Dequeues and starts the next destroy or reroll-add action when the cursor is free
 -- and no cursor-based action is currently in flight.
@@ -1600,7 +1692,18 @@ end
 -- Phase 10: Loop delay and doevents
 local function phase10_loopDelay()
     local getShouldDraw, C = d.getShouldDraw, d.C
-    mq.delay(getShouldDraw() and C.LOOP_DELAY_VISIBLE_MS or C.LOOP_DELAY_HIDDEN_MS)
+    -- getShouldDraw() tracks the HUB. A bar is on screen whether or not the hub is, so
+    -- without this a visible bar would aggregate at 10 Hz (LOOP_DELAY_HIDDEN_MS) the moment
+    -- the user closed the hub -- which is the normal way to run with the bars on.
+    local visible = getShouldDraw()
+    if not visible then
+        local lc = d.layoutConfig
+        if lc and tostring(lc.UIMode or "classic") == "bars"
+            and (lc.DockTop ~= false or lc.DockBottom ~= false) then
+            visible = true
+        end
+    end
+    mq.delay(visible and C.LOOP_DELAY_VISIBLE_MS or C.LOOP_DELAY_HIDDEN_MS)
     mq.doevents()
 end
 
@@ -1811,6 +1914,7 @@ function M.tick(now)
     if d.macroBridge and d.macroBridge.poll then d.macroBridge.poll() end
     phase1_statusExpiry(now)
     phase1b_activationGuard(now)
+    phase0b_dockActionQueue(now)
     phase0_cursorActionQueue(now)
     phase2_periodicPersist(now)
     phase3_autoSellRequest()
@@ -1853,6 +1957,10 @@ function M.tick(now)
     if d.rerollService and d.rerollService.checkListRequestTimeout then d.rerollService.checkListRequestTimeout(now) end
     phase8c_pendingAugRollComplete(now)
     phase9_layoutSaveCacheCleanup(now)
+    -- Dock aggregation: after every phase that mutates state, before the frame delay, so the
+    -- snapshot the bars read is the settled end-of-tick truth. Self-throttles to
+    -- DOCK_TICK_MS and no-ops entirely when the bars are off.
+    dockState.tick(now)
     phase10_loopDelay()
 end
 

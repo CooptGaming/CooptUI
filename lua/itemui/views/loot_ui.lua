@@ -66,6 +66,7 @@ local state = {
     lootRunTributeValue = 0,
     lootRunBestItemName = "",
     lootRunBestItemValue = 0,
+    lootRunSkipped = 0,   -- THIS run's skip count; skipHistory accumulates across runs
     corpseLootedHidden = true,
     lootUITab = 0,
 }

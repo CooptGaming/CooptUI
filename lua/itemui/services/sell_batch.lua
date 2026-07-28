@@ -162,6 +162,9 @@ local function recordSold(cur, batchState_)
     if getSellHistoryLogEnabled() then logSellHistory(itemName, cur.item.totalValue, cur.item.sellReason) end
     dbg.log(string.format("Sold: %s x%d (Value: %s) - %s", itemName or "", cur.item.stackSize or 1, tostring(cur.item.totalValue or 0), cur.item.sellReason or "Sold"))
     batchState_.soldCount = batchState_.soldCount + 1
+    -- Feed the dock's session total. This is the only place a completed sale is observed, and
+    -- the session figure has to cover vendor income as well as loot.
+    require('itemui.services.dock_state').recordSold(cur.item.totalValue)
 end
 
 -- Helper: update sellMacState progress counters

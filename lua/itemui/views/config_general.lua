@@ -333,6 +333,118 @@ function ConfigGeneral.render(ctx)
         end
     end
     ImGui.Spacing()
+    if ImGui.CollapsingHeader("Dock", ImGuiTreeNodeFlags.None) then
+        renderBreadcrumb("General", "Dock")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+            "Two thin bars instead of the hub's button row: status on one edge, launchers and chat on the other.")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.TextWrapped("Classic keeps today's UI exactly as it is. Bars adds the strips; " ..
+                "turning both strips off inside Bars mode behaves the same as Classic.")
+            ImGui.EndTooltip()
+        end
+
+        local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+        local nextBarsOn = ImGui.Checkbox("Use the bars UI##dockUIMode", barsOn)
+        if nextBarsOn ~= barsOn then
+            layoutConfig.UIMode = nextBarsOn and "bars" or "classic"
+            scheduleLayoutSave()
+        end
+
+        if nextBarsOn then
+            ImGui.Indent()
+
+            local topOn = layoutConfig.DockTop ~= false
+            local nextTop = ImGui.Checkbox("Status bar##dockTop", topOn)
+            if nextTop ~= topOn then
+                layoutConfig.DockTop = nextTop
+                scheduleLayoutSave()
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Plugin state, bags, what a sale would fetch, live loot or sell progress,")
+                ImGui.Text("buffs, XP/AA and the session total. Read-only - hover a slot for detail.")
+                ImGui.EndTooltip()
+            end
+
+            local bottomOn = layoutConfig.DockBottom ~= false
+            local nextBottom = ImGui.Checkbox("Command bar##dockBottom", bottomOn)
+            if nextBottom ~= bottomOn then
+                layoutConfig.DockBottom = nextBottom
+                scheduleLayoutSave()
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Window launchers, native game windows, layout presets, Settings and chat.")
+                ImGui.EndTooltip()
+            end
+
+            -- Which edge the status bar takes; the command bar takes the other one.
+            local atBottom = tostring(layoutConfig.DockPosition or "top") == "bottom"
+            ImGui.Text("Status bar edge:")
+            ImGui.SameLine()
+            if ImGui.RadioButton("Top##dockPosTop", not atBottom) then
+                if atBottom then layoutConfig.DockPosition = "top"; scheduleLayoutSave() end
+            end
+            ImGui.SameLine()
+            if ImGui.RadioButton("Bottom##dockPosBottom", atBottom) then
+                if not atBottom then layoutConfig.DockPosition = "bottom"; scheduleLayoutSave() end
+            end
+
+            local chatModes = { "hidden", "collapsed", "peek" }
+            local chatLabels = { "Hidden", "One line", "Four lines" }
+            local cur = tostring(layoutConfig.DockChat or "collapsed")
+            ImGui.Text("Chat in the command bar:")
+            for i, mode in ipairs(chatModes) do
+                ImGui.SameLine()
+                if ImGui.RadioButton(chatLabels[i] .. "##dockChat" .. mode, cur == mode) then
+                    if cur ~= mode then layoutConfig.DockChat = mode; scheduleLayoutSave() end
+                end
+            end
+
+            -- Segment on/off. Order is the INI's order; this list only toggles membership.
+            ImGui.Spacing()
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar slots:")
+            local ALL_SEGMENTS = {
+                { id = "status",  label = "Status & plugin" },
+                { id = "bags",    label = "Bags & weight" },
+                { id = "sell",    label = "Sell offer" },
+                { id = "loot",    label = "Loot progress" },
+                { id = "buffs",   label = "Buffs / songs / aura" },
+                { id = "xp",      label = "XP / AA / scripts" },
+                { id = "session", label = "Session total" },
+            }
+            local enabled, order = {}, {}
+            for part in tostring(layoutConfig.DockSegments or ""):gmatch("[^,]+") do
+                local t = part:match("^%s*(.-)%s*$")
+                if t ~= "" then enabled[t] = true; order[#order + 1] = t end
+            end
+            local changed = false
+            for _, seg in ipairs(ALL_SEGMENTS) do
+                local on = enabled[seg.id] == true
+                local nextOn = ImGui.Checkbox(seg.label .. "##dockSeg" .. seg.id, on)
+                if nextOn ~= on then
+                    changed = true
+                    if nextOn then
+                        enabled[seg.id] = true
+                        order[#order + 1] = seg.id
+                    else
+                        enabled[seg.id] = nil
+                        for i = #order, 1, -1 do
+                            if order[i] == seg.id then table.remove(order, i) end
+                        end
+                    end
+                end
+            end
+            if changed then
+                layoutConfig.DockSegments = table.concat(order, ",")
+                scheduleLayoutSave()
+            end
+
+            ImGui.Unindent()
+        end
+    end
+    ImGui.Spacing()
     if ImGui.CollapsingHeader("Keybindings", ImGuiTreeNodeFlags.DefaultOpen) then
         renderBreadcrumb("General", "Keybindings")
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Assign a key to toggle the ItemUI (Inventory Companion) open/closed. Uses /custombind + /bind.")

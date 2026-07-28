@@ -110,6 +110,12 @@ M.TIMING = {
 M.UI = {
     FOOTER_HEIGHT = 52,
     WINDOW_GAP = 10,
+    -- Dock / bars. The mockup's 30px strip is DOCK_BAR_PADDING_Y at the default font;
+    -- dock_layout derives the real height from GetTextLineHeight so the strip stays one
+    -- line whatever font MQ loaded. DOCK_SLOT_PADDING_X is per side.
+    DOCK_BAR_PADDING_Y = 8,
+    DOCK_SLOT_PADDING_X = 12,
+    DOCK_SLOT_GAP = 6,
     BANK_WINDOW_WIDTH = 520,
     BANK_WINDOW_HEIGHT = 600,
     EQUIPMENT_PANEL_WIDTH = 220,

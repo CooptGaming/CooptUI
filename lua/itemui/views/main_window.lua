@@ -247,6 +247,17 @@ end
 
 local M = {}
 
+--- The loot-window callbacks (mythicalTake / mythicalPass / runLootCurrent / ...), reachable
+--- without the Loot window being open. renderLootWindow above only attaches them to ctx while
+--- it is drawing, but the top bar mirrors the mythical decision and adds Take F1 / Pass F2 --
+--- and that has to work with the Loot window closed, which is the whole point of the bar.
+--- `refs` is needed because the callbacks read live state through the lootCbRefs upvalue.
+function M.getLootCallbacks(refs)
+    if refs then lootCbRefs = refs end
+    if not lootCallbacks then lootCallbacks = buildLootCallbacks() end
+    return lootCallbacks
+end
+
 -- Companion windows (bank, augments, reroll, AA, settings, ...) render from the
 -- registry regardless of whether the hub window is drawn, so native-UI launchers
 -- and keybinds can open them while the hub is hidden or collapsed.
