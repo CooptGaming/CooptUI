@@ -10,6 +10,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local dockLayout = require('itemui.utils.dock_layout')
 
 local EquipmentView = {}
 
@@ -250,19 +251,20 @@ function EquipmentView.render(ctx)
                 if ImGuiCol.ChildBg then
                     ImGui.PopStyleColor()
                 end
-                -- Slot border
+                -- Slot border. GetItemRectMin/Max return TWO NUMBERS (tuple, not ImVec2) and
+                -- ImDrawList methods are bound with an explicit self (colon call) -- both were
+                -- wrong here, the pcall ate the throw, and the border silently never drew.
+                -- See dockLayout.itemRectMin and utils/icons.lua drawEmptySlotIcon.
                 pcall(function()
                     local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
                     if not dl then return end
-                    local rmin = ImGui.GetItemRectMin and ImGui.GetItemRectMin()
-                    local rmax = ImGui.GetItemRectMax and ImGui.GetItemRectMax()
-                    if not rmin or not rmax then return end
+                    local x1, y1 = dockLayout.itemRectMin()
+                    local x2, y2 = dockLayout.itemRectMax()
+                    if not (x1 and x2) then return end
                     local borderCol = ImGui.GetColorU32 and ImGui.GetColorU32(ImVec4(0.35, 0.35, 0.4, 0.9))
                     if not borderCol then borderCol = 0xFF595966 end
                     if dl.AddRect then
-                        dl.AddRect(rmin, rmax, borderCol)
-                    elseif dl.add_rect then
-                        dl.add_rect(rmin, rmax, borderCol)
+                        dl:AddRect(ImVec2(x1, y1), ImVec2(x2, y2), borderCol)
                     end
                 end)
             end
