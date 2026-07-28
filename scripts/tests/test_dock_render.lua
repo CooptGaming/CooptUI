@@ -206,7 +206,40 @@ do
 end
 
 -- =================================================================
--- 4. A segment that throws must not unbalance the frame
+-- 3b. EVERY default segment renders. This is the regression net for the whole class of bug
+--     where the loop dies part-way and a pcall eats the evidence -- GetItemRectMin's
+--     two-number return did exactly that: ONE segment drew, six vanished, log stayed empty.
+-- =================================================================
+do
+    resetInput()
+    local ctx = newCtx()
+    dockState.init(newDeps(ctx))
+    warmState()
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    for _, want in ipairs({
+        { seg = 'status',  needle = 'CoOpt' },
+        { seg = 'bags',    needle = 'bags' },
+        { seg = 'sell',    needle = 'sell' },
+        { seg = 'loot',    needle = 'loot' },
+        { seg = 'buffs',   needle = 'buffs' },
+        { seg = 'xp',      needle = 'XP' },
+        { seg = 'session', needle = 'session' },
+    }) do
+        check('full bar: ' .. want.seg .. ' segment rendered', stub.drew(r, want.needle),
+            table.concat(r.text, '|'))
+    end
+    check('full bar: all seven slots captured for popover anchoring',
+        (function() local n = 0; for _ in pairs(dockTop.slots) do n = n + 1 end; return n == 7 end)(),
+        'slots missing')
+    check('full bar: no dock errors surfaced',
+        not (ctx.uiState.dockErrors and #ctx.uiState.dockErrors > 0),
+        ctx.uiState.dockErrors and table.concat(ctx.uiState.dockErrors, ' / '))
+    check('full bar: balanced', stub.balanced(r), stub.imbalance(r))
+end
+
+-- =================================================================
+-- 4. A segment that throws must not unbalance the frame, must not take the other segments
+--    with it, and must SURFACE the error (a bare pcall here once hid a per-frame crash).
 --    (app.lua's outer pcall sits outside the PushStyleVar calls, so containment has to be
 --     inside dock_top -- this is that containment, verified rather than assumed.)
 -- =================================================================
@@ -215,15 +248,23 @@ do
     local ctx = newCtx()
     dockState.init(newDeps(ctx))
     warmState(400000)
-    -- Poison one segment's data so a draw genuinely errors: sessionPlat becomes a table, and
-    -- the session segment formats it.
+    -- Poison one segment's data so its draw genuinely throws: buffCount is fed straight to
+    -- tostring, and this metatable makes tostring raise. (sessionPlat, the old victim here,
+    -- is laundered through tonumber-or-0 and never actually threw -- that test was green
+    -- without testing anything.)
     local snap = dockState.get()
-    local saved = snap.sessionPlat
-    snap.sessionPlat = setmetatable({}, { __tostring = function() error('boom') end })
+    local saved = snap.buffCount
+    snap.buffCount = setmetatable({}, { __tostring = function() error('boom') end })
     local r = stub.frame(function() dockTop.render(ctx) end)
-    snap.sessionPlat = saved
+    snap.buffCount = saved
     check('a throwing segment still leaves the frame balanced', stub.balanced(r), stub.imbalance(r))
     check('a throwing segment does not abort the whole bar', r.ok == true, tostring(r.err))
+    check('the other segments still draw around the bad one',
+        stub.drew(r, 'CoOpt') and stub.drew(r, 'XP'), table.concat(r.text, '|'))
+    local errs = ctx.uiState.dockErrors
+    check('the swallowed error is surfaced for main_loop to print',
+        errs ~= nil and #errs >= 1 and tostring(errs[1]):find('boom', 1, true) ~= nil,
+        errs and table.concat(errs, ' / ') or 'nil')
 end
 
 -- =================================================================
@@ -345,6 +386,20 @@ do
     check('bottom: the action is a window toggle',
         a and a.kind == 'window' and a.id == 'bank' and a.toggle == true,
         a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
+
+    -- A LIT entry (window already open) must NOT queue anything without a click. Selectable
+    -- returns (selected, pressed) in this binding -- selected FIRST -- so a lit entry's first
+    -- return is true EVERY frame; reading it as "clicked" slammed the window shut the moment
+    -- its menu opened. The stub models the tuple, so this would regress loudly now.
+    resetInput()
+    if not registry.isOpen('bank') then registry.toggleWindow('bank') end
+    stub.hover = { dockmenubtn_items = true }
+    uiState.dockActionQueue = nil
+    stub.frame(function() dockBottom.render(ctx) end)
+    check('bottom: a lit entry does not self-close without a click',
+        uiState.dockActionQueue == nil or #uiState.dockActionQueue == 0,
+        uiState.dockActionQueue and #uiState.dockActionQueue)
+    if registry.isOpen('bank') then registry.toggleWindow('bank') end
 end
 
 -- =================================================================

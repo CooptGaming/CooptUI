@@ -25,7 +25,8 @@
 
 local M = {}
 
-local rec  -- current frame recording
+local rec  -- current frame recording; pre-seeded below so a stray ImGui call OUTSIDE
+           -- M.frame records into a throwaway table instead of crashing the stub itself
 
 -- ---------------------------------------------------------------- recording
 local function newRec()
@@ -40,6 +41,8 @@ local function newRec()
         errors = {},
     }
 end
+
+rec = newRec()
 
 --- Widgets that should report hovered / clicked this frame, keyed by the label substring.
 M.hover = {}
@@ -149,7 +152,15 @@ local function widget(label)
 end
 function ImGuiStub.Button(label) return widget(label) end
 function ImGuiStub.SmallButton(label) return widget(label) end
-function ImGuiStub.Selectable(label, _sel) return widget(label) end
+-- (selected, pressed) -- selected FIRST, like the binding (lua_ImGuiWidgets.cpp:906,
+-- std::make_tuple(selected, pressed)). `if ImGui.Selectable(label, true)` therefore takes the
+-- branch EVERY frame, not on click; callers must read the SECOND return for the click.
+function ImGuiStub.Selectable(label, sel)
+    local pressed = widget(label)
+    if sel == nil then sel = false end
+    if pressed then sel = not sel end
+    return sel, pressed
+end
 function ImGuiStub.Checkbox(label, v) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return v end
 function ImGuiStub.RadioButton(label, active) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return matches(M.click, label) and not active end
 function ImGuiStub.CollapsingHeader(label) addText(label); return true end
@@ -183,8 +194,14 @@ function ImGuiStub.GetCursorPosX() return 400 end
 function ImGuiStub.GetCursorPos() return 0, 0 end
 function ImGuiStub.SetCursorPos() end
 function ImGuiStub.SetCursorPosX() end
-function ImGuiStub.GetItemRectMin() return vec2(100, 0) end
-function ImGuiStub.GetItemRectMax() return vec2(200, 30) end
+-- TWO NUMBERS, not an ImVec2 -- MQ registers these as tuple returns (lua_ImGuiCore.cpp:879,
+-- std::make_tuple(v.x, v.y)); the ImVec2-returning variants are the *Vec names. The stub's
+-- first version returned a .x-indexable table here, which let `rmin.x` pass every test while
+-- throwing in the game -- the exact bug that blanked both bars after their first element.
+function ImGuiStub.GetItemRectMin() return 100, 0 end
+function ImGuiStub.GetItemRectMax() return 200, 30 end
+function ImGuiStub.GetItemRectMinVec() return vec2(100, 0) end
+function ImGuiStub.GetItemRectMaxVec() return vec2(200, 30) end
 function ImGuiStub.SetNextWindowPos() end
 function ImGuiStub.SetNextWindowSize() end
 function ImGuiStub.SetNextWindowSizeConstraints() end
