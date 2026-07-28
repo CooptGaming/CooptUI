@@ -24,6 +24,7 @@
 local mq = require('mq')
 local constants = require('itemui.constants')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
+local itemHelpers = require('itemui.utils.item_helpers')
 
 local M = {}
 
@@ -61,6 +62,7 @@ local snap = {
     expiring = {},            -- { {name=, seconds=, icon=, kind=, index=}, ... } soonest first
     expiringCount = 0,
     buffs = {}, songs = {}, auras = {},
+    clickyBySpell = {},       -- spellId -> {bag, slot, name, ready}; drives popover Recast
     -- xp / aa / scripts
     exp = 0, aaTotal = 0, scriptAA = 0, platinum = 0,
     -- session
@@ -68,9 +70,9 @@ local snap = {
 }
 
 -- Per-walk clocks, so each expensive aggregation keeps its own cadence.
-local lastAt = { bags = 0, buffs = 0, stats = 0, sell = 0 }
-local demand = { bags = false, buffs = false, stats = false, sell = false }
-local demandNext = { bags = false, buffs = false, stats = false, sell = false }
+local lastAt = { bags = 0, buffs = 0, stats = 0, sell = 0, clicky = 0 }
+local demand = { bags = false, buffs = false, stats = false, sell = false, clicky = false }
+local demandNext = { bags = false, buffs = false, stats = false, sell = false, clicky = false }
 
 -- Session totals survive individual runs. uiState.lootRunTotalValue is PER-RUN and is
 -- zeroed at run start (main_loop phase 5 and macro_bridge's IPC loot_start), so sampling
@@ -94,6 +96,8 @@ function M.requestBags()  request("bags")  end
 function M.requestBuffs() request("buffs") end
 function M.requestStats() request("stats") end
 function M.requestSell()  request("sell")  end
+--- Only the open buffs popover needs this, and only while it is open.
+function M.requestClickyMap() request("clicky") end
 
 -- ---------------------------------------------------------------------------
 -- Effects (buffs / songs / auras)
@@ -193,6 +197,36 @@ end
 function M.invalidateEffects()
     lastAt.buffs = 0
     demandNext.buffs = true
+end
+
+-- ---------------------------------------------------------------------------
+-- Clicky map: spell id -> the inventory item that casts it
+--
+-- This is what makes the buffs popover's per-row Recast real rather than decorative. Match
+-- is by SPELL ID, not name: readEffect already captures e.spellId, and an item's clicky
+-- spell id comes from itemHelpers.getItemSpellId, so the pairing is exact.
+--
+-- Cost: getItemSpellId MEMOISES onto the item row (item_helpers.lua caches item[key],
+-- including a 0 for "no clicky"), so only the first pass over a freshly scanned inventory
+-- touches TLOs -- after that this is table reads. Still on its own slow clock, and only
+-- while a buffs popover is actually open.
+-- ---------------------------------------------------------------------------
+
+local function walkClickyMap()
+    local items = d and d.inventoryItems or {}
+    local map = {}
+    for _, it in ipairs(items) do
+        if it.bag and it.slot then
+            local ok, sid = pcall(itemHelpers.getItemSpellId, it, "Clicky")
+            if ok and type(sid) == "number" and sid > 0 and not map[sid] then
+                local ready = 0
+                local okT, r = pcall(itemHelpers.getTimerReady, it.bag, it.slot, "inv")
+                if okT and type(r) == "number" then ready = r end
+                map[sid] = { bag = it.bag, slot = it.slot, name = it.name, ready = ready }
+            end
+        end
+    end
+    snap.clickyBySpell = map
 end
 
 -- ---------------------------------------------------------------------------
@@ -394,6 +428,9 @@ function M.tick(now)
     end
     if demand.buffs and (now - lastAt.buffs) >= T.DOCK_SLOW_BUFFS_MS then
         due[#due + 1] = { k = "buffs", over = now - lastAt.buffs, fn = walkEffects }
+    end
+    if demand.clicky and (now - lastAt.clicky) >= T.DOCK_SLOW_CLICKY_MS then
+        due[#due + 1] = { k = "clicky", over = now - lastAt.clicky, fn = walkClickyMap }
     end
     if demand.stats and (now - lastAt.stats) >= T.DOCK_SLOW_STATS_MS then
         due[#due + 1] = { k = "stats", over = now - lastAt.stats, fn = function()

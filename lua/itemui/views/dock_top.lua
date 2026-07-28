@@ -19,6 +19,7 @@
          alone does NOT do that, because ImGui z-order is focus-ordered.
 ]]
 
+local mq = require('mq')
 local theme = require('itemui.utils.theme')
 local constants = require('itemui.constants')
 local dockLayout = require('itemui.utils.dock_layout')
@@ -264,6 +265,216 @@ local SEGMENT_DEMAND = {
     -- session/status need nothing beyond the every-tick cheap reads.
 }
 
+-- Window flags shared by the bar and its popovers. Declared HERE, above renderPopover,
+-- because a `local function` is only in scope after its declaration: defined further down,
+-- the call inside renderPopover would resolve to a nil GLOBAL and blow up the first time a
+-- popover opened (and trip luacheck 113, which this repo enforces for exactly that reason).
+local BAR_FLAGS = nil
+local function barFlags()
+    if BAR_FLAGS then return BAR_FLAGS end
+    local f = 0
+    local W = ImGuiWindowFlags
+    for _, name in ipairs({ "NoTitleBar", "NoResize", "NoMove", "NoScrollbar", "NoScrollWithMouse",
+                            "NoSavedSettings", "NoFocusOnAppearing", "NoNav", "NoCollapse",
+                            "NoBringToFrontOnFocus", "NoDocking" }) do
+        if W[name] then f = bit32.bor(f, W[name]) end
+    end
+    BAR_FLAGS = f
+    return f
+end
+M.barFlags = barFlags
+
+-- ---------------------------------------------------------------------------
+-- Popovers
+--
+-- A popover is a SECOND borderless window, not a tooltip: BeginTooltip cannot hold buttons,
+-- and the whole point is that the mouse can walk into it and click Recast or Sell.
+--
+-- Because it is a real window it swallows mouse input where it sits -- a popover hanging over
+-- the game world will eat a click meant for the world underneath. That is the one genuine
+-- limit here, and it dictates the rules: open only on deliberate hover, close the moment the
+-- mouse leaves (with just enough grace to travel there), and never appear unbidden while a
+-- loot decision is on screen.
+-- ---------------------------------------------------------------------------
+
+-- Transient hover bookkeeping. The PINNED id lives on uiState instead (rule 4: dock state
+-- lives outside ImGui's storage), so it survives a view reload and is inspectable.
+local hover = { id = nil, lastAt = 0, inPopover = false }
+
+local popovers = {}
+
+--- Expiring buffs, each with a Recast when we can identify the item that casts it, plus the
+--- full grid and a way into the real window. Mockup 12b.
+popovers.buffs = function(ctx, s)
+    dockState.requestClickyMap()
+    theme.TextHeaderAlt("Expiring soon")
+    ImGui.Separator()
+    if s.expiringCount == 0 then
+        theme.TextMuted("Nothing under five minutes.")
+    else
+        local clicky = s.clickyBySpell or {}
+        for i, e in ipairs(s.expiring) do
+            ImGui.PushID("dockexp" .. i)
+            local col = (e.seconds and e.seconds <= 60) and theme.Colors.Error or theme.Colors.Warning
+            ImGui.TextColored(theme.ToVec4(col), mmss(e.seconds))
+            ImGui.SameLine(60)
+            ImGui.Text(tostring(e.name or "?"))
+            -- Recast is offered only when an item in bags actually casts this spell (matched
+            -- by spell id, not name) and it is off cooldown. No item, no button -- rather
+            -- than a button that does nothing.
+            local src = e.spellId and clicky[e.spellId] or nil
+            if src then
+                ImGui.SameLine(300)
+                if (src.ready or 0) > 0 then
+                    theme.TextMuted(string.format("%ds", src.ready))
+                elseif ImGui.SmallButton("Recast") then
+                    M.queue(ctx, { kind = "clicky", bag = src.bag, slot = src.slot })
+                end
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text(string.format("Cast from %s", tostring(src.name or "item in bags")))
+                    ImGui.EndTooltip()
+                end
+            end
+            ImGui.PopID()
+        end
+        if s.expiringCount > #s.expiring then
+            theme.TextMuted(string.format("+%d more", s.expiringCount - #s.expiring))
+        end
+    end
+
+    theme.SectionBreak()
+    theme.TextMuted(string.format("Everything up . %d buffs, %d songs, %d aura%s",
+        s.buffCount, s.songCount, s.auraCount, s.auraCount == 1 and "" or "s"))
+    if ImGui.Button("Open Buffs window##dockBuffsOpen") then
+        M.queue(ctx, { kind = "window", id = "effects" })
+    end
+end
+
+--- What a sale would do right now, grouped by the RULE that decided each item -- this is
+--- where players learn their own rules. Mockups 11d and 3f.
+popovers.sell = function(ctx, s)
+    dockState.requestSell()
+    theme.TextHeaderAlt("If you sold now")
+    theme.TextMuted("grouped by the rule that decided it")
+    ImGui.Separator()
+    local groups = s.sellGroups or {}
+    if #groups == 0 then
+        theme.TextMuted("Nothing matches your sell rules.")
+    else
+        for i, g in ipairs(groups) do
+            ImGui.PushID("dockgrp" .. i)
+            ImGui.Text(tostring(g.reason))
+            ImGui.SameLine(240)
+            theme.TextMuted(tostring(g.count))
+            ImGui.SameLine(285)
+            ImGui.Text(plat(g.total) .. "p")
+            ImGui.PopID()
+        end
+        ImGui.Separator()
+        theme.TextMuted(string.format("Held back: %d kept, %d protected", s.keepCount, s.protectCount))
+    end
+
+    theme.SectionBreak()
+    -- A verb only appears when it works: Auto Sell needs a merchant, and saying so beats a
+    -- dialog that tells you to open one after you have already clicked.
+    if s.merchantOpen then
+        theme.PushKeepButton()
+        if ImGui.Button("Sell##dockSellGo") then M.queue(ctx, { kind = "auto_sell" }) end
+        theme.PopButtonColors()
+    else
+        theme.TextMuted("Auto Sell needs an open merchant.")
+    end
+    -- "Full preview" is the hub: it switches itself to the Sell view whenever a merchant is
+    -- open, which IS the full preview. There is no separate preview window to open.
+    if ImGui.Button("Full preview##dockSellPreview") then M.queue(ctx, { kind = "hub" }) end
+    ImGui.SameLine()
+    if ImGui.Button("Rules##dockSellRules") then M.queue(ctx, { kind = "window", id = "config" }) end
+end
+
+--- Decide which popover (if any) should be on screen, and draw it.
+--- Called AFTER the bar's own End(), so the popover is a sibling window rather than a child.
+local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
+    local uiState = ctx.uiState
+    local pinned = uiState and uiState.dockPinnedPopover or nil
+
+    -- Never during a loot decision. A window that eats clicks must not appear over the game
+    -- at the exact moment the player is being asked to press Take or Pass.
+    if s.lootState == "decision" then
+        hover.id = nil
+        if pinned then uiState.dockPinnedPopover = nil end
+        return
+    end
+
+    -- Which segment is under the mouse this frame?
+    local hoveredId = nil
+    for id, slot in pairs(M.slots) do
+        if slot.hovered and popovers[id] then hoveredId = id end
+    end
+
+    local now = mq.gettime()
+    if hoveredId then
+        hover.id = hoveredId
+        hover.lastAt = now
+        -- Middle-click pins the popover open so it survives the mouse leaving.
+        if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Middle) and uiState then
+            uiState.dockPinnedPopover = (pinned == hoveredId) and nil or hoveredId
+            pinned = uiState.dockPinnedPopover
+        end
+    elseif hover.inPopover then
+        hover.lastAt = now       -- the mouse is in the popover itself; keep it alive
+    end
+
+    local showId = pinned
+    if not showId and hover.id and (now - hover.lastAt) <= constants.TIMING.DOCK_POPOVER_GRACE_MS then
+        showId = hover.id
+    end
+    if not showId then
+        hover.id, hover.inPopover = nil, false
+        return
+    end
+    local draw = popovers[showId]
+    if not draw then return end
+
+    local slot = M.slots[showId] or {}
+    local px = slot.x or barX
+    -- Opens downward from a top bar and upward from a bottom one, so it always grows into the
+    -- screen rather than off it. AlwaysAutoResize means the height is unknown until after
+    -- Begin, so an upward popover is placed with a bottom-left pivot.
+    local py = (edge == "bottom") and (barY) or (barY + barH)
+    local pivotY = (edge == "bottom") and 1.0 or 0.0
+    if ImGui.SetNextWindowPos and pivotY == 1.0 then
+        ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.Always, ImVec2(0, 1))
+    else
+        ImGui.SetNextWindowPos(ImVec2(px, py))
+    end
+    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, 420))
+
+    local flags = bit32.bor(barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
+    local _, visible = ImGui.Begin("##CoOptDockPopover", true, flags)
+    if visible then
+        hover.inPopover = (ImGui.IsWindowHovered and ImGui.IsWindowHovered(
+            ImGuiHoveredFlags and ImGuiHoveredFlags.ChildWindows or 0)) or false
+        if pinned then
+            theme.TextMuted("pinned - middle-click the slot again, or Esc, to close")
+        end
+        pcall(draw, ctx, s)
+    else
+        hover.inPopover = false
+    end
+    ImGui.End()
+    ImGui.PopStyleVar(1)
+
+    -- Esc closes a pinned popover. Only consume the key when one is actually pinned, so the
+    -- hub's own LIFO Esc handling is untouched the rest of the time.
+    if pinned and ImGui.IsKeyPressed and ImGui.IsKeyPressed(ImGuiKey.Escape) then
+        uiState.dockPinnedPopover = nil
+        uiState.escConsumedThisFrame = true
+        hover.id, hover.inPopover = nil, false
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Action queue
 -- ---------------------------------------------------------------------------
@@ -283,20 +494,6 @@ end
 -- Render
 -- ---------------------------------------------------------------------------
 
-local BAR_FLAGS = nil
-local function barFlags()
-    if BAR_FLAGS then return BAR_FLAGS end
-    local f = 0
-    local W = ImGuiWindowFlags
-    for _, name in ipairs({ "NoTitleBar", "NoResize", "NoMove", "NoScrollbar", "NoScrollWithMouse",
-                            "NoSavedSettings", "NoFocusOnAppearing", "NoNav", "NoCollapse",
-                            "NoBringToFrontOnFocus", "NoDocking" }) do
-        if W[name] then f = bit32.bor(f, W[name]) end
-    end
-    BAR_FLAGS = f
-    return f
-end
-M.barFlags = barFlags
 
 --- True when the bars should draw at all. Also the gate main_loop uses to decide whether the
 --- loop needs the fast delay -- otherwise a visible bar would update at 10Hz with the hub closed.
@@ -325,6 +522,10 @@ function M.render(ctx)
         local want = SEGMENT_DEMAND[id]
         if want then want() end
     end
+
+    -- Rebuilt from scratch each frame. Keeping stale entries would leave a segment the user
+    -- just disabled marked hovered forever, and its popover would never close.
+    M.slots = {}
 
     local edge = M.edge(layoutConfig)
     local x, y, w, h = dockLayout.barRect(edge, 0)
@@ -374,6 +575,9 @@ function M.render(ctx)
     end
     ImGui.End()
     ImGui.PopStyleVar(4)
+
+    -- Popover after the bar's End(), so it is a sibling window and can extend past the strip.
+    renderPopover(ctx, s, edge, x, y, w, h)
 end
 
 return M

@@ -53,6 +53,7 @@ M.TIMING = {
     DOCK_SLOW_BAGS_MS = 1000,    -- countFreeInvSlots walks 10 packs, one TLO read per slot
     DOCK_SLOW_BUFFS_MS = 750,    -- ~40-70 TLO reads (buffs + songs + auras)
     DOCK_SLOW_STATS_MS = 1000,   -- XP / AA / script totals
+    DOCK_SLOW_CLICKY_MS = 1000,  -- spell id -> clicky item map, only while a buffs popover is open
     DOCK_POPOVER_GRACE_MS = 250, -- mouse-out grace so the pointer can travel segment -> popover
 
     -- Character stats panel

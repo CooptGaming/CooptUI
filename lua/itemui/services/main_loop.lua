@@ -1261,8 +1261,20 @@ local function phase0b_dockActionQueue(now)
             if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
         end
 
+    elseif a.kind == "hub" then
+        -- Show the hub. It picks its own view, so with a merchant open this lands on Sell --
+        -- which is what the bar's "Full preview" means.
+        uiState.userClosedViaKeybind = false
+        if d.setShouldDraw then d.setShouldDraw(true) end
+        if d.setOpen then d.setOpen(true) end
+
     elseif a.kind == "native" and a.window then
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
+
+    elseif a.kind == "clicky" and a.bag and a.slot then
+        -- Fire an item's clicky, same command the Inventory view's Clicky column issues
+        -- (views/inventory.lua:296). This is a game command, hence the queue.
+        mq.cmdf('/itemnotify in pack%d %d rightmouseup', a.bag, a.slot)
 
     elseif a.kind == "loot_take" or a.kind == "loot_pass" then
         -- Reuse the Loot window's own callbacks so the bar and the window cannot drift
