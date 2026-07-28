@@ -131,8 +131,16 @@ function M.handleCommand(...)
             local on = tostring(lc.UIMode or "classic") == "bars"
             setKey("UIMode", on and "classic" or "bars")
             print(string.format("\ag[ItemUI]\ax Bars %s.", on and "off" or "on"))
+        elseif sub == "debug" then
+            -- Ask the bar to capture what it computed on its next frame; main_loop
+            -- prints it from outside the render callback.
+            if deps.uiState then
+                deps.uiState.dockDebugRequested = true
+                print("\ag[ItemUI]\ax Capturing dock diagnostics on the next frame...")
+            end
+            return
         else
-            print("\ar[ItemUI]\ax /itemui dock [on|off|top|bottom]")
+            print("\ar[ItemUI]\ax /itemui dock [on|off|top|bottom|debug]")
         end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end

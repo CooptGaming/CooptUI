@@ -1241,6 +1241,14 @@ end
 -- a burst of game commands in a single frame.
 local function phase0b_dockActionQueue(now)
     local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    -- Drain a /itemui dock debug capture. The bar records it from inside the frame (where the
+    -- ImGui queries are valid) and it is printed out here, where printing belongs.
+    if uiState.dockDebugReport then
+        local report = uiState.dockDebugReport
+        uiState.dockDebugReport = nil
+        print("\ag[CoOpt UI]\ax dock debug:")
+        for _, line in ipairs(report) do print("  " .. tostring(line)) end
+    end
     local q = uiState.dockActionQueue
     if not q or #q == 0 then return end
     -- Never race a cursor action that is already in flight.

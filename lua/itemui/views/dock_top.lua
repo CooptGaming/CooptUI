@@ -567,6 +567,40 @@ function M.render(ctx)
 
     local edge = M.edge(layoutConfig)
     local x, y, w, h = dockLayout.barRect(edge, 0)
+
+    -- /itemui dock debug: capture what the bar actually computed, from INSIDE the frame where
+    -- the ImGui queries are valid. main_loop prints it on the next tick (printing from within
+    -- the render callback is the thing this whole file exists to avoid). Costs nothing unless
+    -- the flag is set.
+    local dbg = ctx.uiState and ctx.uiState.dockDebugRequested and {} or nil
+    if dbg then
+        ctx.uiState.dockDebugRequested = nil
+        local lh = ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()
+        local vpOK = ImGui.GetMainViewport ~= nil
+        local cw, ch = ImGui.CalcTextSize("Hello")
+        dbg[#dbg + 1] = string.format("UIMode=%s DockTop=%s DockBottom=%s pos=%s chat=%s",
+            tostring(layoutConfig.UIMode), tostring(layoutConfig.DockTop),
+            tostring(layoutConfig.DockBottom), tostring(layoutConfig.DockPosition),
+            tostring(layoutConfig.DockChat))
+        dbg[#dbg + 1] = string.format("segments(%d)=%s", #order, table.concat(order, ","))
+        dbg[#dbg + 1] = string.format("GetMainViewport=%s  viewport=%s,%s %sx%s",
+            tostring(vpOK), tostring(x), tostring(y), tostring(w), tostring(h))
+        dbg[#dbg + 1] = string.format("GetTextLineHeight=%s (%s)  barHeight=%s  childH=%s",
+            tostring(lh), type(lh), tostring(dockLayout.barHeight()),
+            tostring(h - constants.UI.DOCK_BAR_PADDING_Y * 2))
+        dbg[#dbg + 1] = string.format("CalcTextSize('Hello')=%s,%s (%s)",
+            tostring(cw), tostring(ch), type(cw))
+        local ws = {}
+        for _, id in ipairs(order) do
+            ws[#ws + 1] = id .. "=" .. tostring(dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id]))
+        end
+        dbg[#dbg + 1] = "slotWidths " .. table.concat(ws, " ")
+        dbg[#dbg + 1] = string.format("snap loot=%s corpse=%d/%d taken=%d bags=%d/%d sell=%d buffs=%d",
+            tostring(s.lootState), s.lootCorpse or -1, s.lootTotalCorpses or -1, s.lootTaken or -1,
+            s.bagItems or -1, s.bagSlots or -1, s.sellCount or -1, s.buffCount or -1)
+        ctx.uiState.dockDebugReport = dbg
+    end
+
     ImGui.SetNextWindowPos(ImVec2(x, y))
     ImGui.SetNextWindowSize(ImVec2(w, h))
     ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0)
