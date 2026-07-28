@@ -14,7 +14,7 @@ Combined with the earlier implementation plan work (Phases 1–13) — native sc
 
 **What remains is not infrastructure — it is experience.** The highest-leverage opportunities now cluster into three categories:
 
-1. **Eliminating the last blocking operations and per-frame waste.** Augment insert/remove still uses `mq.delay`, freezing the UI for 1+ second per operation. The quantity picker blocks for 450ms. `saveInventory` serializes 200+ items through 16,000 `string.format` calls at 4-second cost. Filtered/sorted lists are rebuilt every frame in 5+ views. These are the remaining moments where a player feels CoOpt UI stutter.
+1. **Eliminating the last blocking operations and per-frame waste.** Augment insert/remove still uses `mq.delay`, freezing the UI for 1+ second per operation. The quantity picker blocks for 450ms. ~~`saveInventory` serializes 200+ items through 16,000 `string.format` calls at 4-second cost.~~ *(fixed — see PERF-01 status)* Filtered/sorted lists are rebuilt every frame in 5+ views. These are the remaining moments where a player feels CoOpt UI stutter.
 
 2. **Adding data surfaces that no other MQ2 tool provides.** Item stat comparison (side-by-side with green/red deltas), augment compatibility preview on hover, unified cross-view search, session history across restarts, and real-time inventory value tracking. Each of these is now trivial to implement because the plugin provides full item data instantly — the hard prerequisite (data population) is done.
 
@@ -31,6 +31,8 @@ If the top opportunities were all realized, CoOpt UI would be a tool where: augm
 ---
 
 #### PERF-01: Eliminate saveInventory Serialization Bottleneck
+
+**Status (2026-07-28): Resolved.** Fixed in Lua rather than by the plugin-side C++ writer proposed below: `buildInventoryContent` (`lua/itemui/storage.lua:135`) builds the whole file as a lines table with one `table.concat` and a single `file_safe.safeWrite` (`storage.lua:193-205`, profiling gate only fires above threshold). The 4-second freeze is gone. Section retained for history; the "current state" below is what it looked like in 2026-03.
 
 **What it is:** Move the `storage.saveInventory` serialization from Lua to the plugin.
 
@@ -104,6 +106,8 @@ If the top opportunities were all realized, CoOpt UI would be a tool where: augm
 
 #### PERF-05: Replace getSellProgress INI-Every-Frame with IPC-Only
 
+**Status (2026-07-28): Resolved** (differently than proposed): `MacroBridge.getSellProgress()` now throttles INI reads to 150ms while the macro runs, with smoothing still advancing every call, and the file-based idle fallback was removed as dead code (`lua/itemui/services/macro_bridge.lua:257-271`). The per-frame disk I/O is gone; the IPC-only variant below was not needed.
+
 **What it is:** Stop reading `sell_progress.ini` every frame while the sell macro runs.
 
 **Current state:** `macro_bridge.getSellProgress()` reads the INI file every frame when the sell macro is active (no throttle). This is redundant because Phase 9 already sends sell progress via IPC. The IPC drain updates `MacroBridge.state.sell.progress` per-frame.
@@ -121,6 +125,8 @@ If the top opportunities were all realized, CoOpt UI would be a tool where: augm
 ---
 
 #### PERF-06: Optimize getCompatibleAugments Per-Frame Recalculation
+
+**Status (2026-07-28): Resolved.** The Augment Utility view caches the optimize plan and candidate lists with explicit invalidation keys (item id, bag/slot/source, slot count, bank-open, usable-filter) and invalidates on optimize-queue completion (`lua/itemui/views/augment_utility.lua:164-186`); `augment_helpers.lua` additionally builds an index for O(N) compatibility with no per-augment TLO calls. No per-frame recomputation remains.
 
 **What it is:** Cache augment compatibility results in augment_utility.lua.
 
@@ -717,6 +723,8 @@ Identical `simpleHash` function in `inventory.lua` and `bank.lua`. Extract to `u
 ---
 
 ### Rank 2: PERF-01 — Eliminate saveInventory Serialization Bottleneck
+
+**Status (2026-07-28): Done** — resolved in Lua (see the PERF-01 status note in Section 2); this rank entry is retained for history.
 
 **Why #2:** A 4-second freeze after every inventory scan is the single most noticeable performance problem a regular player encounters. The plugin already has all 120+ fields per item in contiguous C++ memory — serialization to the Lua file format can be done in <5ms with `snprintf`. This is high impact with moderate effort.
 
