@@ -534,7 +534,14 @@ function M.render(refs)
         end
 
         local bankOnline = refs.isBankWindowOpen and refs.isBankWindowOpen()
-        for _, mod in ipairs(registry.getEnabledModules()) do
+        -- In bars mode the launchers live on the bottom bar instead, so the hub drops its
+        -- button row and keeps everything else: search, filters, table, footer, cursor bar
+        -- and quantity picker. Nothing lives in both places (mockup 13d) -- one home per
+        -- control, so there is never a "which one do I press". The Lock checkbox below is
+        -- part of this same header row and stays either way.
+        local barsMode = tostring(layoutConfig.UIMode or "classic") == "bars"
+            and layoutConfig.DockBottom ~= false
+        for _, mod in ipairs(barsMode and {} or registry.getEnabledModules()) do
             if mod.id == "bank" then
                 if bankOnline then
                     ImGui.PushStyleColor(ImGuiCol.Button, refs.theme.ToVec4(refs.theme.Colors.Keep.Normal))

@@ -15,6 +15,7 @@ local ItemDisplayView = require('itemui.views.item_display')
 local item_name = require('itemui.utils.item_name')
 local soundService = require('itemui.services.sound')
 local dockState = require('itemui.services.dock_state')
+local chatFeed = require('itemui.services.chat_feed')
 local dbgSell = require('itemui.core.debug').channel('Sell')
 local dbgLoot = require('itemui.core.debug').channel('Loot')
 local dbgAugment = require('itemui.core.debug').channel('Augment')
@@ -1271,6 +1272,23 @@ local function phase0b_dockActionQueue(now)
     elseif a.kind == "native" and a.window then
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
 
+    elseif a.kind == "scripttracker" then
+        -- Same start-if-needed probe the Command Center's button does
+        -- (views/command_center.lua:123-133), so retiring that window loses nothing.
+        local running = nil
+        local ok, status = pcall(function()
+            local l = mq.TLO and mq.TLO.Lua
+            local s = l and l.Script and l.Script('scripttracker')
+            return s and s.Status and s.Status()
+        end)
+        if ok and type(status) == 'string' then running = (status:upper() == 'RUNNING') end
+        if running == false then
+            mq.cmd('/lua run scripttracker')
+        else
+            mq.cmd('/st show')
+            if running == nil then mq.cmd('/lua run scripttracker') end
+        end
+
     elseif a.kind == "clicky" and a.bag and a.slot then
         -- Fire an item's clicky, same command the Inventory view's Clicky column issues
         -- (views/inventory.lua:296). This is a game command, hence the queue.
@@ -1916,6 +1934,10 @@ function M.init(deps)
     d = deps
     lootFeedEvents.init(d)
     scriptConsumeEvents.init(d)
+    -- Registered here for the same reason as the two above: nothing self-registers, and
+    -- M.init runs exactly once (app.lua calls mainLoop.init once), which is what makes
+    -- "the event is registered once" true. mq.doevents() in phase 10 pumps it.
+    chatFeed.init(d)
     nativeBridge.init(d)
 end
 

@@ -291,6 +291,19 @@ function M.isEnabled(id)
     return m and isEnabled(m.spec)
 end
 
+--- Zone a module prefers to open into ("L1", "R2", ...), from an optional `zone` field on its
+--- registration. Purely additive: register() already returns a table with __index into the
+--- spec, so an unknown field costs nothing and nothing here validates the spec shape.
+--- Phase 4 (zone placement) is what consumes this; nothing sets it yet.
+--- NOTE for whoever wires that up: the `displayOrder` / layoutConfig.CompanionButtonOrder in
+--- the comment on register() above are NOT implemented anywhere -- toggle/button order is
+--- purely registration order (the `order` table). Deterministic bar ordering has to be built.
+function M.getZone(id)
+    local m = modules[id]
+    local z = m and m.spec and m.spec.zone
+    return (type(z) == "string" and z ~= "") and z or nil
+end
+
 --- Close any companion window whose enableKey is 0 in layoutConfig (call after loadLayoutConfig).
 function M.applyEnabledFromLayout(layoutConfig)
     if not layoutConfig then return end

@@ -174,6 +174,9 @@ M.LIMITS = {
     MAX_INVENTORY_BAGS = 10,
     STATUS_MSG_MAX_LEN = 72,
     LOOT_HISTORY_MAX = 100,
+    -- Chat feed ring buffer. Only the last few lines are ever drawn; the depth exists so the
+    -- peek view can scroll back a little without holding the whole session in memory.
+    CHAT_FEED_MAX = 200,
     ITEM_DISPLAY_RECENT_MAX = 10,
     SEARCH_HISTORY_MAX = 5,
     LOOT_SELL_STATUS_CAP = 500,

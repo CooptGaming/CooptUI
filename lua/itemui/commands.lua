@@ -84,8 +84,47 @@ function M.handleCommand(...)
         if deps.closeGameBankIfOpen then deps.closeGameBankIfOpen() end
         if deps.closeGameMerchantIfOpen then deps.closeGameMerchantIfOpen() end
     elseif cmd == "center" then
-        -- Native Command Center (the repurposed Tip of the Day window; needs /loadskin coopt)
-        pcall(function() mq.TLO.Window('TipWindow').DoOpen() end)
+        -- In bars mode the command bar has replaced the Command Center window, so this makes
+        -- sure that bar is on screen instead of opening a window the user has retired. In
+        -- classic mode it keeps doing exactly what it always did.
+        local lc = deps.layoutConfig
+        if lc and tostring(lc.UIMode or "classic") == "bars" then
+            if lc.DockBottom == false then
+                lc.DockBottom = true
+                if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
+            end
+            print("\ag[ItemUI]\ax Command bar is on screen (hover Items / Character / Actions / Game windows).")
+        else
+            -- Native Command Center (the repurposed Tip of the Day window; needs /loadskin coopt)
+            pcall(function() mq.TLO.Window('TipWindow').DoOpen() end)
+        end
+    elseif cmd == "dock" or (cmd:sub(1, 5) == "dock " and #cmd > 5) then
+        local args = { ... }
+        local sub = (cmd == "dock" and args[2]) and (tostring(args[2])):lower()
+            or (cmd:match("^dock%s+(%S+)") or ""):lower()
+        local lc = deps.layoutConfig
+        if not lc then
+            print("\ar[ItemUI]\ax Layout not loaded yet.")
+        elseif sub == "off" or sub == "classic" then
+            lc.UIMode = "classic"
+            print("\ag[ItemUI]\ax Bars off - back to the classic UI.")
+        elseif sub == "on" or sub == "bars" then
+            lc.UIMode = "bars"
+            print("\ag[ItemUI]\ax Bars on.")
+        elseif sub == "top" or sub == "bottom" then
+            lc.UIMode = "bars"
+            lc.DockPosition = sub
+            print(string.format("\ag[ItemUI]\ax Status bar moved to the %s edge.", sub))
+        elseif sub == "" then
+            -- No argument toggles, which is what a bare /itemui dock should do.
+            local on = tostring(lc.UIMode or "classic") == "bars"
+            lc.UIMode = on and "classic" or "bars"
+            print(string.format("\ag[ItemUI]\ax Bars %s.", on and "off" or "on"))
+        else
+            print("\ar[ItemUI]\ax /itemui dock [on|off|top|bottom]")
+            return
+        end
+        if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end
@@ -160,8 +199,9 @@ function M.handleCommand(...)
             print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
         end
     elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|center|refresh|setup|config|onboarding|reroll|sell|exit|help]")
-        print("  center = open the native Command Center window (requires /loadskin coopt)")
+        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|center|dock|refresh|setup|config|onboarding|reroll|sell|exit|help]")
+        print("  center = focus the command bar (bars mode) or open the native Command Center (classic)")
+        print("  dock [on|off|top|bottom] = the two bars: status on one edge, launchers and chat on the other")
         print("  setup = run the 13-step setup wizard (layout, sell/loot rules, epic protection)")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
         print("  onboarding = show the first-run welcome panel again")

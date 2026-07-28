@@ -58,8 +58,9 @@ local ConfigFilters = require('itemui.views.config_filters')
 -- declares ~185 locals against Lua's 200-per-function ceiling, so new modules share a slot
 -- rather than taking one each.
 local dock = {
-    top   = require('itemui.views.dock_top'),
-    state = require('itemui.services.dock_state'),
+    top    = require('itemui.views.dock_top'),
+    bottom = require('itemui.views.dock_bottom'),
+    state  = require('itemui.services.dock_state'),
 }
 
 -- Phase 7: Utility modules
@@ -1213,6 +1214,8 @@ commands.init({
     bankCache = bankCache,
     storage = storage,
     flushLayoutSave = flushLayoutSave,
+    layoutConfig = layoutConfig,
+    scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
 })
 local handleCommand = commands.handleCommand
 
@@ -1356,6 +1359,7 @@ local function main()
         -- Draw order does NOT keep the bars under the companion windows; ImGui z-order is
         -- focus-ordered, so that job belongs to NoBringToFrontOnFocus in the bar flags.
         pcall(dock.top.render, ctx)
+        pcall(dock.bottom.render, ctx)
         MainWindow.render(ctx)
     end)
     -- Native skin maintenance: the skin is OPT-IN (installed via the Settings

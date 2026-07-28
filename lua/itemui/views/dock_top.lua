@@ -190,9 +190,18 @@ segments.loot = function(ctx, s)
         theme.PopButtonColors()
 
     elseif st == "problem" then
+        -- A problem strip says what happened and offers a fix that actually exists. The
+        -- mockup's "Consolidate - frees 6" needs a bag-consolidation feature this codebase
+        -- does not have; it belongs with the phase 6 degraded-state work rather than as a
+        -- button here that would look real and do nothing. Until then: open the bags, and
+        -- offer the sell only when a merchant makes it possible.
         theme.TextError(string.format("stopped - %s", s.lootProblem or "see log"))
         ImGui.SameLine(0, 8)
-        if ImGui.SmallButton("Consolidate##dockLootConsolidate") then M.queue(ctx, { kind = "consolidate" }) end
+        if ImGui.SmallButton("Bags##dockLootBags") then M.queue(ctx, { kind = "hub" }) end
+        if s.merchantOpen and s.sellCount > 0 then
+            ImGui.SameLine(0, 4)
+            if ImGui.SmallButton("Sell junk##dockLootSellJunk") then M.queue(ctx, { kind = "auto_sell" }) end
+        end
 
     elseif st == "looting" then
         labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
