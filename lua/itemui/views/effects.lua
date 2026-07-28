@@ -110,12 +110,14 @@ local function rescan()
         local e = readEffect("buff", i)
         if e then buffs[#buffs + 1] = e end
     end
-    local songs = {}
-    for i = 1, MAX_SONG_SLOTS do
-        local e = readEffect("song", i)
-        if e then songs[#songs + 1] = e end
-    end
+
+    -- Auras BEFORE songs, and same name-prefix guard as dock_state.lua's walkEffects (this
+    -- is only the cold-start fallback -- dockState.getEffects() overwrites cache once the
+    -- shared walk has run -- but the first-frame path must agree with it). An active aura
+    -- grants itself as a temp buff, so Me.Song(n) and Me.Aura(n) are two independent TLO
+    -- views of the same effect with no spell id to join on; the aura name is the only key.
     local auras = {}
+    local auraSet = {}
     for i = 1, MAX_AURA_SLOTS do
         local ok, name = pcall(function()
             local a = Me.Aura and Me.Aura(i)
@@ -123,6 +125,25 @@ local function rescan()
         end)
         if ok and name and name ~= "" and name ~= "NULL" then
             auras[#auras + 1] = { kind = "aura", index = i, name = name, permanent = true, hitCount = 0 }
+            auraSet[name:lower()] = true
+        end
+    end
+
+    local songs = {}
+    for i = 1, MAX_SONG_SLOTS do
+        local e = readEffect("song", i)
+        if e then
+            -- Prefix match, not exact: EQ commonly names the granted temp buff
+            -- "<Aura> Effect" / "<Aura> Rk. II" rather than reusing the aura's own name.
+            local lname = e.name:lower()
+            local isAuraEffect = false
+            for auraName in pairs(auraSet) do
+                if lname:sub(1, #auraName) == auraName then
+                    isAuraEffect = true
+                    break
+                end
+            end
+            if not isAuraEffect then songs[#songs + 1] = e end
         end
     end
     cache.buffs, cache.songs, cache.auras = buffs, songs, auras

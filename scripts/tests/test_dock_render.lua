@@ -214,6 +214,22 @@ do
         stub.drew(r, 'Take##dockLootTake') and stub.drew(r, 'Pass##dockLootPass'), table.concat(r.buttons, '|'))
     check('decision: no phantom F1/F2 key hints on the labels',
         not stub.drew(r, 'Take F1') and not stub.drew(r, 'Pass F2'), table.concat(r.buttons, '|'))
+    -- Reroll is the third verb: Take AND queue the taken item for the mythical reroll list.
+    check('decision: Reroll is on the bar', stub.drew(r, 'Reroll##dockLootReroll'),
+        table.concat(r.buttons, '|'))
+    -- No TLO from this frame -- the name was never hovered, so the tooltip's hover-gated
+    -- getItemStatsForTooltip lookup must not have fired.
+    check('decision: still zero TLO with the Reroll button present', #r.tloAccess == 0,
+        table.concat(r.tloAccess, ','))
+
+    -- Clicking Reroll enqueues the deferred action (main_loop phase0b drains it into a
+    -- mythicalTake call + a name-latch), never a direct command from the render path.
+    stub.click = { ['Reroll##dockLootReroll'] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    local q = ctx.uiState.dockActionQueue
+    check('decision: Reroll enqueues loot_take_reroll',
+        q and #q >= 1 and q[#q].kind == 'loot_take_reroll',
+        q and q[#q] and tostring(q[#q].kind) or 'nil')
 end
 
 -- Degraded strip (phase 6, mockup 14d): drawn under the bar, dismissible, balanced.
@@ -332,6 +348,35 @@ do
         table.concat(r2.tloAccess, ','))
     check('popover: drew the expiring header', stub.drew(r2, 'Expiring soon'),
         table.concat(r2.text, '|'))
+
+    -- Bug: the popover showed NOTHING below "Expiring soon" when nothing was under five
+    -- minutes, even though snap.buffs was fully populated. The stub never stubs
+    -- DrawTextureAnimation/FindTextureAnimation, so the icon grid is unreachable here and the
+    -- comma-joined name fallback is what must actually render.
+    local snap = dockState.get()
+    local savedBuffs, savedSongs, savedAuras = snap.buffs, snap.songs, snap.auras
+    local savedExpiring, savedExpiringCount = snap.expiring, snap.expiringCount
+    snap.buffs = { { name = 'Spirit of Wolf', permanent = true, icon = 999 },
+                   { name = 'Skin like Diamond', permanent = true, icon = 998 } }
+    snap.songs = { { name = 'Hymn of the Last Stand', permanent = false, seconds = 900 } }
+    snap.auras = { { name = 'Aura of the Muse', permanent = true } }
+    snap.expiring, snap.expiringCount = {}, 0
+    local r3 = stub.frame(function() dockTop.render(ctx) end)
+    check('popover: nothing expiring still lists the buff names (fallback path)',
+        stub.drew(r3, 'Spirit of Wolf') and stub.drew(r3, 'Skin like Diamond'),
+        table.concat(r3.text, '|'))
+    check('popover: songs line drawn', stub.drew(r3, 'Hymn of the Last Stand'),
+        table.concat(r3.text, '|'))
+    check('popover: aura line drawn', stub.drew(r3, 'Aura of the Muse'),
+        table.concat(r3.text, '|'))
+    check('popover: still says nothing under five minutes',
+        stub.drew(r3, 'Nothing under five minutes'), table.concat(r3.text, '|'))
+    check('popover: balanced with a populated, non-expiring buff/song/aura list',
+        stub.balanced(r3), stub.imbalance(r3))
+    check('popover: still no TLO from inside the popover', #r3.tloAccess == 0,
+        table.concat(r3.tloAccess, ','))
+    snap.buffs, snap.songs, snap.auras = savedBuffs, savedSongs, savedAuras
+    snap.expiring, snap.expiringCount = savedExpiring, savedExpiringCount
 end
 
 -- =================================================================

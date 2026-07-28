@@ -58,7 +58,7 @@ local snap = {
     lootState = "idle",       -- idle | looting | decision | done | problem
     lootCorpse = 0, lootTotalCorpses = 0, lootTaken = 0, lootSkipped = 0,
     lootCorpseName = nil,     -- current corpse NAME, or nil; shown in the hover tooltip
-    lootRunValue = 0, lootDecisionName = nil, lootDecisionSecs = nil,
+    lootRunValue = 0, lootDecisionName = nil, lootDecisionSecs = nil, lootDecisionSlot = 0,
     lootProblem = nil,
     -- buffs
     buffCount = 0, songCount = 0, auraCount = 0, maxBuffs = 30,
@@ -165,10 +165,14 @@ local function walkEffects()
         local e = readEffect("buff", i)
         if e then buffs[#buffs + 1] = e end
     end
-    for i = 1, MAX_SONG_SLOTS do
-        local e = readEffect("song", i)
-        if e then songs[#songs + 1] = e end
-    end
+
+    -- Auras BEFORE songs: an active aura grants itself as a temp buff, and Me.Song(n) is a
+    -- raw read of the profile temp-buff array -- it never filters by what put an entry there.
+    -- Me.Aura(n) reads the separate aura-manager list for the same effect. Two independent
+    -- TLO views of one aura, and MQ2AuraType carries no spell id to join against MQ2BuffType
+    -- (pAuraMgr's AuraData is just Name/SpawnID/Cost/IconID) -- so the aura name is the only
+    -- key available, collected here so the song loop below can drop the duplicate.
+    local auraSet = {}
     for i = 1, MAX_AURA_SLOTS do
         local ok, name = pcall(function()
             local a = Me.Aura and Me.Aura(i)
@@ -176,6 +180,26 @@ local function walkEffects()
         end)
         if ok and name and name ~= "" and name ~= "NULL" then
             auras[#auras + 1] = { kind = "aura", index = i, name = name, permanent = true, hitCount = 0 }
+            auraSet[name:lower()] = true
+        end
+    end
+
+    for i = 1, MAX_SONG_SLOTS do
+        local e = readEffect("song", i)
+        if e then
+            -- The granted temp buff isn't always named identically to the aura entry (EQ
+            -- commonly suffixes "Effect" or a rank tag, e.g. "Aura of the Muse" ->
+            -- "Aura of the Muse Effect"/"Rk. II"), so match by case-insensitive PREFIX.
+            -- Exact-only would silently fix nothing when the strings diverge.
+            local lname = e.name:lower()
+            local isAuraEffect = false
+            for auraName in pairs(auraSet) do
+                if lname:sub(1, #auraName) == auraName then
+                    isAuraEffect = true
+                    break
+                end
+            end
+            if not isAuraEffect then songs[#songs + 1] = e end
         end
     end
 
@@ -352,6 +376,10 @@ local function readLoot(now)
         if decision == "" or decision == "pending" then
             snap.lootState = "decision"
             snap.lootDecisionName = alertName
+            -- 1-based corpse slot the macro writes (Macros/loot.mac:676 "Alert slot"), read
+            -- into the alert by main_loop.lua readMythicalAlert. Lets the bar's hover
+            -- tooltip resolve a real item (ctx.getItemStatsForTooltip) instead of just text.
+            snap.lootDecisionSlot = tonumber(alert.slot) or 0
             -- lootMythicalDecisionStartAt is os.time() -- SECONDS, set at main_loop.lua:247 --
             -- while `now` is mq.gettime() milliseconds. Subtracting them would be off by
             -- ~1000x, so compare in the same clock the value was written in.
@@ -363,7 +391,7 @@ local function readLoot(now)
             return
         end
     end
-    snap.lootDecisionName, snap.lootDecisionSecs = nil, nil
+    snap.lootDecisionName, snap.lootDecisionSecs, snap.lootDecisionSlot = nil, nil, 0
 
     -- 5 · a problem instead of a result — stays alert until dealt with. Bags full is the case
     -- the mockup calls out, but it needs two guards it did not have:

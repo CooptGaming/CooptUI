@@ -25,6 +25,7 @@ local constants = require('itemui.constants')
 local dockLayout = require('itemui.utils.dock_layout')
 local dockState = require('itemui.services.dock_state')
 local hintsService = require('itemui.services.hints')
+local ItemTooltip = require('itemui.utils.item_tooltip')
 
 local M = {}
 
@@ -46,9 +47,10 @@ local WIDEST = {
     session = { "session 9,999,999p" },
 }
 
--- Extra width for segments that hold inline buttons (Stop, Take/Pass, Consolidate/Resume)
--- or an inline progress bar (sell/loot running states: 48px bar + gap).
-local EXTRA = { loot = 198, sell = 54 }
+-- Extra width for segments that hold inline buttons (Stop, Take/Pass/Reroll, Consolidate/Resume)
+-- or an inline progress bar (sell/loot running states: 48px bar + gap). loot bumped
+-- 198 -> 252 for the third "Reroll##dockLootReroll" button beside Take/Pass.
+local EXTRA = { loot = 252, sell = 54 }
 
 local SEGMENT_ORDER_FALLBACK = { "status", "bags", "sell", "loot", "buffs", "xp", "session" }
 
@@ -203,12 +205,49 @@ segments.loot = function(ctx, s)
     if st == "decision" then
         theme.TextWarning("decision")
         ImGui.SameLine(0, 4)
-        local name = s.lootDecisionName or "Mythical item"
+        local fullName = s.lootDecisionName or "Mythical item"
+        local name = fullName
         -- Plain ASCII: nothing else in this codebase uses a \u{} escape, and MQ's Lua version
         -- is not pinned anywhere here (it ships a bit32 shim), so don't be the first to rely
         -- on 5.3+ escape syntax in a file that has to load for the UI to come up at all.
         if #name > 28 then name = name:sub(1, 25) .. "..." end
         safeText(name)
+        if ImGui.IsItemHovered() then
+            local shownReal = false
+            if (s.lootDecisionSlot or 0) > 0 and ctx.getItemStatsForTooltip then
+                -- Hover-gated TLO: the accepted exception (loot_ui.lua:310-318 does the same
+                -- corpse-item lookup for its own alert card). Only reached while the name is
+                -- actually hovered -- never per-frame. The compute-and-prepare step runs
+                -- inside pcall so a mid-lookup error can never straddle Begin/EndTooltip;
+                -- renderStatsTooltip is separately pcall-guarded internally.
+                local ok, item, opts, w, h = pcall(function()
+                    local showItem = ctx.getItemStatsForTooltip({ bag = 0, slot = s.lootDecisionSlot }, "corpse")
+                    if not (showItem and showItem.name) then return nil end
+                    -- The slot is trusted only as far as the NAME agrees: a stale INI slot
+                    -- (corpse advanced, alert not yet re-read) would otherwise render a
+                    -- different item's stats under this item's label. Mismatch -> the
+                    -- plain-name fallback below, never wrong stats.
+                    if showItem.name ~= s.lootDecisionName then return nil end
+                    local o = { source = "corpse", bag = 0, slot = s.lootDecisionSlot }
+                    local effects, ww, hh = ItemTooltip.prepareTooltipContent(showItem, ctx, o)
+                    o.effects = effects
+                    return showItem, o, ww, hh
+                end)
+                if ok and item then
+                    ItemTooltip.beginItemTooltip(w, h)
+                    ItemTooltip.renderStatsTooltip(item, ctx, opts)
+                    ImGui.EndTooltip()
+                    shownReal = true
+                end
+            end
+            if not shownReal then
+                -- Fallback: the FULL untruncated name -- valuable on its own since the slot
+                -- above truncates at 28 chars.
+                ImGui.BeginTooltip()
+                safeText(fullName)
+                ImGui.EndTooltip()
+            end
+        end
         if s.lootDecisionSecs then
             ImGui.SameLine(0, 6)
             theme.TextMuted(mmss(s.lootDecisionSecs))
@@ -224,6 +263,15 @@ segments.loot = function(ctx, s)
         theme.PushSkipButton()
         if ImGui.SmallButton("Pass##dockLootPass") then M.queue(ctx, { kind = "loot_pass" }) end
         theme.PopButtonColors()
+        ImGui.SameLine(0, 4)
+        theme.PushKeepButton()
+        if ImGui.SmallButton("Reroll##dockLootReroll") then M.queue(ctx, { kind = "loot_take_reroll" }) end
+        theme.PopButtonColors()
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            safeText("Take it AND queue it for the mythical reroll list.")
+            ImGui.EndTooltip()
+        end
 
     elseif st == "problem" then
         -- A problem strip says what happened and offers a fix that actually exists. The
@@ -359,6 +407,36 @@ local hover = { id = nil, lastAt = 0, inPopover = false }
 
 local popovers = {}
 
+-- Spell-icon texture handle for the buffs popover grid, memoised once at module scope --
+-- mq.FindTextureAnimation is TLO-adjacent, so it must be resolved once, not once per icon
+-- per frame. Lifted verbatim from views/effects.lua:40-51.
+local BUFF_ICON_SIZE = 24
+local spellIconAnim = nil
+local function drawSpellIcon(iconId, size)
+    if not iconId or iconId < 0 then return false end
+    if not spellIconAnim and mq.FindTextureAnimation then
+        spellIconAnim = mq.FindTextureAnimation("A_SpellIcons")
+    end
+    if not spellIconAnim then return false end
+    local ok = pcall(function()
+        spellIconAnim:SetTextureCell(iconId)
+        ImGui.DrawTextureAnimation(spellIconAnim, size, size)
+    end)
+    return ok
+end
+
+--- Muted, format-safe (game names can contain '%') comma-joined name list. Used for the
+--- songs/auras summary lines and as the icon grid's fallback when the texture atlas is
+--- unavailable -- a grid of empty squares is worse than text.
+local function mutedNameList(prefix, list)
+    if not list or #list == 0 then return end
+    local names = {}
+    for i, e in ipairs(list) do names[i] = tostring(e.name or "?") end
+    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
+    safeText(prefix .. table.concat(names, ", "))
+    ImGui.PopStyleColor(1)
+end
+
 --- Expiring buffs, each with a Recast when we can identify the item that casts it, plus the
 --- full grid and a way into the real window. Mockup 12b.
 popovers.buffs = function(ctx, s)
@@ -402,6 +480,37 @@ popovers.buffs = function(ctx, s)
     theme.SectionBreak()
     theme.TextMuted(string.format("Everything up . %d buffs, %d songs, %d aura%s",
         s.buffCount, s.songCount, s.auraCount, s.auraCount == 1 and "" or "s"))
+
+    local buffs = s.buffs or {}
+    if #buffs > 0 then
+        -- Resolved at most once per popover render (see drawSpellIcon above), so an
+        -- unavailable texture never re-queries mq.FindTextureAnimation once per icon.
+        if not spellIconAnim and mq.FindTextureAnimation then
+            spellIconAnim = mq.FindTextureAnimation("A_SpellIcons")
+        end
+        if spellIconAnim then
+            local perRow = math.max(1, math.floor((ImGui.GetWindowWidth() - 16) / (BUFF_ICON_SIZE + 4)))
+            for i, b in ipairs(buffs) do
+                if (i - 1) % perRow ~= 0 then ImGui.SameLine(0, 4) end
+                ImGui.PushID("dockbuff" .. i)
+                if not drawSpellIcon(b.icon, BUFF_ICON_SIZE) then
+                    ImGui.Dummy(ImVec2(BUFF_ICON_SIZE, BUFF_ICON_SIZE))
+                end
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    safeText(tostring(b.name or "?"))
+                    if not b.permanent then theme.TextMuted(mmss(b.seconds)) end
+                    ImGui.EndTooltip()
+                end
+                ImGui.PopID()
+            end
+        else
+            mutedNameList("", buffs)
+        end
+    end
+    mutedNameList("songs: ", s.songs)
+    mutedNameList("aura: ", s.auras)
+
     if ImGui.Button("Open Buffs window##dockBuffsOpen") then
         M.queue(ctx, { kind = "window", id = "effects" })
     end

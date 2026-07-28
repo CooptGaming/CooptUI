@@ -239,6 +239,7 @@ local function readMythicalAlert(alertPath, forceOpen)
     if not itemName or itemName == "" then return false end
     local decision = config.safeIniValueByPath(alertPath, "Alert", "decision", "") or "pending"
     local iconStr = config.safeIniValueByPath(alertPath, "Alert", "iconId", "") or "0"
+    local slotStr = config.safeIniValueByPath(alertPath, "Alert", "slot", "") or ""
     local prevName = uiState.lootMythicalAlert and uiState.lootMythicalAlert.itemName
     uiState.lootMythicalAlert = {
         itemName = itemName,
@@ -246,7 +247,8 @@ local function readMythicalAlert(alertPath, forceOpen)
         decision = decision,
         itemLink = config.safeIniValueByPath(alertPath, "Alert", "itemLink", "") or "",
         timestamp = config.safeIniValueByPath(alertPath, "Alert", "timestamp", "") or "",
-        iconId = tonumber(iconStr) or 0
+        iconId = tonumber(iconStr) or 0,
+        slot = tonumber(slotStr) or 0
     }
     if decision == "pending" then
         if not prevName or prevName ~= itemName then
@@ -257,8 +259,22 @@ local function readMythicalAlert(alertPath, forceOpen)
         uiState.lootMythicalDecisionStartAt = nil
     end
     if forceOpen or decision == "pending" then
-        uiState.lootUIOpen = true
-        d.recordCompanionWindowOpened("loot")
+        -- Suppress only when the bar's decision strip is actually REACHABLE — bars mode
+        -- alone is not enough: with the top bar off, or the loot segment removed from
+        -- DockSegments, a suppressed window would leave a pending mythical with no
+        -- Take/Pass surface anywhere. In classic mode the window always opens.
+        local lc = d.layoutConfig
+        local decisionReachable = false
+        if lc and tostring(lc.UIMode or "classic") == "bars" and lc.DockTop ~= false then
+            local segs = tostring(lc.DockSegments or "")
+            -- Empty = the fallback order, which includes loot; "none" and loot-less
+            -- custom CSVs fail the find and keep the window opening.
+            decisionReachable = (segs == "") or (segs:find("loot", 1, true) ~= nil)
+        end
+        if not (uiState.suppressWhenLootMac and decisionReachable) then
+            uiState.lootUIOpen = true
+            d.recordCompanionWindowOpened("loot")
+        end
     end
     return true
 end
@@ -1243,6 +1259,26 @@ end
 -- /autoinventory's it straight back.
 -- One action per tick, matching the cursor queue: a burst of bar clicks should not turn into
 -- a burst of game commands in a single frame.
+--- Queue an id+name onto the pending mythical reroll list with the bookkeeping the
+--- canonical add path performs: reroll membership feeds sell status, so the cache must be
+--- invalidated and statuses recomputed — and addToPendingList returns false when the
+--- pending list is full, which deserves an honest message, not silence.
+local function queueMythicalRerollAdd(id, name)
+    local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    local rs = d.rerollService
+    if not (rs and rs.addToPendingList) then return end
+    local ok = rs.addToPendingList("mythical", id, name)
+    if ok then
+        if d.invalidateSellConfigCache then d.invalidateSellConfigCache() end
+        if d.computeAndAttachSellStatus and d.inventoryItems and #d.inventoryItems > 0 then
+            d.computeAndAttachSellStatus(d.inventoryItems)
+        end
+        if setStatusMessage then setStatusMessage(tostring(name) .. " queued for the reroll list.") end
+    elseif setStatusMessage then
+        setStatusMessage(tostring(name) .. " not queued - reroll pending list is full.")
+    end
+end
+
 local function phase0b_dockActionQueue(now)
     local uiState, setStatusMessage = d.uiState, d.setStatusMessage
     -- Preset names for the bottom bar's Layouts menu, primed OUT of the frame so the bar
@@ -1252,6 +1288,40 @@ local function phase0b_dockActionQueue(now)
         local ok, names = pcall(layoutPresets.list)
         uiState.dockPresetNames = (ok and names) or {}
         uiState.dockPresetsDirty = nil
+    end
+    -- Deferred reroll-add latch (loot_take_reroll below): the FALLBACK path for when the
+    -- corpse id could not be read at Take time. Prefers the latched id when one exists;
+    -- name-only matching is the last resort (same-name-different-id items are why
+    -- reroll_service dropped name matching). One scan per tick, only while latched.
+    local pending = uiState.dockPendingRerollByName
+    if pending then
+        -- Nothing rescans inventory MID-run: hold the latch open while the run or its
+        -- post-run scan is still outstanding, then give the scan a fresh 5s window to
+        -- land the item. Without this the 15s expiry fired silently on every
+        -- multi-corpse run (the post-run scan starts >=1.5s after finish).
+        local lms = d.lootMacState
+        if lms and (lms.lastRunning or lms.pendingScan) then
+            pending.expiresAt = now + 5000
+        end
+        if now > (pending.expiresAt or 0) then
+            uiState.dockPendingRerollByName = nil
+            if setStatusMessage then
+                setStatusMessage(tostring(pending.name) .. " never appeared in inventory - not queued for reroll.")
+            end
+        else
+            local inventoryItems = d.inventoryItems
+            if inventoryItems and d.rerollService then
+                for _, row in ipairs(inventoryItems) do
+                    local id = row.id or row.ID
+                    if id and ((pending.id and id == pending.id)
+                        or (not pending.id and row.name == pending.name)) then
+                        queueMythicalRerollAdd(id, row.name)
+                        uiState.dockPendingRerollByName = nil
+                        break
+                    end
+                end
+            end
+        end
     end
     -- Errors the bars contained during render (dockLayout.contained queues them, deduped, so
     -- a per-frame error prints ONCE). A bare pcall in the render path is how the bars once
@@ -1378,6 +1448,33 @@ local function phase0b_dockActionQueue(now)
         local cb = MainWindowView.getLootCallbacks and MainWindowView.getLootCallbacks(d)
         local fn = cb and ((a.kind == "loot_take") and cb.mythicalTake or cb.mythicalPass)
         if fn then pcall(fn) end
+
+    elseif a.kind == "loot_take_reroll" then
+        -- Take AND queue for reroll. Read the alert FIRST -- mythicalTake nils it as part
+        -- of taking. Best case: the corpse is still open at decision time, so the item's
+        -- REAL id is one read away via the Alert slot loot.mac writes — queue it directly
+        -- (addToPendingList is pending-list-only, safe before the item lands) and skip the
+        -- landing-wait entirely. The name latch in the preamble above is the fallback for
+        -- a missing slot / closed corpse, and it prefers an id when one was captured.
+        local alert = uiState.lootMythicalAlert
+        local itemName = alert and alert.itemName
+        local slot = tonumber(alert and alert.slot) or 0
+        local okId, corpseId = pcall(function()
+            local it = slot > 0 and mq.TLO.Corpse and mq.TLO.Corpse.Item(slot)
+            if it and it() ~= nil then return tonumber(it.ID()) end
+            return nil
+        end)
+        corpseId = (okId and corpseId and corpseId > 0) and corpseId or nil
+        local MainWindowView = require('itemui.views.main_window')
+        local cb = MainWindowView.getLootCallbacks and MainWindowView.getLootCallbacks(d)
+        if cb and cb.mythicalTake then pcall(cb.mythicalTake) end
+        if itemName and itemName ~= "" then
+            if corpseId then
+                queueMythicalRerollAdd(corpseId, itemName)
+            else
+                uiState.dockPendingRerollByName = { name = itemName, expiresAt = now + 15000 }
+            end
+        end
 
     elseif a.kind == "loot_stop" then
         mq.cmd('/endmacro')

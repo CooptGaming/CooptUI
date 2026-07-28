@@ -135,7 +135,7 @@ do
     -- 3 - decision due. The alert is a TABLE with .itemName and .decision.
     dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
         uiState = {
-            lootMythicalAlert = { itemName = 'Mythical Faceplate', decision = 'pending' },
+            lootMythicalAlert = { itemName = 'Mythical Faceplate', decision = 'pending', slot = 5 },
             lootMythicalDecisionStartAt = fakeOsTime - 8,   -- SECONDS, 8s ago
         } }))
     tickWithDemand()
@@ -146,6 +146,20 @@ do
     -- Subtracting an os.time value from mq.gettime() would be off by ~1000x.
     check('decision timer uses os.time seconds, not mq.gettime ms',
         s.lootDecisionSecs == 8, s.lootDecisionSecs)
+    -- The corpse slot the macro writes (loot.mac:676 "Alert slot") flows through to the
+    -- snapshot, so the bar's hover tooltip can resolve a real item.
+    check('decision slot flows from the alert table', s.lootDecisionSlot == 5, s.lootDecisionSlot)
+
+    -- 3c - an alert with no slot (older INI, or plugin path) must not carry a stale slot
+    -- from a previous decision forward.
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
+        uiState = {
+            lootMythicalAlert = { itemName = 'Mythical Faceplate', decision = 'pending' },
+            lootMythicalDecisionStartAt = fakeOsTime - 8,
+        } }))
+    tickWithDemand()
+    check('decision slot defaults to 0 when the alert has none',
+        dockState.get().lootDecisionSlot == 0, dockState.get().lootDecisionSlot)
 
     -- 3b - a RESOLVED alert must not keep the segment alert forever.
     dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
@@ -272,6 +286,57 @@ do
     local walked = dockState.getEffects()
     check('getEffects reports walk state as its first return', type(walked) == 'boolean',
         type(walked))
+end
+
+-- =================================================================
+-- 6b. Aura/song de-duplication (bug: Me.Song(n) reads the profile temp-buff array, which
+--     also holds the self-effect an active aura grants, so a single aura was counted once
+--     as a song AND once as an aura). Covers both an exact name match and the "<Aura>
+--     Effect" suffix EQ commonly uses for the granted temp buff.
+-- =================================================================
+do
+    local function makeAura(name)
+        return setmetatable({}, { __call = function() return name end })
+    end
+    local function makeSongSlot(name, seconds)
+        local obj = setmetatable({}, { __call = function() return true end })
+        obj.Name = function() return name end
+        obj.Duration = { TotalSeconds = function() return seconds end }
+        obj.HitCount = function() return 0 end
+        return obj
+    end
+
+    package.loaded['mq'].TLO.Me = {
+        Name = function() return 'Tester' end,
+        MaxBuffSlots = function() return 0 end,  -- buff loop is irrelevant to this bug; skip it
+        Song = function(i)
+            if i == 1 then return makeSongSlot('Aura of the Muse', 60) end        -- exact-name dupe
+            if i == 2 then return makeSongSlot('Companion Spirit Effect', 60) end -- "<Aura> Effect" dupe
+            if i == 3 then return makeSongSlot("Selo's Consonant Chain", 400) end -- a REAL song
+            return nil
+        end,
+        Aura = function(i)
+            if i == 1 then return makeAura('Aura of the Muse') end
+            if i == 2 then return makeAura('Companion Spirit') end
+            return nil
+        end,
+    }
+
+    dockState.init(newDeps({ freeSlots = 40, inventoryItems = { {} } }))
+    dockState.requestBuffs()
+    now = now + T.DOCK_SLOW_BUFFS_MS + 1
+    dockState.tick(now)
+    local walked, _, songs, auras = dockState.getEffects()
+    check('effects walk ran', walked == true, walked)
+    check('auraCount keeps both auras', #auras == 2, #auras)
+    check('songCount drops the exact-name aura dupe and the "Effect"-suffix dupe',
+        #songs == 1, #songs)
+    check('the one surviving song is the real one',
+        songs[1] and songs[1].name == "Selo's Consonant Chain", songs[1] and songs[1].name)
+
+    local s = dockState.get()
+    check('snapshot songCount matches the filtered list', s.songCount == 1, s.songCount)
+    check('snapshot auraCount is unaffected', s.auraCount == 2, s.auraCount)
 end
 
 -- =================================================================

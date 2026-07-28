@@ -474,7 +474,10 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
 
     local starts = ipc.receiveAll("loot_start")
     if starts and #starts > 0 then
-        uiState.lootUIOpen = true
+        -- Honor "Enable Loot UI during looting" for macro loot runs too (was unconditional).
+        if not uiState.suppressWhenLootMac then
+            uiState.lootUIOpen = true
+        end
         uiState.lootRunFinished = false
         uiState.lootRunLootedItems = {}
         uiState.lootRunLootedList = {}

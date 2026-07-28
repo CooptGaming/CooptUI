@@ -43,6 +43,21 @@ local function renderNameCellWithLootMenu(ctx, theme, name, nameColor)
                 ctx.removeFromLootSkipList(name)
             end
         end
+        -- Loot rows carry no id/type (macro_bridge.lua row shape) -- resolve mythical by
+        -- name prefix only (nil type), and require the item to already be in inventory
+        -- (looted) so requestAddToRerollList has an id to work with.
+        if ctx.resolveRerollList and ctx.requestAddToRerollList and ctx.inventoryItems then
+            local resolvedList = ctx.resolveRerollList(name, nil)
+            if resolvedList then
+                local row
+                for _, inv in ipairs(ctx.inventoryItems) do
+                    if inv.name == name and (inv.id or inv.ID) then row = inv; break end
+                end
+                if row and ImGui.MenuItem("Add to reroll list") then
+                    ctx.requestAddToRerollList(resolvedList, row)
+                end
+            end
+        end
         ImGui.EndPopup()
     end
 end
@@ -239,12 +254,19 @@ function LootUIView.render(ctx)
         end
         ImGui.Separator()
 
-        -- Suppress note (read-only)
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Don't want this window during loots?")
+        -- Suppress control -- inverted sense to match Settings > General > Features'
+        -- "Enable Loot UI during looting" (same uiState.suppressWhenLootMac key).
+        local openDuringLoots = not uiState.suppressWhenLootMac
+        local prevOpenDuringLoots = openDuringLoots
+        openDuringLoots = ImGui.Checkbox("Open during loots##LootSuppress", openDuringLoots)
+        if prevOpenDuringLoots ~= openDuringLoots then
+            uiState.suppressWhenLootMac = not openDuringLoots
+            if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+        end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Settings > General > Features: uncheck 'Enable Loot UI during looting'")
-            ImGui.Text("to keep this window closed while loot runs.")
+            ImGui.Text("Same setting as Settings > General > Features: 'Enable Loot UI during looting'.")
+            ImGui.Text("Uncheck to keep this window closed while loot runs.")
             ImGui.EndTooltip()
         end
         ImGui.Separator()
@@ -359,24 +381,24 @@ function LootUIView.render(ctx)
                         if ctx.mythicalPass then ctx.mythicalPass() end
                     end
                     ImGui.SameLine()
-                end
-                -- Reroll: visible after item was taken so user can queue it for mythical reroll
-                if decision == "taken" then
-                    local itemName = alert.itemName
-                    if ImGui.Button("Reroll##MythicalAlert") then
-                        local found = nil
-                        if itemName and itemName ~= "" and ctx.inventoryItems then
-                            for _, inv in ipairs(ctx.inventoryItems) do
-                                if inv.name == itemName then found = inv; break end
-                            end
-                        end
-                        if found then
-                            if ctx.requestAddToRerollList then ctx.requestAddToRerollList("mythical", found) end
-                        else
-                            if ctx.setStatusMessage then ctx.setStatusMessage("Item not found in inventory: " .. (itemName or "")) end
-                        end
+                    -- Take + Reroll: enqueue the SAME dock action the bar's Reroll button
+                    -- uses, so both surfaces share one corrected handler (main_loop
+                    -- phase0b): it resolves the item's real id from the still-open corpse
+                    -- before taking, and only falls back to the name latch when it can't.
+                    -- An inline take here would lose the id and re-open the
+                    -- same-name-different-id hazard. Replaces the old decision=="taken"
+                    -- Reroll button, which was dead code: nothing ever wrote "taken" and
+                    -- the alert was nil'd on Take anyway.
+                    if ImGui.Button("Take + Reroll##MythicalAlert") then
+                        local q = uiState.dockActionQueue
+                        if not q then q = {}; uiState.dockActionQueue = q end
+                        q[#q + 1] = { kind = "loot_take_reroll" }
                     end
-                    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add to Mythical Reroll list."); ImGui.EndTooltip() end
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        ImGui.Text("Take it AND queue it for the mythical reroll list.")
+                        ImGui.EndTooltip()
+                    end
                     ImGui.SameLine()
                 end
                 if ImGui.Button("Dismiss##MythicalAlert") then
