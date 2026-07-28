@@ -545,6 +545,106 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Degraded-state strip (mockup 14d): say what, say the cost, offer the fix, stay out of
+-- the way. One 30px strip under the bar, dismissible per session, never a modal.
+-- Buttons that would do nothing do not exist; fixes that are real go through the queue.
+-- ---------------------------------------------------------------------------
+
+local STRIPS = {
+    sellmac_missing = {
+        color = "Error",
+        msg = "Auto Sell needs sell.mac - not found in Macros",
+        note = "Auto Sell will fail until then",
+        tip = "Expected in your MacroQuest Macros folder. Re-run the installer, or copy sell.mac from the bundle.",
+    },
+    no_rules = {
+        -- The default rule pipeline SELLS unmatched tradeable items at/above the value
+        -- floor (rules.lua step 19 falls through to "Sell") — empty lists are the LEAST
+        -- protected state, not the safest. An earlier draft of this strip said "would
+        -- sell nothing / safe by default", which was factually inverted.
+        color = "Warning",
+        msg = "no sell rules yet - Auto Sell falls back to defaults (sells tradeable items above the value floor)",
+        note = "review before selling",
+        btn = { label = "Open rules", action = { kind = "window", id = "config" } },
+    },
+    stale_bank = {
+        color = "Success",
+        msgFn = function(deg) return string.format("bank shown from a snapshot taken %d day%s ago",
+            deg.days or 0, (deg.days or 0) == 1 and "" or "s") end,
+        note = "read-only until then - open a bank to refresh",
+    },
+    no_plugin = {
+        color = "Warning",
+        msg = "running without the plugin - scans are slower",
+        note = "everything still works",
+        tip = "The MQ2CoOptUI plugin reads items natively. Without it CoOpt falls back to slower TLO scans - every feature still functions.",
+    },
+}
+
+local function renderDegradedStrip(ctx, s, edge, index)
+    local deg = s.degraded
+    if not deg then return end
+    local uiState = ctx.uiState
+    local dismissed = uiState and uiState.dockStripDismissed
+    if dismissed and dismissed[deg.id] then return end
+    local spec = STRIPS[deg.id]
+    if not spec then return end
+
+    -- index 1 = just inside this bar's edge. The command bar passes its own row count so
+    -- the strip lands above it even in peek-chat mode (it is the strip's fallback host
+    -- when the status bar is disabled).
+    local x, y, w, h = dockLayout.barRect(edge, index or 1)
+    ImGui.SetNextWindowPos(ImVec2(x, y))
+    ImGui.SetNextWindowSize(ImVec2(w, h))
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, (deg.id == "sellmac_missing") and 1 or 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding,
+        ImVec2(constants.UI.DOCK_SLOT_PADDING_X, constants.UI.DOCK_BAR_PADDING_Y))
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockStrip", true, barFlags())
+    if not okBegin then
+        ImGui.PopStyleVar(3)
+        return
+    end
+    if visible then
+        dockLayout.contained(uiState, "dock degraded strip", function()
+            ImGui.AlignTextToFramePadding()
+            theme.TextMuted("CoOpt")
+            ImGui.SameLine(0, 8)
+            local col = theme.Colors[spec.color] or theme.Colors.Warning
+            local msg = spec.msgFn and spec.msgFn(deg) or spec.msg
+            ImGui.TextColored(theme.ToVec4(col), msg)
+            if spec.tip and ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.PushTextWrapPos(360)
+                ImGui.TextWrapped(spec.tip)
+                ImGui.PopTextWrapPos()
+                ImGui.EndTooltip()
+            end
+            if spec.btn then
+                ImGui.SameLine(0, 10)
+                if ImGui.SmallButton(spec.btn.label .. "##dockStripFix") then
+                    M.queue(ctx, spec.btn.action)
+                end
+            end
+            ImGui.SameLine(0, 10)
+            if ImGui.SmallButton("Hide for this session##dockStripHide") and uiState then
+                uiState.dockStripDismissed = uiState.dockStripDismissed or {}
+                uiState.dockStripDismissed[deg.id] = true
+            end
+            ImGui.SameLine(0, 12)
+            theme.TextMuted(spec.note or "")
+        end)
+    end
+    ImGui.End()
+    ImGui.PopStyleVar(3)
+end
+
+--- Exported for dock_bottom: when the status bar is off, the command bar hosts the strip
+--- so the degraded conditions still have a surface (they are the states that decide
+--- whether a stranger keeps using the product).
+M.renderDegradedStrip = renderDegradedStrip
+
 --- The one-at-a-time first-run hint (mockup 14c), anchored to the segment it teaches.
 --- Drawn as its own sibling window AFTER the popover so the two never fight for the same
 --- screen spot; buttons queue through the action drain because dismissal writes an INI.
@@ -770,6 +870,7 @@ function M.render(ctx)
     ImGui.PopStyleVar(4)
 
     -- Popover after the bar's End(), so it is a sibling window and can extend past the strip.
+    renderDegradedStrip(ctx, s, edge)
     renderPopover(ctx, s, edge, x, y, w, h)
     renderHint(ctx, s, edge, x, y, w, h)
 end

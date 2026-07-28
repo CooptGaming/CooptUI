@@ -321,6 +321,58 @@ do
     check('the banked income is not double-counted', s.sessionSold == 350, s.sessionSold)
 end
 
+-- =================================================================
+-- 8. Degraded-state probe (phase 6, mockup 14d): priority order, startup gate, bank age.
+-- =================================================================
+do
+    local T2 = T
+    local function healthTick()
+        now = now + (T2.DOCK_HEALTH_MS or 30000) + 1
+        dockState.tick(now)
+    end
+
+    -- Controllable config cache: walkHealth reaches it via a lazy pcall(require), so a
+    -- late package.loaded stub is honored. An UNLOADED cache (getCache() == nil, the real
+    -- pre-loadConfigCache state) must never report "no rules".
+    local testCache = nil
+    package.loaded['itemui.config_cache'] = { getCache = function() return testCache end }
+
+    -- Pluginless, unloaded cache, fresh bank: only the pluginless note shows.
+    local deps = newDeps({})
+    deps.perfCache = { lastBankCacheTime = 0 }
+    deps.bankCache = {}
+    dockState.init(deps)
+    healthTick()
+    local s = dockState.get()
+    check('degraded: pluginless note; an unloaded cache is not "no rules"',
+        s.degraded and s.degraded.id == 'no_plugin', s.degraded and s.degraded.id)
+
+    -- A four-day-old DISK snapshot (bankCache + its persisted timestamp) outranks the
+    -- pluginless note. bankCache, not bankItems: the live-scan list only ever fills
+    -- alongside a fresh timestamp, so gating on it made this condition unreachable.
+    deps.perfCache.lastBankCacheTime = os.time() - 4 * 86400
+    deps.bankCache = { {}, {} }
+    healthTick()
+    s = dockState.get()
+    check('degraded: stale bank outranks no-plugin', s.degraded and s.degraded.id == 'stale_bank',
+        s.degraded and s.degraded.id)
+    check('degraded: bank age in days', s.degraded and s.degraded.days == 4, s.degraded and s.degraded.days)
+
+    -- A LOADED cache with every list empty is "no rules", and it outranks the stale bank.
+    testCache = { sell = { lists = { keepContains = {}, protectedTypes = {}, junkContains = {} } } }
+    healthTick()
+    s = dockState.get()
+    check('degraded: empty loaded rules outrank stale bank', s.degraded and s.degraded.id == 'no_rules',
+        s.degraded and s.degraded.id)
+
+    -- One entry anywhere clears the no-rules condition.
+    testCache.sell.lists.keepContains[1] = 'Legendary'
+    healthTick()
+    s = dockState.get()
+    check('degraded: any rule entry clears no-rules', s.degraded and s.degraded.id == 'stale_bank',
+        s.degraded and s.degraded.id)
+end
+
 os.time = realOsTime  -- luacheck: ignore
 
 print(string.format('\n%d passed, %d failed', pass, fail))

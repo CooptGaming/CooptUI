@@ -71,6 +71,9 @@ local snap = {
     exp = 0, aaTotal = 0, scriptAA = 0, platinum = 0,
     -- session
     sessionPlat = 0, sessionLooted = 0, sessionSold = 0,
+    -- degraded state (mockup 14d): the ONE condition worth a strip right now, or nil.
+    -- { id = "sellmac_missing"|"no_rules"|"stale_bank"|"no_plugin", days = n? }
+    degraded = nil,
 }
 
 -- Per-walk clocks, so each expensive aggregation keeps its own cadence.
@@ -450,6 +453,79 @@ local function readSellRun()
     batchSellWasRunning = batchRunning
 end
 
+-- ---------------------------------------------------------------------------
+-- Degraded-state probe (mockup 14d). Every condition here is one the code already
+-- detects or can read cheaply; today most surface as a console line or nothing.
+-- Runs on its own slow clock — the file-exists probe and list scans are I/O.
+-- ---------------------------------------------------------------------------
+
+local healthAt = 0
+local firstTickAt = nil
+local sellMacPresent = nil       -- nil until first probe
+local BANK_STALE_SECS = 3 * 86400
+
+local function walkHealth(now)
+    if (now - healthAt) < (T.DOCK_HEALTH_MS or 30000) then return end
+    healthAt = now
+
+    -- sell.mac on disk — but only when the MACRO sell path is in use: a Lua-mode seller
+    -- never runs sell.mac and must not live under a permanent red strip. nil (not true)
+    -- in lua mode matters — the priority chain tests == false, so nil suppresses the
+    -- strip and self-heals within one health tick if sellMode flips back.
+    local okMode, mode = pcall(function()
+        return (require('itemui.config').readINIValue("sell_flags.ini", "Settings", "sellMode", "macro") or "macro"):lower()
+    end)
+    if okMode and mode == "lua" then
+        sellMacPresent = nil
+    else
+        local ok, macDir = pcall(function() return mq.TLO.MacroQuest.Path('macros')() end)
+        if ok and type(macDir) == "string" and macDir ~= "" then
+            local fh = io.open(macDir .. "\\sell.mac", "r")
+            sellMacPresent = fh ~= nil
+            if fh then fh:close() end
+        end
+    end
+
+    -- "No rules yet": every sell list empty. Only meaningful once the config cache has
+    -- had a chance to load and the session has settled — a cold cache at startup would
+    -- otherwise flash the strip at every player for the first second.
+    local noRules = false
+    if firstTickAt and (now - firstTickAt) > 60000 then
+        local okCache, cache = pcall(function() return require('itemui.config_cache').getCache() end)
+        if okCache and cache and cache.sell and type(cache.sell.lists) == "table" then
+            noRules = true
+            for _, list in pairs(cache.sell.lists) do
+                if type(list) == "table" and #list > 0 then noRules = false; break end
+            end
+        end
+    end
+
+    -- Bank snapshot age. lastBankCacheTime is os.time SECONDS and describes bankCache —
+    -- the DISK snapshot the bank view shows — not bankItems (the live-scan list, which
+    -- only fills while a bank window is open and always alongside a fresh timestamp).
+    -- Gating on the live list made this condition unreachable in production.
+    local bankStaleDays = nil
+    local lastBank = d.perfCache and tonumber(d.perfCache.lastBankCacheTime) or 0
+    if lastBank > 0 and d.bankCache and #d.bankCache > 0 then
+        local age = os.time() - lastBank
+        if age > BANK_STALE_SECS then bankStaleDays = math.floor(age / 86400) end
+    end
+
+    -- Priority per the mockup: the red condition first, then the ones that change what a
+    -- click does, then the informational one. One strip at a time, always.
+    if sellMacPresent == false then
+        snap.degraded = { id = "sellmac_missing" }
+    elseif noRules then
+        snap.degraded = { id = "no_rules" }
+    elseif bankStaleDays then
+        snap.degraded = { id = "stale_bank", days = bankStaleDays }
+    elseif not snap.pluginPresent then
+        snap.degraded = { id = "no_plugin" }
+    else
+        snap.degraded = nil
+    end
+end
+
 --- Called by sell_batch when a sale completes, so the session total covers vendor income
 --- and not just loot.
 function M.recordSold(value)
@@ -530,6 +606,13 @@ function M.tick(now)
     end
 
     if barsOn then
+        if not firstTickAt then firstTickAt = now end
+        -- Degraded-state probe self-throttles to DOCK_HEALTH_MS inside. Only while a bar
+        -- exists to draw the strip — both bars off must not keep paying a 30s io+TLO
+        -- probe for a surface that cannot render.
+        if lc.DockTop ~= false or lc.DockBottom ~= false then
+            pcall(walkHealth, now)
+        end
         -- Sell-run progress must precede accumulateSession so a macro run's income banked on
         -- its finish edge is published in the same tick.
         pcall(readSellRun)

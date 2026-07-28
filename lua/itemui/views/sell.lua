@@ -410,7 +410,45 @@ function SellView.render(ctx, simulateSellView)
                 end
                 ImGui.TableNextColumn()
                 local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
-                ImGui.TextColored(statusColor, statusText)
+                -- 14e: the status is a link, not a label. Click opens the "why" with the
+                -- two fixes that make sense on a row. Selectable returns (selected,
+                -- pressed) in this binding — the click is the SECOND return.
+                ImGui.PushStyleColor(ImGuiCol.Text, statusColor)
+                local _, whyPressed = ImGui.Selectable(statusText .. "##sellwhy_" .. rid, false)
+                ImGui.PopStyleColor(1)
+                if whyPressed then ImGui.OpenPopup("SellWhy_" .. rid) end
+                if ImGui.BeginPopup("SellWhy_" .. rid) then
+                    ImGui.TextColored(statusColor, statusText)
+                    ImGui.Separator()
+                    local reason = tostring(item.sellReason or "no matching rule")
+                    if item.willSell then
+                        ImGui.Text(string.format("Sells because: %s.", reason))
+                    else
+                        ImGui.Text(string.format("Stays because: %s.", reason))
+                    end
+                    ImGui.Spacing()
+                    if item.willSell and ctx.applySellListChange then
+                        ctx.theme.PushKeepButton()
+                        if ImGui.SmallButton("Keep this item##sellwhykeep_" .. rid) then
+                            ctx.applySellListChange(item.name, true, false)
+                            ImGui.CloseCurrentPopup()
+                        end
+                        ctx.theme.PopButtonColors()
+                        ImGui.SameLine(0, 6)
+                    end
+                    if item.willSell and item.type and item.type ~= "" then
+                        if ImGui.SmallButton(string.format("Protect %ss##sellwhytype_%s", item.type, rid)) then
+                            local okF, filtersUI = pcall(require, 'itemui.views.config_filters_ui')
+                            if okF and filtersUI and filtersUI.protectType then
+                                pcall(filtersUI.protectType, ctx, item.type)
+                            end
+                            ImGui.CloseCurrentPopup()
+                        end
+                        ImGui.SameLine(0, 6)
+                    end
+                    if ImGui.SmallButton("Close##sellwhyclose_" .. rid) then ImGui.CloseCurrentPopup() end
+                    ImGui.EndPopup()
+                end
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
                 ImGui.TableNextColumn() ImGui.Text(item.type or "")
                 ImGui.PopID()

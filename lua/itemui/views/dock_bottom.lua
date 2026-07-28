@@ -648,6 +648,11 @@ function M.render(ctx)
 
     renderMenu(ctx, s, edge)
     renderPresetSavePrompt(ctx)
+    -- With the status bar off, this bar hosts the 14d degraded strip; rows (not 1) lands
+    -- it above the whole strip even when peek chat makes the bar five rows tall.
+    if not dockTop.isEnabled(ctx.layoutConfig) and dockTop.renderDegradedStrip then
+        dockTop.renderDegradedStrip(ctx, s, edge, M.rows(ctx.layoutConfig))
+    end
 end
 
 return M

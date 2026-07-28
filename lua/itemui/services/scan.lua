@@ -503,14 +503,17 @@ end
 
 function M.ensureBankCacheFromStorage()
     if not env.isBankWindowOpen() and (#env.bankCache == 0) then
-        local stored, _ = env.storage.loadBank()
+        local stored, savedAt = env.storage.loadBank()
         if stored and #stored > 0 then
             for i = #env.bankCache, 1, -1 do env.bankCache[i] = nil end
             for _, it in ipairs(stored) do
                 it.source = it.source or "bank"
                 table.insert(env.bankCache, it)
             end
-            env.perfCache.lastBankCacheTime = os.time()
+            -- The PERSISTED timestamp, not now(): this is a disk snapshot, and stamping
+            -- the load time made a days-old bank read as freshly scanned — which kept the
+            -- 14d stale-bank strip from ever firing.
+            env.perfCache.lastBankCacheTime = savedAt or 0
             -- Attach sell status at load (rare path) so stored bank rows carry willSell/inKeep
             -- and views don't fall back to per-frame per-row status computation.
             if env.computeAndAttachSellStatus then env.computeAndAttachSellStatus(env.bankCache) end

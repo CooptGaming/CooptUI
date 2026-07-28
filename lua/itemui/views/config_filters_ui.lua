@@ -9,6 +9,7 @@ require('ImGui')
 local constants = require('itemui.constants')
 local targets = require('itemui.views.config_filters_targets')
 local actions = require('itemui.views.config_filters_actions')
+local events = require('itemui.core.events')
 
 local M = {}
 
@@ -87,6 +88,7 @@ end
 function M.loadDefaultProtectList(ctx)
     local added = addContainsEntries(ctx, DEFAULT_PROTECT_KEYWORDS) + addTypeEntries(ctx, DEFAULT_PROTECT_TYPES)
     ctx.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     bumpFilterListGeneration(true)
     ctx.setStatusMessage(added > 0 and string.format("Added %d default protect entries", added) or "Default protect list already loaded")
 end
@@ -102,6 +104,24 @@ local CAUTIOUS_EXTRA_TYPES = {
     "1H Slashing", "2H Slashing", "Piercing", "2H Piercing", "1H Blunt", "2H Blunt",
     "Martial", "Archery",
 }
+
+--- One-click type protection for the 14e "why" popover ("Protect Potions"). A USER edit,
+--- so the bump is loud — this is precisely the first-rule-edit moment the hint teaches.
+function M.protectType(ctx, typeName)
+    typeName = tostring(typeName or ""):match("^%s*(.-)%s*$")
+    if typeName == "" then return false end
+    local added = addTypeEntries(ctx, { typeName })
+    ctx.invalidateSellConfigCache()
+    -- Row statuses refresh off this event (perfCache.sellConfigPendingRefresh); without it
+    -- the row still says "Will sell" after the click until some other edit fires it.
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    bumpFilterListGeneration()
+    if ctx.setStatusMessage then
+        ctx.setStatusMessage(added > 0 and ("Protected type: " .. typeName)
+            or (typeName .. " is already protected."))
+    end
+    return added > 0
+end
 
 --- First-run care-level profile (mockup 14c Q1). Strictly additive:
 ---   aggressive — name-keyword protections only (Epic/Mythical class safety stays)
@@ -119,6 +139,7 @@ function M.applyProtectProfile(ctx, level)
         added = added + addTypeEntries(ctx, CAUTIOUS_EXTRA_TYPES)
     end
     ctx.invalidateSellConfigCache()
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
     -- silent: profile application is the product seeding rules, not the user editing them —
     -- it must not pre-arm the "rules explain themselves" hint on the first bars tick.
     bumpFilterListGeneration(true)

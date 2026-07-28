@@ -59,6 +59,7 @@ M.TIMING = {
     DOCK_SLOW_STATS_MS = 1000,   -- XP / AA / script totals
     DOCK_SLOW_CLICKY_MS = 1000,  -- spell id -> clicky item map, only while a buffs popover is open
     DOCK_POPOVER_GRACE_MS = 250, -- mouse-out grace so the pointer can travel segment -> popover
+    DOCK_HEALTH_MS = 30000,      -- degraded-state probes (file exists, list emptiness, bank age)
 
     -- Character stats panel
     STATS_CACHE_TTL_MS = 500,

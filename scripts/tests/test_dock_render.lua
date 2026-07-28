@@ -83,9 +83,18 @@ local function newCtx(opts)
         DockChat = opts.chat or 'collapsed',
         DockSegments = opts.segments or 'status,bags,sell,loot,buffs,xp,session',
     }
+    local uiState = opts.uiState or {}
+    -- This suite runs pluginless, so the real health probe eventually raises the 14d
+    -- strip and would skew every window-count assertion below. Default-dismiss all four
+    -- conditions; the strip block re-enables them explicitly.
+    if uiState.dockStripDismissed == nil then
+        uiState.dockStripDismissed = {
+            no_plugin = true, no_rules = true, stale_bank = true, sellmac_missing = true,
+        }
+    end
     return {
         layoutConfig = layoutConfig,
-        uiState = opts.uiState or {},
+        uiState = uiState,
         scheduleLayoutSave = function() end,
     }
 end
@@ -205,6 +214,34 @@ do
         stub.drew(r, 'Take##dockLootTake') and stub.drew(r, 'Pass##dockLootPass'), table.concat(r.buttons, '|'))
     check('decision: no phantom F1/F2 key hints on the labels',
         not stub.drew(r, 'Take F1') and not stub.drew(r, 'Pass F2'), table.concat(r.buttons, '|'))
+end
+
+-- Degraded strip (phase 6, mockup 14d): drawn under the bar, dismissible, balanced.
+do
+    resetInput()
+    local ctx = newCtx()
+    ctx.uiState.dockStripDismissed = {}    -- re-enable: this block is ABOUT the strip
+    dockState.get().degraded = { id = 'no_plugin' }
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    check('strip: pluginless message drawn', stub.drew(r, 'running without the plugin'), table.concat(r.text, '|'))
+    check('strip: dismiss button offered', stub.drew(r, 'Hide for this session'), table.concat(r.buttons, '|'))
+    check('strip: balanced', stub.balanced(r), stub.imbalance(r))
+
+    stub.click['Hide for this session'] = true
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('strip: hide click dismisses for the session', ctx.uiState.dockStripDismissed
+        and ctx.uiState.dockStripDismissed.no_plugin == true)
+    stub.click = {}
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('strip: dismissed strip stays gone', not stub.drew(r, 'running without the plugin'),
+        table.concat(r.text, '|'))
+    check('strip: balanced after dismissal', stub.balanced(r), stub.imbalance(r))
+
+    dockState.get().degraded = { id = 'stale_bank', days = 3 }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('strip: a different condition still shows', stub.drew(r, 'snapshot taken 3 days ago'),
+        table.concat(r.text, '|'))
+    dockState.get().degraded = nil
 end
 
 -- =================================================================
