@@ -568,6 +568,7 @@ end
 -- Registry: Augment Utility module (4.2 state ownership — window in registry, slot/search in view)
 registry.register({
     id          = "augmentUtility",
+    zone        = "L2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Augment Utility",
     buttonWidth = 100,
     tooltip     = "Add or remove augments from your gear",

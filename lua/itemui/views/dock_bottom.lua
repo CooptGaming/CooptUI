@@ -79,9 +79,19 @@ local MENUS = {
             { kind = "native", label = "Native panel", window = "TipWindow" },
         },
     },
+    {
+        -- Phase 4 (mockup 10c): presets + Re-tidy. Entries are dynamic — the preset list
+        -- comes from uiState.dockPresetNames, primed OUTSIDE the frame by main_loop so this
+        -- file keeps the "no file reads" bar rule.
+        id = "layouts", label = "Layouts",
+        entries = { { kind = "layouts_dynamic" } },
+    },
 }
 
 local CHAT_TABS = {
+    -- "all" is a real chat_feed bucket: getUnread("all") sums, clearUnread("all") wipes,
+    -- and getLines' tab filter is skipped for it in the peek renderer below.
+    { id = "all",   label = "All" },
     { id = "main",  label = "Main" },
     { id = "mq",    label = "MQ" },
     { id = "other", label = "Other" },
@@ -199,6 +209,42 @@ local function drawMenuEntries(ctx, menu, s)
                 end
             else
                 theme.TextMuted("Auto Sell - no merchant")
+            end
+
+        elseif e.kind == "layouts_dynamic" then
+            drew = true
+            local lc = ctx.layoutConfig or {}
+            local active = tostring(lc.LayoutPreset or "")
+            local names = (ctx.uiState and ctx.uiState.dockPresetNames) or {}
+            if active ~= "" then
+                theme.TextMuted("layout: " .. active)
+            else
+                theme.TextMuted("layout: (none)")
+            end
+            if #names == 0 then
+                theme.TextMuted("No presets yet.")
+            end
+            for _, name in ipairs(names) do
+                local lit = (name == active)
+                if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
+                local _, pressed = ImGui.Selectable(name .. "##dockpreset_" .. name, lit)
+                if pressed then
+                    dockTop.queue(ctx, { kind = "preset", name = name })
+                end
+                if lit then ImGui.PopStyleColor() end
+            end
+            ImGui.Separator()
+            if ImGui.Selectable("Re-tidy now##dockmenu_retidy") then
+                dockTop.queue(ctx, { kind = "retidy" })
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Puts every open window back into its zone and forgets hand-placed positions.")
+                ImGui.EndTooltip()
+            end
+            if ImGui.Selectable("Save current as...##dockmenu_presetsave") and ctx.uiState then
+                ctx.uiState.dockPresetSavePrompt = true
+                ctx.uiState.dockPinnedMenu = nil
             end
         end
     end
@@ -376,7 +422,9 @@ local function renderChat(ctx, availW)
                 -- mode) the counts were unclearable and just climbed for the whole session.
                 local drewBadge = false
                 for _, t in ipairs(CHAT_TABS) do
-                    local n = chatFeed.getUnread(t.id)
+                    -- Skip the All tab here: its badge would just duplicate the sum of the
+                    -- per-channel badges next to it.
+                    local n = (t.id ~= "all") and chatFeed.getUnread(t.id) or 0
                     if n > 0 then
                         if drewBadge then ImGui.SameLine(0, 8) end
                         drewBadge = true
@@ -453,6 +501,70 @@ end
 --- Screen rect + hover state of each menu button this frame, so the menus can anchor to them.
 M.buttons = {}
 
+--- The work rect companion windows may occupy: viewport minus every visible bar strip on
+--- each edge. Stashed into uiState.dockWorkRect by app.lua's render callback each frame so
+--- window_zones (a main-loop service that must not call ImGui) can place against it.
+function M.currentWorkRect(layoutConfig)
+    local topN, botN = 0, 0
+    if dockTop.isEnabled(layoutConfig) then
+        if dockTop.edge(layoutConfig) == "top" then topN = topN + 1 else botN = botN + 1 end
+    end
+    if M.isEnabled(layoutConfig) then
+        local rows = M.rows(layoutConfig)
+        if M.edge(layoutConfig) == "top" then topN = topN + rows else botN = botN + rows end
+    end
+    local x, y, w, h = dockLayout.workArea(topN, botN)
+    return { x = x, y = y, w = w, h = h }
+end
+
+--- "Save current as..." prompt (mockup 10c). A real focusable mini-window, NOT bar-flagged:
+--- typing needs keyboard focus, which the bars are built to refuse.
+local function renderPresetSavePrompt(ctx)
+    local uiState = ctx.uiState
+    if not uiState or not uiState.dockPresetSavePrompt then return end
+    local x, y, w, h = dockLayout.viewport()
+    ImGui.SetNextWindowPos(ImVec2(x + w / 2 - 160, y + h / 2 - 40), ImGuiCond.Appearing)
+    local flags = bit32.bor(ImGuiWindowFlags.NoCollapse, ImGuiWindowFlags.AlwaysAutoResize,
+        ImGuiWindowFlags.NoSavedSettings)
+    local okBegin, open, visible = pcall(ImGui.Begin, "Save layout preset##dockPresetSave", true, flags)
+    if not okBegin then return end
+    if open == false then uiState.dockPresetSavePrompt = nil end
+    if visible then
+        dockLayout.contained(uiState, "preset save prompt", function()
+            ImGui.Text("Name this arrangement:")
+            -- Two args only: this binding's third parameter is FLAGS, not a buffer size
+            -- (Lua strings need none) — a stray 64 here silently set EnterReturnsTrue-class
+            -- behaviour.
+            local buf, changed = ImGui.InputText("##dockPresetSaveName",
+                tostring(uiState.dockPresetSaveName or ""))
+            if changed then uiState.dockPresetSaveName = buf end
+            local name = tostring(uiState.dockPresetSaveName or ""):match("^%s*(.-)%s*$")
+            theme.TextMuted("Captures open windows, zones and sizes. No [ ] or : in names.")
+            local valid = name ~= "" and not name:find("[%[%]:]")
+            if valid then
+                if ImGui.Button("Save##dockPresetSaveGo") then
+                    dockTop.queue(ctx, { kind = "preset_save", name = name })
+                    uiState.dockPresetSavePrompt = nil
+                    uiState.dockPresetSaveName = nil
+                end
+            else
+                theme.TextMuted("Save")
+            end
+            ImGui.SameLine(0, 8)
+            if ImGui.Button("Cancel##dockPresetSaveCancel") then
+                uiState.dockPresetSavePrompt = nil
+                uiState.dockPresetSaveName = nil
+            end
+            if ImGui.IsKeyPressed and ImGui.IsKeyPressed(ImGuiKey.Escape) then
+                uiState.dockPresetSavePrompt = nil
+                uiState.dockPresetSaveName = nil
+                uiState.dockEscConsumed = true
+            end
+        end)
+    end
+    ImGui.End()
+end
+
 function M.render(ctx)
     local layoutConfig = ctx and ctx.layoutConfig
     if not M.isEnabled(layoutConfig) then return end
@@ -494,7 +606,7 @@ function M.render(ctx)
         dockLayout.contained(ctx.uiState, "dock command bar", function()
         ImGui.AlignTextToFramePadding()
 
-        -- Four menus, left to right.
+        -- The hover menus, left to right (Items / Character / Actions / Game windows / Layouts).
         for _, menu in ipairs(MENUS) do
             local lit = (ctx.uiState and ctx.uiState.dockPinnedMenu) == menu.id
             if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
@@ -514,9 +626,9 @@ function M.render(ctx)
         -- window's content origin, so it has to account for the strip's padding (the hub does
         -- the same thing for its Lock checkbox).
         local winW = ImGui.GetWindowWidth and ImGui.GetWindowWidth() or vw
-        -- Sized for what is actually drawn on the right, which is Settings alone. The Layouts
-        -- button belongs to phase 4 (presets); reserving its width now would just leave a strip
-        -- of dead space and push Settings away from the edge it is supposed to anchor to.
+        -- Sized for what is actually drawn on the right, which is Settings alone. Layouts
+        -- landed as the fifth hover menu on the left (phase 4), so the right anchor stays
+        -- Settings-only.
         local rightW = dockLayout.slotWidth("dockRight", { "Settings" }, 16)
         local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
 
@@ -535,6 +647,7 @@ function M.render(ctx)
     ImGui.PopStyleVar(4)
 
     renderMenu(ctx, s, edge)
+    renderPresetSavePrompt(ctx)
 end
 
 return M

@@ -353,6 +353,7 @@ end
 
 registry.register({
     id          = "effects",
+    zone        = "B1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Effects",
     buttonWidth = 60,
     tooltip     = "All buffs, songs, and auras in one compact window - timers, hit counts, right-click remove",

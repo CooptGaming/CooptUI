@@ -284,6 +284,7 @@ end
 -- Registry: Equipment module (4.2 state ownership — window in registry, timing state in view)
 registry.register({
     id          = "equipment",
+    zone        = "L1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Equipment",
     buttonWidth = 75,
     tooltip     = "View your worn items — click an item to swap or inspect",

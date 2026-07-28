@@ -36,7 +36,7 @@ M.slots = {}
 local WIDEST = {
     status  = { "CoOpt  plugin missing  9 errors" },
     bags    = { "bags 300/300 . wt 9999/9999" },
-    sell    = { "9,999 to sell . 9,999,999p" },
+    sell    = { "9,999 to sell . 9,999,999p", "selling 999/999 . 9,999,999p" },
     -- The loot slot is deliberately the widest of all five states at once (mockup 12a: the
     -- slot is one fixed width whether it says "idle" or holds a progress bar and two buttons).
     loot    = { "stopped - bags full, 99 left on corpses", "decision - Mythical Faceplate of Blinding Fury" },
@@ -45,8 +45,9 @@ local WIDEST = {
     session = { "session 9,999,999p" },
 }
 
--- Extra width for segments that hold inline buttons (Stop, Take/Pass, Consolidate/Resume).
-local EXTRA = { loot = 150 }
+-- Extra width for segments that hold inline buttons (Stop, Take/Pass, Consolidate/Resume)
+-- or an inline progress bar (sell/loot running states: 48px bar + gap).
+local EXTRA = { loot = 198, sell = 54 }
 
 local SEGMENT_ORDER_FALLBACK = { "status", "bags", "sell", "loot", "buffs", "xp", "session" }
 
@@ -158,6 +159,21 @@ segments.bags = function(ctx, s)
 end
 
 segments.sell = function(ctx, s)
+    -- A running sell (macro or Lua batch) owns the slot: progress beats the static offer,
+    -- and the keep-list warning stays quiet until the run is over — mid-run it is not
+    -- actionable anyway.
+    if s.sellRunning then
+        theme.TextWarning("selling")
+        ImGui.SameLine(0, 4)
+        ImGui.Text(string.format("%d/%d", s.sellRunCurrent or 0, s.sellRunTotal or 0))
+        ImGui.SameLine(0, 6)
+        theme.RenderProgressBar(math.min(1, math.max(0, s.sellRunFrac or 0)), ImVec2(48, 12), "")
+        if (s.sellRunValue or 0) > 0 then
+            ImGui.SameLine(0, 6)
+            theme.TextSuccess(plat(s.sellRunValue) .. "p")
+        end
+        return
+    end
     if s.sellCount <= 0 then
         theme.TextMuted("nothing to sell")
         return
@@ -197,12 +213,15 @@ segments.loot = function(ctx, s)
             theme.TextMuted(mmss(s.lootDecisionSecs))
         end
         ImGui.SameLine(0, 8)
+        -- No key hints on these labels: no hotkey handler exists, and EQ binds F1/F2 to
+        -- self/group targeting, so ImGui could not safely own those keys anyway (MQ only
+        -- blocks the keyboard from EQ while a text input wants it). Buttons only, honestly.
         theme.PushKeepButton()
-        if ImGui.SmallButton("Take F1##dockLootTake") then M.queue(ctx, { kind = "loot_take" }) end
+        if ImGui.SmallButton("Take##dockLootTake") then M.queue(ctx, { kind = "loot_take" }) end
         theme.PopButtonColors()
         ImGui.SameLine(0, 4)
         theme.PushSkipButton()
-        if ImGui.SmallButton("Pass F2##dockLootPass") then M.queue(ctx, { kind = "loot_pass" }) end
+        if ImGui.SmallButton("Pass##dockLootPass") then M.queue(ctx, { kind = "loot_pass" }) end
         theme.PopButtonColors()
 
     elseif st == "problem" then
@@ -226,6 +245,9 @@ segments.loot = function(ctx, s)
             safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
+        ImGui.SameLine(0, 6)
+        local lootFrac = (s.lootTotalCorpses or 0) > 0 and (s.lootCorpse / s.lootTotalCorpses) or 0
+        theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(48, 12), "")
         ImGui.SameLine(0, 6)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         ImGui.SameLine(0, 8)

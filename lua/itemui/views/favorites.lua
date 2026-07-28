@@ -281,6 +281,7 @@ end
 
 registry.register({
     id          = "favorites",
+    zone        = "B1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Clickies",
     buttonWidth = 55,
     tooltip     = "Your clicky lists: one-click item activation, with sell/delete protection for listed items",

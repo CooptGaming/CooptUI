@@ -125,6 +125,20 @@ function LootUIView.render(ctx)
             layoutConfig.HeightLoot = ch
             if (prevW ~= cw or prevH ~= ch) then ctx.scheduleLayoutSave() end
         end
+        -- Mirror position back too (the bank.lua pattern). This window was the one
+        -- positioned view that did not: window_zones reads these keys for drag detection,
+        -- occupancy and magnet targets, and every force-apply re-applies them with
+        -- ImGuiCond.Always — without the mirror, a user-dragged loot window teleported
+        -- back to its stale stored position on the next zone action.
+        local cx, cy = ImGui.GetWindowPos()
+        if cx and cy then
+            if not layoutConfig.LootWindowX or math.abs(layoutConfig.LootWindowX - cx) > 1 or
+               not layoutConfig.LootWindowY or math.abs(layoutConfig.LootWindowY - cy) > 1 then
+                layoutConfig.LootWindowX = cx
+                layoutConfig.LootWindowY = cy
+                ctx.scheduleLayoutSave()
+            end
+        end
 
         theme.TextHeader("Loot")
         ImGui.Separator()

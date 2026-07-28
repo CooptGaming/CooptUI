@@ -174,6 +174,7 @@ end
 
 registry.register({
     id          = "commandCenter",
+    zone        = "B2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Cmd",
     buttonWidth = 40,
     tooltip     = "Command Center: status, process controls, and launchers for every CoOpt window",

@@ -61,6 +61,8 @@ local dock = {
     top    = require('itemui.views.dock_top'),
     bottom = require('itemui.views.dock_bottom'),
     state  = require('itemui.services.dock_state'),
+    zones  = require('itemui.services.window_zones'),
+    presets = require('itemui.services.layout_presets'),
     -- Distinct messages already reported, so a bar that fails every frame records once
     -- rather than flooding the diagnostics ring buffer 30 times a second.
     seenErrors = {},
@@ -1277,6 +1279,10 @@ local function buildMainLoopDepsState()
         setStatsTabPrimeAt = function(v) statsTabPrimeAt = v end,
         getStatsTabPrimedThisSession = function() return statsTabPrimedThisSession end,
         setStatsTabPrimedThisSession = function(v) statsTabPrimedThisSession = v end,
+        -- window_zones / layout_presets write layoutConfig from the main loop; schedule is
+        -- the views' geometry pattern, setLayoutValue the cache-write-through one.
+        scheduleLayoutSave = function() layoutUtils.scheduleLayoutSave() end,
+        setLayoutValue = function(k, v) layoutUtils.setLayoutValue(k, v) end,
     }
 end
 
@@ -1378,6 +1384,18 @@ local function main()
         -- Report rather than swallow: a bar that silently stops drawing is a support ticket
         -- with no evidence. Recorded once per distinct message (diagnostics keeps its own
         -- ring buffer and the Settings > Advanced panel surfaces it), never per frame.
+        -- Stash what the main-loop placement service cannot compute itself (it must not
+        -- call ImGui): the work rect left after the bar strips, and whether Alt is held
+        -- (magnet bypass while dragging, mockup 10b).
+        local okStash, errStash = pcall(function()
+            ctx.uiState.dockWorkRect = dock.bottom.currentWorkRect(ctx.layoutConfig)
+            local io = ImGui.GetIO and ImGui.GetIO()
+            ctx.uiState.dockAltHeld = (io and io.KeyAlt) == true
+            -- Left button state gates window_zones' settle detection: a stationary window
+            -- with the button still down is a paused drag, not a finished one.
+            ctx.uiState.dockMouseHeld = (ImGui.IsMouseDown and ImGui.IsMouseDown(0)) == true
+        end)
+        if not okStash then dockError("Dock work-rect stash", errStash) end
         local okTop, errTop = pcall(dock.top.render, ctx)
         if not okTop then dockError("Dock top bar", errTop) end
         local okBottom, errBottom = pcall(dock.bottom.render, ctx)
@@ -1541,6 +1559,11 @@ local function main()
     mainLoop.init(d)
     sellBatch.init(d)
     dock.state.init(d)
+    dock.zones.init(d)
+    dock.presets.init(d)
+    -- Ship the five bundled presets (mockup 10c) into itemui_presets.ini when the user has
+    -- none. Never overwrites an existing file; a deleted bundled preset stays deleted.
+    pcall(dock.presets.seedIfMissing)
     while not terminate do
         mainLoop.tick(mq.gettime())
     end

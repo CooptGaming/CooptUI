@@ -487,6 +487,7 @@ end
 -- Registry: AA module (Task 4.1 — first extraction)
 registry.register({
     id          = "aa",
+    zone        = "R2",  -- window_zones placement column/slot (mockup 10a)
     label       = "AA",
     buttonWidth = 45,
     tooltip     = "Track and manage Alternate Advancement abilities",

@@ -125,11 +125,10 @@ do
     layoutDefaults.DockPosition = "top"
     layoutDefaults.DockChat = "collapsed"
     layoutDefaults.DockSegments = "status,bags,sell,loot,buffs,xp,session"
-    layoutDefaults.DockLaunchers = "bags,bank,equipment,augments,reroll,aa"
-    layoutDefaults.DockNative = "inventory,merchant"
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""
+    layoutDefaults.UserPlaced = ""
 end
 
 local layoutConfig = {}

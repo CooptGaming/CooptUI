@@ -361,6 +361,7 @@ end
 -- Registry: Augments module (4.2 state ownership — window in registry, search/sort in view)
 registry.register({
     id          = "augments",
+    zone        = "L2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Augments",
     buttonWidth = 55,
     tooltip     = "Browse all augments in your inventory with stat filtering",

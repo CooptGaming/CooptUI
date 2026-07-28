@@ -274,6 +274,53 @@ do
         type(walked))
 end
 
+-- =================================================================
+-- 7. Sell-run surface (phase 4): the bar shows EITHER sell path, and the macro path's
+--    vendor income reaches the session total (sell.mac never calls recordSold — its
+--    per-item values arrive over IPC into uiState.sellRunSoldItems).
+-- =================================================================
+do
+    -- Batch path: sellMacState.luaRunning with sell_batch's progress fields.
+    local deps = newDeps({})
+    deps.sellMacState = { lastRunning = false, luaRunning = true, total = 40, current = 12, smoothedFrac = 0.3 }
+    dockState.init(deps)
+    dockState.resetSession()
+    tick()
+    local s = dockState.get()
+    check('batch sell run sets sellRunning', s.sellRunning == true)
+    check('batch progress fields flow through', s.sellRunCurrent == 12 and s.sellRunTotal == 40, s.sellRunCurrent .. '/' .. s.sellRunTotal)
+    dockState.recordSold(150)
+    tick()
+    s = dockState.get()
+    check('batch run value is the session.sold delta', s.sellRunValue == 150, s.sellRunValue)
+
+    -- Macro path: lastRunning + getSellProgress + sold-item value list.
+    local soldList = { { name = 'A', value = 100 }, { name = 'B', value = 250 } }
+    deps = newDeps({ uiState = { sellRunSoldItems = soldList } })
+    deps.sellMacState = { lastRunning = true }
+    deps.macroBridge = { getSellProgress = function()
+        return { running = true, total = 31, current = 5, remaining = 26, smoothedFrac = 0.16 }
+    end }
+    dockState.init(deps)
+    dockState.resetSession()
+    tick()
+    s = dockState.get()
+    check('macro sell run sets sellRunning', s.sellRunning == true)
+    check('macro progress fields flow through', s.sellRunCurrent == 5 and s.sellRunTotal == 31, s.sellRunCurrent .. '/' .. s.sellRunTotal)
+    check('macro run value sums the IPC sold list', s.sellRunValue == 350, s.sellRunValue)
+
+    -- Finish edge: macro income banks into sessionSold exactly once.
+    deps.sellMacState.lastRunning = false
+    tick()
+    s = dockState.get()
+    check('macro finish edge banks vendor income into the session', s.sessionSold == 350, s.sessionSold)
+    check('run progress zeroes after the finish', s.sellRunning == false and s.sellRunTotal == 0 and s.sellRunValue == 0,
+        tostring(s.sellRunTotal))
+    tick()
+    s = dockState.get()
+    check('the banked income is not double-counted', s.sessionSold == 350, s.sessionSold)
+end
+
 os.time = realOsTime  -- luacheck: ignore
 
 print(string.format('\n%d passed, %d failed', pass, fail))

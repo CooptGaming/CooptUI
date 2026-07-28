@@ -292,6 +292,7 @@ end
 -- Registry: Item Display module (4.2 state ownership — window in registry, tabs/recent/locate in view)
 registry.register({
     id          = "itemDisplay",
+    zone        = "R1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Item Display",
     buttonWidth = 90,
     tooltip     = "Inspect item stats and augments",

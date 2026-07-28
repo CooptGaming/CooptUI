@@ -461,6 +461,72 @@ function ConfigGeneral.render(ctx)
         end
     end
     ImGui.Spacing()
+    if ImGui.CollapsingHeader("Layouts") then
+        renderBreadcrumb("General", "Layouts")
+        -- Mockup 10c. A preset is "which windows are open, in which zone, at what size";
+        -- switching closes what is not in it (pinned windows stay). Everything here goes
+        -- through the dock action queue: apply/save/delete touch files and window state,
+        -- which is main-loop work, not frame work.
+        local function queueDock(action)
+            local q = uiState.dockActionQueue
+            if not q then q = {}; uiState.dockActionQueue = q end
+            q[#q + 1] = action
+        end
+        local names = uiState.dockPresetNames or {}
+        local active = tostring(layoutConfig.LayoutPreset or "")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+            "A layout preset is which windows are open, in which zone, at what size. Switching closes what isn't in it.")
+        ImGui.Spacing()
+        if #names == 0 then
+            theme.TextMuted("No presets yet - the five bundled ones appear after the first bars session.")
+        end
+        for _, name in ipairs(names) do
+            local lit = (name == active)
+            if lit then
+                theme.TextSuccess(name)
+            else
+                ImGui.Text(name)
+            end
+            ImGui.SameLine(220)
+            if ImGui.SmallButton((lit and "Re-apply" or "Use") .. "##presetUse_" .. name) then
+                queueDock({ kind = "preset", name = name })
+            end
+            ImGui.SameLine(0, 6)
+            if ImGui.SmallButton("Delete##presetDel_" .. name) then
+                queueDock({ kind = "preset_delete", name = name })
+            end
+        end
+        ImGui.Spacing()
+        ImGui.Text("Save current as")
+        ImGui.SameLine(140)
+        ImGui.SetNextItemWidth(160)
+        -- Two args: the third InputText parameter is FLAGS in this binding, not a size.
+        local buf, changed = ImGui.InputText("##presetSaveName", tostring(uiState.dockPresetSaveName or ""))
+        if changed then uiState.dockPresetSaveName = buf end
+        ImGui.SameLine(0, 6)
+        local newName = tostring(uiState.dockPresetSaveName or ""):match("^%s*(.-)%s*$")
+        if newName ~= "" and not newName:find("[%[%]:]") then
+            if ImGui.SmallButton("Save##presetSaveGo") then
+                queueDock({ kind = "preset_save", name = newName })
+                uiState.dockPresetSaveName = nil
+            end
+        else
+            theme.TextMuted("Save")
+        end
+        ImGui.Spacing()
+        if ImGui.SmallButton("Re-tidy now##presetRetidy") then
+            queueDock({ kind = "retidy" })
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Puts every open window back into its zone and forgets hand-placed positions.")
+            ImGui.EndTooltip()
+        end
+        ImGui.SameLine(0, 10)
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+            "Presets live in itemui_presets.ini - Revert to Default Layout never touches them.")
+    end
+    ImGui.Spacing()
     if ImGui.CollapsingHeader("Keybindings", ImGuiTreeNodeFlags.DefaultOpen) then
         renderBreadcrumb("General", "Keybindings")
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Assign a key to toggle the ItemUI (Inventory Companion) open/closed. Uses /custombind + /bind.")

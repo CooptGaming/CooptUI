@@ -337,6 +337,7 @@ end
 
 registry.register({
     id          = "mythicals",
+    zone        = "R2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Mythics",
     buttonWidth = 52,
     tooltip     = "Browse all Mythical items in your inventory and add them to the reroll list",

@@ -142,6 +142,41 @@ function M.handleCommand(...)
         else
             print("\ar[ItemUI]\ax /itemui dock [on|off|top|bottom|debug]")
         end
+    elseif cmd == "layout" then
+        -- Preset names may contain spaces ("Bag session"), so rejoin everything after the
+        -- verb. Apply goes through the dock action queue: the same single-action-per-tick
+        -- drain the bars use, so a preset switch from a bind cannot race one from a menu.
+        local args = { ... }
+        local name = table.concat(args, " ", 2):match("^%s*(.-)%s*$")
+        local names = (deps.uiState and deps.uiState.dockPresetNames) or {}
+        if name == "" then
+            local active = tostring((deps.layoutConfig or {}).LayoutPreset or "")
+            print("\ag[ItemUI]\ax Layout presets" .. (active ~= "" and (" (active: " .. active .. ")") or "") .. ":")
+            if #names == 0 then
+                print("  (none yet - save one from the Layouts menu on the command bar)")
+            else
+                for _, n in ipairs(names) do print("  " .. n) end
+            end
+            print("  /itemui layout <name> applies one; /itemui retidy re-tidies zones.")
+        else
+            local match = nil
+            for _, n in ipairs(names) do
+                if n:lower() == name:lower() then match = n break end
+            end
+            if match then
+                local q = deps.uiState.dockActionQueue
+                if not q then q = {}; deps.uiState.dockActionQueue = q end
+                q[#q + 1] = { kind = "preset", name = match }
+            else
+                print("\ar[ItemUI]\ax No preset named '" .. name .. "'. /itemui layout lists them.")
+            end
+        end
+    elseif cmd == "retidy" then
+        if deps.uiState then
+            local q = deps.uiState.dockActionQueue
+            if not q then q = {}; deps.uiState.dockActionQueue = q end
+            q[#q + 1] = { kind = "retidy" }
+        end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end
@@ -216,9 +251,10 @@ function M.handleCommand(...)
             print("\ag[ItemUI]\ax /itemui sell legacy = run sell.mac  |  /itemui sell lua = run Lua sell")
         end
     elseif cmd == "help" then
-        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|center|dock|refresh|setup|config|onboarding|reroll|sell|exit|help]")
+        print("\ag[ItemUI]\ax /itemui or /inv or /inventoryui [toggle|show|hide|center|dock|layout|retidy|refresh|setup|config|onboarding|reroll|sell|exit|help]")
         print("  center = focus the command bar (bars mode) or open the native Command Center (classic)")
         print("  dock [on|off|top|bottom] = the two bars: status on one edge, launchers and chat on the other")
+        print("  layout [name] = list or apply a layout preset  |  retidy = windows back into their zones")
         print("  setup = run the 13-step setup wizard (layout, sell/loot rules, epic protection)")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
         print("  onboarding = show the first-run welcome panel again")

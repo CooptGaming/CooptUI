@@ -364,6 +364,7 @@ end
 -- Registry: Bank module (4.2 state ownership — window in registry only)
 registry.register({
     id          = "bank",
+    zone        = "R1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Bank",
     buttonWidth = 60,
     tooltip     = "View bank items; shift+click to move to inventory",

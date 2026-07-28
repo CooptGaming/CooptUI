@@ -202,7 +202,9 @@ do
     warmState(300000)
     local r = stub.frame(function() dockTop.render(ctx) end)
     check('decision: Take and Pass are on the bar',
-        stub.drew(r, 'Take F1') and stub.drew(r, 'Pass F2'), table.concat(r.buttons, '|'))
+        stub.drew(r, 'Take##dockLootTake') and stub.drew(r, 'Pass##dockLootPass'), table.concat(r.buttons, '|'))
+    check('decision: no phantom F1/F2 key hints on the labels',
+        not stub.drew(r, 'Take F1') and not stub.drew(r, 'Pass F2'), table.concat(r.buttons, '|'))
 end
 
 -- =================================================================

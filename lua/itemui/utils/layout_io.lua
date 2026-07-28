@@ -15,12 +15,14 @@ local STRING_KEYS = {
     DockPosition = true,    -- top | bottom
     DockChat = true,        -- hidden | collapsed | peek
     DockSegments = true,    -- CSV: segment ids, in order
-    DockLaunchers = true,   -- CSV: module ids for the six launcher slots
-    DockNative = true,      -- CSV: native window ids for the two native slots
-    ZoneAssign = true,      -- CSV: moduleId:zone pairs
+    ZoneAssign = true,      -- CSV: moduleId:zone pairs (user overrides of the registry's zone)
     WindowAttach = true,    -- CSV: moduleId:target:edge:align tuples
     LayoutPreset = true,    -- active preset name
+    UserPlaced = true,      -- CSV: module ids the user dragged; zones skip them until Re-tidy
 }
+-- DockLaunchers / DockNative were written by phase 1 but never consumed by anything (the
+-- bottom-bar menus are registry-driven, and the native list is a phase-3 acceptance
+-- criterion). Dropped in phase 4; the regenerating [Layout] writer strips stale copies.
 
 --- Get layout file path (ItemUI layout INI).
 function M.getLayoutFilePath()
@@ -78,6 +80,40 @@ function M.parseLayoutFile()
         end
     end
     return layout
+end
+
+--- Parse an arbitrary INI file into { [sectionName] = {key=value,...} } for every section
+--- whose [Name] matches the given Lua pattern (nil = all sections). Pure; safe read (missing
+--- or unreadable file returns {}). Section order is preserved in the companion list return.
+--- Built for itemui_presets.ini ([Preset:<name>] sections), but generic on purpose — the
+--- layout INI's own parser above recognizes a fixed set and drops the rest by design.
+function M.parseSectionsMatching(path, pattern)
+    local out, order = {}, {}
+    if not path then return out, order end
+    local content = file_safe.safeReadAll(path)
+    if not content or content == "" then return out, order end
+    local current = nil
+    for line in (content .. "\n"):gmatch("(.-)\n") do
+        line = line:match("^%s*(.-)%s*$")
+        local header = line:match("^%[(.-)%]$")
+        if header then
+            if pattern == nil or header:find(pattern) then
+                current = header
+                if not out[current] then
+                    out[current] = {}
+                    order[#order + 1] = current
+                end
+            else
+                current = nil
+            end
+        elseif current and line:find("=") then
+            local k, v = line:match("^([^=]+)=(.*)$")
+            if k and v then
+                out[current][k:match("^%s*(.-)%s*$")] = v:match("^%s*(.-)%s*$")
+            end
+        end
+    end
+    return out, order
 end
 
 --- Load layout value from parsed layout with type conversion. Pure: no state.

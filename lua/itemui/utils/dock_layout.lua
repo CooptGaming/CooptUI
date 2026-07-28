@@ -7,10 +7,12 @@
          measured once with CalcTextSize and cached. Content changes inside the slot; the
          slot itself never resizes. This is the whole anti-jitter story — the old right-pane
          felt wrong because content decided layout.
-      2. Screen geometry from ImGui.GetMainViewport(). Note: ImGui.GetIO().DisplaySize does
-         NOT exist in this MQ binding (there is no DisplaySize anywhere in the tree), so the
-         viewport is the only proven source. Probed once under pcall with a fallback, which
-         is this codebase's convention for an ImGui/TLO member we cannot prove at load time.
+      2. Screen geometry from ImGui.GetMainViewport(), probed under pcall per this codebase's
+         convention for binding members. ImGui.GetIO().DisplaySize DOES exist in this MQ
+         binding as well (lua_ImGuiUserTypes.cpp:238 at pin b659319c -- an older revision of
+         this comment claimed it didn't, and misled the docs/research pass). The viewport
+         stays primary because it also carries the origin (Pos); DisplaySize is the size-only
+         secondary probe, ahead of the constant fallback.
 
     Leaf module: ImGui + constants only. No state, no services.
 ]]
@@ -24,7 +26,7 @@ local M = {}
 local widthCache = {}
 local cacheKey = nil
 
--- Fallbacks used only when GetMainViewport is unavailable in this binding.
+-- Last-resort constants, used only when both the viewport and DisplaySize probes fail.
 local FALLBACK_W, FALLBACK_H = 1920, 1080
 
 --- CalcTextSize returns two numbers in this binding, but views/item_display.lua:150-153
@@ -106,6 +108,16 @@ function M.viewport()
     end)
     if ok and type(w) == "number" and w > 0 and type(h) == "number" and h > 0 then
         return x or 0, y or 0, w, h
+    end
+    -- Secondary: io.DisplaySize -- size only, origin 0,0 (fine for the single-viewport emu client).
+    local ok2, dw, dh = pcall(function()
+        local io = ImGui.GetIO and ImGui.GetIO()
+        local ds = io and io.DisplaySize
+        if not ds then return nil end
+        return ds.x, ds.y
+    end)
+    if ok2 and type(dw) == "number" and dw > 0 and type(dh) == "number" and dh > 0 then
+        return 0, 0, dw, dh
     end
     return 0, 0, FALLBACK_W, FALLBACK_H
 end

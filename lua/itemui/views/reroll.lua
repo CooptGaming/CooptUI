@@ -670,6 +670,7 @@ end
 -- Registry: Reroll module (Task 4.1 — second extraction)
 registry.register({
     id          = "reroll",
+    zone        = "R2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Reroll",
     buttonWidth = 55,
     tooltip     = "Manage server augment and mythical reroll lists",

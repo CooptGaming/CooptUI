@@ -52,6 +52,8 @@ local snap = {
     sellCount = 0, sellTotal = 0, keepCount = 0, protectCount = 0,
     keepInSellQueue = 0, augmentSellCount = 0, merchantOpen = false,
     sellGroups = {},          -- { {reason=, count=, total=}, ... } for the popover
+    -- sell run in progress (macro sell.mac OR Lua batch — the bar shows either)
+    sellRunTotal = 0, sellRunCurrent = 0, sellRunFrac = 0, sellRunValue = 0,
     -- loot
     lootState = "idle",       -- idle | looting | decision | done | problem
     lootCorpse = 0, lootTotalCorpses = 0, lootTaken = 0, lootSkipped = 0,
@@ -81,6 +83,13 @@ local demandNext = { bags = false, buffs = false, stats = false, sell = false, c
 -- the live counter loses the previous run entirely. Accumulate on the finish edge instead.
 local session = { looted = 0, sold = 0 }
 local lootWasRunning = false
+-- Sell-run edge trackers. The macro path (sell.mac) never calls M.recordSold — its per-item
+-- values arrive over IPC into uiState.sellRunSoldItems — so vendor income from a macro sell
+-- is banked here on the run's FINISH edge. The batch path banks per sale via recordSold, so
+-- its run value is the session.sold delta since the run started.
+local macroSellWasRunning = false
+local batchSellWasRunning = false
+local batchSoldBase = 0
 
 function M.init(deps)
     d = deps
@@ -400,6 +409,47 @@ local function accumulateSession(now)
     snap.sessionPlat = session.looted + session.sold
 end
 
+--- Sell-run progress + session banking for the macro path. Cheap cached reads only while
+--- idle; getSellProgress (one TLO + throttled INI read) is called only while a macro sell
+--- is actually running.
+local function readSellRun()
+    local sm = d and d.sellMacState
+    local uiState = d and d.uiState
+    local macroRunning = (sm and sm.lastRunning) or false
+    local batchRunning = (sm and sm.luaRunning) or false
+    snap.sellRunning = macroRunning or batchRunning
+
+    if batchRunning then
+        if not batchSellWasRunning then batchSoldBase = session.sold end
+        snap.sellRunTotal = tonumber(sm.total) or 0
+        snap.sellRunCurrent = tonumber(sm.current) or 0
+        snap.sellRunFrac = tonumber(sm.smoothedFrac) or 0
+        snap.sellRunValue = session.sold - batchSoldBase
+    elseif macroRunning then
+        local p = d.macroBridge and d.macroBridge.getSellProgress and d.macroBridge.getSellProgress()
+        snap.sellRunTotal = (p and tonumber(p.total)) or 0
+        snap.sellRunCurrent = (p and tonumber(p.current)) or 0
+        snap.sellRunFrac = (p and tonumber(p.smoothedFrac)) or 0
+        local sold = 0
+        local list = uiState and uiState.sellRunSoldItems
+        if type(list) == "table" then
+            for _, it in ipairs(list) do sold = sold + (tonumber(it.value) or 0) end
+        end
+        snap.sellRunValue = sold
+    else
+        -- Macro finish edge: bank the run's vendor income into the session total. The batch
+        -- path needs nothing here — recordSold already banked each sale as it happened.
+        if macroSellWasRunning and uiState and type(uiState.sellRunSoldItems) == "table" then
+            for _, it in ipairs(uiState.sellRunSoldItems) do
+                session.sold = session.sold + (tonumber(it.value) or 0)
+            end
+        end
+        snap.sellRunTotal, snap.sellRunCurrent, snap.sellRunFrac, snap.sellRunValue = 0, 0, 0, 0
+    end
+    macroSellWasRunning = macroRunning
+    batchSellWasRunning = batchRunning
+end
+
 --- Called by sell_batch when a sale completes, so the session total covers vendor income
 --- and not just loot.
 function M.recordSold(value)
@@ -441,7 +491,6 @@ function M.tick(now)
         snap.pluginPresent = coopuiPlugin.getPlugin() ~= nil
         local diag = require('itemui.core.diagnostics')
         snap.errorCount = (diag and diag.getErrorCount and diag.getErrorCount()) or 0
-        snap.sellRunning = (d.sellMacState and d.sellMacState.lastRunning) or false
         -- The cached window state main_loop already maintains, NOT isMerchantWindowOpen():
         -- that one hits a window TLO, and this runs four times a second.
         snap.merchantOpen = (d.getLastMerchantState and d.getLastMerchantState()) == true
@@ -481,6 +530,9 @@ function M.tick(now)
     end
 
     if barsOn then
+        -- Sell-run progress must precede accumulateSession so a macro run's income banked on
+        -- its finish edge is published in the same tick.
+        pcall(readSellRun)
         -- Loot and session are pure cached reads, so they run every tick and progress stays
         -- live. readLoot consumes snap.bagFree, so it must follow the bags walk above.
         pcall(readLoot, now)

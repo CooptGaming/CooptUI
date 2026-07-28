@@ -16,6 +16,9 @@ local item_name = require('itemui.utils.item_name')
 local soundService = require('itemui.services.sound')
 local dockState = require('itemui.services.dock_state')
 local chatFeed = require('itemui.services.chat_feed')
+local windowZones = require('itemui.services.window_zones')
+local layoutPresets = require('itemui.services.layout_presets')
+local dockLayout = require('itemui.utils.dock_layout')
 local dbgSell = require('itemui.core.debug').channel('Sell')
 local dbgLoot = require('itemui.core.debug').channel('Loot')
 local dbgAugment = require('itemui.core.debug').channel('Augment')
@@ -1241,6 +1244,14 @@ end
 -- a burst of game commands in a single frame.
 local function phase0b_dockActionQueue(now)
     local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    -- Preset names for the bottom bar's Layouts menu, primed OUT of the frame so the bar
+    -- keeps its no-file-reads rule. Re-read only when never loaded or marked dirty by a
+    -- save/delete above; the nil/flag test itself is per-tick noise-free.
+    if uiState.dockPresetNames == nil or uiState.dockPresetsDirty then
+        local ok, names = pcall(layoutPresets.list)
+        uiState.dockPresetNames = (ok and names) or {}
+        uiState.dockPresetsDirty = nil
+    end
     -- Errors the bars contained during render (dockLayout.contained queues them, deduped, so
     -- a per-frame error prints ONCE). A bare pcall in the render path is how the bars once
     -- blanked themselves past their first element with nothing in the log.
@@ -1395,6 +1406,35 @@ local function phase0b_dockActionQueue(now)
             mq.cmd('/endmacro')
             if setStatusMessage then setStatusMessage("Sell stopped.") end
         end
+
+    elseif a.kind == "retidy" then
+        -- Zones re-tidy (mockup 10a). Placement writes layoutConfig + force-apply frames;
+        -- doing it here rather than in the frame keeps file writes out of the render path.
+        local ok, err = pcall(windowZones.retidy)
+        if setStatusMessage then
+            setStatusMessage(ok and "Windows re-tidied into their zones." or ("Re-tidy failed: " .. tostring(err)))
+        end
+
+    elseif a.kind == "preset" then
+        local ok, applied = pcall(layoutPresets.apply, a.name)
+        if setStatusMessage and (not ok or not applied) then
+            setStatusMessage("Preset '" .. tostring(a.name) .. "' " .. (ok and "not found." or "failed to apply."))
+        end
+
+    elseif a.kind == "preset_save" then
+        local ok, saved = pcall(layoutPresets.saveCurrent, a.name)
+        if setStatusMessage then
+            if ok and saved then setStatusMessage("Saved layout preset '" .. tostring(a.name) .. "'.")
+            else setStatusMessage("Could not save preset '" .. tostring(a.name) .. "' (no [ ] or : in names).") end
+        end
+        uiState.dockPresetsDirty = true
+
+    elseif a.kind == "preset_delete" then
+        local ok, removed = pcall(layoutPresets.delete, a.name)
+        if setStatusMessage and ok and removed then
+            setStatusMessage("Deleted layout preset '" .. tostring(a.name) .. "'.")
+        end
+        uiState.dockPresetsDirty = true
     end
 
     if #q > 0 and setStatusMessage then
@@ -2058,6 +2098,11 @@ function M.tick(now)
     -- snapshot the bars read is the settled end-of-tick truth. Self-throttles to
     -- DOCK_TICK_MS and no-ops entirely when the bars are off.
     dockState.tick(now)
+    -- Zone placement / drag tracking / magnets. Contained: a placement bug must never take
+    -- the main loop down, and its error surfaces through the same dockErrors queue the bars
+    -- use, printed by phase0b next tick. d.uiState, not a bare global: contained() drops
+    -- the error silently when handed nil, which is how a swallowed-error class starts.
+    dockLayout.contained(d.uiState, "window_zones", windowZones.tick, now)
     phase10_loopDelay()
 end
 
