@@ -290,12 +290,19 @@ local function runAction(action, s, wnd, statusName, now)
         uiState.lootUIOpen = not uiState.lootUIOpen
         if uiState.lootUIOpen and d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
     elseif action == 'lootall' then
-        -- While a loot run is live this button's caption reads "Looting... (stop)" (8a),
-        -- so the click must BE the stop — a label that promises stop and hints "busy"
-        -- instead is exactly the dishonesty the cleanup removes.
+        -- While a loot run is live AND the caption has actually been rewritten to
+        -- "Looting... stop" (plugin present, 500ms label clock has run), the click IS the
+        -- stop. The caption gate matters twice over: pluginless the static XML still says
+        -- "Loot All" — a click must not silently kill a run the label promises to start —
+        -- and even with the plugin, an impatient double-click lands before the relabel and
+        -- must be absorbed, not obeyed.
         if lootBusy() then
-            mq.cmd('/endmacro')
-            if s then hint(s, wnd, statusName, "Loot stopped.", now) end
+            if s and s.btnLabels and s.btnLabels['Coopt_CCLootAllBtn'] == "Looting... stop" then
+                mq.cmd('/endmacro')
+                hint(s, wnd, statusName, "Loot stopped.", now)
+            elseif s then
+                hint(s, wnd, statusName, "Busy - macro already running", now)
+            end
             return
         end
         if sellBusy() then
@@ -433,9 +440,15 @@ local function tickMerchant(now)
     if consumeClick(s, MERCHANT_WND, BTN_AUTOSELL, now) then
         local mb = d.macroBridge
         if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
-            -- The caption says Stop while the macro runs (8b state 3), so the click stops.
-            mq.cmd('/endmacro')
-            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Sell stopped.", now)
+            -- The click stops ONLY once the caption actually says Stop (8b state 3):
+            -- pluginless the XML label still promises a sell, and a double-click inside
+            -- the 500ms relabel window must be absorbed, not obeyed.
+            if s.btnLabels and s.btnLabels[BTN_AUTOSELL] == "Stop" then
+                mq.cmd('/endmacro')
+                hint(s, MERCHANT_WND, MERCHANT_STATUS, "Sell stopped.", now)
+            else
+                hint(s, MERCHANT_WND, MERCHANT_STATUS, "Already selling", now)
+            end
         elseif sellBusy() then
             -- Lua batch: no cancel exists; say so rather than pretend.
             hint(s, MERCHANT_WND, MERCHANT_STATUS, "Lua sell has no stop", now)

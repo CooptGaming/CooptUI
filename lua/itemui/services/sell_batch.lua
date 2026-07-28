@@ -148,6 +148,10 @@ function M.startBatch(itemsToSell)
         sellMacState.failedItems = {}
         sellMacState.failedCount = 0
     end
+    -- The per-run sold list the macro path keeps via IPC. Without it, the merchant strip's
+    -- done line (native_bridge merchantDoneLine) reported a PREVIOUS macro run's items
+    -- after a batch sell finished — and an aborted batch resurrected them for 30s.
+    if deps.uiState then deps.uiState.sellRunSoldItems = {} end
     if deps.setStatusMessage then deps.setStatusMessage("Selling...") end
     return true
 end
@@ -165,6 +169,15 @@ local function recordSold(cur, batchState_)
     -- Feed the dock's session total. This is the only place a completed sale is observed, and
     -- the session figure has to cover vendor income as well as loot.
     require('itemui.services.dock_state').recordSold(cur.item.totalValue)
+    -- And the per-run list (same shape as the macro path's IPC entries), so the merchant
+    -- strip's done line is truthful for batch runs too. No double-count in the session
+    -- total: dock_state banks this list only on the MACRO falling edge, and the batch just
+    -- banked per-sale via recordSold above.
+    if deps.uiState then
+        local list = deps.uiState.sellRunSoldItems
+        if type(list) ~= "table" then list = {}; deps.uiState.sellRunSoldItems = list end
+        list[#list + 1] = { name = itemName, value = cur.item.totalValue or 0, stackSize = cur.item.stackSize or 1 }
+    end
 end
 
 -- Helper: update sellMacState progress counters

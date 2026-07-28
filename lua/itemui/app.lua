@@ -1149,6 +1149,10 @@ end
 
 --- Legacy path: write sell cache and progress, then run sell.mac (unchanged behavior).
 local function runSellMacroLegacy()
+    -- Fresh per-run sold list BEFORE the macro starts. The IPC sell_start also resets it,
+    -- but a pluginless macro has no IPC — without this, a stale batch run's entries would
+    -- be re-banked into the session total on the macro's finish edge.
+    uiState.sellRunSoldItems = {}
     scanInventory()
     if isMerchantWindowOpen() then scanSellItems() end
     if #inventoryItems > 0 then
