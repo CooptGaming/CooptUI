@@ -1082,6 +1082,11 @@ context.init({
     getItemTLO = function(bag, slot, source) return itemHelpers.getItemTLO(bag, slot, source) end,
     getAugSlotsCountFromTLO = function(it) return itemHelpers.getAugSlotsCountFromTLO(it) end,
     getStandardAugSlotsCountFromTLO = function(it) return itemHelpers.getStandardAugSlotsCountFromTLO(it) end,
+    -- Item Display's equipped-item comparison (item_compare.lua) needs the item's actual worn
+    -- SLOT INDICES (0-22), not the deduped display-name string getWornSlotsStringFromTLO
+    -- returns — "Ear" alone can't tell slot 1 from slot 4. Mirrors the existing one-liner
+    -- delegation pattern used throughout this table.
+    getWornSlotIndicesFromTLO = function(it) return itemHelpers.getWornSlotIndicesFromTLO(it) end,
     getFilledStandardAugmentSlotIndices = function(bag, slot, source)
         local it = itemHelpers.getItemTLO(bag, slot, source or "inv")
         return it and itemHelpers.getFilledStandardAugmentSlotIndices(it) or {}

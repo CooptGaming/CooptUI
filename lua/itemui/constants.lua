@@ -155,6 +155,11 @@ M.UI = {
     -- Item Display
     ITEM_DISPLAY_AVAIL_X = 400,
     ITEM_DISPLAY_TAB_LABEL_WIDTH = 120,
+    -- Item Display: verdict card (design pass 3e) — bordered verdict box + stat comparison tiles
+    ITEM_DISPLAY_VERDICT_HEIGHT = 64,
+    ITEM_DISPLAY_TILE_WIDTH = 128,
+    ITEM_DISPLAY_TILE_HEIGHT = 54,
+    ITEM_DISPLAY_TILE_SPACING = 8,
     -- AA view column hints
     AA_COL_CURMAX_WIDTH = 60,
     AA_COL_COST_WIDTH = 45,
