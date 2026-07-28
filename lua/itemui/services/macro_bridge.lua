@@ -486,6 +486,7 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         uiState.lootRunCorpsesLooted = 0
         uiState.lootRunTotalCorpses = 0
         uiState.lootRunCurrentCorpse = ""
+        uiState.lootRunSkipped = 0
     end
 
     local realTime = (uiState.enableRealTimeLoot == true)

@@ -342,11 +342,24 @@ local function renderChat(ctx, availW)
         else
             theme.TextMuted("(no chat yet)")
         end
+        -- Clickable, and capped for display. clearUnread previously had exactly one caller --
+        -- a peek-mode tab -- so in the default collapsed mode (and in hidden mode) the counts
+        -- were unclearable and just climbed for the whole session.
         for _, t in ipairs(CHAT_TABS) do
             local n = chatFeed.getUnread(t.id)
             if n > 0 then
                 ImGui.SameLine(0, 8)
-                theme.TextWarning(string.format("%s %d", t.label, n))
+                theme.PushJunkButton()
+                if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
+                        (n > 99) and "99+" or tostring(n), t.id)) then
+                    chatFeed.clearUnread(t.id)
+                end
+                theme.PopButtonColors()
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text(string.format("%d unread on %s - click to clear.", n, t.label))
+                    ImGui.EndTooltip()
+                end
             end
         end
         return
@@ -448,7 +461,10 @@ function M.render(ctx)
         -- window's content origin, so it has to account for the strip's padding (the hub does
         -- the same thing for its Lock checkbox).
         local winW = ImGui.GetWindowWidth and ImGui.GetWindowWidth() or vw
-        local rightW = 150
+        -- Sized for what is actually drawn on the right, which is Settings alone. The Layouts
+        -- button belongs to phase 4 (presets); reserving its width now would just leave a strip
+        -- of dead space and push Settings away from the edge it is supposed to anchor to.
+        local rightW = dockLayout.slotWidth("dockRight", { "Settings" }, 16)
         local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
 
         ImGui.BeginGroup()

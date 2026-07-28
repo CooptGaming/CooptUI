@@ -205,6 +205,11 @@ segments.loot = function(ctx, s)
 
     elseif st == "looting" then
         labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
+        if s.lootCorpseName and ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("On: " .. tostring(s.lootCorpseName))
+            ImGui.EndTooltip()
+        end
         ImGui.SameLine(0, 6)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         ImGui.SameLine(0, 8)
@@ -567,7 +572,13 @@ function M.render(ctx)
                 -- inside it and the neighbours never move.
                 if ImGui.BeginChild("dockseg_" .. id, ImVec2(slotW, h - constants.UI.DOCK_BAR_PADDING_Y * 2), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
-                    ImGui.AlignTextToFramePadding()
+                    -- NO AlignTextToFramePadding here. The child is exactly one text line tall
+                    -- (bar height minus its two paddings), and that call raises the line's text
+                    -- baseline offset by FramePadding.y -- pushing content down by ~3px inside a
+                    -- clip rect with no room for it, which shears the descenders off "bags" and
+                    -- "expiring" and cuts the bottom border off the inline Take/Pass/Stop
+                    -- buttons. The parent already aligned; a SmallButton is exactly one line
+                    -- tall (FramePadding.y is forced to 0 for it), so everything fits at y=0.
                     -- Per-segment isolation. app.lua's pcall around the whole render is not
                     -- enough on its own: it sits OUTSIDE the four PushStyleVar calls below, so
                     -- an error escaping to it would skip End() and PopStyleVar(4) and leak four

@@ -61,7 +61,17 @@ local dock = {
     top    = require('itemui.views.dock_top'),
     bottom = require('itemui.views.dock_bottom'),
     state  = require('itemui.services.dock_state'),
+    -- Distinct messages already reported, so a bar that fails every frame records once
+    -- rather than flooding the diagnostics ring buffer 30 times a second.
+    seenErrors = {},
 }
+local function dockError(source, err)
+    local msg = tostring(err or "unknown")
+    if dock.seenErrors[msg] then return end
+    dock.seenErrors[msg] = true
+    local diag = require('itemui.core.diagnostics')
+    if diag and diag.recordError then diag.recordError(source, "Render failed", msg) end
+end
 
 -- Phase 7: Utility modules
 local layoutUtils = require('itemui.utils.layout')
@@ -1360,8 +1370,13 @@ local function main()
         --     isolation -- an error in one would otherwise take down the whole frame.
         -- Draw order does NOT keep the bars under the companion windows; ImGui z-order is
         -- focus-ordered, so that job belongs to NoBringToFrontOnFocus in the bar flags.
-        pcall(dock.top.render, ctx)
-        pcall(dock.bottom.render, ctx)
+        -- Report rather than swallow: a bar that silently stops drawing is a support ticket
+        -- with no evidence. Recorded once per distinct message (diagnostics keeps its own
+        -- ring buffer and the Settings > Advanced panel surfaces it), never per frame.
+        local okTop, errTop = pcall(dock.top.render, ctx)
+        if not okTop then dockError("Dock top bar", errTop) end
+        local okBottom, errBottom = pcall(dock.bottom.render, ctx)
+        if not okBottom then dockError("Dock command bar", errBottom) end
         MainWindow.render(ctx)
     end)
     -- Native skin maintenance: the skin is OPT-IN (installed via the Settings

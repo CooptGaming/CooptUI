@@ -278,6 +278,7 @@ local function phase5_lootMacro(now)
         uiState.lootRunTributeValue = 0
         uiState.lootRunBestItemName = ""
         uiState.lootRunBestItemValue = 0
+        uiState.lootRunSkipped = 0
         d.recordCompanionWindowOpened("loot")
     end
     if lootMacState.lastRunning and not lootMacRunning then
@@ -394,6 +395,17 @@ local function phase5_lootMacro(now)
         local finish = lootLoopRefs.pendingSessionFinish
         lootLoopRefs.pendingSessionFinish = nil
         local session = finish.session
+        -- This run's skip count, read OUTSIDE the two gates below. lootUIOpen is a
+        -- window-visibility flag and enableSkipHistory (default 0) governs the history
+        -- BUFFER, not the count -- but the dock's "N skipped" needs the number regardless of
+        -- either, and it is one cheap INI read at run finish.
+        do
+            local sp = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
+            if sp and sp ~= "" then
+                uiState.lootRunSkipped =
+                    tonumber(config.safeIniValueByPath(sp, "Skipped", "count", "0")) or 0
+            end
+        end
         if uiState.lootUIOpen then
             if uiState.enableSkipHistory then
             local skippedPath = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
@@ -411,10 +423,6 @@ local function phase5_lootMacro(now)
                     local skipCountStr = config.safeIniValueByPath(skippedPath, "Skipped", "count", "0")
                     skipCount = tonumber(skipCountStr) or 0
                 end
-                -- Per-run skip count. skipHistory below is a capped ring buffer that
-                -- ACCUMULATES across runs (and is reloaded from disk), so #skipHistory is not
-                -- this run's figure -- the dock's "N skipped" needs the run-scoped number.
-                uiState.lootRunSkipped = skipCount
                 if skipCount > 0 then
                     if not uiState.skipHistory and loadSkipHistoryFromFile then loadSkipHistoryFromFile() end
                     if not uiState.skipHistory then uiState.skipHistory = {} end

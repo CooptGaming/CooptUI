@@ -55,6 +55,7 @@ local snap = {
     -- loot
     lootState = "idle",       -- idle | looting | decision | done | problem
     lootCorpse = 0, lootTotalCorpses = 0, lootTaken = 0, lootSkipped = 0,
+    lootCorpseName = nil,     -- current corpse NAME, or nil; shown in the hover tooltip
     lootRunValue = 0, lootDecisionName = nil, lootDecisionSecs = nil,
     lootProblem = nil,
     -- buffs
@@ -311,9 +312,18 @@ local function readLoot(now)
     local running = d.lootMacState and d.lootMacState.lastRunning or false
     snap.lootRunning = running
 
-    snap.lootCorpse = tonumber(uiState.lootRunCurrentCorpse) or 0
+    -- Field types matter here and two of them are not what the names suggest:
+    --   lootRunCorpsesLooted is the corpse COUNT (a number)
+    --   lootRunCurrentCorpse is the corpse NAME (a string, "" when idle) -- NOT an index
+    --   lootRunLootedItems is the item LIST (a table) -- NOT a count
+    -- Reading the last two as numbers pinned the whole segment at "corpse 0/N . 0 taken".
+    -- views/loot_ui.lua:384-404 is the reference for which field means what.
+    snap.lootCorpse = tonumber(uiState.lootRunCorpsesLooted) or 0
     snap.lootTotalCorpses = tonumber(uiState.lootRunTotalCorpses) or 0
-    snap.lootTaken = tonumber(uiState.lootRunLootedItems) or 0
+    local looted = uiState.lootRunLootedItems
+    snap.lootTaken = (type(looted) == "table") and #looted or 0
+    local corpseName = uiState.lootRunCurrentCorpse
+    snap.lootCorpseName = (type(corpseName) == "string" and corpseName ~= "") and corpseName or nil
     snap.lootRunValue = tonumber(uiState.lootRunTotalValue) or 0
     -- THIS run's skips, set by main_loop when it reads loot_skipped.ini. Deliberately not
     -- #uiState.skipHistory: that buffer accumulates across runs and is reloaded from disk,
@@ -343,9 +353,20 @@ local function readLoot(now)
     end
     snap.lootDecisionName, snap.lootDecisionSecs = nil, nil
 
-    -- 5 · a problem instead of a result — stays alert until dealt with. Bags full while a
-    -- run is up (or ended with items left) is the case the mockup calls out.
-    if snap.bagFree == 0 and snap.bagSlots > 0 then
+    -- 5 · a problem instead of a result — stays alert until dealt with. Bags full is the case
+    -- the mockup calls out, but it needs two guards it did not have:
+    --
+    --   * itemOps.countFreeInvSlots returns 0, NOT nil, when the inventory TLO is unreadable
+    --     (item_ops.lua:595 early-returns 0, and every pack reads Container() as 0 while
+    --     zoning). A raw free==0 therefore fires on every zone. Requiring a plausible slot
+    --     total AND at least one known item distinguishes "really full" from "cannot read".
+    --   * It is a LOOT problem, so it only belongs on the loot slot while looting is what the
+    --     player is doing. Otherwise a genuinely full bag would sit there red forever, with a
+    --     Stop/Sell strip, during ordinary play. Bag pressure already has its own amber in the
+    --     bags segment for that.
+    local plausible = (snap.bagSlots or 0) > 0 and (snap.bagItems or 0) > 0
+    local lootingContext = running or uiState.lootRunFinished
+    if plausible and snap.bagFree == 0 and lootingContext then
         snap.lootState = "problem"
         snap.lootProblem = "bags full"
         return
