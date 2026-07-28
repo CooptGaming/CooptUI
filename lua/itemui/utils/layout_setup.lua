@@ -61,6 +61,11 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.EffectsWindowX = layoutConfig.EffectsWindowX or layoutDefaults.EffectsWindowX
     layoutDefaults.EffectsWindowY = layoutConfig.EffectsWindowY or layoutDefaults.EffectsWindowY
     layoutDefaults.EffectsCompact = layoutConfig.EffectsCompact or layoutDefaults.EffectsCompact or 0
+    layoutDefaults.ChatWindowX = layoutConfig.ChatWindowX or layoutDefaults.ChatWindowX
+    layoutDefaults.ChatWindowY = layoutConfig.ChatWindowY or layoutDefaults.ChatWindowY
+    layoutDefaults.WidthChatPanel = layoutConfig.WidthChatPanel or layoutDefaults.WidthChatPanel
+    layoutDefaults.HeightChat = layoutConfig.HeightChat or layoutDefaults.HeightChat
+    layoutDefaults.ShowChatWindow = layoutConfig.ShowChatWindow or layoutDefaults.ShowChatWindow
     layoutDefaults.ItemDisplayWindowX = layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX
     layoutDefaults.ItemDisplayWindowY = layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY
     layoutDefaults.WidthItemDisplayPanel = layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel
@@ -164,6 +169,11 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("EffectsWindowX=" .. (layoutDefaults.EffectsWindowX or 0) .. "\n")
             f:write("EffectsWindowY=" .. (layoutDefaults.EffectsWindowY or 0) .. "\n")
             f:write("EffectsCompact=" .. (layoutDefaults.EffectsCompact or 0) .. "\n")
+            f:write("ChatWindowX=" .. (layoutDefaults.ChatWindowX or 0) .. "\n")
+            f:write("ChatWindowY=" .. (layoutDefaults.ChatWindowY or 0) .. "\n")
+            f:write("WidthChatPanel=" .. (layoutDefaults.WidthChatPanel or 560) .. "\n")
+            f:write("HeightChat=" .. (layoutDefaults.HeightChat or 380) .. "\n")
+            f:write("ShowChatWindow=" .. (layoutDefaults.ShowChatWindow or 1) .. "\n")
             f:write("ItemDisplayWindowX=" .. tostring(layoutDefaults.ItemDisplayWindowX or 0) .. "\n")
             f:write("ItemDisplayWindowY=" .. tostring(layoutDefaults.ItemDisplayWindowY or 0) .. "\n")
             f:write("WidthItemDisplayPanel=" .. tostring(layoutDefaults.WidthItemDisplayPanel or 760) .. "\n")
@@ -266,6 +276,11 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightEffects = layoutDefaults.HeightEffects
     layoutConfig.EffectsWindowX = layoutDefaults.EffectsWindowX
     layoutConfig.EffectsWindowY = layoutDefaults.EffectsWindowY
+    layoutConfig.ChatWindowX = layoutDefaults.ChatWindowX or 0
+    layoutConfig.ChatWindowY = layoutDefaults.ChatWindowY or 0
+    layoutConfig.WidthChatPanel = layoutDefaults.WidthChatPanel or 560
+    layoutConfig.HeightChat = layoutDefaults.HeightChat or 380
+    layoutConfig.ShowChatWindow = layoutDefaults.ShowChatWindow or 1
     layoutConfig.EffectsCompact = layoutDefaults.EffectsCompact or 0
     layoutConfig.ItemDisplayWindowX = layoutDefaults.ItemDisplayWindowX
     layoutConfig.ItemDisplayWindowY = layoutDefaults.ItemDisplayWindowY

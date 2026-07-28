@@ -7,7 +7,9 @@
 
     Structure is mockup 13c option B: four hover menus rather than a flat rail of sixteen
     buttons. A rail is faster for someone who has memorised it and is the widest possible
-    strip; menus stay honest as the tool keeps growing. Chat has the three heights from 13b.
+    strip; menus stay honest as the tool keeps growing. Chat is hidden or a collapsed
+    one-liner here; the tabs, scrollback and typing all live in views/chat_window.lua, opened
+    by clicking the line (mockup 13b's peek mode is retired in favor of that window).
 
     The menus use the same second-borderless-window mechanism as dock_top's popovers rather
     than ImGui popups, for the same reason: a popup takes focus, and nothing on these bars may
@@ -25,11 +27,10 @@ local dockLayout = require('itemui.utils.dock_layout')
 local dockState = require('itemui.services.dock_state')
 local dockTop = require('itemui.views.dock_top')
 local chatFeed = require('itemui.services.chat_feed')
+local chatConsole = require('itemui.services.chat_console')
 local registry = require('itemui.core.registry')
 
 local M = {}
-
-local PEEK_LINES = 4
 
 -- Menu definitions. Module entries are resolved through the registry at draw time, so a
 -- companion the user disabled simply is not listed, and "lit" means registry.isOpen.
@@ -88,10 +89,9 @@ local MENUS = {
     },
 }
 
-local CHAT_TABS = {
-    -- "all" is a real chat_feed bucket: getUnread("all") sums, clearUnread("all") wipes,
-    -- and getLines' tab filter is skipped for it in the peek renderer below.
-    { id = "all",   label = "All" },
+-- Unread badges for the collapsed one-liner (mockup 13b). Not "all": its badge would just
+-- duplicate the sum of these, and the collapsed strip skips it for that reason below.
+local CHAT_BADGE_TABS = {
     { id = "main",  label = "Main" },
     { id = "mq",    label = "MQ" },
     { id = "other", label = "Other" },
@@ -101,13 +101,12 @@ local CHAT_TABS = {
 -- Transient menu hover state; the pinned menu id lives on uiState (dock state stays outside
 -- ImGui's own storage).
 local hover = { id = nil, lastAt = 0, inMenu = false }
-local activeTab = "main"
 
---- How tall the strip is for the current chat mode. Fixed for a given mode — it only changes
---- when the user changes the mode, so nothing reflows mid-session.
+--- How tall the strip is. Always one row now that peek (the old 5-row tab+lines mode) is
+--- retired in favor of the chat window -- collapsed and hidden were already both one row, so
+--- this used to only ever vary for peek.
 function M.rows(layoutConfig)
-    local mode = tostring((layoutConfig or {}).DockChat or "collapsed")
-    return (mode == "peek") and (1 + PEEK_LINES) or 1
+    return 1
 end
 
 function M.isEnabled(layoutConfig)
@@ -340,36 +339,34 @@ end
 -- Chat
 -- ---------------------------------------------------------------------------
 
-local function cycleChat(ctx, forward)
+--- hidden <-> collapsed. Peek (the old third mode, five rows of tabs+lines) is retired in
+--- favor of the chat window -- a stored "peek" from an older session reads as collapsed (see
+--- renderChat's mode read below), it is just no longer a state this toggles INTO.
+local function cycleChat(ctx)
     local lc = ctx.layoutConfig
-    local order = { "hidden", "collapsed", "peek" }
     local cur = tostring(lc.DockChat or "collapsed")
-    local idx = 2
-    for i, v in ipairs(order) do if v == cur then idx = i end end
-    idx = forward and (idx % #order) + 1 or ((idx - 2) % #order) + 1
+    local next_ = (cur == "hidden") and "collapsed" or "hidden"
     -- setLayoutValue, not a bare write + scheduleLayoutSave: during the 600ms save debounce
     -- loadLayoutConfig still serves the CACHED parse, which would re-apply the old value over
     -- this change and then persist the revert -- the exact bug LayoutUtils.setLayoutValue
     -- exists to close (config_general.lua routes its dock keys the same way).
     if ctx.setLayoutValue then
-        ctx.setLayoutValue("DockChat", order[idx])
+        ctx.setLayoutValue("DockChat", next_)
     else
-        lc.DockChat = order[idx]
+        lc.DockChat = next_
         if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
     end
 end
 
-local function chatLineColor(channel)
-    if channel == "coopt" then return theme.Colors.Header end
-    if channel == "mq" then return theme.Colors.Info end
-    if channel == "tell" then return theme.Colors.Highlight end
-    if channel == "guild" then return theme.Colors.Success end
-    if channel == "group" then return theme.Colors.RerollList end
-    return nil
+--- Read DockChat, mapping a legacy "peek" (a session's INI predates this retirement) onto
+--- its closest surviving mode.
+local function chatMode(layoutConfig)
+    local mode = tostring((layoutConfig or {}).DockChat or "collapsed")
+    return (mode == "peek") and "collapsed" or mode
 end
 
 local function drawChatLine(e)
-    local col = chatLineColor(e.channel)
+    local col = chatConsole.channelColor(e.channel)
     -- TextUnformatted, not Text: chat carries '%' (and item links), which Text would treat as
     -- a format string. views/effects.lua:88-92 hit the same thing.
     if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
@@ -381,117 +378,91 @@ local function drawChatLine(e)
     if col then ImGui.PopStyleColor() end
 end
 
+--- Open the chat window through the same queue every other bar action uses -- never a direct
+--- registry write from inside the render callback.
+local function openChatWindow(ctx)
+    dockTop.queue(ctx, { kind = "window", id = "chat", toggle = true })
+end
+
 local function renderChat(ctx, availW)
-    local mode = tostring(ctx.layoutConfig.DockChat or "collapsed")
+    local mode = chatMode(ctx.layoutConfig)
     local chatStartX = ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0
 
     if mode == "hidden" then
         local n = chatFeed.getUnread()
         local label = (n > 0) and string.format("chat  %d##dockChatShow", n) or "chat##dockChatShow"
-        if ImGui.SmallButton(label) then cycleChat(ctx, true) end
+        -- Opens the window directly now -- there is no more collapsed strip to cycle into on
+        -- the way there, so this button's whole job is "show me chat".
+        if ImGui.SmallButton(label) then openChatWindow(ctx) end
         return
     end
 
-    if ImGui.SmallButton((mode == "peek") and "v##dockChatCycle" or "^##dockChatCycle") then
-        cycleChat(ctx, true)
+    -- collapsed: the only other mode. The '^' still cycles (collapsed <-> hidden); clicking
+    -- the line itself is the way to the full window.
+    if ImGui.SmallButton("^##dockChatCycle") then
+        cycleChat(ctx)
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Cycle chat height: hidden / one line / four lines.")
+        ImGui.Text("Hide the chat line. Click the line itself to open the chat window.")
         ImGui.EndTooltip()
     end
     ImGui.SameLine(0, 6)
 
-    if mode == "collapsed" then
-        -- One line: the newest from ANY channel, plus per-channel unread counts. Deliberately
-        -- unfiltered -- with one line of space, the most recent thing that happened is more
-        -- useful than the most recent thing on whichever tab was last clicked.
-        -- Clipped to the chat budget: a long line would otherwise run under the
-        -- right-anchored Settings button, which is drawn over it afterwards.
-        local usedX = (ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0) - chatStartX
-        local lineH = ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing() or 16
-        local clipW = math.max(availW - usedX, 60)
-        if ImGui.BeginChild("dockChatCollapsed", ImVec2(clipW, lineH), false,
-                bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
-            dockLayout.contained(ctx.uiState, "dock chat line", function()
-                -- Badges FIRST, then the line: the line is the thing that can be arbitrarily
-                -- long, and drawn first it would push the clear-unread affordance out of the
-                -- clip exactly when chat is busy and the counts matter most.
-                -- Clickable, and capped for display. clearUnread previously had exactly one
-                -- caller -- a peek-mode tab -- so in the default collapsed mode (and in hidden
-                -- mode) the counts were unclearable and just climbed for the whole session.
-                local drewBadge = false
-                for _, t in ipairs(CHAT_TABS) do
-                    -- Skip the All tab here: its badge would just duplicate the sum of the
-                    -- per-channel badges next to it.
-                    local n = (t.id ~= "all") and chatFeed.getUnread(t.id) or 0
-                    if n > 0 then
-                        if drewBadge then ImGui.SameLine(0, 8) end
-                        drewBadge = true
-                        theme.PushJunkButton()
-                        if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
-                                (n > 99) and "99+" or tostring(n), t.id)) then
-                            chatFeed.clearUnread(t.id)
-                        end
-                        theme.PopButtonColors()
-                        if ImGui.IsItemHovered() then
-                            ImGui.BeginTooltip()
-                            ImGui.Text(string.format("%d unread on %s - click to clear.", n, t.label))
-                            ImGui.EndTooltip()
-                        end
+    -- One line: the newest from ANY channel, plus per-channel unread counts. Deliberately
+    -- unfiltered -- with one line of space, the most recent thing that happened is more
+    -- useful than the most recent thing on whichever tab was last clicked.
+    -- Clipped to the chat budget: a long line would otherwise run under the
+    -- right-anchored Settings button, which is drawn over it afterwards.
+    local usedX = (ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0) - chatStartX
+    local lineH = ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing() or 16
+    local clipW = math.max(availW - usedX, 60)
+    if ImGui.BeginChild("dockChatCollapsed", ImVec2(clipW, lineH), false,
+            bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
+        dockLayout.contained(ctx.uiState, "dock chat line", function()
+            -- Badges FIRST, then the line: the line is the thing that can be arbitrarily
+            -- long, and drawn first it would push the clear-unread affordance out of the
+            -- clip exactly when chat is busy and the counts matter most.
+            local drewBadge = false
+            for _, t in ipairs(CHAT_BADGE_TABS) do
+                local n = chatFeed.getUnread(t.id)
+                if n > 0 then
+                    if drewBadge then ImGui.SameLine(0, 8) end
+                    drewBadge = true
+                    theme.PushJunkButton()
+                    if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
+                            (n > 99) and "99+" or tostring(n), t.id)) then
+                        chatFeed.clearUnread(t.id)
+                        -- Non-toggle form on purpose: a window action without toggle is an
+                        -- idempotent OPEN, so clicking a badge while the chat window is
+                        -- already showing another tab clears the count without closing it.
+                        dockTop.queue(ctx, { kind = "window", id = "chat" })
+                    end
+                    theme.PopButtonColors()
+                    if ImGui.IsItemHovered() then
+                        ImGui.BeginTooltip()
+                        ImGui.Text(string.format("%d unread on %s - click to open chat and clear.", n, t.label))
+                        ImGui.EndTooltip()
                     end
                 end
-                if drewBadge then ImGui.SameLine(0, 8) end
-                local lines = chatFeed.getLines(1)
-                if lines[1] then
-                    drawChatLine(lines[1])
-                else
-                    theme.TextMuted("(no chat yet)")
-                end
-            end)
-        end
-        ImGui.EndChild()
-        return
-    end
-
-    -- peek: channel tabs plus the last few lines. Still no window.
-    ImGui.BeginGroup()
-    for _, t in ipairs(CHAT_TABS) do
-        local n = chatFeed.getUnread(t.id)
-        local label = (n > 0) and string.format("%s %d##dockTab%s", t.label, n, t.id)
-                              or string.format("%s##dockTab%s", t.label, t.id)
-        if ImGui.SmallButton(label) then
-            activeTab = t.id
-            chatFeed.clearUnread(t.id)
-        end
-        ImGui.SameLine(0, 4)
-    end
-    if ImGui.SmallButton("Type##dockChatType") then
-        -- Typing is NOT reimplemented: hand focus to EQ's own chat input. An overlay that
-        -- tried to own the game's input is the one thing that always goes wrong.
-        dockTop.queue(ctx, { kind = "cmd", cmd = "/keypress enter" })
-    end
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        ImGui.Text("Hands keyboard focus to EverQuest's own chat input.")
-        ImGui.EndTooltip()
-    end
-    ImGui.EndGroup()
-
-    local lineH = ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing() or 16
-    if ImGui.BeginChild("dockChatLines", ImVec2(availW, lineH * PEEK_LINES), false,
-            ImGuiWindowFlags.NoScrollbar) then
-        local lines = chatFeed.getLines(PEEK_LINES, (activeTab ~= "all") and activeTab or nil)
-        if #lines == 0 then
-            theme.TextMuted("(no chat on this channel yet)")
-        else
-            for _, e in ipairs(lines) do drawChatLine(e) end
-        end
-        -- The tab being displayed is by definition read: without this, the active tab's
-        -- badge climbs while its own lines sit on screen.
-        chatFeed.clearUnread(activeTab)
+            end
+            if drewBadge then ImGui.SameLine(0, 8) end
+            local lines = chatFeed.getLines(1)
+            if lines[1] then
+                drawChatLine(lines[1])
+            else
+                theme.TextMuted("(no chat yet - click to open chat)")
+            end
+        end)
     end
     ImGui.EndChild()
+    -- Click anywhere in the line's child (badges included) opens the window. EndChild();
+    -- IsItemHovered() is the established pattern for "was the mouse over the child I just
+    -- closed" -- dock_top.lua's segment slots use it the same way.
+    local lineHovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+    if lineHovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+        openChatWindow(ctx)
+    end
 end
 
 -- ---------------------------------------------------------------------------

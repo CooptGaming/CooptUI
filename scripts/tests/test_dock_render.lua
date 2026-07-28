@@ -68,6 +68,7 @@ for _, m in ipairs({
     { id = 'aa',             label = 'AA' },
     { id = 'commandCenter',  label = 'Cmd' },
     { id = 'config',         label = 'Settings' },
+    { id = 'chat',           label = 'Chat' },
 }) do
     registry.register({ id = m.id, label = m.label, render = function() end })
 end
@@ -487,17 +488,34 @@ do
 end
 
 -- =================================================================
--- 10. Chat at all three heights stays balanced and shows what it should
+-- 10. Chat: hidden/collapsed stay balanced; clicking the line opens the window via the queue
 -- =================================================================
+-- Peek (the old five-row tab-plus-lines mode) is retired: the strip is a launcher only now
+-- (hidden, or one collapsed line), and everything else lives in the chat window
+-- (views/chat_window.lua), opened through the same action queue every bar control uses.
 do
-    for _, mode in ipairs({ 'hidden', 'collapsed', 'peek' }) do
+    for _, mode in ipairs({ 'hidden', 'collapsed' }) do
         resetInput()
         local ctx = newCtx({ chat = mode })
         dockState.init(newDeps(ctx))
         warmState(1000000)
         local r = stub.frame(function() dockBottom.render(ctx) end)
         check('chat ' .. mode .. ': balanced', stub.balanced(r), stub.imbalance(r))
+        check('chat ' .. mode .. ': no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     end
+
+    -- A legacy "peek" value (a session's INI predates this retirement) must not crash and
+    -- must not resurrect the old tab row -- it reads as collapsed at the point dock_bottom
+    -- consumes DockChat.
+    resetInput()
+    local peekCtx = newCtx({ chat = 'peek' })
+    dockState.init(newDeps(peekCtx))
+    warmState(1000000)
+    local rPeek = stub.frame(function() dockBottom.render(peekCtx) end)
+    check('chat: legacy "peek" stays balanced', stub.balanced(rPeek), stub.imbalance(rPeek))
+    check('chat: legacy "peek" does not draw the retired tab row',
+        not stub.drew(rPeek, '##dockTab'), table.concat(rPeek.buttons, '|'))
+
     -- With lines in the buffer, collapsed shows the newest.
     resetInput()
     chatFeed.init({})
@@ -505,6 +523,23 @@ do
     dockState.init(newDeps(ctx))
     warmState(1100000)
     check('chat feed starts empty', chatFeed.count() == 0, chatFeed.count())
+
+    -- Clicking the collapsed line (hover + left-click on its child) enqueues opening the chat
+    -- window, exactly like a menu entry -- never a direct registry write from the render path.
+    resetInput()
+    local uiState = {}
+    local clickCtx = newCtx({ uiState = uiState, chat = 'collapsed' })
+    dockState.init(newDeps(clickCtx))
+    warmState(1200000)
+    stub.hover = { dockChatCollapsed = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    stub.frame(function() dockBottom.render(clickCtx) end)
+    local q = uiState.dockActionQueue
+    check('chat: clicking the line enqueues an action', q and #q >= 1, q and #q)
+    local a = q and q[#q]
+    check('chat: the action opens the chat window via the queue',
+        a and a.kind == 'window' and a.id == 'chat' and a.toggle == true,
+        a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
 end
 
 -- =================================================================

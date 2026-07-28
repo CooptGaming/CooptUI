@@ -26,6 +26,10 @@
 
 local mq = require('mq')
 local constants = require('itemui.constants')
+-- chat_console owns the chat WINDOW's per-tab Zep consoles; it must never require this
+-- module back (see chat_console.lua's file header) -- the data flows one way, out of the
+-- ring buffer below and into M.append.
+local chatConsole = require('itemui.services.chat_console')
 
 local M = {}
 local deps
@@ -51,13 +55,22 @@ local CHANNELS = {
     { id = "tell",  needle = " tells you," },
     { id = "tell",  needle = " told you," },
     { id = "group", needle = " tells the group," },
+    { id = "group", needle = " tells the raid," },
     { id = "guild", needle = " tells the guild," },
+    -- Ahead of the generic " says," / "You say," needles below: without that ordering these
+    -- would never match if a future edit ever widened the generic patterns, and grouping the
+    -- "say"-family needles together here keeps first-match-wins order easy to audit.
+    { id = "say",   needle = " says out of character," },
+    { id = "say",   needle = " auctions," },
     { id = "say",   needle = " says," },
     { id = "say",   needle = " shouts," },
     -- The player's own half of each conversation, or Main shows only what other people said.
     { id = "tell",  needle = "You told " },
     { id = "group", needle = "You tell your party," },
+    { id = "group", needle = "You tell your raid," },
     { id = "guild", needle = "You say to your guild," },
+    { id = "say",   needle = "You say out of character," },
+    { id = "say",   needle = "You auction," },
     { id = "say",   needle = "You say," },
     { id = "say",   needle = "You shout," },
 }
@@ -75,12 +88,22 @@ local function classify(text)
     end
     return "other"
 end
+-- Exported for scripts/tests/test_chat_console.lua's classification regression; the
+-- classifier is otherwise pure and this costs nothing at runtime.
+M.classify = classify
+
+--- Classify + bucket in one call, for the same regression tests. Duplicates nothing --
+--- TAB_OF stays private, this just answers "which tab does this line land on".
+function M.tabFor(text)
+    return TAB_OF[classify(text)] or "other"
+end
 
 local function onChatLine(line)
     if not line or type(line) ~= "string" or line == "" then return end
     local channel = classify(line)
     local tab = TAB_OF[channel] or "other"
-    lines[#lines + 1] = { text = line, channel = channel, tab = tab }
+    local entry = { text = line, channel = channel, tab = tab }
+    lines[#lines + 1] = entry
     -- Trim with table.move rather than a table.remove loop: this is the hot path, and the
     -- same trim shape services/loot_feed_events.lua:58-63 already uses.
     local over = #lines - MAX_LINES
@@ -89,6 +112,16 @@ local function onChatLine(line)
         for i = #lines - over + 1, #lines do lines[i] = nil end
     end
     unread[tab] = (unread[tab] or 0) + 1
+    -- Feed the chat window's Zep consoles, if any exist yet. Guarded: a console failure must
+    -- never take down chat capture, which runs on every line at ~30Hz.
+    pcall(chatConsole.append, entry)
+end
+
+--- Test/inspection hook: run a line through the real classify -> ring append -> console
+--- forwarding path without the plugin's own mq.event dispatch (which headless tests stub out
+--- as a no-op). Mirrors window_zones.lua's _state/_reset convention -- tests only.
+function M._inject(line)
+    onChatLine(line)
 end
 
 function M.init(d)

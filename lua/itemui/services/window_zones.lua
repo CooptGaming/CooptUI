@@ -54,6 +54,7 @@ local GEOM = {
     favorites      = { x = "FavoritesWindowX", y = "FavoritesWindowY", w = "WidthFavoritesPanel", h = "HeightFavorites" },
     commandCenter  = { x = "CommandCenterWindowX", y = "CommandCenterWindowY" }, -- AlwaysAutoResize: no size keys
     loot           = { x = "LootWindowX", y = "LootWindowY", w = "WidthLootPanel", h = "HeightLoot" },
+    chat           = { x = "ChatWindowX", y = "ChatWindowY", w = "WidthChatPanel", h = "HeightChat" },
 }
 
 M.GEOM = GEOM              -- layout_presets captures/applies geometry through this map

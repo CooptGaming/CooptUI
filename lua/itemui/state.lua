@@ -85,6 +85,11 @@ do
     layoutDefaults.FavoritesWindowY = 0
     layoutDefaults.EffectsWindowX = 0
     layoutDefaults.EffectsWindowY = 0
+    layoutDefaults.ChatWindowX = 0
+    layoutDefaults.ChatWindowY = 0
+    layoutDefaults.WidthChatPanel = 560
+    layoutDefaults.HeightChat = 380
+    layoutDefaults.ShowChatWindow = 1
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

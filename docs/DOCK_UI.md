@@ -103,15 +103,29 @@ good. `/itemui center` now just makes sure this bar is on screen.
 
 ### Chat
 
-Three heights, and the strip's height is fixed for whichever one you pick:
+The strip itself only ever shows a launcher, in two heights:
 
-- **hidden** — pure launcher. A `chat` button with an unread count brings it back.
-- **one line** — the newest line from any channel, plus per-channel unread counts.
-- **four lines** — channel tabs (All / Main / MQ / Other / CoOpt) and the last four lines.
+- **hidden** — a `chat` button with an unread count.
+- **collapsed** — one line: the newest message from any channel, plus per-channel unread
+  badges. Click the line (or the badges) to open the real window.
 
-CoOpt renders the lines, so channel colours and CoOpt's own messages stay consistent. **Typing
-still goes through the game** — the **Type** button hands keyboard focus to EverQuest's own
-chat input. That's the one thing an overlay should never try to replace.
+Everything else — tabs, scrollback, typing — lives in the **Chat window**, a normal companion
+with its own zone, size and position (so it opens and stays where you put it, the same as
+Bank or Effects). It has five tabs (**All / Main / MQ / Other / CoOpt**) with their own unread
+counts, cleared as you view them; **All** clears every badge at once because it shows
+everything.
+
+Where the plugin build includes MacroQuest's console widget, the window is a real scrolling
+console: every line stays in scrollback (not just the last handful), and **item, spell,
+player and achievement links are clickable** — they open exactly as they would in the game's
+own chat window. Where that widget isn't available, the window falls back to a plain
+scrolling list with links stripped to plain text, so a line at least reads clean instead of
+showing raw link tag soup.
+
+**You can type.** The input row at the bottom runs whatever you type as a command if it
+starts with `/`, or sends it as `/say` otherwise — press Enter or click **Send**. While that
+field has keyboard focus, EverQuest doesn't see your keystrokes (the same tradeoff every
+other focusable CoOpt window makes); click back into the game to type there again.
 
 ---
 

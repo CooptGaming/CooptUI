@@ -395,10 +395,13 @@ function ConfigGeneral.render(ctx)
                 if not atBottom then setLayoutValue("DockPosition", "bottom") end
             end
 
-            local chatModes = { "hidden", "collapsed", "peek" }
-            local chatLabels = { "Hidden", "One line", "Four lines" }
+            -- "peek" is retired: the four-line strip became the chat WINDOW (click the
+            -- chat line on the bar). A stored peek value reads as collapsed everywhere.
+            local chatModes = { "hidden", "collapsed" }
+            local chatLabels = { "Hidden", "One line" }
             local cur = tostring(layoutConfig.DockChat or "collapsed")
-            ImGui.Text("Chat in the command bar:")
+            if cur == "peek" then cur = "collapsed" end
+            ImGui.Text("Chat in the command bar (click the line to open the chat window):")
             for i, mode in ipairs(chatModes) do
                 ImGui.SameLine()
                 if ImGui.RadioButton(chatLabels[i] .. "##dockChat" .. mode, cur == mode) then

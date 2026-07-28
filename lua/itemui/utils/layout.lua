@@ -102,6 +102,11 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.EffectsWindowX then layoutDefaults.EffectsWindowX = tonumber(d.EffectsWindowX) or layoutDefaults.EffectsWindowX end
     if d.EffectsWindowY then layoutDefaults.EffectsWindowY = tonumber(d.EffectsWindowY) or layoutDefaults.EffectsWindowY end
     if d.EffectsCompact then layoutDefaults.EffectsCompact = tonumber(d.EffectsCompact) or layoutDefaults.EffectsCompact end
+    if d.ChatWindowX then layoutDefaults.ChatWindowX = tonumber(d.ChatWindowX) or layoutDefaults.ChatWindowX end
+    if d.ChatWindowY then layoutDefaults.ChatWindowY = tonumber(d.ChatWindowY) or layoutDefaults.ChatWindowY end
+    if d.WidthChatPanel then layoutDefaults.WidthChatPanel = tonumber(d.WidthChatPanel) or layoutDefaults.WidthChatPanel end
+    if d.HeightChat then layoutDefaults.HeightChat = tonumber(d.HeightChat) or layoutDefaults.HeightChat end
+    if d.ShowChatWindow then layoutDefaults.ShowChatWindow = tonumber(d.ShowChatWindow) or layoutDefaults.ShowChatWindow end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -366,6 +371,12 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("WindowAttach=" .. tostring(layoutConfig.WindowAttach or "") .. "\n")
         f:write("LayoutPreset=" .. tostring(layoutConfig.LayoutPreset or "") .. "\n")
         f:write("UserPlaced=" .. tostring(layoutConfig.UserPlaced or "") .. "\n")
+        -- Chat window (replaces the old peek-mode dock strip -- see docs/DOCK_UI.md).
+        f:write("ChatWindowX=" .. tostring(layoutConfig.ChatWindowX or layoutDefaults.ChatWindowX) .. "\n")
+        f:write("ChatWindowY=" .. tostring(layoutConfig.ChatWindowY or layoutDefaults.ChatWindowY) .. "\n")
+        f:write("WidthChatPanel=" .. tostring(layoutConfig.WidthChatPanel or layoutDefaults.WidthChatPanel) .. "\n")
+        f:write("HeightChat=" .. tostring(layoutConfig.HeightChat or layoutDefaults.HeightChat) .. "\n")
+        f:write("ShowChatWindow=" .. tostring(layoutConfig.ShowChatWindow or layoutDefaults.ShowChatWindow) .. "\n")
         f:write("\n[ColumnVisibility]\n")
         local fixedOrder = layoutConfig.fixedColumnOrder or {}
         for view, cols in pairs(columnVisibility) do
@@ -590,6 +601,13 @@ local function applyLayoutSection(parsed)
     layoutConfig.WindowAttach = LayoutUtils.loadLayoutValue(layout, "WindowAttach", layoutDefaults.WindowAttach or "")
     layoutConfig.LayoutPreset = LayoutUtils.loadLayoutValue(layout, "LayoutPreset", layoutDefaults.LayoutPreset or "")
     layoutConfig.UserPlaced = LayoutUtils.loadLayoutValue(layout, "UserPlaced", layoutDefaults.UserPlaced or "")
+    -- Chat window. Numeric geometry, so no layout_io STRING_KEYS entry needed (loadLayoutValue's
+    -- numeric fallthrough handles it) -- only DockChat itself (hidden/collapsed) is a string key.
+    layoutConfig.ChatWindowX = LayoutUtils.loadLayoutValue(layout, "ChatWindowX", layoutDefaults.ChatWindowX or 0)
+    layoutConfig.ChatWindowY = LayoutUtils.loadLayoutValue(layout, "ChatWindowY", layoutDefaults.ChatWindowY or 0)
+    layoutConfig.WidthChatPanel = LayoutUtils.loadLayoutValue(layout, "WidthChatPanel", layoutDefaults.WidthChatPanel or 560)
+    layoutConfig.HeightChat = LayoutUtils.loadLayoutValue(layout, "HeightChat", layoutDefaults.HeightChat or 380)
+    layoutConfig.ShowChatWindow = LayoutUtils.loadLayoutValue(layout, "ShowChatWindow", layoutDefaults.ShowChatWindow)
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
 end
 
