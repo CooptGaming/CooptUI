@@ -1,0 +1,280 @@
+-- Regression test for lua/itemui/services/dock_state.lua — the bars' data layer.
+-- Runs on the exact LuaJIT MQ2Lua is, with a stubbed `mq` host module.
+--
+-- Why this file exists: dock_state is pure logic over shared state tables, so it is the one
+-- part of the bars that CAN be tested without the game — and it is where the worst defect of
+-- the feature landed. The loot segment read three uiState fields as numbers when two of them
+-- are a string (corpse NAME) and a table (item LIST), so the whole segment reported
+-- "corpse 0/0 . 0 taken" for an entire run. Nothing static caught it: it compiles, it lints,
+-- and tonumber() on a table is a perfectly legal nil. Only running it catches this class.
+--
+-- Covers, in order: field-type correctness, the five loot states of mockup 12a, the bags-full
+-- false positive, the sell aggregate, the session accumulator's finish edge, the two clocks,
+-- and classic-mode inertness.
+
+local repo = os.getenv('COOPT_REPO') or 'C:/Claude/CooptUI'
+package.path = repo .. '/lua/?.lua;' .. repo .. '/lua/?/init.lua;' .. package.path
+
+local pass, fail = 0, 0
+local function check(name, cond, extra)
+    if cond then
+        pass = pass + 1
+        print('PASS: ' .. name)
+    else
+        fail = fail + 1
+        print('FAIL: ' .. name .. (extra and ('  -> ' .. tostring(extra)) or ''))
+    end
+end
+
+-- ---------------------------------------------------------------- host stubs
+local now = 100000            -- mq.gettime() is MILLISECONDS
+local fakeOsTime = 1700000000 -- os.time() is SECONDS; the two must never be mixed
+
+package.loaded['mq'] = {
+    gettime = function() return now end,
+    cmd     = function() end,
+    cmdf    = function() end,
+    delay   = function() end,
+    event   = function() end,
+    TLO     = { Me = { Name = function() return 'Tester' end } },
+}
+-- Force the pluginless path so nothing tries to load a DLL.
+package.loaded['itemui.utils.coopui_plugin'] = {
+    getPlugin = function() return nil end, getIPC = function() return nil end,
+    getINI = function() return nil end, getWindow = function() return nil end,
+    getCursor = function() return nil end, getItems = function() return nil end,
+}
+package.loaded['itemui.core.diagnostics'] = {
+    getErrorCount = function() return 0 end,
+    recordError = function() end,
+}
+
+local realOsTime = os.time
+os.time = function() return fakeOsTime end  -- luacheck: ignore
+
+local dockState = require('itemui.services.dock_state')
+local T = require('itemui.constants').TIMING
+
+-- ---------------------------------------------------------------- fixtures
+--- A deps table shaped like app.lua's buildMainLoopDeps, with only what dock_state reads.
+local function newDeps(opts)
+    opts = opts or {}
+    return {
+        layoutConfig = { UIMode = opts.mode or 'bars' },
+        uiState = opts.uiState or {},
+        sellItems = opts.sellItems or {},
+        inventoryItems = opts.inventoryItems or {},
+        lootMacState = { lastRunning = opts.lootRunning or false },
+        sellMacState = { lastRunning = false },
+        getLastMerchantState = function() return opts.merchantOpen == true end,
+        -- countFreeInvSlots returns 0 (never nil) when the TLO is unreadable — that is the
+        -- whole point of the bags-full test below.
+        itemOps = { countFreeInvSlots = function() return opts.freeSlots or 0 end },
+    }
+end
+
+--- Advance past the tick throttle and run one aggregation pass.
+local function tick(n)
+    for _ = 1, (n or 1) do
+        now = now + T.DOCK_TICK_MS + 1
+        dockState.tick(now)
+    end
+end
+
+--- Raise the demand a bar segment would raise, then tick until the slow walks have run.
+local function tickWithDemand(n)
+    for _ = 1, (n or 4) do
+        dockState.requestBags()
+        dockState.requestSell()
+        now = now + math.max(T.DOCK_SLOW_BAGS_MS, T.DOCK_TICK_MS) + 1
+        dockState.tick(now)
+    end
+end
+
+-- =================================================================
+-- 1. Field types: the defect this file was written for
+-- =================================================================
+do
+    local uiState = {
+        -- These are the REAL shapes, taken from views/loot_ui.lua's state table:
+        lootRunCorpsesLooted = 4,        -- number: the count
+        lootRunTotalCorpses  = 9,        -- number
+        lootRunCurrentCorpse = 'a decaying skeleton',  -- STRING (name), not an index
+        lootRunLootedItems   = { {}, {}, {}, {}, {}, {}, {} },  -- TABLE (list of 7)
+        lootRunTotalValue    = 1208000,
+        lootRunSkipped       = 3,
+    }
+    dockState.init(newDeps({ uiState = uiState, lootRunning = true, freeSlots = 40,
+                             inventoryItems = { {}, {} } }))
+    tickWithDemand()
+    local s = dockState.get()
+
+    check('corpse count comes from lootRunCorpsesLooted', s.lootCorpse == 4, s.lootCorpse)
+    check('total corpses read', s.lootTotalCorpses == 9, s.lootTotalCorpses)
+    check('items taken is #lootRunLootedItems, not tonumber()', s.lootTaken == 7, s.lootTaken)
+    check('corpse NAME is not parsed as a number',
+        s.lootCorpseName == 'a decaying skeleton', tostring(s.lootCorpseName))
+    check('skip count is the run-scoped field', s.lootSkipped == 3, s.lootSkipped)
+end
+
+-- =================================================================
+-- 2. The five loot states of mockup 12a
+-- =================================================================
+do
+    -- 1 - idle
+    dockState.init(newDeps({ uiState = {}, freeSlots = 40, inventoryItems = { {} } }))
+    tickWithDemand()
+    check('state 1: idle', dockState.get().lootState == 'idle', dockState.get().lootState)
+
+    -- 2 - looting
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
+        uiState = { lootRunCorpsesLooted = 4, lootRunTotalCorpses = 9, lootRunLootedItems = {} } }))
+    tickWithDemand()
+    check('state 2: looting', dockState.get().lootState == 'looting', dockState.get().lootState)
+
+    -- 3 - decision due. The alert is a TABLE with .itemName and .decision.
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
+        uiState = {
+            lootMythicalAlert = { itemName = 'Mythical Faceplate', decision = 'pending' },
+            lootMythicalDecisionStartAt = fakeOsTime - 8,   -- SECONDS, 8s ago
+        } }))
+    tickWithDemand()
+    local s = dockState.get()
+    check('state 3: decision', s.lootState == 'decision', s.lootState)
+    check('decision name', s.lootDecisionName == 'Mythical Faceplate', s.lootDecisionName)
+    -- The countdown must be compared in the clock the value was WRITTEN in (os.time seconds).
+    -- Subtracting an os.time value from mq.gettime() would be off by ~1000x.
+    check('decision timer uses os.time seconds, not mq.gettime ms',
+        s.lootDecisionSecs == 8, s.lootDecisionSecs)
+
+    -- 3b - a RESOLVED alert must not keep the segment alert forever.
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 40, inventoryItems = { {} },
+        uiState = { lootMythicalAlert = { itemName = 'Mythical Faceplate', decision = 'loot' } } }))
+    tickWithDemand()
+    check('a decided alert leaves the decision state',
+        dockState.get().lootState ~= 'decision', dockState.get().lootState)
+
+    -- 4 - finished
+    dockState.init(newDeps({ freeSlots = 40, inventoryItems = { {} },
+        uiState = { lootRunFinished = true, lootRunTotalCorpses = 9, lootRunTotalValue = 1208000 } }))
+    tickWithDemand()
+    check('state 4: done', dockState.get().lootState == 'done', dockState.get().lootState)
+
+    -- 5 - problem: bags genuinely full DURING a run
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 0,
+        inventoryItems = { {}, {}, {} },
+        uiState = { lootRunLootedItems = {} } }))
+    tickWithDemand()
+    local p = dockState.get()
+    check('state 5: problem when bags really are full mid-run',
+        p.lootState == 'problem' and p.lootProblem == 'bags full', p.lootState)
+end
+
+-- =================================================================
+-- 3. The bags-full FALSE POSITIVE
+--    countFreeInvSlots returns 0 when the inventory TLO cannot be read (zoning), so a raw
+--    free == 0 is indistinguishable from a full bag. Guarded by requiring a real item count.
+-- =================================================================
+do
+    dockState.init(newDeps({ lootRunning = true, freeSlots = 0,
+        inventoryItems = {},                       -- nothing scanned == cannot read
+        uiState = { lootRunLootedItems = {} } }))
+    tickWithDemand()
+    check('free==0 with an unreadable inventory is NOT reported as bags full',
+        dockState.get().lootState ~= 'problem', dockState.get().lootProblem)
+
+    -- And a genuinely full bag outside any loot activity must not claim the loot slot.
+    dockState.init(newDeps({ lootRunning = false, freeSlots = 0,
+        inventoryItems = { {}, {}, {} }, uiState = {} }))
+    tickWithDemand()
+    check('full bags outside a loot run do not hijack the loot slot',
+        dockState.get().lootState == 'idle', dockState.get().lootState)
+end
+
+-- =================================================================
+-- 4. Sell aggregate + grouping by the rule that decided each item
+-- =================================================================
+do
+    dockState.init(newDeps({ freeSlots = 40, inventoryItems = { {} }, merchantOpen = true,
+        sellItems = {
+            { willSell = true,  totalValue = 100, sellReason = 'below 1p floor' },
+            { willSell = true,  totalValue = 200, sellReason = 'below 1p floor' },
+            { willSell = true,  totalValue = 900, sellReason = 'always-sell list', type = 'Augmentation' },
+            { willSell = false, inKeep = true },
+            { willSell = false, isProtected = true },
+            { willSell = true,  totalValue = 50,  inKeep = true, sellReason = 'junk type' },
+        } }))
+    tickWithDemand()
+    local s = dockState.get()
+    check('sell count', s.sellCount == 4, s.sellCount)
+    check('sell total', s.sellTotal == 1250, s.sellTotal)
+    check('keep count', s.keepCount == 2, s.keepCount)
+    check('protected count', s.protectCount == 1, s.protectCount)
+    check('trust check: keep-list items still queued to sell', s.keepInSellQueue == 1, s.keepInSellQueue)
+    check('augment-in-sell-queue count', s.augmentSellCount == 1, s.augmentSellCount)
+    check('grouped by reason', #s.sellGroups == 3, #s.sellGroups)
+    check('groups sorted by value, biggest first',
+        s.sellGroups[1].reason == 'always-sell list', s.sellGroups[1] and s.sellGroups[1].reason)
+    check('group counts', s.sellGroups[1].count == 1 and s.sellGroups[1].total == 900)
+    check('merchant state read from the cached window flag', s.merchantOpen == true)
+end
+
+-- =================================================================
+-- 5. Session accumulator — adds on the run-FINISH edge
+--    lootRunTotalValue is per-run and is zeroed at run start, so sampling the live counter
+--    would lose the previous run entirely.
+-- =================================================================
+do
+    local uiState = { lootRunTotalValue = 0, lootRunLootedItems = {} }
+    local deps = newDeps({ uiState = uiState, lootRunning = true, freeSlots = 40,
+                           inventoryItems = { {} } })
+    dockState.init(deps)
+    dockState.resetSession()
+    tick(2)
+    check('nothing banked while the run is still going', dockState.get().sessionPlat == 0)
+
+    -- run ends with a total on the counter
+    uiState.lootRunTotalValue = 1208000
+    deps.lootMacState.lastRunning = false
+    tick(1)
+    check('run total is banked on the finish edge',
+        dockState.get().sessionLooted == 1208000, dockState.get().sessionLooted)
+
+    -- a second run starts, which zeroes the per-run counter
+    deps.lootMacState.lastRunning = true
+    uiState.lootRunTotalValue = 0
+    tick(2)
+    check('the banked total survives the next run zeroing the counter',
+        dockState.get().sessionLooted == 1208000, dockState.get().sessionLooted)
+
+    dockState.recordSold(5000)
+    tick(1)
+    check('sold value joins the session total', dockState.get().sessionSold == 5000)
+    check('session total is looted + sold', dockState.get().sessionPlat == 1213000,
+        dockState.get().sessionPlat)
+end
+
+-- =================================================================
+-- 6. Classic mode does no bar-only work, but the SHARED buffs walk still runs
+--    (views/effects.lua consumes it in both modes — that sharing is why the Effects window
+--    and the bar do one TLO pass between them instead of two).
+-- =================================================================
+do
+    dockState.init(newDeps({ mode = 'classic', freeSlots = 40, inventoryItems = { {} },
+        merchantOpen = true, uiState = { lootRunCorpsesLooted = 4 } }))
+    tickWithDemand()
+    local s = dockState.get()
+    check('classic mode skips the bar-only reads', s.merchantOpen == false, tostring(s.merchantOpen))
+    check('classic mode leaves the loot state alone', s.lootCorpse == 0, s.lootCorpse)
+
+    -- getEffects reports whether the shared walk has happened, so a buff-less character is
+    -- distinguishable from a cold cache (otherwise effects.lua walks forever alongside it).
+    local walked = dockState.getEffects()
+    check('getEffects reports walk state as its first return', type(walked) == 'boolean',
+        type(walked))
+end
+
+os.time = realOsTime  -- luacheck: ignore
+
+print(string.format('\n%d passed, %d failed', pass, fail))
+os.exit(fail == 0 and 0 or 1)
