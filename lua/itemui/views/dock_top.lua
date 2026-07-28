@@ -286,7 +286,10 @@ end
 
 -- Which dock_state walks each segment needs, so an unused segment costs no TLO reads.
 local SEGMENT_DEMAND = {
-    bags    = dockState.requestBags,
+    -- Bags shows weight too, and weight/maxWeight/weightKnown are populated by the STATS
+    -- walk -- with only requestBags the "wt" sub-segment never appears unless the xp
+    -- segment happens to be enabled and demanding stats on its behalf.
+    bags    = function() dockState.requestBags(); dockState.requestStats() end,
     sell    = dockState.requestSell,
     buffs   = dockState.requestBuffs,
     xp      = dockState.requestStats,
@@ -482,11 +485,17 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
 
     local flags = bit32.bor(barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
-    local _, visible = ImGui.Begin("##CoOptDockPopover", true, flags)
+    -- Same discipline as the bar's own Begin: the style var above must be unwound if Begin
+    -- itself throws, or it leaks one entry per frame while the popover is due.
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockPopover", true, flags)
+    if not okBegin then
+        ImGui.PopStyleVar(1)
+        return
+    end
     if visible then
         -- Contained for the same reason as the bar body: an error escaping between Begin and
         -- End would leave the popover window open and ImGui short an End().
-        pcall(function()
+        dockLayout.contained(uiState, "dock popover " .. tostring(showId), function()
             hover.inPopover = (ImGui.IsWindowHovered and ImGui.IsWindowHovered(
                 ImGuiHoveredFlags and ImGuiHoveredFlags.ChildWindows or 0)) or false
             if pinned then
@@ -598,6 +607,12 @@ function M.render(ctx)
         dbg[#dbg + 1] = string.format("snap loot=%s corpse=%d/%d taken=%d bags=%d/%d sell=%d buffs=%d",
             tostring(s.lootState), s.lootCorpse or -1, s.lootTotalCorpses or -1, s.lootTaken or -1,
             s.bagItems or -1, s.bagSlots or -1, s.sellCount or -1, s.buffCount or -1)
+        -- Every render error contained this session (dockLayout.contained dedupes into .seen),
+        -- so the debug dump answers "what broke" and not just "what was computed".
+        local errs = ctx.uiState.dockErrors
+        if errs and errs.seen then
+            for msg in pairs(errs.seen) do dbg[#dbg + 1] = "error: " .. msg end
+        end
         ctx.uiState.dockDebugReport = dbg
     end
 
@@ -624,18 +639,26 @@ function M.render(ctx)
         -- EVERYTHING between Begin and End is contained. app.lua pcalls this whole function,
         -- which sits OUTSIDE the Begin -- so an error escaping from in here would swallow the
         -- End() below and leave ImGui with an unbalanced window stack ("Missing End()"), with
-        -- no Lua error shown because the pcall ate it. Per-segment pcalls are not enough: the
-        -- slot-width measurement, SameLine, BeginChild/EndChild and the rect capture all sit
-        -- between the segments and can throw too.
-        pcall(function()
+        -- no Lua error shown because the pcall ate it. Per-segment containment is not enough:
+        -- the slot-width measurement, SameLine, BeginChild/EndChild and the rect capture all
+        -- sit between the segments and can throw too. contained (not a bare pcall) so the
+        -- error is QUEUED for main_loop to print -- a bare pcall here is how the rmin.x crash
+        -- blanked six segments for days with nothing in the log.
+        dockLayout.contained(ctx.uiState, "dock top bar", function()
         ImGui.AlignTextToFramePadding()
         local first = true
+        -- Running width, so segments that would overflow a narrow viewport are dropped from
+        -- the right instead of drawing off-screen (the seven default slots reserve ~1700px).
+        local usedW = constants.UI.DOCK_SLOT_PADDING_X * 2
         for _, id in ipairs(order) do
             local draw = segments[id]
             if draw then
+                local slotW = dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id])
+                local needed = slotW + (first and 0 or constants.UI.DOCK_SLOT_GAP)
+                if not first and usedW + needed > w then break end
+                usedW = usedW + needed
                 if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
                 first = false
-                local slotW = dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id])
                 -- A fixed-width, borderless child is what pins the slot: content reflows
                 -- inside it and the neighbours never move.
                 if ImGui.BeginChild("dockseg_" .. id, ImVec2(slotW, h - constants.UI.DOCK_BAR_PADDING_Y * 2), false,
@@ -652,22 +675,19 @@ function M.render(ctx)
                     -- an error escaping to it would skip End() and PopStyleVar(4) and leak four
                     -- style-stack entries EVERY frame -- unbounded growth, and eventually an
                     -- ImGui assert. Contained here, a bad segment costs its own slot and
-                    -- nothing else.
-                    pcall(draw, ctx, s)
+                    -- nothing else -- and the error is queued for main_loop to print.
+                    dockLayout.contained(ctx.uiState, "dock segment " .. id, draw, ctx, s)
                 end
                 ImGui.EndChild()
                 -- Slot screen rect + hover state, remembered for phase 2: a popover opens
                 -- under the segment it belongs to (or over it, when bottom-docked), so it
-                -- needs where the slot actually landed. GetItemRectMin returns an ImVec2 here
-                -- (see utils/icons.lua:39 and views/equipment.lua:257) and is existence-guarded
-                -- the same way, since the binding is not guaranteed to expose it.
+                -- needs where the slot actually landed. NOTE: GetItemRectMin returns TWO
+                -- NUMBERS in this binding, not an ImVec2 -- indexing its return as `rmin.x`
+                -- is the line that silently blanked every segment after the first. The
+                -- helper owns that knowledge now (see dockLayout.itemRectMin).
                 local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-                local rmin = ImGui.GetItemRectMin and ImGui.GetItemRectMin()
-                if rmin and rmin.x then
-                    M.slots[id] = { x = rmin.x, y = rmin.y, w = slotW, h = h, hovered = hovered }
-                else
-                    M.slots[id] = { x = nil, y = nil, w = slotW, h = h, hovered = hovered }
-                end
+                local rx, ry = dockLayout.itemRectMin()
+                M.slots[id] = { x = rx, y = ry, w = slotW, h = h, hovered = hovered }
             end
         end
         end)

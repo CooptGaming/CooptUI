@@ -37,6 +37,61 @@ local function textWidth(s)
 end
 M.textWidth = textWidth
 
+--- Top-left corner of the LAST ITEM, as two numbers (x, y), or nil when unavailable.
+--- MQ's binding registers ImGui.GetItemRectMin as a TUPLE return -- two floats, not an
+--- ImVec2 (lua_ImGuiCore.cpp:879, std::make_tuple(v.x, v.y); GetItemRectMinVec is the
+--- userdata variant). Indexing the return as `rmin.x` therefore throws "attempt to index a
+--- number value" -- which, swallowed by the bars' containment pcalls, blanked everything
+--- after the first segment/button on both bars. Hedge the other shapes anyway, same as
+--- textWidth above.
+function M.itemRectMin()
+    if not ImGui.GetItemRectMin then return nil, nil end
+    local a, b = ImGui.GetItemRectMin()
+    if type(a) == "number" then return a, b end
+    local ok, x, y = pcall(function() return a.x, a.y end)
+    if ok and type(x) == "number" then return x, y end
+    return nil, nil
+end
+
+--- Bottom-right sibling of itemRectMin, same tuple-return contract (lua_ImGuiCore.cpp:881).
+function M.itemRectMax()
+    if not ImGui.GetItemRectMax then return nil, nil end
+    local a, b = ImGui.GetItemRectMax()
+    if type(a) == "number" then return a, b end
+    local ok, x, y = pcall(function() return a.x, a.y end)
+    if ok and type(x) == "number" then return x, y end
+    return nil, nil
+end
+
+--- pcall that KEEPS the error. The bars must contain failures (an error escaping between
+--- Begin and End skips End and leaks style vars), but a bare pcall was how the rmin.x crash
+--- shipped with zero diagnostics: app.lua's dockError only sees errors that ESCAPE render.
+--- Failures land on uiState.dockErrors (deduped by message); main_loop prints them next tick,
+--- where printing belongs.
+function M.contained(uiState, source, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok and uiState then
+        local q = uiState.dockErrors
+        if not q then q = { seen = {}, count = 0 }; uiState.dockErrors = q end
+        -- Distinct-message cap: an error that embeds dynamic content (a table address, a
+        -- changing value) would defeat the dedup and grow .seen plus print every tick.
+        if (q.count or 0) >= 40 then
+            if not q.capped then
+                q.capped = true
+                q[#q + 1] = "further dock errors suppressed (40 distinct messages this session)"
+            end
+            return ok
+        end
+        local msg = tostring(source) .. ": " .. tostring(err)
+        if not q.seen[msg] then
+            q.seen[msg] = true
+            q.count = (q.count or 0) + 1
+            q[#q + 1] = msg
+        end
+    end
+    return ok
+end
+
 --- Screen geometry. Returns x, y, w, h of the usable area.
 --- Uses the viewport's full Pos/Size rather than WorkPos/WorkSize: WorkArea is what
 --- OTHER reserved strips have already carved out, and the bars are the thing doing the

@@ -419,10 +419,15 @@ function ConfigGeneral.render(ctx)
                 { id = "session", label = "Session total" },
             }
             local enabled, order = {}, {}
+            -- "none" is the all-off sentinel: layout_io treats an EMPTY value as "key absent"
+            -- and restores the default list on the next reload, so a genuinely empty bar has
+            -- to be spelled. dock_top skips it naturally (no segment has that id).
             for part in tostring(layoutConfig.DockSegments or ""):gmatch("[^,]+") do
                 local t = part:match("^%s*(.-)%s*$")
-                if t ~= "" then enabled[t] = true; order[#order + 1] = t end
+                if t ~= "" and t ~= "none" then enabled[t] = true; order[#order + 1] = t end
             end
+            local canonPos = {}
+            for ci, cseg in ipairs(ALL_SEGMENTS) do canonPos[cseg.id] = ci end
             local changed = false
             for _, seg in ipairs(ALL_SEGMENTS) do
                 local on = enabled[seg.id] == true
@@ -431,7 +436,15 @@ function ConfigGeneral.render(ctx)
                     changed = true
                     if nextOn then
                         enabled[seg.id] = true
-                        order[#order + 1] = seg.id
+                        -- Insert at the segment's canonical position RELATIVE to the members
+                        -- already on, not at the end: appending made every re-enabled segment
+                        -- silently migrate to the far right of the bar for good. (A hand-
+                        -- edited custom order keeps its relative arrangement either way.)
+                        local at = #order + 1
+                        for i, id in ipairs(order) do
+                            if (canonPos[id] or math.huge) > canonPos[seg.id] then at = i; break end
+                        end
+                        table.insert(order, at, seg.id)
                     else
                         enabled[seg.id] = nil
                         for i = #order, 1, -1 do
@@ -441,7 +454,7 @@ function ConfigGeneral.render(ctx)
                 end
             end
             if changed then
-                setLayoutValue("DockSegments", table.concat(order, ","))
+                setLayoutValue("DockSegments", (#order > 0) and table.concat(order, ",") or "none")
             end
 
             ImGui.Unindent()

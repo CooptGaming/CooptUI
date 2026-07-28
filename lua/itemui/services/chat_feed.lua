@@ -35,7 +35,7 @@ local LINE_PATTERN = "#*#"
 
 local MAX_LINES = (constants.LIMITS and constants.LIMITS.CHAT_FEED_MAX) or 200
 
--- Ring buffer of { text, channel, at }. Newest last.
+-- Ring buffer of { text, channel, tab }. Newest last.
 local lines = {}
 -- Per-channel unread counts, cleared when the user looks at that tab.
 local unread = {}
@@ -54,6 +54,12 @@ local CHANNELS = {
     { id = "guild", needle = " tells the guild," },
     { id = "say",   needle = " says," },
     { id = "say",   needle = " shouts," },
+    -- The player's own half of each conversation, or Main shows only what other people said.
+    { id = "tell",  needle = "You told " },
+    { id = "group", needle = "You tell your party," },
+    { id = "guild", needle = "You say to your guild," },
+    { id = "say",   needle = "You say," },
+    { id = "say",   needle = "You shout," },
 }
 
 --- Coarse bucket for the channel tabs: Main / MQ / Other / CoOpt (mockup 13b).

@@ -142,7 +142,12 @@ local function drawMenuEntries(ctx, menu, s)
                 -- toggle: the entry is lit when open and says so, so clicking it again has to
                 -- actually close the window. The status bar's buttons omit this flag on
                 -- purpose -- clicking "Rules" twice should not close Settings.
-                if ImGui.Selectable(label .. "##dockmenu_" .. e.id, open == true) then
+                -- Selectable returns (selected, pressed) in this binding -- SELECTED first
+                -- (lua_ImGuiWidgets.cpp:906). Testing the first return with `open` passed in
+                -- meant every lit entry queued a close-toggle EVERY FRAME the menu was
+                -- visible, slamming its window shut the moment the menu opened.
+                local _, pressed = ImGui.Selectable(label .. "##dockmenu_" .. e.id, open == true)
+                if pressed then
                     dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
                 end
                 if open then ImGui.PopStyleColor() end
@@ -254,10 +259,17 @@ local function renderMenu(ctx, s, edge)
 
     local flags = bit32.bor(dockTop.barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(8, 6))
-    local _, visible = ImGui.Begin("##CoOptDockMenu", true, flags)
+    -- Style var precedes Begin, so Begin failing has to unwind it -- the same invariant
+    -- M.render enforces on its own Begin below.
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockMenu", true, flags)
+    if not okBegin then
+        ImGui.PopStyleVar(1)
+        return
+    end
     if visible then
-        -- Contained: nothing may escape between Begin and End (see dock_top's render).
-        pcall(function()
+        -- Contained: nothing may escape between Begin and End (see dock_top's render), and
+        -- the error is queued for main_loop to print rather than discarded.
+        dockLayout.contained(uiState, "dock menu " .. tostring(showId), function()
             hover.inMenu = (ImGui.IsWindowHovered and ImGui.IsWindowHovered()) or false
             theme.TextHeaderAlt(menu.label)
             ImGui.Separator()
@@ -289,8 +301,16 @@ local function cycleChat(ctx, forward)
     local idx = 2
     for i, v in ipairs(order) do if v == cur then idx = i end end
     idx = forward and (idx % #order) + 1 or ((idx - 2) % #order) + 1
-    lc.DockChat = order[idx]
-    if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+    -- setLayoutValue, not a bare write + scheduleLayoutSave: during the 600ms save debounce
+    -- loadLayoutConfig still serves the CACHED parse, which would re-apply the old value over
+    -- this change and then persist the revert -- the exact bug LayoutUtils.setLayoutValue
+    -- exists to close (config_general.lua routes its dock keys the same way).
+    if ctx.setLayoutValue then
+        ctx.setLayoutValue("DockChat", order[idx])
+    else
+        lc.DockChat = order[idx]
+        if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+    end
 end
 
 local function chatLineColor(channel)
@@ -317,6 +337,7 @@ end
 
 local function renderChat(ctx, availW)
     local mode = tostring(ctx.layoutConfig.DockChat or "collapsed")
+    local chatStartX = ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0
 
     if mode == "hidden" then
         local n = chatFeed.getUnread()
@@ -339,32 +360,49 @@ local function renderChat(ctx, availW)
         -- One line: the newest from ANY channel, plus per-channel unread counts. Deliberately
         -- unfiltered -- with one line of space, the most recent thing that happened is more
         -- useful than the most recent thing on whichever tab was last clicked.
-        local lines = chatFeed.getLines(1)
-        if lines[1] then
-            drawChatLine(lines[1])
-        else
-            theme.TextMuted("(no chat yet)")
-        end
-        -- Clickable, and capped for display. clearUnread previously had exactly one caller --
-        -- a peek-mode tab -- so in the default collapsed mode (and in hidden mode) the counts
-        -- were unclearable and just climbed for the whole session.
-        for _, t in ipairs(CHAT_TABS) do
-            local n = chatFeed.getUnread(t.id)
-            if n > 0 then
-                ImGui.SameLine(0, 8)
-                theme.PushJunkButton()
-                if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
-                        (n > 99) and "99+" or tostring(n), t.id)) then
-                    chatFeed.clearUnread(t.id)
+        -- Clipped to the chat budget: a long line would otherwise run under the
+        -- right-anchored Settings button, which is drawn over it afterwards.
+        local usedX = (ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0) - chatStartX
+        local lineH = ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing() or 16
+        local clipW = math.max(availW - usedX, 60)
+        if ImGui.BeginChild("dockChatCollapsed", ImVec2(clipW, lineH), false,
+                bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
+            dockLayout.contained(ctx.uiState, "dock chat line", function()
+                -- Badges FIRST, then the line: the line is the thing that can be arbitrarily
+                -- long, and drawn first it would push the clear-unread affordance out of the
+                -- clip exactly when chat is busy and the counts matter most.
+                -- Clickable, and capped for display. clearUnread previously had exactly one
+                -- caller -- a peek-mode tab -- so in the default collapsed mode (and in hidden
+                -- mode) the counts were unclearable and just climbed for the whole session.
+                local drewBadge = false
+                for _, t in ipairs(CHAT_TABS) do
+                    local n = chatFeed.getUnread(t.id)
+                    if n > 0 then
+                        if drewBadge then ImGui.SameLine(0, 8) end
+                        drewBadge = true
+                        theme.PushJunkButton()
+                        if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
+                                (n > 99) and "99+" or tostring(n), t.id)) then
+                            chatFeed.clearUnread(t.id)
+                        end
+                        theme.PopButtonColors()
+                        if ImGui.IsItemHovered() then
+                            ImGui.BeginTooltip()
+                            ImGui.Text(string.format("%d unread on %s - click to clear.", n, t.label))
+                            ImGui.EndTooltip()
+                        end
+                    end
                 end
-                theme.PopButtonColors()
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    ImGui.Text(string.format("%d unread on %s - click to clear.", n, t.label))
-                    ImGui.EndTooltip()
+                if drewBadge then ImGui.SameLine(0, 8) end
+                local lines = chatFeed.getLines(1)
+                if lines[1] then
+                    drawChatLine(lines[1])
+                else
+                    theme.TextMuted("(no chat yet)")
                 end
-            end
+            end)
         end
+        ImGui.EndChild()
         return
     end
 
@@ -401,6 +439,9 @@ local function renderChat(ctx, availW)
         else
             for _, e in ipairs(lines) do drawChatLine(e) end
         end
+        -- The tab being displayed is by definition read: without this, the active tab's
+        -- badge climbs while its own lines sit on screen.
+        chatFeed.clearUnread(activeTab)
     end
     ImGui.EndChild()
 end
@@ -444,11 +485,13 @@ function M.render(ctx)
         return
     end
     if visible then
-        -- Everything between Begin and End runs inside a pcall for the same reason dock_top
+        -- Everything between Begin and End runs contained for the same reason dock_top
         -- isolates its segments: app.lua's outer pcall sits OUTSIDE the four PushStyleVar
         -- calls above, so an error escaping this window would skip End() and PopStyleVar(4)
-        -- and leak four style-stack entries per frame until ImGui asserts.
-        pcall(function()
+        -- and leak four style-stack entries per frame until ImGui asserts. contained, not a
+        -- bare pcall: the discarded error message is how the rmin.x crash blanked this whole
+        -- bar past the Items button with nothing in the log.
+        dockLayout.contained(ctx.uiState, "dock command bar", function()
         ImGui.AlignTextToFramePadding()
 
         -- Four menus, left to right.
@@ -458,8 +501,10 @@ function M.render(ctx)
             ImGui.SmallButton(menu.label .. "##dockmenubtn_" .. menu.id)
             if lit then ImGui.PopStyleColor() end
             local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-            local rmin = ImGui.GetItemRectMin and ImGui.GetItemRectMin()
-            M.buttons[menu.id] = { x = rmin and rmin.x or nil, y = rmin and rmin.y or nil, hovered = hovered }
+            -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
+            -- everything after the Items button (see dockLayout.itemRectMin).
+            local rx, ry = dockLayout.itemRectMin()
+            M.buttons[menu.id] = { x = rx, y = ry, hovered = hovered }
             ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
         end
 
@@ -476,7 +521,7 @@ function M.render(ctx)
         local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
 
         ImGui.BeginGroup()
-        pcall(renderChat, ctx, chatW)
+        dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
         ImGui.EndGroup()
 
         ImGui.SameLine(math.max(winW - rightW, 0))

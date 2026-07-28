@@ -1241,13 +1241,37 @@ end
 -- a burst of game commands in a single frame.
 local function phase0b_dockActionQueue(now)
     local uiState, setStatusMessage = d.uiState, d.setStatusMessage
+    -- Errors the bars contained during render (dockLayout.contained queues them, deduped, so
+    -- a per-frame error prints ONCE). A bare pcall in the render path is how the bars once
+    -- blanked themselves past their first element with nothing in the log.
+    local dockErrs = uiState.dockErrors
+    if dockErrs and #dockErrs > 0 then
+        for _, msg in ipairs(dockErrs) do
+            print("\ar[CoOpt UI]\ax dock error: " .. tostring(msg))
+        end
+        for i = #dockErrs, 1, -1 do dockErrs[i] = nil end   -- keep .seen so it stays deduped
+    end
     -- Drain a /itemui dock debug capture. The bar records it from inside the frame (where the
     -- ImGui queries are valid) and it is printed out here, where printing belongs.
     if uiState.dockDebugReport then
         local report = uiState.dockDebugReport
         uiState.dockDebugReport = nil
+        uiState.dockDebugTicks = nil
         print("\ag[CoOpt UI]\ax dock debug:")
         for _, line in ipairs(report) do print("  " .. tostring(line)) end
+    elseif uiState.dockDebugRequested then
+        -- The capture only happens inside dock_top.render; if the bars never render (classic
+        -- mode, DockTop off, or the render dying before the capture), the request would latch
+        -- silently forever. Answer with the config-side facts instead.
+        uiState.dockDebugTicks = (uiState.dockDebugTicks or 0) + 1
+        if uiState.dockDebugTicks > 30 then
+            uiState.dockDebugRequested = nil
+            uiState.dockDebugTicks = nil
+            local lc = d.layoutConfig or {}
+            print(string.format(
+                "\ar[CoOpt UI]\ax dock debug: the top bar never rendered a frame. UIMode=%s DockTop=%s DockBottom=%s (bars draw only when UIMode=bars and DockTop is on).",
+                tostring(lc.UIMode), tostring(lc.DockTop), tostring(lc.DockBottom)))
+        end
     end
     local q = uiState.dockActionQueue
     if not q or #q == 0 then return end
@@ -1297,6 +1321,16 @@ local function phase0b_dockActionQueue(now)
         uiState.userClosedViaKeybind = false
         if d.setShouldDraw then d.setShouldDraw(true) end
         if d.setOpen then d.setOpen(true) end
+        -- The follow-through every other hub-open path performs (commands.lua "show", the
+        -- auto-show in phase8): fresh layout, and scans requested via the DEFERRED flags so
+        -- the open never blocks this pass on a full inventory walk.
+        if d.loadLayoutConfig then pcall(d.loadLayoutConfig) end
+        local dsn = d.deferredScanNeeded
+        if dsn then
+            dsn.inventory = true
+            dsn.bank = dsn.bank or ((d.isBankWindowOpen and d.isBankWindowOpen()) or false)
+            dsn.sell = dsn.sell or ((d.getLastMerchantState and d.getLastMerchantState()) == true)
+        end
 
     elseif a.kind == "native" and a.window then
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
