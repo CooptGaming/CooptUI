@@ -93,6 +93,7 @@ Four menus, chat, and Settings. Hover a menu to open it, click to pin it, Esc to
 | **Character** | Equipment, Effects, Clickies, AA, ScriptTracker |
 | **Actions** | Loot All, Stop (only while something runs), Auto Sell (greyed with a reason when there's no merchant), Loot window, Command Center |
 | **Game windows** | Inventory, Merchant, Actions, AA window, Bank, and the native panel — the game's own windows, opened through MQ |
+| **Layouts** | Your layout presets (the active one is lit), **Re-tidy now**, and **Save current as…** |
 
 An entry that's already open is **lit**; clicking it again closes it. A companion you've
 disabled in Settings simply isn't listed.
@@ -106,11 +107,98 @@ Three heights, and the strip's height is fixed for whichever one you pick:
 
 - **hidden** — pure launcher. A `chat` button with an unread count brings it back.
 - **one line** — the newest line from any channel, plus per-channel unread counts.
-- **four lines** — channel tabs (Main / MQ / Other / CoOpt) and the last four lines.
+- **four lines** — channel tabs (All / Main / MQ / Other / CoOpt) and the last four lines.
 
 CoOpt renders the lines, so channel colours and CoOpt's own messages stay consistent. **Typing
 still goes through the game** — the **Type** button hands keyboard focus to EverQuest's own
 chat input. That's the one thing an overlay should never try to replace.
+
+---
+
+## Windows place themselves
+
+In bars mode, opening a window doesn't drop it wherever it last was. Each companion has a
+**zone** around the hub — Equipment to the left, Bank and Item Display to the right, Effects
+and Clickies below, and so on — and opening one takes the **first free slot** in its zone,
+clamped to the screen with the bars subtracted. Nothing opens off-screen, nothing opens on
+top of another window, and it works the same at 1080p and 1440p.
+
+Three rules make it feel deliberate rather than bossy:
+
+- **Move once, keep it.** The moment you drag a window it becomes *user placed* and stops
+  auto-slotting — until you press **Re-tidy** (Layouts menu, Settings, or `/itemui retidy`),
+  which puts every open window back into its zone and forgets the hand placements.
+- **Magnet edges.** Drop a window within 12px of the hub or another window and it snaps
+  flush with a small gutter — and *stays attached*: drag the hub and its satellites travel
+  with it; close a window in a snapped column and the ones below slide up. Hold **Alt**
+  while dragging to ignore the magnets for that drag.
+- **The dock is never covered.** Its strips are subtracted from the placement area before
+  anything is computed.
+
+### Layout presets
+
+A preset is *which windows are open, in which zone, at what size*. Five ship out of the box —
+**Bag session**, **Farming**, **Merchant run**, **Gearing up**, **Raid — minimal** — all
+zone-driven, so they lay themselves out for whatever screen you're on. **Save current as…**
+captures your exact arrangement, positions and all.
+
+Switching a preset closes what isn't in it (pinned windows stay), opens what is, and places
+anything the preset doesn't position. Apply one from the bottom-bar **Layouts** menu,
+Settings → General → Layouts, or `/itemui layout <name>`.
+
+Presets live in their own file — `Macros\sell_config\itemui_presets.ini` — which **Revert to
+Default Layout never touches**. Deleting a bundled preset is permanent; they only reseed if
+the file itself is gone.
+
+---
+
+## The first run, and the bar that teaches itself
+
+A fresh install gets **two questions**, not a thirteen-step tour: how careful CoOpt should be
+with your stuff (Cautious / Balanced / Aggressive — each strictly *adds* protections; picking
+a looser one later never deletes rules), and how much screen to use (Two bars + hub / Top bar
+only / Windows only). A live strip shows what the current rules would sell right now. The old
+wizard still exists at `/itemui setup --full`.
+
+After that, five **hints** appear once each, at their own first real moment — first merchant,
+first loot run, first mythical decision, first full bag, first rule edit. **Got it** dismisses
+one forever; `/itemui hints` replays all five.
+
+New installs start in bars mode. Upgrades keep whatever mode they had — and re-running setup
+won't flip your answer unless you change it.
+
+---
+
+## When something's broken
+
+One thin strip under the bar — never a modal — for the four conditions that used to surface
+as a console line or nothing: `sell.mac` missing (macro mode only), no sell rules yet, bank
+shown from a days-old snapshot, running without the plugin. Each says what's wrong, what it
+costs you right now, and offers a fix that actually exists. **Hide for this session** does
+exactly that.
+
+One of them deserves its own sentence: **"no sell rules yet" is not safe**. With every list
+empty, the default pipeline sells unmatched tradeable items above the value floor — the strip
+says so and offers the rules screen.
+
+And in the Sell view, **the status is a link, not a label**: click "Will sell" on any row to
+see which rule decided that, with one-click **Keep this item** and **Protect \<type\>** fixes.
+
+---
+
+## The native windows
+
+With the plugin loaded, the three native surfaces got the same honesty pass (without it, the
+skin's static labels stand and everything keeps working as before):
+
+- **Command Center** — launcher buttons stay *lit* while their window is open, so the panel
+  doubles as a window list. The run buttons say what a click does right now: "Looting… stop"
+  actually stops the run. The status line carries live progress instead of "Idle".
+- **Merchant strip** — states the offer before you click (`2,412p | 8 protected by your
+  rules`), becomes **Stop** with progress while a macro sell runs, admits the Lua batch has
+  no stop, and reports the result — including failures — when it's done.
+- **AA window** — Import tells you *which file*, *how many ranks*, and *what you have*
+  before the confirming second click.
 
 ---
 
@@ -122,6 +210,12 @@ chat input. That's the one thing an overlay should never try to replace.
 /itemui dock bottom       status bar on the bottom edge (commands take the top)
 /itemui dock off          back to the classic UI
 /itemui center            make sure the command bar is on screen
+/itemui layout            list your layout presets (and which is active)
+/itemui layout <name>     apply one
+/itemui retidy            put every open window back into its zone
+/itemui hints             replay the five bar hints
+/itemui setup             the two-question first run
+/itemui setup --full      the 13-step wizard
 ```
 
 Every command you already use still works exactly as before.
@@ -141,9 +235,10 @@ the `Dock*` keys for the edge, the chat height and which slots you kept.
 
 ## Not here yet
 
-Two things from the design this doesn't do:
-
-- **Layout presets and zone placement.** Windows still open where they always did. The
-  Layouts menu isn't drawn because there's nothing yet for it to list.
 - **Consolidate.** The bags-full strip offers Bags and Sell junk. Actual bag consolidation
   doesn't exist in CoOpt yet, so there's no button pretending it does.
+- **Preset hotkeys and live drag guides.** Shift+1…5 preset switching and the yellow
+  alignment guides from the mockups are deferred — EQ owns most function keys, and guides
+  need per-window draw hooks. Snapping itself works; you just don't see lines while dragging.
+- **Take/Pass hotkeys.** The decision buttons are buttons only: EQ binds F1/F2 to targeting,
+  and an overlay can't safely steal them.

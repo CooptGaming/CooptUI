@@ -125,6 +125,20 @@ local function windowOpen()
     return (w and w() ~= nil and w.Open and w.Open()) or false
 end
 
+-- 8a: the Start/Stop captions carry state when the plugin can rewrite labels ("labels
+-- carry state"); without it the skin's static XML text stands. Both buttons KEEP their
+-- semantics — the mockup's collapse into indicator+Restart would remove the one control
+-- whose whole reason to exist is stopping CoOpt after /lua stop itemui.
+local lastStartLabel, lastStopLabel = nil, nil
+local function setLabels(runningNow)
+    local w = plugWin
+    if not w or type(w.setText) ~= 'function' then return end
+    local startLabel = (runningNow == true) and 'CoOpt running' or 'Start CoOpt'
+    local stopLabel = (runningNow == true) and 'Stop CoOpt' or 'Stopped'
+    if startLabel ~= lastStartLabel and w.setText(WND, START, startLabel) then lastStartLabel = startLabel end
+    if stopLabel ~= lastStopLabel and w.setText(WND, STOP, stopLabel) then lastStopLabel = stopLabel end
+end
+
 print('\ay[CoOpt Launcher]\ax Watching the Command Center Start/Stop buttons. (/lua stop coopt_launcher to end)')
 
 while true do
@@ -153,7 +167,9 @@ while true do
         unlatch(START, now)
         unlatch(STOP, now)
         -- Own the status line only while itemui is down.
-        if luaRunning('itemui') == false then
+        local itemuiNow = luaRunning('itemui')
+        setLabels(itemuiNow)
+        if itemuiNow == false then
             setStatus('CoOpt stopped - press Start')
         else
             lastStatusText = nil -- bridge owns it; forget our cache

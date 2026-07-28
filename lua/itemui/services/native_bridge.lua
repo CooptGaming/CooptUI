@@ -218,6 +218,17 @@ local function hint(s, wnd, name, text, now)
     setStatus(s, wnd, name, text)
 end
 
+--- Stateful button captions (mockup 8a/8b: "labels carry state"). Plugin-only — the TLO
+--- SetText path is EditBox-only, so without the plugin the skin's static XML labels stand,
+--- which is the correct degraded behaviour. Deduped per control like setStatus.
+local function setBtnLabel(s, wnd, name, text)
+    local pw = plugWindow()
+    if not pw then return end
+    s.btnLabels = s.btnLabels or {}
+    if s.btnLabels[name] == text then return end
+    if pw.setText(wnd, name, text) then s.btnLabels[name] = text end
+end
+
 -- Open/close + skin-presence bookkeeping shared by all surfaces.
 -- Returns false when the surface is closed or its controls are absent.
 local function refreshSurface(s, wnd, probeButton, now)
@@ -238,6 +249,7 @@ local function refreshSurface(s, wnd, probeButton, now)
             s.lastStatusText = nil
             s.statusBroken = false
             s.btn = {}
+            s.btnLabels = nil    -- fresh window instance: re-write stateful captions
         end
     end
     s.wasOpen = true
@@ -278,7 +290,15 @@ local function runAction(action, s, wnd, statusName, now)
         uiState.lootUIOpen = not uiState.lootUIOpen
         if uiState.lootUIOpen and d.recordCompanionWindowOpened then d.recordCompanionWindowOpened("loot") end
     elseif action == 'lootall' then
-        if lootBusy() or sellBusy() then
+        -- While a loot run is live this button's caption reads "Looting... (stop)" (8a),
+        -- so the click must BE the stop — a label that promises stop and hints "busy"
+        -- instead is exactly the dishonesty the cleanup removes.
+        if lootBusy() then
+            mq.cmd('/endmacro')
+            if s then hint(s, wnd, statusName, "Loot stopped.", now) end
+            return
+        end
+        if sellBusy() then
             if s then hint(s, wnd, statusName, "Busy - macro already running", now) end
             return
         end
@@ -323,25 +343,69 @@ end
 -- Merchant surface
 ---------------------------------------------------------------------------
 
-local function merchantSummary()
+local function merchantCounts()
     local items = d.sellItems
-    if not items or #items == 0 then return "CoOpt ready" end
-    local keepCount, sellCount, protectCount = 0, 0, 0
-    for _, it in ipairs(items) do
+    local keepCount, sellCount, protectCount, sellCopper = 0, 0, 0, 0
+    for _, it in ipairs(items or {}) do
         if it.inKeep then keepCount = keepCount + 1 end
-        if it.willSell then sellCount = sellCount + 1 end
+        if it.willSell then
+            sellCount = sellCount + 1
+            sellCopper = sellCopper + (tonumber(it.totalValue) or 0)
+        end
         if it.isProtected then protectCount = protectCount + 1 end
     end
-    return string.format("Sell %d | Keep %d | Prot %d", sellCount, keepCount, protectCount)
+    return sellCount, keepCount, protectCount, math.floor(sellCopper / 1000)
+end
+
+local function merchantSummary()
+    if not d.sellItems or #d.sellItems == 0 then return "CoOpt ready" end
+    -- 8b idle state: the strip states the offer before you click.
+    local sellCount, _, protectCount, plat = merchantCounts()
+    if sellCount == 0 then
+        return string.format("Nothing to sell | %d protected", protectCount)
+    end
+    return string.format("%dp | %d protected by your rules", plat, protectCount)
+end
+
+--- 8b done state: the result sticks (for a while) after a macro sell finishes — the
+--- failure count is the one thing the old strip never told you.
+local function merchantDoneLine(now)
+    local sm = d.sellMacState
+    if not sm or not sm.finishedAt or sm.finishedAt == 0 then return nil end
+    if (now - sm.finishedAt) > 30000 then return nil end
+    local sold = d.uiState.sellRunSoldItems
+    if type(sold) ~= "table" or #sold == 0 then return nil end
+    local copper = 0
+    for _, it in ipairs(sold) do copper = copper + (tonumber(it.value) or 0) end
+    local line = string.format("Sold %d for %dp", #sold, math.floor(copper / 1000))
+    if (sm.failedCount or 0) > 0 then
+        line = line .. string.format(" | %d failed", sm.failedCount)
+    end
+    return line
 end
 
 local function merchantStatus(s, now)
     if (now - s.lastStatusAt) < STATUS_INTERVAL_MS then return end
     s.lastStatusAt = now
+
+    -- 8b button captions ride the status clock (plugin setText; static XML otherwise).
+    local mb = d.macroBridge
+    local macroSelling = mb and mb.isSellMacroRunning and mb.isSellMacroRunning()
+    local sb = d.sellBatch
+    local batchSelling = sb and sb.isRunning and sb.isRunning()
+    if macroSelling then
+        setBtnLabel(s, MERCHANT_WND, BTN_AUTOSELL, "Stop")
+    elseif batchSelling then
+        setBtnLabel(s, MERCHANT_WND, BTN_AUTOSELL, "Selling...")
+    else
+        local sellCount = merchantCounts()
+        setBtnLabel(s, MERCHANT_WND, BTN_AUTOSELL,
+            sellCount > 0 and string.format("Sell %d", sellCount) or "Nothing to sell")
+    end
+
     if s.hintText and now < s.hintUntil then return end
     s.hintText = nil
-    local mb = d.macroBridge
-    if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
+    if macroSelling then
         local prog = (mb.getSellProgress and mb.getSellProgress()) or {}
         if (prog.total or 0) > 0 then
             setStatus(s, MERCHANT_WND, MERCHANT_STATUS, string.format("Selling %d/%d", prog.current or 0, prog.total or 0))
@@ -350,9 +414,13 @@ local function merchantStatus(s, now)
         end
         return
     end
-    local sb = d.sellBatch
-    if sb and sb.isRunning and sb.isRunning() then
+    if batchSelling then
         setStatus(s, MERCHANT_WND, MERCHANT_STATUS, "Selling...")
+        return
+    end
+    local done = merchantDoneLine(now)
+    if done then
+        setStatus(s, MERCHANT_WND, MERCHANT_STATUS, done)
         return
     end
     setStatus(s, MERCHANT_WND, MERCHANT_STATUS, merchantSummary())
@@ -363,8 +431,14 @@ local function tickMerchant(now)
     if not refreshSurface(s, MERCHANT_WND, BTN_AUTOSELL, now) then return end
 
     if consumeClick(s, MERCHANT_WND, BTN_AUTOSELL, now) then
-        if sellBusy() then
-            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Already selling", now)
+        local mb = d.macroBridge
+        if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
+            -- The caption says Stop while the macro runs (8b state 3), so the click stops.
+            mq.cmd('/endmacro')
+            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Sell stopped.", now)
+        elseif sellBusy() then
+            -- Lua batch: no cancel exists; say so rather than pretend.
+            hint(s, MERCHANT_WND, MERCHANT_STATUS, "Lua sell has no stop", now)
         else
             d.uiState.autoSellRequested = true
             hint(s, MERCHANT_WND, MERCHANT_STATUS, "Starting sell...", now)
@@ -406,15 +480,74 @@ end
 local function ccStatusText()
     local mb = d.macroBridge
     local plugin = (mb and mb.isIPCAvailable and mb.isIPCAvailable()) and "Plugin OK" or "No plugin"
-    local state
+    local uiState = d.uiState
+    -- 8a: doing beats naming. While something runs, the line carries its progress; idle,
+    -- it carries the offer. Everything here is a cached uiState/bridge read.
     if mb and mb.isSellMacroRunning and mb.isSellMacroRunning() then
-        state = "Selling"
-    elseif lootBusy() then
-        state = "Looting"
-    else
-        state = "Idle"
+        local prog = (mb.getSellProgress and mb.getSellProgress()) or {}
+        if (prog.total or 0) > 0 then
+            return string.format("Selling %d/%d | %s", prog.current or 0, prog.total or 0, plugin)
+        end
+        return "Selling | " .. plugin
     end
-    return plugin .. " | " .. state
+    if lootBusy() then
+        local cur = tonumber(uiState.lootRunCorpsesLooted) or 0
+        local tot = tonumber(uiState.lootRunTotalCorpses) or 0
+        if tot > 0 then
+            return string.format("Looting corpse %d of %d | %s", cur, tot, plugin)
+        end
+        return "Looting | " .. plugin
+    end
+    return plugin .. " | Idle"
+end
+
+--- Which CC buttons mirror a window's open state (8a: "Open — lit = already open", the
+--- panel doubles as a window list). Run controls return nil and keep click-unlatch.
+local function ccOpenState(action)
+    if action == 'lootui' then return d.uiState.lootUIOpen == true end
+    if action == 'cmd:/itemui' then return (d.getShouldDraw and d.getShouldDraw()) == true end
+    if action == 'lootall' or action == 'stoploot' or action == 'autosell' or action == 'tracker' then
+        return nil
+    end
+    return registry.isRegistered and registry.isRegistered(action) and registry.isOpen(action) or false
+end
+
+--- Reflect open windows as latched checkboxes. Plugin-only (a synthetic /notify latch
+--- would wedge mouse capture). The write updates b.last in the same breath so the click
+--- poller never sees our own state write as a user transition, and the cosmetic un-latch
+--- is cancelled — the latch owns these buttons while their window is open.
+local function ccApplyLatch(s)
+    local pw = plugWindow()
+    if not pw then return end
+    for _, spec in ipairs(CC_BUTTONS) do
+        local open = ccOpenState(spec.action)
+        if open ~= nil then
+            local b = s.btn[spec.name]
+            if b and b.last ~= open then
+                if pw.setChecked(CMD_WND, spec.name, open) then
+                    b.last = open
+                    b.unlatchAt = nil
+                end
+            elseif b and open then
+                b.unlatchAt = nil
+            end
+        end
+    end
+end
+
+--- Stateful captions for the run controls (8a): the label says what the click DOES now.
+local function ccLabels(s)
+    local looting = lootBusy()
+    setBtnLabel(s, CMD_WND, 'Coopt_CCLootAllBtn', looting and "Looting... stop" or "Loot All")
+    local sellLabel
+    if sellBusy() then
+        sellLabel = "Selling..."
+    elseif not windowOpen(MERCHANT_WND) then
+        sellLabel = "Sell-no merchant"
+    else
+        sellLabel = "Auto Sell"
+    end
+    setBtnLabel(s, CMD_WND, 'Coopt_CCSellBtn', sellLabel)
 end
 
 local function tickCommandCenter(now)
@@ -427,6 +560,8 @@ local function tickCommandCenter(now)
     end
     if (now - s.lastStatusAt) >= STATUS_INTERVAL_MS then
         s.lastStatusAt = now
+        ccApplyLatch(s)
+        ccLabels(s)
         if not (s.hintText and now < s.hintUntil) then
             s.hintText = nil
             setStatus(s, CMD_WND, CC_STATUS, ccStatusText())

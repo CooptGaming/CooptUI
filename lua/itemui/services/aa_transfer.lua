@@ -678,10 +678,12 @@ function M.armOrStartImport()
         return
     end
     armed = { path = path, armedUntil = now + ARM_WINDOW_MS, prebuilt = prebuilt }
+    -- 8c: which file, how many it buys, and what you have — the double-click confirm is
+    -- stated instead of implied. (The native strip truncates at 60 chars; chat gets it all.)
     if plan.exact then
-        say(string.format("%s: %d ranks, %d pts. Import again to start.", fname, plan.ranks, plan.cost))
+        say(string.format("%s: %d ranks, %d pts, have %d. Import again to start.", fname, plan.ranks, plan.cost, have))
     else
-        say(string.format("%s: %d ranks. Import again to start.", fname, plan.ranks))
+        say(string.format("%s: %d ranks, have %d pts. Import again to start.", fname, plan.ranks, have))
     end
 end
 
