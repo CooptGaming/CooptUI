@@ -45,8 +45,10 @@ something twitching on top of it.
 | **XP** | XP %, AA total, and the AA sitting in your bags as scripts. | — |
 | **session** | Everything this session has earned, looted and sold. | The split |
 
-Turn individual slots off in Settings → General → Dock. A slot that's off costs nothing —
-the bar only gathers data something is actually displaying.
+Turn individual slots off — and **reorder them** with the ^ / v arrows — in Settings →
+General → Dock; the row order there is the bar's left-to-right order. A slot that's off
+costs nothing — the bar only gathers data something is actually displaying. (The same
+order lives in `itemui_layout.ini` as `DockSegments=` if you prefer editing a CSV.)
 
 ### The loot slot has five moods
 

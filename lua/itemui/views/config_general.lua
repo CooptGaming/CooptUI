@@ -409,9 +409,11 @@ function ConfigGeneral.render(ctx)
                 end
             end
 
-            -- Segment on/off. Order is the INI's order; this list only toggles membership.
+            -- Segment membership AND order. Enabled rows render in the BAR's actual (INI)
+            -- order with reorder arrows -- the rows must mirror the screen or moving
+            -- things is visually incoherent; disabled rows follow in canonical order.
             ImGui.Spacing()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar slots:")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar slots (top to bottom = left to right):")
             local ALL_SEGMENTS = {
                 { id = "status",  label = "Status & plugin" },
                 { id = "bags",    label = "Bags & weight" },
@@ -429,30 +431,52 @@ function ConfigGeneral.render(ctx)
                 local t = part:match("^%s*(.-)%s*$")
                 if t ~= "" and t ~= "none" then enabled[t] = true; order[#order + 1] = t end
             end
-            local canonPos = {}
-            for ci, cseg in ipairs(ALL_SEGMENTS) do canonPos[cseg.id] = ci end
+            local canonPos, byId = {}, {}
+            for ci, cseg in ipairs(ALL_SEGMENTS) do canonPos[cseg.id] = ci; byId[cseg.id] = cseg end
             local changed = false
+            -- Enabled rows: ^ / v arrows + checkbox. Clicks are DEFERRED to after the loop
+            -- (mutating `order` mid-ipairs shifts indices), and a move is a permutation of
+            -- the live array -- it cannot introduce the two states the bar's renderer
+            -- punishes: duplicate ids (colliding ImGui child ids, slot anchors landing on
+            -- the wrong copy) or free-form unknowns. Unknown ids already IN a hand-edited
+            -- INI are skipped visually but preserved through the round-trip.
+            local act = nil     -- one click per frame: { kind = "up"|"down"|"off", i = index }
+            for i, id in ipairs(order) do
+                local seg = byId[id]
+                if seg then
+                    if ImGui.SmallButton("^##dockSegUp" .. id) then act = { kind = "up", i = i } end
+                    ImGui.SameLine(0, 2)
+                    if ImGui.SmallButton("v##dockSegDown" .. id) then act = { kind = "down", i = i } end
+                    ImGui.SameLine(0, 8)
+                    if not ImGui.Checkbox(seg.label .. "##dockSeg" .. id, true) then
+                        act = { kind = "off", i = i }
+                    end
+                end
+            end
+            if act then
+                local id = order[act.i]
+                if act.kind == "off" then
+                    table.remove(order, act.i); enabled[id] = nil; changed = true
+                elseif act.kind == "up" and act.i > 1 then
+                    table.remove(order, act.i); table.insert(order, act.i - 1, id); changed = true
+                elseif act.kind == "down" and act.i < #order then
+                    table.remove(order, act.i); table.insert(order, act.i + 1, id); changed = true
+                end
+            end
+            -- Disabled rows: checkbox only. Re-enabling inserts at the segment's canonical
+            -- position RELATIVE to the members already on, not at the end: appending made
+            -- every re-enabled segment silently migrate to the far right for good. (A
+            -- hand-arranged custom order keeps its relative arrangement either way.)
             for _, seg in ipairs(ALL_SEGMENTS) do
-                local on = enabled[seg.id] == true
-                local nextOn = ImGui.Checkbox(seg.label .. "##dockSeg" .. seg.id, on)
-                if nextOn ~= on then
-                    changed = true
-                    if nextOn then
+                if not enabled[seg.id] then
+                    if ImGui.Checkbox(seg.label .. "##dockSeg" .. seg.id, false) then
+                        changed = true
                         enabled[seg.id] = true
-                        -- Insert at the segment's canonical position RELATIVE to the members
-                        -- already on, not at the end: appending made every re-enabled segment
-                        -- silently migrate to the far right of the bar for good. (A hand-
-                        -- edited custom order keeps its relative arrangement either way.)
                         local at = #order + 1
-                        for i, id in ipairs(order) do
-                            if (canonPos[id] or math.huge) > canonPos[seg.id] then at = i; break end
+                        for i, oid in ipairs(order) do
+                            if (canonPos[oid] or math.huge) > canonPos[seg.id] then at = i; break end
                         end
                         table.insert(order, at, seg.id)
-                    else
-                        enabled[seg.id] = nil
-                        for i = #order, 1, -1 do
-                            if order[i] == seg.id then table.remove(order, i) end
-                        end
                     end
                 end
             end
