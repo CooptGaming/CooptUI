@@ -42,6 +42,7 @@ docs/*
 !docs/CONFIGURATION.md
 !docs/DEFAULT_SETTINGS.md
 !docs/PRODUCT_GUIDE.md
+!docs/DOCK_UI.md
 !docs/DEVELOPER.md
 !docs/TROUBLESHOOTING.md
 !docs/RELEASE_AND_DEPLOYMENT.md
