@@ -2159,6 +2159,21 @@ function M.init(deps)
 end
 
 function M.tick(now)
+    -- Zone gate, the main-loop half of app.lua's render gate. Every phase below reads TLOs,
+    -- native windows, or the plugin's item list, and mid-zone all three are gone: scans see an
+    -- empty inventory, window polls see closed windows, and state machines time out against a
+    -- world that is still loading. Skip the work but STILL run phase10 -- it owns the frame
+    -- delay and mq.doevents, so the coroutine keeps yielding and chat capture keeps running;
+    -- returning outright here would spin the loop. Fail-open, same as the render gate: only a
+    -- positive non-INGAME answer skips.
+    local okState, gameState = pcall(function()
+        local eq = mq.TLO and mq.TLO.EverQuest
+        return eq and eq.GameState and eq.GameState()
+    end)
+    if okState and type(gameState) == "string" and gameState ~= "INGAME" then
+        phase10_loopDelay()
+        return
+    end
     -- The cursor cache is only refreshed by the hub render; clear it each tick so main-loop
     -- consumers fall through to the live check while the window is hidden or collapsed.
     if d.uiState then d.uiState.hasItemOnCursorThisFrame = nil end

@@ -49,9 +49,11 @@ local inputBuf = ""
 
 local function renderTabs()
     for i, t in ipairs(TABS) do
-        local n = chatFeed.getUnread(t.id)
-        local label = (n > 0) and string.format("%s %d##chatTab_%s", t.label, n, t.id)
-                              or string.format("%s##chatTab_%s", t.label, t.id)
+        -- Plain label, no unread count: the window is where you go to READ chat, so a number
+        -- that exists to pull you here has nothing left to say once you have arrived. The
+        -- command bar keeps its badges -- that is the glance surface -- and this window still
+        -- clears their counts as you view each tab (see the clearUnread call in render).
+        local label = string.format("%s##chatTab_%s", t.label, t.id)
         local lit = (activeTab == t.id)
         if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
         if ImGui.SmallButton(label) then

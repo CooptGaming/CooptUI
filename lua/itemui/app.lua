@@ -1381,9 +1381,24 @@ local function main()
         mq.cmd('/macro loot')
     end)
     mq.imgui.init('ItemUI', function()
+        -- Draw NOTHING unless the game is fully in-world. Zoning -- a death sending you to
+        -- your bind point, a port, any load screen -- tears down every native window and
+        -- blanks the TLOs these views read through, so a frame rendered mid-zone is the frame
+        -- that throws. That matters more here than anywhere else in the product: MQ2Lua
+        -- answers a failed imgui callback by KILLING the script and resetting the overlay
+        -- (LuaImGui.cpp:188-201), which is the "UI is still on screen but nothing responds"
+        -- freeze -- and the teardown it starts is what turns the next /lua stop into a crash
+        -- inside lua_rawgeti. Fail-open: only a positive non-INGAME answer skips the frame, so
+        -- a TLO that errors or returns nil draws exactly as before.
+        local okState, gameState = pcall(function()
+            local eq = mq.TLO and mq.TLO.EverQuest
+            return eq and eq.GameState and eq.GameState()
+        end)
+        if okState and type(gameState) == "string" and gameState ~= "INGAME" then return end
         -- One ctx for the whole frame (context.build() returns a cached proxy, but calling it
         -- once keeps the frame's view of state consistent).
-        local ctx = context.build()
+        local okCtx, ctx = pcall(context.build)
+        if not okCtx or not ctx then dockError("Frame context", okCtx and "context.build returned nil" or ctx); return end
         -- Bars BEFORE the hub, for two reasons that are easy to conflate:
         --   * MainWindow.render early-outs when the hub and every companion is closed, so a
         --     bar drawn from inside it would disappear exactly when it is most useful.
@@ -1410,7 +1425,13 @@ local function main()
         if not okTop then dockError("Dock top bar", errTop) end
         local okBottom, errBottom = pcall(dock.bottom.render, ctx)
         if not okBottom then dockError("Dock command bar", errBottom) end
-        MainWindow.render(ctx)
+        -- The hub gets the same containment as the bars. Companion windows are already
+        -- isolated one at a time inside renderCompanions, but the hub's OWN body -- and
+        -- everything renderCompanions runs after -- was bare, so an error there escaped into
+        -- MQ2Lua and cost the whole script (see the freeze note on the game-state gate above).
+        -- Contained, the same error costs one frame and prints what actually threw.
+        local okHub, errHub = pcall(MainWindow.render, ctx)
+        if not okHub then dockError("Item UI window", errHub) end
     end)
     -- Native skin maintenance: the skin is OPT-IN (installed via the Settings
     -- button or by hand). sync() only refreshes an EXISTING <EQ>\uifiles\coopt
