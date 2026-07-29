@@ -881,6 +881,19 @@ end
 -- Action queue
 -- ---------------------------------------------------------------------------
 
+-- Divider color: a quiet grey. Equal RGB channels make the byte-order question moot; the
+-- high byte is alpha either way, kept low so the rule reads as furniture, not content.
+local DIVIDER_COL = 0x66565656
+
+--- A thin vertical rule drawn INSIDE an existing gap via the draw list, so it costs no
+--- layout width -- slot budgets, the overflow math and the test stub (where the draw list
+--- is nil) are all untouched. x is the line's screen X; y1/y2 its vertical extent.
+function M.drawDividerAt(x, y1, y2)
+    local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+    if not dl then return end
+    pcall(function() dl:AddLine(ImVec2(x, y1), ImVec2(x, y2), DIVIDER_COL, 1) end)
+end
+
 --- Queue a bar action for main_loop to drain. NOTHING that scans, sleeps or issues a game
 --- command may run inside the ImGui callback, so every button here goes through the queue --
 --- the same discipline as uiState.deferredBankScanRequested and uiState.autoSellRequested.
@@ -1002,6 +1015,7 @@ function M.render(ctx)
         dockLayout.contained(ctx.uiState, "dock top bar", function()
         ImGui.AlignTextToFramePadding()
         local first = true
+        local lastRect = nil   -- previous slot's rect; the divider is drawn into the gap after it
         -- Running width, so segments that would overflow a narrow viewport are dropped from
         -- the right instead of drawing off-screen (the seven default slots reserve ~1700px).
         local usedW = constants.UI.DOCK_SLOT_PADDING_X * 2
@@ -1012,7 +1026,16 @@ function M.render(ctx)
                 local needed = slotW + (first and 0 or constants.UI.DOCK_SLOT_GAP)
                 if not first and usedW + needed > w then break end
                 usedW = usedW + needed
-                if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
+                if not first then
+                    ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+                    -- Section divider, drawn INSIDE the gap (half-way between the previous
+                    -- slot's right edge and this one's left) so it adds no width anywhere.
+                    if lastRect and lastRect.x then
+                        local childH = h - constants.UI.DOCK_BAR_PADDING_Y * 2
+                        M.drawDividerAt(lastRect.x + lastRect.w + constants.UI.DOCK_SLOT_GAP * 0.5,
+                            lastRect.y + 2, lastRect.y + childH - 2)
+                    end
+                end
                 first = false
                 -- A fixed-width, borderless child is what pins the slot: content reflows
                 -- inside it and the neighbours never move.
@@ -1043,6 +1066,7 @@ function M.render(ctx)
                 local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
                 local rx, ry = dockLayout.itemRectMin()
                 M.slots[id] = { x = rx, y = ry, w = slotW, h = h, hovered = hovered }
+                if rx then lastRect = M.slots[id] end
             end
         end
         end)

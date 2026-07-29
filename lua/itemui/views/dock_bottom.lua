@@ -667,18 +667,41 @@ function M.render(ctx)
             ImGui.BeginGroup()
             dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
             ImGui.EndGroup()
+            -- Section divider between chat and the launcher row, drawn into the gap so it
+            -- costs no width (see dockTop.drawDividerAt).
+            local cnx, cny = dockLayout.itemRectMin()
+            local cxx, cxy = dockLayout.itemRectMax()
+            if cxx and cxy then
+                dockTop.drawDividerAt(cxx + constants.UI.DOCK_SLOT_GAP * 0.5, (cny or (cxy - 16)) + 1, cxy - 1)
+            end
             ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
             dockLayout.contained(ctx.uiState, "dock launcher buttons", drawLauncherButtons, ctx, layoutConfig)
         else
-            -- The hover menus, left to right (Items / Character / Actions / Game windows / Layouts).
+            -- The hover menus, left to right (Items / Character / Actions / Game windows /
+            -- Layouts), with section dividers at the group boundaries the user reads them
+            -- as: CoOpt windows (Items/Character/Actions) | the game's own windows |
+            -- Layouts | chat. Dividers draw into the gaps -- zero layout width.
+            local DIVIDER_BEFORE = { game = true, layouts = true }
+            local prevRight, prevTop, prevBot = nil, nil, nil
             for _, menu in ipairs(MENUS) do
+                if DIVIDER_BEFORE[menu.id] and prevRight then
+                    dockTop.drawDividerAt(prevRight + constants.UI.DOCK_SLOT_GAP * 0.5,
+                        (prevTop or (prevBot - 16)) + 1, prevBot - 1)
+                end
                 ImGui.SmallButton(menu.label .. "##dockmenubtn_" .. menu.id)
                 local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
                 -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
                 -- everything after the Items button (see dockLayout.itemRectMin).
                 local rx, ry = dockLayout.itemRectMin()
                 M.buttons[menu.id] = { x = rx, y = ry, hovered = hovered }
+                local mxx, mxy = dockLayout.itemRectMax()
+                if mxx and mxy then prevRight, prevTop, prevBot = mxx, ry, mxy end
                 ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+            end
+            -- Last boundary: menu row | chat.
+            if prevRight and prevBot then
+                dockTop.drawDividerAt(prevRight + constants.UI.DOCK_SLOT_GAP * 0.5,
+                    (prevTop or (prevBot - 16)) + 1, prevBot - 1)
             end
 
             local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
