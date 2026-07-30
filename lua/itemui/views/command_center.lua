@@ -175,6 +175,11 @@ end
 registry.register({
     id          = "commandCenter",
     zone        = "B2",  -- window_zones placement column/slot (mockup 10a)
+    -- Windows pass §0.3: in bars mode the bars carry every launcher, Loot All, Auto Sell
+    -- and every status this window showed — 100% duplication. The file stays as the
+    -- classic-mode surface; the registry hides it (launchers, render, tick) while
+    -- UIMode=bars. Nothing is deleted.
+    classicOnly = true,
     label       = "Cmd",
     buttonWidth = 40,
     tooltip     = "Command Center: status, process controls, and launchers for every CoOpt window",

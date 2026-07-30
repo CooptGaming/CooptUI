@@ -157,9 +157,7 @@ local function renderCompareTile(ctx, row)
         else
             valStr = tostring(row.value)
         end
-        ImGui.SetWindowFontScale(1.15)
         ImGui.Text(valStr)
-        ImGui.SetWindowFontScale(1.0)
         if row.isRatio then
             ctx.theme.TextMuted(" ")
         elseif row.delta == nil then

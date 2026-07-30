@@ -355,6 +355,9 @@ function ConfigGeneral.render(ctx)
         local nextBarsOn = ImGui.Checkbox("Use the bars UI##dockUIMode", barsOn)
         if nextBarsOn ~= barsOn then
             setLayoutValue("UIMode", nextBarsOn and "bars" or "classic")
+            -- Re-evaluate eligibility so classicOnly companions (Command Center) close on
+            -- entering bars mode and come back when leaving it — same call the loader makes.
+            registry.applyEnabledFromLayout(layoutConfig)
         end
 
         if nextBarsOn then

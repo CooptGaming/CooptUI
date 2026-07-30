@@ -174,6 +174,18 @@ M.UI = {
     ITEM_NAME_TRUNCATE_LEN = 37,
     FAILED_LIST_TRUNCATE_LEN = 60,
     FAILED_LIST_DISPLAY_MAX = 57,
+    -- The kit (windows pass §3): type registers + vertical rhythm. Four heights, nothing
+    -- else — if a container needs a fifth height, the container is wrong.
+    KIT = {
+        FONT_HEADING = 22,  -- item name, window headings (PushFont via utils/fonts)
+        FONT_BODY    = 16,  -- MQ's default font size; never pushed, recorded here for the kit
+        FONT_MONO    = 13,  -- number columns only (ConsoleFont's native size)
+        HEADER_H     = 26,  -- window header band (components/window_header)
+        TOOLBAR_H    = 24,  -- toolbar / tab strip
+        ROW_H        = 20,  -- table row
+        PAD          = 8,   -- window padding, and the gap between groups
+        GAP_INNER    = 4,   -- gap inside a group
+    },
 }
 
 -- ---------------------------------------------------------------------------

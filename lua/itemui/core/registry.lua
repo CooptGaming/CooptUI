@@ -33,8 +33,13 @@ function M.init(opts)
 end
 
 local function isEnabled(spec)
-    if not spec.enableKey then return true end
     if not layoutConfig then return true end
+    -- classicOnly (windows pass §0.3): the module stays registered — registration happens
+    -- at require time, before the INI is read, and UIMode can flip live in Settings — but
+    -- it is not offered, drawn or ticked while the bars UI is on. Today: commandCenter,
+    -- whose every launcher and status now lives on the bars.
+    if spec.classicOnly and tostring(layoutConfig.UIMode or "classic") == "bars" then return false end
+    if not spec.enableKey then return true end
     return (tonumber(layoutConfig[spec.enableKey]) or 1) ~= 0
 end
 
@@ -304,14 +309,17 @@ function M.getZone(id)
     return (type(z) == "string" and z ~= "") and z or nil
 end
 
---- Close any companion window whose enableKey is 0 in layoutConfig (call after loadLayoutConfig).
+--- Close any companion window that is no longer eligible: enableKey 0 in layoutConfig, or
+--- classicOnly while the bars UI is on. Call after loadLayoutConfig and after a UIMode flip.
 function M.applyEnabledFromLayout(layoutConfig)
     if not layoutConfig then return end
     cacheDirty = true
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
     for _, id in ipairs(order) do
         local m = modules[id]
-        if m and m.spec.enableKey then
-            if (tonumber(layoutConfig[m.spec.enableKey]) or 1) == 0 then
+        if m and (m.spec.enableKey or m.spec.classicOnly) then
+            if (m.spec.classicOnly and barsOn)
+                or (m.spec.enableKey and (tonumber(layoutConfig[m.spec.enableKey]) or 1) == 0) then
                 m.windowOpen = false
                 m.windowShouldDraw = false
                 m.openedAt = nil

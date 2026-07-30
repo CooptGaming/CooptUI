@@ -34,7 +34,7 @@ local function newRec()
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
         windows = {},       -- names passed to Begin
-        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0 },
+        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0 },
         max = { win = 0, child = 0 },
         tloAccess = {},     -- any mq.TLO.* touched during the frame
         commands = {},      -- any mq.cmd/cmdf issued during the frame
@@ -144,6 +144,17 @@ function ImGuiStub.SameLine() end
 function ImGuiStub.AlignTextToFramePadding() end
 function ImGuiStub.SetWindowFontScale() end
 
+-- fonts ---------------------------------------------------------------------
+-- Sentinel handles: identity is all render code may rely on. PushFont mirrors the 1.92
+-- binding's overloads — (), (font) and (font, size) — and joins the balance count like
+-- every other stack; utils/fonts.lua's degrade-gracefully paths all still push and pop
+-- through here, so an unbalanced register shows up as depth.font ~= 0.
+local stubDefaultFont = { Name = 'RobotoRegular (stub)', LegacySize = 16 }
+ImGuiStub.ConsoleFont = { Name = 'LucidaConsole (stub)', LegacySize = 13 }
+function ImGuiStub.GetDefaultFont() return stubDefaultFont end
+function ImGuiStub.PushFont(_font, _size) rec.depth.font = rec.depth.font + 1 end
+function ImGuiStub.PopFont() rec.depth.font = rec.depth.font - 1 end
+
 -- widgets -------------------------------------------------------------------
 local function widget(label)
     lastLabel = label
@@ -190,6 +201,7 @@ function ImGuiStub.CalcTextSize(s) return #tostring(s or "") * 7, 14 end
 function ImGuiStub.GetWindowWidth() return 2560 end
 function ImGuiStub.GetWindowHeight() return 30 end
 function ImGuiStub.GetWindowSize() return 2560, 30 end
+function ImGuiStub.GetContentRegionAvail() return 400, 300 end
 function ImGuiStub.GetCursorPosX() return 400 end
 function ImGuiStub.GetCursorPos() return 0, 0 end
 function ImGuiStub.SetCursorPos() end
@@ -258,7 +270,8 @@ function M.install()
     _G.ImGuiCol = enum({ 'Text', 'Button', 'ButtonHovered', 'ButtonActive', 'ChildBg',
         'Border', 'PlotHistogram', 'Header' })
     _G.ImGuiStyleVar = enum({ 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
-        'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding' })
+        'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding',
+        'FrameRounding', 'FrameBorderSize' })
     _G.ImGuiKey = enum({ 'Escape', 'F1', 'F2', 'Tab', 'Enter' })
     _G.ImGuiMouseButton = { Left = 0, Right = 1, Middle = 2 }
     _G.ImGuiHoveredFlags = enum({ 'None', 'ChildWindows', 'AllowWhenBlockedByPopup' })
@@ -326,11 +339,12 @@ end
 function M.balanced(r)
     local d = r.depth
     return d.win == 0 and d.child == 0 and d.group == 0 and d.id == 0 and d.sv == 0 and d.sc == 0
+        and d.font == 0
 end
 
 function M.imbalance(r)
     local out, d = {}, r.depth
-    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc' }) do
+    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc', 'font' }) do
         if d[k] ~= 0 then out[#out + 1] = string.format('%s=%+d', k, d[k]) end
     end
     return table.concat(out, ' ')

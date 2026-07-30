@@ -8,6 +8,7 @@ local mq = require('mq')
 require('ImGui')
 local constants = require('itemui.constants')
 local theme = require('itemui.utils.theme')
+local fonts = require('itemui.utils.fonts')
 
 local M = {}
 local deps  -- set by init()
@@ -257,8 +258,6 @@ function M.render()
 
     ImGui.BeginChild("CharacterStats", ImVec2(constants.UI.CHARACTER_STATS_PANEL_WIDTH, -deps.FOOTER_HEIGHT), true, ImGuiWindowFlags.NoScrollbar)
 
-    ImGui.SetWindowFontScale(0.95)
-
     local headerText = string.format("%s (%s) %s", s.playerName, s.playerLevel, s.classStr)
     ImGui.TextColored(tv(C.Header), headerText)
     ImGui.Separator()
@@ -383,7 +382,8 @@ function M.render()
     if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/st show') end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
     local scriptData = cachedScriptData or getScriptCountsFromInventory(deps and deps.inventoryItems)
-    ImGui.SetWindowFontScale(0.85)
+    -- Number table at the mono register (13px Lucida) — real glyphs, not a scaled bitmap.
+    fonts.pushMono()
     ImGui.Text("")
     ImGui.SameLine(48)
     ImGui.TextColored(tv(C.Muted), "Cnt")
@@ -397,9 +397,7 @@ function M.render()
         ImGui.Text(tostring(row.aa))
     end
     ImGui.TextColored(tv(C.Highlight), "Total: " .. tostring(scriptData.totalAA) .. " AA")
-    ImGui.SetWindowFontScale(0.95)
-
-    ImGui.SetWindowFontScale(1.0)
+    fonts.pop()
 
     ImGui.EndChild()
 end
