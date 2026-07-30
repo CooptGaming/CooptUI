@@ -34,7 +34,7 @@ local function newRec()
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
         windows = {},       -- names passed to Begin
-        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0 },
+        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0 },
         max = { win = 0, child = 0 },
         tloAccess = {},     -- any mq.TLO.* touched during the frame
         commands = {},      -- any mq.cmd/cmdf issued during the frame
@@ -47,6 +47,9 @@ rec = newRec()
 --- Widgets that should report hovered / clicked this frame, keyed by the label substring.
 M.hover = {}
 M.click = {}
+--- Popups that report open (id substring), and submenus forced shut (label substring).
+M.openPopups = {}
+M.closedMenus = {}
 
 --- Make a named ImGui call raise, e.g. M.throwOn = { CalcTextSize = true }. This models the
 --- real failure the first in-game run hit: something between Begin and End threw, app.lua's
@@ -177,9 +180,48 @@ function ImGuiStub.RadioButton(label, active) lastLabel = label; rec.buttons[#re
 function ImGuiStub.CollapsingHeader(label) addText(label); return true end
 function ImGuiStub.ProgressBar() end
 function ImGuiStub.InputText(_id, buf) return buf, false end
-function ImGuiStub.BeginPopupContextItem() return false end
-function ImGuiStub.EndPopup() end
+-- popups & menus -------------------------------------------------------------
+-- Closed by default like real ImGui. A test opens one by putting an id substring in
+-- M.openPopups; an open popup counts as a window (EndPopup closes it), so imbalance
+-- shows up in depth.win. BeginMenu returns true by default so submenu CONTENTS are
+-- recorded; menus a test wants shut go in M.closedMenus by label substring.
+function ImGuiStub.BeginPopupContextItem(id)
+    if not matches(M.openPopups, id) then return false end
+    rec.depth.win = rec.depth.win + 1
+    return true
+end
+function ImGuiStub.BeginPopup(id)
+    if not matches(M.openPopups, id) then return false end
+    rec.depth.win = rec.depth.win + 1
+    return true
+end
+function ImGuiStub.EndPopup() rec.depth.win = rec.depth.win - 1 end
 function ImGuiStub.OpenPopup() end
+function ImGuiStub.BeginMenu(label)
+    lastLabel = label
+    rec.buttons[#rec.buttons + 1] = label
+    if matches(M.closedMenus, label) then return false end
+    rec.depth.menu = rec.depth.menu + 1
+    return true
+end
+function ImGuiStub.EndMenu() rec.depth.menu = rec.depth.menu - 1 end
+--- Faithful to the MQ binding (lua_ImGuiWidgets.cpp:942): returns (activated, value) —
+--- activated FIRST. With a `selected` arg the second return is the toggled value;
+--- without one it mirrors activated. enabled=false blocks activation entirely.
+function ImGuiStub.MenuItem(label, _shortcut, selected, enabled)
+    lastLabel = label
+    rec.buttons[#rec.buttons + 1] = label
+    addText(label)
+    local activated = enabled ~= false and matches(M.click, label) or false
+    local value
+    if selected ~= nil then
+        value = selected
+        if activated then value = not selected end
+    else
+        value = activated
+    end
+    return activated, value
+end
 
 -- queries -------------------------------------------------------------------
 function ImGuiStub.IsItemHovered() return matches(M.hover, lastLabel) end
@@ -188,7 +230,9 @@ function ImGuiStub.IsItemDeactivatedAfterEdit() return false end
 function ImGuiStub.IsKeyPressed(k) return M.keys[k] == true end
 function ImGuiStub.IsMouseClicked(b) return M.mouse[b] == true end
 function ImGuiStub.IsMouseReleased() return false end
-function ImGuiStub.GetIO() return { KeyShift = false, WantTextInput = false, WantCaptureMouse = false } end
+function ImGuiStub.GetIO()
+    return { KeyShift = M.keys.Shift == true, WantTextInput = false, WantCaptureMouse = false }
+end
 
 -- geometry ------------------------------------------------------------------
 function ImGuiStub.GetMainViewport()
@@ -339,12 +383,12 @@ end
 function M.balanced(r)
     local d = r.depth
     return d.win == 0 and d.child == 0 and d.group == 0 and d.id == 0 and d.sv == 0 and d.sc == 0
-        and d.font == 0
+        and d.font == 0 and d.menu == 0
 end
 
 function M.imbalance(r)
     local out, d = {}, r.depth
-    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc', 'font' }) do
+    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc', 'font', 'menu' }) do
         if d[k] ~= 0 then out[#out + 1] = string.format('%s=%+d', k, d[k]) end
     end
     return table.concat(out, ' ')
