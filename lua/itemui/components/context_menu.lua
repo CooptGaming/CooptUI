@@ -78,6 +78,8 @@ local function whereString(item, env)
         return "In a socket"
     elseif ctxName == "ornament" then
         return "Ornament slot"
+    elseif ctxName == "effect" then
+        return tostring(item.kind or "effect")
     end
     return string.format("Bag %s · Slot %s", tostring(item.bag or "?"), tostring(item.slot or "?"))
 end
@@ -239,8 +241,10 @@ end
 local ROWS
 
 --- Subject family gates: scripts and reroll books keep their deliberately small menus
---- (identity + their own verbs); everything else gets the full skeleton.
-local function subjectFamily(item)
+--- (identity + their own verbs); effect rows are their own family (the subject is a
+--- buff/song, not an item); everything else gets the full skeleton.
+local function subjectFamily(item, env)
+    if env.context == "effect" then return "effect" end
     if isScriptItem(item) then return "script" end
     if isRerollBook(item) then return "book" end
     return "item"
@@ -601,6 +605,16 @@ ROWS = {
 
     -- ============================================================== destructive (no heading)
     {
+        -- Effect rows (§7's seventh context): the one verb the Effects window offered,
+        -- kept instant — shedding a buff is not destroying property, so no shift gate.
+        id = "effectRemove", group = "destroy", families = { effect = true },
+        contexts = { effect = true },
+        destructive = true,
+        applies = function(_, _, env) return env.onRemoveEffect ~= nil end,
+        label = function() return "Remove it" end,
+        action = function(_, item, env) env.onRemoveEffect(item) end,
+    },
+    {
         id = "destroy", group = "destroy", families = { item = true },
         contexts = { bags = true, bank = true },
         destructive = true, shiftGated = true,
@@ -686,7 +700,7 @@ function M.renderContents(ctx, item, env)
     if not ctx or not item or not env then return end
     env.source = env.source or "inv"
     env.context = env.context or SOURCE_TO_CONTEXT[env.source] or "bags"
-    env.family = subjectFamily(item)
+    env.family = subjectFamily(item, env)
     env.sellListSource = env.source == "inv" or env.source == "sell" or env.source == "bank"
         or env.source == "augments" or env.source == "reroll"
 

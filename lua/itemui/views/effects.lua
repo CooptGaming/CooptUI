@@ -22,6 +22,7 @@ require('ImGui')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local dockState = require('itemui.services.dock_state')
+local contextMenu = require('itemui.components.context_menu')
 
 local EffectsView = {}
 
@@ -191,19 +192,23 @@ local function effectTooltip(ctx, e)
     ImGui.EndTooltip()
 end
 
--- Per-effect remove popup (buffs and songs; /removebuff finds either by name).
-local function removePopup(e)
+-- Per-effect remove popup (buffs and songs; /removebuff finds either by name). Since the
+-- windows pass this rides the one context-menu builder — the effect row is §7's seventh
+-- context, so it gets the same identity-first skeleton as every item menu.
+local function removePopup(ctx, e)
     if e.kind == "aura" then return end
-    if ImGui.BeginPopupContextItem("EffRemove_" .. e.kind .. "_" .. e.index) then
-        if ImGui.MenuItem("Remove " .. e.name) then
+    contextMenu.render(ctx, { name = e.name, kind = e.kind, index = e.index }, {
+        popupId = "EffRemove_" .. e.kind .. "_" .. e.index,
+        context = "effect",
+        where = (e.kind == "song") and "song" or "buff",
+        onRemoveEffect = function()
             mq.cmdf('/removebuff "%s"', e.name)
             -- Forces the shared walk to re-run on the next dock tick so the row disappears
             -- promptly. (The old `cache.at = 0` here is gone: cache.at is now overwritten
             -- every frame from the shared cache, so zeroing it no longer triggers anything.)
             dockState.invalidateEffects()
-        end
-        ImGui.EndPopup()
-    end
+        end,
+    })
 end
 
 local function renderRow(ctx, e)
@@ -231,7 +236,7 @@ local function renderRow(ctx, e)
     end
     ImGui.EndGroup()
     if ImGui.IsItemHovered() then effectTooltip(ctx, e) end
-    removePopup(e)
+    removePopup(ctx, e)
     ImGui.PopID()
 end
 
@@ -259,7 +264,7 @@ local function renderIconGrid(ctx, list)
         end
         ImGui.EndGroup()
         if ImGui.IsItemHovered() then effectTooltip(ctx, e) end
-        removePopup(e)
+        removePopup(ctx, e)
         ImGui.PopID()
     end
 end

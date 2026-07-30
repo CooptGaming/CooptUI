@@ -405,6 +405,28 @@ do
     check('popup: open balanced (EndPopup paired)', stub.balanced(openFrame), stub.imbalance(openFrame))
 end
 
+-- ---------------------------------------------------------------- effect context (§7's seventh)
+do
+    local removed = nil
+    local spies = newSpies()
+    local ctx = newCtx(spies)
+    local buff = { name = 'Spirit of Wolf', kind = 'buff', index = 3 }
+    local env = { context = 'effect', where = 'buff',
+                  onRemoveEffect = function(e) removed = e.name end }
+    local r = render(ctx, buff, env)
+    check('effect: identity first', r.text[1] == 'Spirit of Wolf', r.text[1])
+    check('effect: where states the kind', r.text[2] == 'buff', r.text[2])
+    check('effect: Remove it offered', stub.drew(r, 'Remove it'))
+    check('effect: no item verbs leak in', not stub.drew(r, 'Keep it')
+        and not stub.drew(r, 'Open it') and not stub.drew(r, 'Destroy it'))
+    check('effect: balanced', stub.balanced(r), stub.imbalance(r))
+    stub.click = { ['Remove it'] = true }
+    render(ctx, buff, { context = 'effect', where = 'buff',
+                        onRemoveEffect = function(e) removed = e.name end })
+    stub.click = {}
+    check('effect: remove fires with the subject', removed == 'Spirit of Wolf')
+end
+
 -- ---------------------------------------------------------------- equip row under trap TLO
 do
     -- The mq stub's TLO trap returns nil from every call, so WornSlots resolves nil and
