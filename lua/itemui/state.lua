@@ -90,13 +90,17 @@ do
     layoutDefaults.WidthChatPanel = 560
     layoutDefaults.HeightChat = 380
     layoutDefaults.ShowChatWindow = 1
-    -- Chat console renderer. 0 = the built-in ring-buffer renderer; 1 = MQ's Zep console.
-    -- DEFAULT 0 because Zep crashes the CLIENT on script stop: requiring 'Zep' registers a
-    -- sol2 usertype whose __gc reaches into the Lua registry during lua_close, and LuaJIT
-    -- has already torn the registry down by then (dump 2026-07-31: lj_gc_finalize_udata ->
-    -- gc_call_finalizer -> destroy_usertype_storage<LuaZepConsole> -> luaL_unref ->
-    -- lua_rawgeti null-deref). Flip to 1 only once that is fixed in the plugin.
-    layoutDefaults.ChatUseZep = 0
+    -- Chat console renderer. 1 = MQ's Zep console (clickable item links, real scrollback);
+    -- 0 = the built-in ring-buffer renderer.
+    --
+    -- Back ON as of 2026-07-31: the client-crash-on-stop was never Zep itself but WHERE it
+    -- got required. sol2's usertype storage unrefs through the lua_State that registered it,
+    -- and requiring from a render callback handed it the ImGui coroutine thread, which dies
+    -- before finalization (dangling state -> lua_rawgeti null-deref -> client down).
+    -- app.lua now prewarms it on the MAIN thread at startup and no console stores a Lua
+    -- callback, so nothing outlives its state. See services/chat_console.lua for the full
+    -- mechanism; set 0 here (or untick Settings > General) if a console ever misbehaves.
+    layoutDefaults.ChatUseZep = 1
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

@@ -44,24 +44,38 @@ local zepChecked = false
 local zepOk = false
 local zepModule = nil
 
---- Opt-in gate for the Zep console (layoutConfig.ChatUseZep, default 0 = OFF).
+--- WHICH LUA STATE REQUIRES ZEP DECIDES WHETHER STOPPING THE SCRIPT KILLS THE CLIENT.
 ---
---- CLIENT-CRASH MITIGATION, not a preference. `require('Zep')` registers a sol2 usertype
---- (LuaZepConsole) whose storage carries a __gc that reaches into the Lua registry. On
---- script stop LuaJIT closes the state, finalizes userdata, and that __gc runs AFTER the
---- registry is already gone -- a null-deref that takes the whole EQ client down, not just
---- the script. Confirmed from a real minidump (2026-07-31): lj_gc_finalize_udata ->
---- gc_call_finalizer -> destroy_usertype_storage<LuaZepConsole> -> luaL_unref ->
---- lua_rawgeti (lj_api.c:842), read of 0x18 off a null pointer. It only bites once Zep has
---- actually been required, which is why stopping right after a start was always safe and
---- stopping after a session of play was not.
+--- MQ registers the Zep bindings against whatever state called `require` (MQ2Lua.cpp's
+--- register_builtin hands the module factory `sol::this_state s`), and sol2's usertype
+--- storage keeps that `lua_State*` in `m_L` to unref its registry entries from its own
+--- destructor (usertype_storage.hpp:288/309, ~usertype_storage_base at :597).
 ---
---- The fallback ring-buffer renderer draws the same lines; what is lost is Zep's native
---- \x12 link execution and its scrollback widget. Flip ChatUseZep=1 once the plugin-side
---- teardown is fixed (destroy the usertype storages before lua_close, or guard that __gc).
-local zepEnabled = nil  -- set by M.init from layoutConfig; nil = not yet initialised (off)
+--- Requiring Zep from a RENDER path captures the ImGui **coroutine thread**, not the main
+--- state: mq.imgui callbacks run on `sol::thread::create(...)` (LuaImGui.cpp:136). At
+--- script stop LuaJIT frees that thread before it finalizes the usertype-storage userdata,
+--- so `m_L` dangles, `G(L)` reads NULL, and `luaL_unref -> lua_rawgeti` faults reading
+--- 0x18 -- taking the whole EQ client down, not just the script. That is exactly the
+--- minidump from 2026-07-31 (lj_gc_finalize_udata -> gc_call_finalizer ->
+--- destroy_usertype_storage<LuaZepConsole> -> luaL_unref -> lua_rawgeti, lj_api.c:842),
+--- and it explains the timing tell: stop right after a start was always safe (Zep never
+--- required), stop after any session that drew chat was not.
+---
+--- So the require happens ONCE, from the MAIN thread, at init -- M.prewarm below. The main
+--- state stays valid for the whole of lua_close, so the same destructor is harmless.
+--- ImGui itself never had this problem for exactly this reason: app.lua requires it at the
+--- top of the script body, on the main state.
+---
+--- Console INSTANCES still must be constructed from a render path (see the header note);
+--- that is unrelated -- their __gc receives a live state from Lua rather than storing one.
+local zepEnabled = false   -- mirrors layoutConfig.ChatUseZep
+local zepPrewarmed = false -- true once M.prewarm has run on the main thread
 
-local function zepAvailable()
+--- Call ONCE from the main thread during startup (app.lua), never from a render callback.
+--- `enabled` is layoutConfig.ChatUseZep. Returns true when the Zep module is usable.
+function M.prewarm(enabled)
+    zepEnabled = enabled and true or false
+    zepPrewarmed = true
     if not zepEnabled then return false end
     if not zepChecked then
         zepChecked = true
@@ -74,12 +88,19 @@ local function zepAvailable()
     return zepOk
 end
 
---- Called from the chat window each frame with the live layoutConfig value, so a Settings
---- flip takes effect without a reload. Turning it OFF mid-session cannot un-require Zep
---- (the usertype is already registered for this state's lifetime) -- it stops NEW consoles
---- and falls back to the ring buffer; the crash-free guarantee needs the next script start.
+--- Render-path query. Never requires anything: if the main-thread prewarm did not run (or
+--- ran with the setting off), the fallback ring buffer draws instead. A Settings flip to ON
+--- therefore takes effect on the next script start, which is the point -- enabling it live
+--- would mean requiring Zep from a render path, the very thing that crashes the client.
+local function zepAvailable()
+    return zepEnabled and zepOk
+end
+
+--- Live OFF switch only (Settings unticked mid-session): stops new consoles and falls back.
+--- It cannot un-require Zep -- the usertype is registered for this state's lifetime -- but
+--- with the require done on the main thread that is no longer a crash, just a renderer swap.
 function M.setZepEnabled(v)
-    zepEnabled = v and true or false
+    zepEnabled = (v and true or false) and zepPrewarmed and zepOk or false
 end
 M.zepAvailable = zepAvailable
 
@@ -96,22 +117,12 @@ local function channelColor(channel)
 end
 M.channelColor = channelColor
 
---- "link" event handler shared by every console. params.data is the raw \x12...\x12 EQ tag
---- text (InsertHyperlink's hyperlinkData -- see MQConsoleDelegate::InsertHyperlink in the
---- pinned source, which stores tagInfo.link verbatim). TextTagInfo entries hold string_views
---- into that string, so it is extracted and executed in the SAME callback and never stored.
-local function onConsoleEvent(kind, params)
-    if kind ~= "link" then return false end
-    pcall(function()
-        local data = params and params.data
-        if type(data) ~= "string" or data == "" then return end
-        local links = mq.ExtractLinks(data)
-        if links and links[1] then
-            mq.ExecuteTextLink(links[1])
-        end
-    end)
-    return true
-end
+-- (Removed 2026-07-31) The Lua "link" event handler that used to be assigned to every
+-- console's eventCallback lived here. Assigning it stored a sol::safe_function bound to the
+-- ImGui coroutine thread, whose teardown crashes the client -- see newConsoleInstance. The
+-- native delegate already executes real links before Lua is consulted, so the handler was
+-- only ever a fallback for unrecognised tag data. If a future MQ makes the callback safe to
+-- hold, restore it from git history (it was ~12 lines around mq.ExtractLinks/ExecuteTextLink).
 
 --- AppendText dispatch: the ImVec4-color overload always pushes a style color (even a
 --- fully-transparent one), so a nil colorVec must go through the no-color overload instead --
@@ -131,7 +142,18 @@ local function newConsoleInstance(tab)
     local console = zepModule.Console.new("##CoOptChat_" .. tostring(tab))
     console.maxBufferLines = 500
     console.autoScroll = true
-    console.eventCallback = onConsoleEvent
+    -- NO eventCallback. LuaZepConsole stores it as a sol::safe_function (lua_Zep.cpp:142),
+    -- which is a registry reference bound to the state that ASSIGNED it -- and consoles are
+    -- constructed from a render path, i.e. the ImGui coroutine thread. That thread dies
+    -- before the instance is finalized at script stop, so the reference's destructor would
+    -- unref through a dangling state: the same client-killing fault as the usertype storage
+    -- (see the zepAvailable comment above), just from the instance side.
+    --
+    -- Nothing is lost. The native delegate handles real links first and only falls through
+    -- to Lua for unrecognised tag data: LuaZepConsoleDelegate::OnHyperlinkClicked calls the
+    -- base MQConsoleDelegate (eqlib::ExtractLink + ExecuteTextLink) and consults the Lua
+    -- callback only when that returns false. Item/spell/player/achievement links therefore
+    -- still click through with zero Lua involvement -- see this file's header note.
     return console
 end
 

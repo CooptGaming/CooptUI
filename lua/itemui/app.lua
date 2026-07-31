@@ -1561,6 +1561,14 @@ local function main()
         uiState.enableRealTimeLoot = true
         layoutUtils.scheduleLayoutSave()
     end
+    -- Zep must be required HERE -- main thread, script body -- and never from a render
+    -- callback. MQ binds the module against whichever lua_State calls require, and sol2's
+    -- usertype storage unrefs through that stored pointer when the state closes; a render
+    -- callback would hand it the ImGui coroutine thread, which dies first and takes the EQ
+    -- client down at /lua stop (minidump 2026-07-31). See services/chat_console.lua.
+    pcall(function()
+        require('itemui.services.chat_console').prewarm((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
+    end)
     layoutUtils.applyItemUIToggleBind()  -- Apply keybind on startup only (not on every /inv)
     do
         local bindKey = layoutUtils.getItemUIToggleKeyDisplay and layoutUtils.getItemUIToggleKeyDisplay()

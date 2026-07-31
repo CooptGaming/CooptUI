@@ -147,13 +147,15 @@ do
 end
 
 -- =================================================================
--- The Zep gate (client-crash mitigation, 2026-07-31)
+-- Where Zep gets required (client-crash fix, 2026-07-31)
 --
--- Requiring 'Zep' registers a sol2 usertype whose __gc reaches into the Lua registry
--- during lua_close -- the confirmed cause of the EQ client crash on /lua stop. The gate
--- must therefore prevent the REQUIRE ITSELF, not merely skip using the module: once the
--- usertype is registered the crash is armed for the rest of the state's life. A require
--- trap proves it, which a "did we draw the fallback" assertion never could.
+-- MQ binds the Zep module against whichever lua_State called require, and sol2's usertype
+-- storage unrefs through that stored pointer when the state closes. Requiring from a RENDER
+-- callback captures the ImGui coroutine thread, which LuaJIT frees before finalization --
+-- dangling state, null-deref, dead EQ client. So the contract this suite defends is:
+-- the require happens ONLY in prewarm (called from the main thread at startup), and the
+-- render-path query never requires anything, whatever the setting says. A require trap is
+-- the only thing that can prove that; "did the fallback draw" never could.
 -- =================================================================
 do
     local requiredZep = false
@@ -163,22 +165,31 @@ do
         return realRequire(name, ...)
     end
 
-    chatConsole.setZepEnabled(false)
-    check('zep gate: off -> zepAvailable() false', chatConsole.zepAvailable() == false)
-    check('zep gate: off -> Zep was never required (the crash is armed by the require)',
-        requiredZep == false)
-
-    -- Turned on, the module IS attempted. Headless there is no Zep, so pcall(require)
-    -- fails and we degrade to the ring buffer -- which is exactly the shape the in-game
-    -- "plugin missing" case takes, and it must not throw.
+    -- 1. The render-path query must never require, even when the setting is on and no
+    --    prewarm has run. This is the exact shape of the crash we are preventing.
     chatConsole.setZepEnabled(true)
     local ok, avail = pcall(chatConsole.zepAvailable)
-    check('zep gate: on -> attempt is contained, never throws', ok, avail)
-    check('zep gate: on -> require was attempted', requiredZep == true)
-    check('zep gate: on with no Zep present -> still reports unavailable', avail == false)
+    check('zep: render-path query never throws', ok, avail)
+    check('zep: render-path query never requires Zep (the crash is armed by WHERE it is required)',
+        requiredZep == false)
+    check('zep: no prewarm -> unavailable, so the fallback renderer draws', avail == false)
+
+    -- 2. prewarm(false) honours the setting without touching the module.
+    check('zep: prewarm(false) reports unavailable', chatConsole.prewarm(false) == false)
+    check('zep: prewarm(false) does not require Zep', requiredZep == false)
+
+    -- 3. prewarm(true) is the one place that requires. Headless there is no Zep module, so
+    --    the pcall fails and we degrade to the ring buffer -- the same shape as an in-game
+    --    MQ build without Zep support, and it must not throw.
+    local okPre, availPre = pcall(chatConsole.prewarm, true)
+    check('zep: prewarm(true) is contained, never throws', okPre, availPre)
+    check('zep: prewarm(true) is where the require happens', requiredZep == true)
+    check('zep: prewarm(true) with no Zep present -> still unavailable', availPre == false)
+    check('zep: after a failed prewarm the render query stays false',
+        chatConsole.zepAvailable() == false)
 
     _G.require = realRequire
-    chatConsole.setZepEnabled(false)
+    chatConsole.prewarm(false)
 end
 
 print(string.format('\n%d passed, %d failed', pass, fail))

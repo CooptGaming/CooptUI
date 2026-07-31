@@ -420,13 +420,13 @@ function ConfigGeneral.render(ctx)
             end
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text("OFF by default, and it is not a style choice: MQ's Zep console")
-                ImGui.Text("crashes the EverQuest client when a Lua script stops (its Lua")
-                ImGui.Text("binding tears down after the script's registry is already gone).")
+                ImGui.Text("On: clickable item links in chat, and real scrollback.")
+                ImGui.Text("Off: the built-in renderer - every line still shows, but links")
+                ImGui.Text("are plain text.")
                 ImGui.Text("")
-                ImGui.Text("Off, chat still shows every line - you lose clickable item links")
-                ImGui.Text("in chat and Zep's scrollback widget. Turn this on only if the")
-                ImGui.Text("plugin-side fix has shipped and you have tested /lua stop itemui.")
+                ImGui.Text("Turning it ON takes effect the next time the UI starts")
+                ImGui.Text("(/itemui quit then /lua run itemui, or a relog). Turning it OFF")
+                ImGui.Text("applies right away.")
                 ImGui.EndTooltip()
             end
 
