@@ -260,17 +260,14 @@ local function readMythicalAlert(alertPath, forceOpen)
     end
     if forceOpen or decision == "pending" then
         -- Suppress only when the bar's decision strip is actually REACHABLE — bars mode
-        -- alone is not enough: with the top bar off, or the loot segment removed from
-        -- DockSegments, a suppressed window would leave a pending mythical with no
-        -- Take/Pass surface anywhere. In classic mode the window always opens.
+        -- alone is not enough: with the top bar off a suppressed window would leave a
+        -- pending mythical with no Take/Pass surface anywhere. The phase-13 rebuild made
+        -- the ACTION LANE the decision surface, and the lane cannot be disabled (it is
+        -- not a DockSegments id), so bar-on is the whole test now. In classic mode the
+        -- window always opens.
         local lc = d.layoutConfig
-        local decisionReachable = false
-        if lc and tostring(lc.UIMode or "classic") == "bars" and lc.DockTop ~= false then
-            local segs = tostring(lc.DockSegments or "")
-            -- Empty = the fallback order, which includes loot; "none" and loot-less
-            -- custom CSVs fail the find and keep the window opening.
-            decisionReachable = (segs == "") or (segs:find("loot", 1, true) ~= nil)
-        end
+        local decisionReachable = lc ~= nil
+            and tostring(lc.UIMode or "classic") == "bars" and lc.DockTop ~= false
         if not (uiState.suppressWhenLootMac and decisionReachable) then
             uiState.lootUIOpen = true
             d.recordCompanionWindowOpened("loot")
@@ -1402,6 +1399,16 @@ local function phase0b_dockActionQueue(now)
         end
 
     elseif a.kind == "hub" then
+        -- toggle=true (a bar cell click, 26a): the hub closes if it is already up —
+        -- minimal /itemui hide semantics (userClosedViaKeybind stops the bank/merchant
+        -- auto-show from re-opening it next tick). Companions stay; closing them all is
+        -- the X/Esc path's job, not a bar toggle's.
+        if a.toggle and d.getShouldDraw and d.getShouldDraw() then
+            uiState.userClosedViaKeybind = true
+            if d.setShouldDraw then d.setShouldDraw(false) end
+            if d.setOpen then d.setOpen(false) end
+            return
+        end
         -- Show the hub. It picks its own view, so with a merchant open this lands on Sell --
         -- which is what the bar's "Full preview" means.
         uiState.userClosedViaKeybind = false

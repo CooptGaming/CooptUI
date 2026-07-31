@@ -143,7 +143,11 @@ do
     layoutDefaults.DockBottom = 1
     layoutDefaults.DockPosition = "top"
     layoutDefaults.DockChat = "collapsed"
-    layoutDefaults.DockSegments = "status,bags,sell,loot,buffs,xp,session"
+    -- Phase 13 (26a): DockSegments is an ENABLE SET now — the bar's order is canonical
+    -- (identity, session, bags, sell, [buttons], [lane], buffs, xp) and never stored.
+    -- The retired "loot" id in older INIs is skipped harmlessly: the action lane took
+    -- over every loot state and is not disable-able.
+    layoutDefaults.DockSegments = "status,session,bags,sell,buffs,xp"
     -- Bottom-bar style: hover menus (today's default, unchanged for existing installs) or a
     -- flat row of launcher buttons (mockup's second option). DockButtons is only consulted
     -- when DockBottomStyle is "buttons".

@@ -26,6 +26,9 @@ local dockLayout = require('itemui.utils.dock_layout')
 local dockState = require('itemui.services.dock_state')
 local hintsService = require('itemui.services.hints')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+-- Leaf module (requires mq only, registers nothing) — safe at the top unlike view
+-- modules, whose require-time registration order is button order.
+local registry = require('itemui.core.registry')
 
 local M = {}
 
@@ -33,67 +36,35 @@ local M = {}
 --- { [segmentId] = { x, y, w, h, hovered } }. Phase 2's popovers anchor to these.
 M.slots = {}
 
--- Widest possible content per slot. These strings are never displayed -- they exist only to
--- reserve width, so each must be at least as wide as anything the segment can actually show.
-local WIDEST = {
-    status  = { "CoOpt  plugin missing  9 errors" },
-    bags    = { "bags 300/300 . wt 9999/9999" },
-    sell    = { "9,999 to sell . 9,999,999p", "selling 999/999 . 9,999,999p" },
-    -- The loot slot is deliberately the widest of all five states at once (mockup 12a: the
-    -- slot is one fixed width whether it says "idle" or holds a progress bar and two buttons).
-    loot    = { "stopped - bags full, 99 left on corpses", "decision - Mythical Faceplate of Blinding Fury" },
-    -- "aura Y" -> "aura 99": the buffs segment now shows the actual aura count once there is
-    -- more than one, so the reserved width has to cover two digits, not one glyph.
-    buffs   = { "buffs 99 . songs 99 . aura 99 . 99 expiring" },
-    xp      = { "XP 100.0% . AA 99999 . scripts 9999" },
-    session = { "session 9,999,999p" },
-}
+-- Phase 13 rebuild (26a/§11): the bar is a FIXED GRID, not a flex row. Canonical order,
+-- fixed pixel widths from constants.UI.DOCK_CELL_W, and the action lane is the only cell
+-- that flexes and the only one allowed to ellipsize. DockSegments is now an ENABLE SET —
+-- which optional cells are on — never an order: the order is the design's (nothing may
+-- move between states, and nothing moves between users either). `buttons` and `lane` are
+-- not segments (26a: "Buttons are not segments") — always on, never in DockSegments.
+-- A disabled segment's width goes to the lane. Saved CSVs carrying the retired `loot` id
+-- just skip it: the lane carries every loot state now and cannot be turned off.
+local CELL_ORDER = { "status", "session", "bags", "sell", "buttons", "lane", "buffs", "xp" }
+local CELL_OPTIONAL = { status = true, session = true, bags = true, sell = true,
+                        buffs = true, xp = true }
 
--- Extra width for segments that hold inline buttons (Stop, Take/Pass/Reroll, Consolidate/Resume,
--- and now Loot All / Auto Sell) or an inline progress bar -- sell/loot running-state bars grew
--- 48x12 -> 90x16 in the top-bar restyle (mockup 13d: more room for the readout that matters
--- while a run is happening). loot bumped 198 -> 252 for the third "Reroll##dockLootReroll"
--- button beside Take/Pass, then 252 -> 264 for the bigger looting-state bar: that state was
--- already sitting well inside the 252 the decision state's three buttons demand (decision's own
--- text is the widest sample here, so ITS button budget sets the floor everyone else inherits),
--- so the extra 12px is margin for font variance, not a load-bearing fix -- the idle state's new
--- Loot All button fits the same existing headroom with room to spare. sell bumped 54 -> 112:
--- unlike loot, sell's two text samples are close in length (27 vs 29 chars), so there is no
--- spare headroom to borrow, and the new idle-state "Auto Sell" button sits AHEAD of the offer
--- text -- 112px clears the larger of (button + gap) and (90px bar + gap) with margin.
--- TRADEOFF: both slots are now wider, so the default seven segments reserve more of a 1920px
--- viewport before the render loop starts dropping segments from the right (see "usedW + needed
--- > w" below) -- still comfortable at 1920px with the default seven, but it eats into the
--- margin a narrower or already-crowded DockSegments list had.
-local EXTRA = { loot = 264, sell = 112 }
-
--- Phase 13 (mockup 22a) supersedes 12a's "one fixed width" rule for the LOOT slot only:
--- idle, the cell shrinks to just its Loot All button and label, and the run states get the
--- full 264-extra budget back the moment they need it. The width cache is keyed by slot id,
--- so the idle shape uses its own key ("loot@idle") rather than fighting the cache.
-local LOOT_IDLE_WIDEST = { "Loot All . loot idle" }
-local LOOT_IDLE_EXTRA = 28
-
--- Phase 13 (mockup 21c): the slot's background says what the job is doing — the kit's
--- three washes, one meaning each. Sell has no finished/aborted edge in dock_state (the
--- run simply stops being running), so it honestly only gets the running wash; loot's
--- state machine carries all three. Status washes bad when the plugin is missing or
--- errors are queued — same conditions its label already colors.
+-- 21c: the cell's background says what the job is doing — the kit's three washes, one
+-- meaning each. The LANE carries the job states now (loot's machine has all three edges;
+-- a sell run honestly only has "running" — it has no finished/aborted edge in dock_state).
+-- Status washes bad when the plugin is missing or errors are queued — same conditions its
+-- label already colors.
 local function segmentWash(id, s)
-    if id == "loot" then
+    if id == "lane" then
         local st = s.lootState
         if st == "looting" or st == "decision" then return theme.Kit.WashRunning end
         if st == "done" then return theme.Kit.WashDone end
         if st == "problem" then return theme.Kit.WashBad end
-    elseif id == "sell" then
         if s.sellRunning then return theme.Kit.WashRunning end
     elseif id == "status" then
         if (not s.pluginPresent) or (s.errorCount or 0) > 0 then return theme.Kit.WashBad end
     end
     return nil
 end
-
-local SEGMENT_ORDER_FALLBACK = { "status", "bags", "sell", "loot", "buffs", "xp", "session" }
 
 --- Split a CSV INI value into a list, trimming each entry. Empty string -> empty list.
 local function csv(s)
@@ -161,9 +132,14 @@ end
 local segments = {}
 
 segments.status = function(ctx, s)
+    -- 26a identity cell: the name plus a status dot. The dot is an 8px square drawn with
+    -- AddRectFilled (the one draw-list call proven in this binding — see the lane's
+    -- progress underline); green ok, amber pluginless, red errors.
     local label = "CoOpt"
+    local dotColor = theme.Kit.Good
     if not s.pluginPresent then
-        theme.TextWarning(label)
+        dotColor = theme.Kit.Attention
+        theme.TextInfo(label)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Running without the plugin - scans are slower.")
@@ -171,7 +147,8 @@ segments.status = function(ctx, s)
             ImGui.EndTooltip()
         end
     elseif s.errorCount > 0 then
-        theme.TextError(label)
+        dotColor = theme.Kit.Loss
+        theme.TextInfo(label)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text(string.format("%d recent error%s - Settings > Advanced has the log.",
@@ -179,8 +156,19 @@ segments.status = function(ctx, s)
             ImGui.EndTooltip()
         end
     else
-        theme.TextSuccess(label)
+        theme.TextInfo(label)
     end
+    pcall(function()
+        local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+        if not drawList or not drawList.AddRectFilled then return end
+        local rx, ry = dockLayout.itemRectMax()
+        local ty = dockLayout.itemRectMin and select(2, dockLayout.itemRectMin()) or ry
+        if not rx then return end
+        local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 16
+        local cy = (ty or 0) + math.floor(lineH / 2)
+        local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(dotColor)) or 0xFF40BF59
+        drawList:AddRectFilled(ImVec2(rx + 6, cy - 4), ImVec2(rx + 14, cy + 4), color)
+    end)
 end
 
 segments.bags = function(ctx, s)
@@ -203,57 +191,22 @@ segments.bags = function(ctx, s)
 end
 
 segments.sell = function(ctx, s)
-    -- A running sell (macro or Lua batch) owns the slot: progress beats the static offer,
-    -- and the keep-list warning stays quiet until the run is over — mid-run it is not
-    -- actionable anyway. The bar is enlarged to 90x16 (mockup 13d) so the readout that
-    -- matters mid-run gets more room.
-    if s.sellRunning then
-        theme.TextWarning("selling")
-        ImGui.SameLine(0, 4)
-        ImGui.Text(string.format("%d/%d", s.sellRunCurrent or 0, s.sellRunTotal or 0))
+    -- 25b: sell is a STANDING FACT, not job output. "34 items worth 2,110p" is true
+    -- whether or not a run is going — the run itself lives in the lane, and this cell
+    -- ticks down live as the pile clears (dock_state keeps sellCount current mid-run).
+    -- The Auto Sell button moved to the fixed button pair (26a); zero reads `0 —`.
+    if (s.sellCount or 0) <= 0 then
+        labelled("sell", "0")
         ImGui.SameLine(0, 6)
-        theme.RenderProgressBar(math.min(1, math.max(0, s.sellRunFrac or 0)), ImVec2(90, 16), "")
-        if (s.sellRunValue or 0) > 0 then
-            ImGui.SameLine(0, 6)
-            theme.TextSuccess(plat(s.sellRunValue) .. "p")
-        end
+        theme.TextMuted("-")
         return
     end
-
-    -- Auto Sell now lives on the bar itself (mockup 13d), not just the sell popover / Command
-    -- Center. Same grey-but-clickable pattern as command_center.lua:115-121's own Auto Sell
-    -- button: always drawn so the bar always says what CAN happen right now, disabled-styled
-    -- and inert without a merchant rather than hidden.
-    theme.PushKeepButton(not s.merchantOpen)
-    -- Locally pcall'd, unlike the rest of this file's buttons: this one and Loot All below are
-    -- the first colour-pushed buttons reachable from the SLOT'S DEFAULT STATE (idle), so
-    -- scripts/tests/test_dock_render.lua's inject-a-throw-into-every-ImGui.SmallButton-call
-    -- sweep actually exercises this pairing where it never reached Take/Pass/Reroll/Stop
-    -- before. A push-call-pop with no guard leaks the 3 pushed colours the moment the call
-    -- itself throws, since Pop never runs -- re-raising afterward keeps the error surfaced
-    -- through dockLayout.contained exactly as before, just with the stack already balanced.
-    local ok, clickedOrErr = pcall(ImGui.SmallButton, "Auto Sell##dockSellAuto")
-    theme.PopButtonColors()
-    if not ok then error(clickedOrErr, 0) end
-    if not s.merchantOpen then
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            safeText("Auto Sell needs an open merchant.")
-            ImGui.EndTooltip()
-        end
-    elseif clickedOrErr then
-        M.queue(ctx, { kind = "auto_sell" })
-    end
-    ImGui.SameLine(0, 8)
-
-    if s.sellCount <= 0 then
-        theme.TextMuted("nothing to sell")
-        return
-    end
-    local txt = string.format("%d to sell . %sp", s.sellCount, plat(s.sellTotal))
+    local txt = string.format("%d  %sp", s.sellCount, plat(s.sellTotal))
     -- The trust case: keep-list items still queued to sell. This is the number players
     -- distrust, so it does not stay quiet.
     if s.keepInSellQueue > 0 then
+        theme.TextMuted("sell")
+        ImGui.SameLine(0, 4)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Error), txt)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
@@ -262,14 +215,68 @@ segments.sell = function(ctx, s)
             ImGui.EndTooltip()
         end
     else
-        ImGui.Text(txt)
+        labelled("sell", txt)
     end
 end
 
---- The loot segment: one slot, five states (mockup 12a). Buttons queue through
---- uiState.dockActionQueue -- never a direct mq.cmd, which is what views/command_center.lua
---- does today from inside the frame.
-segments.loot = function(ctx, s)
+-- ---------------------------------------------------------------------------
+-- The fixed button pair + the action lane (25a/26a). Loot All and Auto Sell sit together
+-- and never move; each green start becomes its own solid-red Stop IN PLACE — same slot,
+-- same width — and the other button greys while a job runs (its reason lives in the lane,
+-- which is the job surface). The lane belongs to whichever run is going: one progress
+-- surface, two owners. Buttons queue through uiState.dockActionQueue — never a direct
+-- mq.cmd from inside the frame.
+-- ---------------------------------------------------------------------------
+
+-- Half the buttons cell, minus its paddings and the gap between the two buttons.
+local BTN_W = math.floor((constants.UI.DOCK_CELL_W.buttons
+    - constants.UI.DOCK_SLOT_PADDING_X * 2 - constants.UI.DOCK_SLOT_GAP) / 2)
+
+--- One slot of the pair: go label when startable, solid-red Stop while its own job runs,
+--- kit-disabled otherwise. The pcall-around-the-button pattern is this file's standard —
+--- a throwing Button must not strand the kit push (5 colors + 2 vars).
+local function jobButton(ctx, id, label, running, disabled, startAction, stopAction)
+    local pushedDisabled = false
+    if running then
+        theme.PushStopButton()
+    elseif disabled then
+        theme.PushKitDisabledButton()
+        pushedDisabled = true
+    else
+        theme.PushGoButton()
+    end
+    local shown = running and ("Stop##" .. id) or (label .. "##" .. id)
+    local ok, clickedOrErr = pcall(ImGui.Button, shown, ImVec2(BTN_W, 0))
+    theme.PopKitButton()
+    if not ok then error(clickedOrErr, 0) end
+    if clickedOrErr and not pushedDisabled then
+        M.queue(ctx, running and stopAction or startAction)
+    end
+end
+
+segments.buttons = function(ctx, s)
+    -- FramePadding (4,1) keeps the sized Button one bar-line tall (SmallButton has no size
+    -- argument, and the pair must hold EXACTLY the same widths in every state).
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(4, 1))
+    local okPair, errPair = pcall(function()
+        jobButton(ctx, "dockBtnLootAll", "Loot All",
+            s.lootRunning == true,
+            s.sellRunning == true,
+            { kind = "loot_all" }, { kind = "loot_stop" })
+        ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+        jobButton(ctx, "dockBtnAutoSell", "Auto Sell",
+            s.sellRunning == true,
+            (not s.merchantOpen) or s.lootRunning == true,
+            { kind = "auto_sell" }, { kind = "sell_stop" })
+    end)
+    ImGui.PopStyleVar(1)
+    if not okPair then error(errPair, 0) end
+end
+
+--- The action lane: every job state in one flexing cell (21c/25a). No Loot All / Auto
+--- Sell / Stop here — those live in the fixed pair; the lane is the readout plus the
+--- state-specific verbs that exist nowhere else (Take/Pass/Reroll, the blocked way out).
+segments.lane = function(ctx, s)
     local st = s.lootState
     if st == "decision" then
         theme.TextWarning("decision")
@@ -343,22 +350,29 @@ segments.loot = function(ctx, s)
         end
 
     elseif st == "problem" then
-        -- A problem strip says what happened and offers a fix that actually exists. The
+        -- Blocked (25a): the lane keeps the job it owns and offers the way out inline. The
         -- mockup's "Consolidate - frees 6" needs a bag-consolidation feature this codebase
-        -- does not have; it belongs with the phase 6 degraded-state work rather than as a
-        -- button here that would look real and do nothing. Until then: open the bags, and
-        -- offer the sell only when a merchant makes it possible.
-        theme.TextError(string.format("stopped - %s", s.lootProblem or "see log"))
-        ImGui.SameLine(0, 8)
-        if ImGui.SmallButton("Bags##dockLootBags") then M.queue(ctx, { kind = "hub" }) end
-        if s.merchantOpen and s.sellCount > 0 then
-            ImGui.SameLine(0, 4)
-            if ImGui.SmallButton("Sell junk##dockLootSellJunk") then M.queue(ctx, { kind = "auto_sell" }) end
+        -- does not have; until then: sell now (when a merchant makes it possible) or open
+        -- the bags. The paused position keeps the run's place visible.
+        local msg = tostring(s.lootProblem or "see log")
+        if (s.lootTotalCorpses or 0) > 0 then
+            msg = string.format("%s - loot paused at corpse %d of %d", msg, s.lootCorpse or 0, s.lootTotalCorpses)
         end
+        theme.TextError(msg)
+        ImGui.SameLine(0, 8)
+        if s.merchantOpen and s.sellCount > 0 then
+            if ImGui.SmallButton(string.format("Sell %d now##dockLaneSellNow", s.sellCount)) then
+                M.queue(ctx, { kind = "auto_sell" })
+            end
+            ImGui.SameLine(0, 4)
+        end
+        if ImGui.SmallButton("Open Bags##dockLaneBags") then M.queue(ctx, { kind = "hub" }) end
 
     elseif st == "looting" then
+        -- Running (25a): label + live counts. No Stop here — the fixed pair's Loot All IS
+        -- the Stop while this runs; the lane is the readout.
         if (s.lootTotalCorpses or 0) > 0 then
-            labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
+            labelled("looting corpse", string.format("%d of %d", s.lootCorpse, s.lootTotalCorpses))
         else
             -- Run started, corpse census not in yet: "corpse 0/0" with a dead bar read
             -- as a rendering bug in the field. Say what the run is actually doing.
@@ -369,46 +383,48 @@ segments.loot = function(ctx, s)
             safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
-        -- Progress is the slot-wide underline drawn by the render loop (universal bar,
-        -- field pass 3): an inline 16px bar grew the text line and clipped the Stop
-        -- button out of the strip.
-        ImGui.SameLine(0, 6)
-        theme.TextMuted(string.format("%d taken", s.lootTaken))
+        -- Progress is the lane-wide underline drawn by the render loop (universal bar).
         ImGui.SameLine(0, 8)
-        theme.PushDeleteButton()
-        if ImGui.SmallButton("Stop##dockLootStop") then M.queue(ctx, { kind = "loot_stop" }) end
-        theme.PopButtonColors()
+        theme.TextMuted(string.format("%d taken", s.lootTaken))
+        if (s.lootSkipped or 0) > 0 then
+            ImGui.SameLine(0, 6)
+            theme.TextMuted(string.format(". %d skipped", s.lootSkipped))
+        end
+        if (s.lootRunValue or 0) > 0 then
+            ImGui.SameLine(0, 6)
+            theme.TextSuccess(plat(s.lootRunValue) .. "p")
+        end
 
     elseif st == "done" then
+        -- Finished (25a): hold the result, say what it could NOT do (the skipped count),
+        -- then dock_state's own decay returns the lane to idle.
         theme.TextSuccess(string.format("looted %d corpse%s . %sp",
             s.lootTotalCorpses, s.lootTotalCorpses == 1 and "" or "s", plat(s.lootRunValue)))
         if s.lootSkipped > 0 then
             ImGui.SameLine(0, 6)
-            theme.TextMuted(string.format("%d skipped", s.lootSkipped))
+            theme.TextMuted(string.format("%d skipped - see chat", s.lootSkipped))
         end
-        ImGui.SameLine(0, 8)
-        theme.PushKeepButton()
-        local okLA, clickedLA = pcall(ImGui.SmallButton, "Loot All##dockLootAllDone")
-        theme.PopButtonColors()
-        if not okLA then error(clickedLA, 0) end
-        if clickedLA then M.queue(ctx, { kind = "loot_all" }) end
+
+    elseif s.sellRunning then
+        -- The other owner (25a): identical lane, different job. The sell CELL keeps the
+        -- standing count ticking down; this is the run readout.
+        labelled("selling", string.format("%d of %d", s.sellRunCurrent or 0, s.sellRunTotal or 0))
+        if (s.sellRunValue or 0) > 0 then
+            ImGui.SameLine(0, 8)
+            theme.TextMuted("earned")
+            ImGui.SameLine(0, 4)
+            theme.TextSuccess(plat(s.sellRunValue) .. "p")
+        end
 
     else
-        -- Loot All lives here and only here (mockup 13d): every other state above already has
-        -- its own verb -- Take/Pass/Reroll, Bags/Sell junk, Stop, Review -- so the button does
-        -- not exist in those branches rather than being disabled; there is nothing useful for
-        -- it to do mid-decision, mid-problem, or mid-run.
-        theme.PushKeepButton()
-        -- Locally pcall'd -- see the matching comment on the sell segment's Auto Sell button
-        -- above for why this pairing (and not Take/Pass/Reroll/Stop) needs the guard.
-        local ok, clickedOrErr = pcall(ImGui.SmallButton, "Loot All##dockLootAll")
-        theme.PopButtonColors()
-        if not ok then error(clickedOrErr, 0) end
-        if clickedOrErr then M.queue(ctx, { kind = "loot_all" }) end
-        ImGui.SameLine(0, 8)
-        theme.TextMuted("loot")
-        ImGui.SameLine(0, 4)
-        theme.TextMuted("idle")
+        -- Idle (26a): the lane names what it is for instead of sitting empty.
+        theme.TextMuted("nothing running")
+        ImGui.SameLine(0, 6)
+        if theme.TextFurniture then
+            theme.TextFurniture("- jobs report here")
+        else
+            theme.TextMuted("- jobs report here")
+        end
     end
 end
 
@@ -447,15 +463,17 @@ segments.xp = function(ctx, s)
 end
 
 segments.session = function(ctx, s)
+    -- 26a slot 2, fixed 470px: the session strip. Money renders now; the augs/mythics/
+    -- scripts counts and their triage panels are phase 14 — the cell's width is already
+    -- theirs, so nothing will shift when they land. Zero renders muted and inert (26b).
     labelled("session", plat(s.sessionPlat) .. "p")
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        ImGui.Text(string.format("This session: %sp looted, %sp sold.", plat(s.sessionLooted), plat(s.sessionSold)))
-        ImGui.EndTooltip()
-    end
+    ImGui.SameLine(0, 8)
+    theme.TextMuted(string.format("looted %sp", plat(s.sessionLooted)))
+    ImGui.SameLine(0, 6)
+    theme.TextMuted(string.format(". sold %sp", plat(s.sessionSold)))
 end
 
--- Which dock_state walks each segment needs, so an unused segment costs no TLO reads.
+-- Which dock_state walks each cell needs, so an unused cell costs no TLO reads.
 local SEGMENT_DEMAND = {
     -- Bags shows weight too, and weight/maxWeight/weightKnown are populated by the STATS
     -- walk -- with only requestBags the "wt" sub-segment never appears unless the xp
@@ -464,10 +482,57 @@ local SEGMENT_DEMAND = {
     sell    = dockState.requestSell,
     buffs   = dockState.requestBuffs,
     xp      = dockState.requestStats,
-    -- The loot segment reads bag pressure to detect the bags-full problem state.
-    loot    = dockState.requestBags,
+    -- The lane reads bag pressure for the blocked state; the button pair greys Auto Sell
+    -- on merchant state, which rides the sell walk.
+    lane    = dockState.requestBags,
+    buttons = dockState.requestSell,
     -- session/status need nothing beyond the every-tick cheap reads.
 }
+
+-- ---------------------------------------------------------------------------
+-- Every segment is a toggle (26a): click opens the cell's window, click again closes it.
+-- The lit pair (OpenWash fill + accent underline) already means "this window is open"
+-- everywhere else, so the bar needs no new vocabulary. Buttons are not segments — the
+-- pair starts jobs, it never opens windows — and the lane routes to the Loot window
+-- while loot owns it (the old field ask, kept).
+-- ---------------------------------------------------------------------------
+
+--- Is the hub (the merged Inventory) on screen this frame?
+local function hubVisible(ctx)
+    local f = ctx and ctx.getShouldDraw
+    return (f and f()) == true
+end
+
+--- Which open window lights this cell. sell lights only while the hub is showing the
+--- Sell view (merchant open) — hub-open alone already lights bags, and three cells lit
+--- for one window would read as noise.
+local function cellOpen(ctx, id, s)
+    if id == "status" or id == "bags" then return hubVisible(ctx) end
+    if id == "sell" then return hubVisible(ctx) and s.merchantOpen == true end
+    if id == "session" then return registry.isOpen("chat") == true end
+    if id == "buffs" then return registry.isOpen("effects") == true end
+    if id == "xp" then return registry.isOpen("aa") == true end
+    return false
+end
+
+--- The queue action a background click on this cell fires. Nil = the cell has no toggle
+--- (the button pair). The hub actions carry toggle=true — main_loop's drain hides the
+--- hub when it is already up, mirroring /itemui hide semantics.
+local function cellToggleAction(id, s)
+    if id == "status" or id == "bags" or id == "sell" then return { kind = "hub", toggle = true } end
+    if id == "session" then return { kind = "window", id = "chat", toggle = true } end
+    if id == "buffs" then return { kind = "window", id = "effects", toggle = true } end
+    if id == "xp" then return { kind = "window", id = "aa", toggle = true } end
+    if id == "lane" then
+        -- Only meaningful while loot owns the lane; an idle lane click does nothing
+        -- rather than opening a window nobody asked for.
+        local st = s and s.lootState
+        if st == "looting" or st == "decision" or st == "done" or st == "problem" then
+            return { kind = "window", id = "loot" }
+        end
+    end
+    return nil
+end
 
 -- Window flags shared by the bar and its popovers. Declared HERE, above renderPopover,
 -- because a `local function` is only in scope after its declaration: defined further down,
@@ -964,13 +1029,22 @@ function M.render(ctx)
     dockLayout.refreshCacheKey()
     local s = dockState.get()
 
-    local order = csv(layoutConfig.DockSegments)
-    if #order == 0 then order = SEGMENT_ORDER_FALLBACK end
+    -- DockSegments is the ENABLE SET (order is canonical — 26a). Empty = everything on;
+    -- "none" enables nothing (no cell has that id); the retired `loot` id is skipped.
+    local enabledCsv = csv(layoutConfig.DockSegments)
+    local enabled = {}
+    if #enabledCsv == 0 then
+        for id in pairs(CELL_OPTIONAL) do enabled[id] = true end
+    else
+        for _, id in ipairs(enabledCsv) do enabled[id] = true end
+    end
 
-    -- Raise demand for exactly the segments that are on, so nothing walks TLOs unread.
-    for _, id in ipairs(order) do
-        local want = SEGMENT_DEMAND[id]
-        if want then want() end
+    -- Raise demand for exactly the cells that are on, so nothing walks TLOs unread.
+    for _, id in ipairs(CELL_ORDER) do
+        if (not CELL_OPTIONAL[id]) or enabled[id] then
+            local want = SEGMENT_DEMAND[id]
+            if want then want() end
+        end
     end
 
     -- Rebuilt from scratch each frame. Keeping stale entries would leave a segment the user
@@ -979,6 +1053,37 @@ function M.render(ctx)
 
     local edge = M.edge(layoutConfig)
     local x, y, w, h = dockLayout.barRect(edge, 0)
+
+    -- Resolve this frame's cells: canonical order, fixed widths, the lane takes the
+    -- remainder. If the fixed cells would squeeze the lane under its minimum, optional
+    -- cells drop from the RIGHT (xp first) until it fits — the lane and the button pair
+    -- never drop. A dropped-or-disabled cell's width is exactly what the lane inherits.
+    local CW = constants.UI.DOCK_CELL_W
+    local cells = {}
+    for _, id in ipairs(CELL_ORDER) do
+        if (not CELL_OPTIONAL[id]) or enabled[id] then
+            cells[#cells + 1] = { id = id, w = CW[id] or 0 }
+        end
+    end
+    local function fixedTotal()
+        local t, n = constants.UI.DOCK_SLOT_PADDING_X * 2, 0
+        for _, c in ipairs(cells) do
+            t = t + ((c.id == "lane") and 0 or c.w)
+            n = n + 1
+        end
+        return t + math.max(0, n - 1) * constants.UI.DOCK_SLOT_GAP
+    end
+    while fixedTotal() + constants.UI.DOCK_LANE_MIN_W > w do
+        local dropped = false
+        for i = #cells, 1, -1 do
+            if CELL_OPTIONAL[cells[i].id] then table.remove(cells, i); dropped = true; break end
+        end
+        if not dropped then break end
+    end
+    local laneW = math.max(constants.UI.DOCK_LANE_MIN_W, w - fixedTotal())
+    for _, c in ipairs(cells) do
+        if c.id == "lane" then c.w = laneW end
+    end
 
     -- /itemui dock debug: capture what the bar actually computed, from INSIDE the frame where
     -- the ImGui queries are valid. main_loop prints it on the next tick (printing from within
@@ -994,7 +1099,10 @@ function M.render(ctx)
             tostring(layoutConfig.UIMode), tostring(layoutConfig.DockTop),
             tostring(layoutConfig.DockBottom), tostring(layoutConfig.DockPosition),
             tostring(layoutConfig.DockChat))
-        dbg[#dbg + 1] = string.format("segments(%d)=%s", #order, table.concat(order, ","))
+        local cellIds = {}
+        for _, c in ipairs(cells) do cellIds[#cellIds + 1] = c.id end
+        dbg[#dbg + 1] = string.format("cells(%d)=%s  DockSegments=%s", #cells,
+            table.concat(cellIds, ","), tostring(layoutConfig.DockSegments))
         dbg[#dbg + 1] = string.format("GetMainViewport=%s  viewport=%s,%s %sx%s",
             tostring(vpOK), tostring(x), tostring(y), tostring(w), tostring(h))
         dbg[#dbg + 1] = string.format("GetTextLineHeight=%s (%s)  barHeight=%s  childH=%s",
@@ -1003,10 +1111,10 @@ function M.render(ctx)
         dbg[#dbg + 1] = string.format("CalcTextSize('Hello')=%s,%s (%s)",
             tostring(cw), tostring(ch), type(cw))
         local ws = {}
-        for _, id in ipairs(order) do
-            ws[#ws + 1] = id .. "=" .. tostring(dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id]))
+        for _, c in ipairs(cells) do
+            ws[#ws + 1] = c.id .. "=" .. tostring(c.w)
         end
-        dbg[#dbg + 1] = "slotWidths " .. table.concat(ws, " ")
+        dbg[#dbg + 1] = "cellWidths " .. table.concat(ws, " ")
         dbg[#dbg + 1] = string.format("snap loot=%s corpse=%d/%d taken=%d bags=%d/%d sell=%d buffs=%d",
             tostring(s.lootState), s.lootCorpse or -1, s.lootTotalCorpses or -1, s.lootTaken or -1,
             s.bagItems or -1, s.bagSlots or -1, s.sellCount or -1, s.buffCount or -1)
@@ -1051,22 +1159,11 @@ function M.render(ctx)
         ImGui.AlignTextToFramePadding()
         local first = true
         local lastRect = nil   -- previous slot's rect; the divider is drawn into the gap after it
-        -- Running width, so segments that would overflow a narrow viewport are dropped from
-        -- the right instead of drawing off-screen (the seven default slots reserve ~1700px).
-        local usedW = constants.UI.DOCK_SLOT_PADDING_X * 2
-        for _, id in ipairs(order) do
+        for _, cell in ipairs(cells) do
+            local id = cell.id
+            local slotW = cell.w
             local draw = segments[id]
             if draw then
-                local slotW
-                if id == "loot" and s.lootState == "idle" then
-                    -- 22a: the loot cell flexes — compact when idle, full budget mid-run.
-                    slotW = dockLayout.slotWidth("loot@idle", LOOT_IDLE_WIDEST, LOOT_IDLE_EXTRA)
-                else
-                    slotW = dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id])
-                end
-                local needed = slotW + (first and 0 or constants.UI.DOCK_SLOT_GAP)
-                if not first and usedW + needed > w then break end
-                usedW = usedW + needed
                 if not first then
                     ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
                     -- Section divider, drawn INSIDE the gap (half-way between the previous
@@ -1078,15 +1175,23 @@ function M.render(ctx)
                     end
                 end
                 first = false
-                -- A fixed-width, borderless child is what pins the slot: content reflows
-                -- inside it and the neighbours never move. (Exception, deliberate: the loot
-                -- slot's width FLEXES with its state — see the slotW branch above.)
+                -- A fixed-width, borderless child is what pins the cell: content reflows
+                -- inside it and the neighbours never move — the lane is the ONE cell whose
+                -- width varies, and only with viewport/enable changes, never job states.
+                -- Queue length before the cell draws: "the queue did not grow" identifies
+                -- a background click (not on any inner button), which is what makes every
+                -- cell a toggle (26a) without wiring each button.
+                local queueLenBefore = ctx.uiState.dockActionQueue and #ctx.uiState.dockActionQueue or 0
                 -- 21c wash: pushed tight around the child so the pop can never be skipped —
                 -- only EndChild sits between, and the throwable content is contained inside.
-                local lootQueueLenBefore = (id == "loot" and ctx.uiState.dockActionQueue) and #ctx.uiState.dockActionQueue or 0
+                -- The open-window fill (26a: lit = this cell's window is open) rides the
+                -- same push; a job wash outranks it in the same slot.
                 local wash = segmentWash(id, s)
+                local litOpen = (not wash) and cellOpen(ctx, id, s) or false
                 if wash then
                     ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(wash))
+                elseif litOpen then
+                    ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(theme.Kit.OpenWash))
                 end
                 -- The child block runs under pcall so the wash pop below is unconditional —
                 -- a throwing BeginChild must not strand the pushed color (the suite injects
@@ -1098,9 +1203,9 @@ function M.render(ctx)
                     -- (bar height minus its two paddings), and that call raises the line's text
                     -- baseline offset by FramePadding.y -- pushing content down by ~3px inside a
                     -- clip rect with no room for it, which shears the descenders off "bags" and
-                    -- "expiring" and cuts the bottom border off the inline Take/Pass/Stop
-                    -- buttons. The parent already aligned; a SmallButton is exactly one line
-                    -- tall (FramePadding.y is forced to 0 for it), so everything fits at y=0.
+                    -- "expiring" and cuts the bottom border off the inline Take/Pass buttons.
+                    -- The parent already aligned; a SmallButton is exactly one line tall
+                    -- (FramePadding.y is forced to 0 for it), so everything fits at y=0.
                     -- Per-segment isolation. app.lua's pcall around the whole render is not
                     -- enough on its own: it sits OUTSIDE the four PushStyleVar calls below, so
                     -- an error escaping to it would skip End() and PopStyleVar(4) and leak four
@@ -1111,7 +1216,7 @@ function M.render(ctx)
                 end
                 ImGui.EndChild()
                 end)
-                if wash then
+                if wash or litOpen then
                     ImGui.PopStyleColor(1)
                 end
                 if not okChild then error(childErr, 0) end
@@ -1122,28 +1227,48 @@ function M.render(ctx)
                 -- is the line that silently blanked every segment after the first. The
                 -- helper owns that knowledge now (see dockLayout.itemRectMin).
                 local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-                -- Loot slot: clicking the slot itself opens the Loot window (field ask,
-                -- replaces the old Review button). Every inner loot button queues an
-                -- action, so "the queue did not grow" identifies a background click
-                -- without knowing where the buttons are.
-                if id == "loot" and hovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+                -- Every cell is a toggle (26a): a background click (no inner button grew
+                -- the queue) toggles the cell's window — open it, or close it if lit. The
+                -- lane routes to the Loot window while loot owns it (the old field ask).
+                if hovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
                     local q = ctx.uiState.dockActionQueue
-                    if (q and #q or 0) == lootQueueLenBefore then
-                        M.queue(ctx, { kind = "window", id = "loot" })
+                    if (q and #q or 0) == queueLenBefore then
+                        local act = cellToggleAction(id, s)
+                        if act then M.queue(ctx, act) end
                     end
                 end
                 local rx, ry = dockLayout.itemRectMin()
-                -- 22a's universal progress: a 3px fill along the slot's bottom edge, full
-                -- slot width at 100%. Foreground draw over the child, so no line-height
-                -- games and nothing can clip; only while a census exists.
-                if id == "loot" and s.lootState == "looting" and (s.lootTotalCorpses or 0) > 0 and rx then
+                -- The universal progress underline: a 3px fill along the LANE's bottom
+                -- edge, full lane width at 100% — loot by corpse census, sell by run frac.
+                if id == "lane" and rx then
+                    local frac = nil
+                    if s.lootState == "looting" and (s.lootTotalCorpses or 0) > 0 then
+                        frac = (s.lootCorpse or 0) / s.lootTotalCorpses
+                    elseif s.lootState ~= "looting" and s.sellRunning then
+                        frac = s.sellRunFrac or 0
+                    end
+                    if frac then
+                        pcall(function()
+                            local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+                            if not drawList or not drawList.AddRectFilled then return end
+                            local f = math.min(1, math.max(0, frac))
+                            local childH = h - constants.UI.DOCK_BAR_PADDING_Y * 2
+                            local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.GoBorder)) or 0xFF408C33
+                            drawList:AddRectFilled(ImVec2(rx, ry + childH - 3), ImVec2(rx + slotW * f, ry + childH), color)
+                        end)
+                    end
+                end
+                -- The lit cell's 2px accent underline — the open-state accent the whole
+                -- product uses (#12161c fill + accent). AddRect (outline) is unproven in
+                -- this binding; the underline uses the proven AddRectFilled and reads as
+                -- the active-tab treatment.
+                if litOpen and rx then
                     pcall(function()
                         local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
                         if not drawList or not drawList.AddRectFilled then return end
-                        local frac = math.min(1, math.max(0, (s.lootCorpse or 0) / s.lootTotalCorpses))
                         local childH = h - constants.UI.DOCK_BAR_PADDING_Y * 2
-                        local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.GoBorder)) or 0xFF408C33
-                        drawList:AddRectFilled(ImVec2(rx, ry + childH - 3), ImVec2(rx + slotW * frac, ry + childH), color)
+                        local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue)) or 0xFFFA9642
+                        drawList:AddRectFilled(ImVec2(rx, ry + childH - 2), ImVec2(rx + slotW, ry + childH), color)
                     end)
                 end
                 M.slots[id] = { x = rx, y = ry, w = slotW, h = h, hovered = hovered }

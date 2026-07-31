@@ -50,6 +50,9 @@ M.TIMING = {
     -- walks buffs + songs + auras + 10 packs of free slots + a full sellItems pass -- that
     -- burst is the stutter SELL_STATUS_DRAIN_PER_TICK / SESSION_MERGE_PER_TICK exist to avoid.
     DOCK_TICK_MS = 250,
+    -- Phase 13 (25a): the action lane holds a finished run's result this long, then
+    -- falls back to idle.
+    DOCK_LANE_DONE_HOLD_MS = 6000,
     DOCK_SLOW_BAGS_MS = 1000,    -- countFreeInvSlots walks 10 packs, one TLO read per slot
     -- 500, matching what views/effects.lua used to run on its own. The shared walk replaced
     -- that clock, so anything slower would make the Effects window's timers and urgency
@@ -122,6 +125,12 @@ M.UI = {
     DOCK_BAR_PADDING_Y = 8,
     DOCK_SLOT_PADDING_X = 12,
     DOCK_SLOT_GAP = 6,
+    -- Phase 13 (26a/§11): the top bar's fixed cell widths, left to right. Fixed means
+    -- FIXED — no cell resizes between job states; the action lane is the only cell that
+    -- flexes and the only one allowed to ellipsize. 1840 fixed total at 2554px.
+    DOCK_CELL_W = { status = 190, session = 470, bags = 230, sell = 200,
+                    buttons = 240, buffs = 270, xp = 240 },
+    DOCK_LANE_MIN_W = 80,
     BANK_WINDOW_WIDTH = 520,
     BANK_WINDOW_HEIGHT = 600,
     EQUIPMENT_PANEL_WIDTH = 220,

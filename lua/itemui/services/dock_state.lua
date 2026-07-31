@@ -415,10 +415,20 @@ local function readLoot(now)
 
     if running then
         snap.lootState = "looting"       -- 2 · looting
+        snap.lootDoneSince = nil
     elseif uiState.lootRunFinished then
-        snap.lootState = "done"          -- 4 · finished (the view fades it)
+        -- 4 · finished. Phase 13 (25a): the lane holds the result for 6s, then falls
+        -- back to idle — uiState.lootRunFinished itself stays set (a new run clears it),
+        -- so the hold is this snapshot's own clock, not a mutation of loot state.
+        snap.lootDoneSince = snap.lootDoneSince or now
+        if (now - snap.lootDoneSince) <= constants.TIMING.DOCK_LANE_DONE_HOLD_MS then
+            snap.lootState = "done"
+        else
+            snap.lootState = "idle"
+        end
     else
         snap.lootState = "idle"          -- 1 · idle
+        snap.lootDoneSince = nil
     end
 end
 

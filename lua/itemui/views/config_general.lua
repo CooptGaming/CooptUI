@@ -430,79 +430,55 @@ function ConfigGeneral.render(ctx)
                 ImGui.EndTooltip()
             end
 
-            -- Segment membership AND order. Enabled rows render in the BAR's actual (INI)
-            -- order with reorder arrows -- the rows must mirror the screen or moving
-            -- things is visually incoherent; disabled rows follow in canonical order.
+            -- Segment MEMBERSHIP only (phase 13, 26a): the bar is a fixed grid — the order
+            -- is the design's and nothing moves between states or between users, so the
+            -- old reorder arrows are gone. A disabled cell's width goes to the action
+            -- lane. The lane and the Loot All / Auto Sell pair are not segments (26a:
+            -- "Buttons are not segments") and cannot be turned off — they are the bar's
+            -- job surface and the mythical decision strip rides the lane.
             ImGui.Spacing()
-            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar slots (top to bottom = left to right):")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar cells (order is fixed; unchecked width goes to the action lane):")
             local ALL_SEGMENTS = {
-                { id = "status",  label = "Status & plugin" },
+                { id = "status",  label = "CoOpt identity & status" },
+                { id = "session", label = "Session strip" },
                 { id = "bags",    label = "Bags & weight" },
                 { id = "sell",    label = "Sell offer" },
-                { id = "loot",    label = "Loot progress" },
                 { id = "buffs",   label = "Buffs / songs / aura" },
-                { id = "xp",      label = "XP / AA / scripts" },
-                { id = "session", label = "Session total" },
+                { id = "xp",      label = "XP / AA" },
             }
-            local enabled, order = {}, {}
+            local enabled = {}
+            local hadCsv = false
             -- "none" is the all-off sentinel: layout_io treats an EMPTY value as "key absent"
             -- and restores the default list on the next reload, so a genuinely empty bar has
-            -- to be spelled. dock_top skips it naturally (no segment has that id).
+            -- to be spelled. Unknown ids (incl. the retired "loot") are dropped on the next
+            -- write — the lane replaced that segment and cannot be disabled.
             for part in tostring(layoutConfig.DockSegments or ""):gmatch("[^,]+") do
                 local t = part:match("^%s*(.-)%s*$")
-                if t ~= "" and t ~= "none" then enabled[t] = true; order[#order + 1] = t end
+                if t ~= "" then
+                    hadCsv = true
+                    if t ~= "none" then enabled[t] = true end
+                end
             end
-            local canonPos, byId = {}, {}
-            for ci, cseg in ipairs(ALL_SEGMENTS) do canonPos[cseg.id] = ci; byId[cseg.id] = cseg end
+            if not hadCsv then
+                for _, seg in ipairs(ALL_SEGMENTS) do enabled[seg.id] = true end
+            end
             local changed = false
-            -- Enabled rows: ^ / v arrows + checkbox. Clicks are DEFERRED to after the loop
-            -- (mutating `order` mid-ipairs shifts indices), and a move is a permutation of
-            -- the live array -- it cannot introduce the two states the bar's renderer
-            -- punishes: duplicate ids (colliding ImGui child ids, slot anchors landing on
-            -- the wrong copy) or free-form unknowns. Unknown ids already IN a hand-edited
-            -- INI are skipped visually but preserved through the round-trip.
-            local act = nil     -- one click per frame: { kind = "up"|"down"|"off", i = index }
-            for i, id in ipairs(order) do
-                local seg = byId[id]
-                if seg then
-                    if ImGui.SmallButton("^##dockSegUp" .. id) then act = { kind = "up", i = i } end
-                    ImGui.SameLine(0, 2)
-                    if ImGui.SmallButton("v##dockSegDown" .. id) then act = { kind = "down", i = i } end
-                    ImGui.SameLine(0, 8)
-                    if not ImGui.Checkbox(seg.label .. "##dockSeg" .. id, true) then
-                        act = { kind = "off", i = i }
-                    end
-                end
-            end
-            if act then
-                local id = order[act.i]
-                if act.kind == "off" then
-                    table.remove(order, act.i); enabled[id] = nil; changed = true
-                elseif act.kind == "up" and act.i > 1 then
-                    table.remove(order, act.i); table.insert(order, act.i - 1, id); changed = true
-                elseif act.kind == "down" and act.i < #order then
-                    table.remove(order, act.i); table.insert(order, act.i + 1, id); changed = true
-                end
-            end
-            -- Disabled rows: checkbox only. Re-enabling inserts at the segment's canonical
-            -- position RELATIVE to the members already on, not at the end: appending made
-            -- every re-enabled segment silently migrate to the far right for good. (A
-            -- hand-arranged custom order keeps its relative arrangement either way.)
             for _, seg in ipairs(ALL_SEGMENTS) do
-                if not enabled[seg.id] then
-                    if ImGui.Checkbox(seg.label .. "##dockSeg" .. seg.id, false) then
-                        changed = true
-                        enabled[seg.id] = true
-                        local at = #order + 1
-                        for i, oid in ipairs(order) do
-                            if (canonPos[oid] or math.huge) > canonPos[seg.id] then at = i; break end
-                        end
-                        table.insert(order, at, seg.id)
-                    end
+                local on = enabled[seg.id] == true
+                local v = ImGui.Checkbox(seg.label .. "##dockSeg" .. seg.id, on)
+                if v ~= on then
+                    enabled[seg.id] = v or nil
+                    changed = true
                 end
             end
             if changed then
-                setLayoutValue("DockSegments", (#order > 0) and table.concat(order, ",") or "none")
+                -- Canonical order on the way out — the CSV is a SET, but writing it in
+                -- bar order keeps hand reads sane.
+                local out = {}
+                for _, seg in ipairs(ALL_SEGMENTS) do
+                    if enabled[seg.id] then out[#out + 1] = seg.id end
+                end
+                setLayoutValue("DockSegments", (#out > 0) and table.concat(out, ",") or "none")
             end
 
             -- Command bar style (mockup's second option): hover menus (today's bar) or a flat

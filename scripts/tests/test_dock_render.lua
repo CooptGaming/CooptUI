@@ -168,7 +168,7 @@ do
 
     local r = stub.frame(function() dockTop.render(ctx) end)
     check('looting: drew the corpse counter', stub.drew(r, 'corpse'), table.concat(r.text, '|'))
-    check('looting: counter is 4/9 (not 0/9)', stub.drew(r, '4/9'), table.concat(r.text, '|'))
+    check('looting: counter is 4 of 9 (not 0 of 9)', stub.drew(r, '4 of 9'), table.concat(r.text, '|'))
     check('looting: item count is 7 (not 0)', stub.drew(r, '7 taken'), table.concat(r.text, '|'))
     check('looting: offers Stop', stub.drew(r, 'Stop'), table.concat(r.buttons, '|'))
     check('looting: stacks balanced', stub.balanced(r), stub.imbalance(r))
@@ -284,9 +284,10 @@ do
         check('full bar: ' .. want.seg .. ' segment rendered', stub.drew(r, want.needle),
             table.concat(r.text, '|'))
     end
-    check('full bar: all seven slots captured for popover anchoring',
-        (function() local n = 0; for _ in pairs(dockTop.slots) do n = n + 1 end; return n == 7 end)(),
-        'slots missing')
+    check('full bar: all eight cells captured for popover anchoring',
+        (function() local n = 0; for _ in pairs(dockTop.slots) do n = n + 1 end; return n == 8 end)(),
+        (function() local ids = {}; for id in pairs(dockTop.slots) do ids[#ids + 1] = id end
+         return table.concat(ids, ',') end)())
     check('full bar: no dock errors surfaced',
         not (ctx.uiState.dockErrors and #ctx.uiState.dockErrors > 0),
         ctx.uiState.dockErrors and table.concat(ctx.uiState.dockErrors, ' / '))
@@ -294,39 +295,48 @@ do
 end
 
 -- =================================================================
--- 3c. Top-bar restyle: Loot All (idle-only) and Auto Sell (merchant-gated click, always drawn)
+-- 3c. Phase 13: the fixed button pair. Loot All and Auto Sell never move; each becomes its
+--     own solid-red Stop IN PLACE while its job runs, and the other greys.
 -- =================================================================
 do
-    -- Idle loot state offers Loot All and enqueues loot_all on click.
+    -- Idle: both starts offered; Loot All enqueues loot_all on click.
     resetInput()
     local uiState = {}
     local ctx = newCtx({ uiState = uiState })
     dockState.init(newDeps(ctx))
     warmState(1300000)
     local r = stub.frame(function() dockTop.render(ctx) end)
-    check('loot idle: offers Loot All', stub.drew(r, 'Loot All##dockLootAll'),
+    check('pair idle: offers Loot All', stub.drew(r, 'Loot All##dockBtnLootAll'),
         table.concat(r.buttons, '|'))
-    check('loot idle: still balanced with the button drawn', stub.balanced(r), stub.imbalance(r))
+    check('pair idle: offers Auto Sell in the same fixed cell', stub.drew(r, 'Auto Sell##dockBtnAutoSell'),
+        table.concat(r.buttons, '|'))
+    check('pair idle: still balanced with the pair drawn', stub.balanced(r), stub.imbalance(r))
 
-    stub.click = { ['Loot All##dockLootAll'] = true }
+    stub.click = { ['Loot All##dockBtnLootAll'] = true }
     stub.frame(function() dockTop.render(ctx) end)
     local q = uiState.dockActionQueue
-    check('loot idle: Loot All enqueues loot_all',
+    check('pair idle: Loot All enqueues loot_all',
         q and #q >= 1 and q[#q].kind == 'loot_all',
         q and q[#q] and tostring(q[#q].kind) or 'nil')
 
-    -- The looting (running) state must NOT offer Loot All -- the button belongs to idle only;
-    -- Stop is still the only verb mid-run.
+    -- Mid-run: Loot All becomes its own Stop in place (25a) — same slot, same id root; a
+    -- click enqueues loot_stop. The lane never carries a Stop.
     resetInput()
     local uiState2 = {}
     local ctx2 = newCtx({ uiState = uiState2 })
     dockState.init(newDeps(ctx2, { lootRunning = true, inventoryItems = { {}, {} } }))
     warmState(1310000)
     local r2 = stub.frame(function() dockTop.render(ctx2) end)
-    check('looting: Loot All is not offered mid-run', not stub.drew(r2, 'Loot All##dockLootAll'),
+    check('pair mid-run: Loot All is its own Stop in place', stub.drew(r2, 'Stop##dockBtnLootAll')
+        and not stub.drew(r2, 'Loot All##dockBtnLootAll'), table.concat(r2.buttons, '|'))
+    check('pair mid-run: no Stop in the lane', not stub.drew(r2, 'Stop##dockLootStop'),
         table.concat(r2.buttons, '|'))
-    check('looting: Stop is still offered (unchanged)', stub.drew(r2, 'Stop##dockLootStop'),
-        table.concat(r2.buttons, '|'))
+    stub.click = { ['Stop##dockBtnLootAll'] = true }
+    stub.frame(function() dockTop.render(ctx2) end)
+    local q2 = uiState2.dockActionQueue
+    check('pair mid-run: Stop enqueues loot_stop',
+        q2 and #q2 >= 1 and q2[#q2].kind == 'loot_stop',
+        q2 and q2[#q2] and tostring(q2[#q2].kind) or 'nil')
 end
 
 do
@@ -337,30 +347,29 @@ do
     dockState.init(newDeps(ctx, { merchantOpen = true }))
     warmState(1320000)
     local r = stub.frame(function() dockTop.render(ctx) end)
-    check('sell: offers Auto Sell with a merchant open', stub.drew(r, 'Auto Sell##dockSellAuto'),
+    check('sell: offers Auto Sell with a merchant open', stub.drew(r, 'Auto Sell##dockBtnAutoSell'),
         table.concat(r.buttons, '|'))
     check('sell: still balanced with a merchant open', stub.balanced(r), stub.imbalance(r))
 
-    stub.click = { ['Auto Sell##dockSellAuto'] = true }
+    stub.click = { ['Auto Sell##dockBtnAutoSell'] = true }
     stub.frame(function() dockTop.render(ctx) end)
     local q = uiState.dockActionQueue
     check('sell: Auto Sell enqueues auto_sell',
         q and #q >= 1 and q[#q].kind == 'auto_sell',
         q and q[#q] and tostring(q[#q].kind) or 'nil')
 
-    -- No merchant: the button still draws (grey/disabled-styled per theme.PushKeepButton), but
-    -- a click enqueues nothing.
+    -- No merchant: the button still draws (kit-disabled), but a click enqueues nothing.
     resetInput()
     local uiState2 = {}
     local ctx2 = newCtx({ uiState = uiState2 })
     dockState.init(newDeps(ctx2, { merchantOpen = false }))
     warmState(1330000)
     local r2 = stub.frame(function() dockTop.render(ctx2) end)
-    check('sell: Auto Sell still draws without a merchant', stub.drew(r2, 'Auto Sell##dockSellAuto'),
+    check('sell: Auto Sell still draws without a merchant', stub.drew(r2, 'Auto Sell##dockBtnAutoSell'),
         table.concat(r2.buttons, '|'))
     check('sell: balanced without a merchant', stub.balanced(r2), stub.imbalance(r2))
 
-    stub.click = { ['Auto Sell##dockSellAuto'] = true }
+    stub.click = { ['Auto Sell##dockBtnAutoSell'] = true }
     local r3 = stub.frame(function() dockTop.render(ctx2) end)
     check('sell: Auto Sell click enqueues nothing without a merchant',
         uiState2.dockActionQueue == nil or #uiState2.dockActionQueue == 0,
@@ -913,7 +922,9 @@ do
 end
 
 -- =================================================================
--- Phase 13: job-state washes + the loot cell flex (mockups 21c / 22a)
+-- Phase 13 (26a/§11): fixed cells — widths IDENTICAL in every job state (acceptance 10:
+-- only the lane may change width, and only with viewport/enable changes, never states) —
+-- plus the job washes staying balanced.
 -- =================================================================
 do
     resetInput()
@@ -921,12 +932,16 @@ do
     dockState.init(newDeps(ctxIdle))
     warmState()
     local rIdle = stub.frame(function() dockTop.render(ctxIdle) end)
-    check('flex: idle frame balanced (status wash push/pop nets zero)',
+    check('fixed: idle frame balanced (status wash push/pop nets zero)',
         stub.balanced(rIdle), stub.imbalance(rIdle))
-    local idleW = dockTop.slots and dockTop.slots.loot and dockTop.slots.loot.w
-    check('flex: idle loot slot measured', type(idleW) == 'number' and idleW > 0, idleW)
-    check('flex: idle still offers Loot All', stub.drew(rIdle, 'Loot All'),
-        table.concat(rIdle.buttons, '|'))
+    local idleWidths = {}
+    for id, slot in pairs(dockTop.slots) do idleWidths[id] = slot.w end
+    check('fixed: the lane exists and flexes into the remainder',
+        type(idleWidths.lane) == 'number' and idleWidths.lane > 0, tostring(idleWidths.lane))
+    check('fixed: buttons cell at its constant width',
+        idleWidths.buttons == 240, tostring(idleWidths.buttons))
+    check('fixed: idle lane names what it is for', stub.drew(rIdle, 'nothing running'),
+        table.concat(rIdle.text, '|'))
 
     resetInput()
     local uiState = {
@@ -937,12 +952,18 @@ do
     dockState.init(newDeps(ctxRun, { lootRunning = true }))
     warmState()
     local rRun = stub.frame(function() dockTop.render(ctxRun) end)
-    check('flex: running frame balanced (running wash nets zero)',
+    check('fixed: running frame balanced (running wash nets zero)',
         stub.balanced(rRun), stub.imbalance(rRun))
-    local runW = dockTop.slots and dockTop.slots.loot and dockTop.slots.loot.w
-    check('flex: the loot cell grows for a run (22a)',
-        type(runW) == 'number' and type(idleW) == 'number' and runW > idleW,
-        tostring(idleW) .. ' -> ' .. tostring(runW))
+    local same = true
+    local diffs = {}
+    for id, slot in pairs(dockTop.slots) do
+        if idleWidths[id] ~= slot.w then
+            same = false
+            diffs[#diffs + 1] = string.format('%s %s->%s', id, tostring(idleWidths[id]), tostring(slot.w))
+        end
+    end
+    check('fixed: EVERY cell width identical idle vs mid-run (acceptance 10)',
+        same, table.concat(diffs, ','))
 
     resetInput()
     local ctxDone = newCtx({ uiState = {
@@ -956,6 +977,26 @@ do
         stub.balanced(rDone), stub.imbalance(rDone))
     check('wash: done frame keeps the full-width summary', stub.drew(rDone, 'looted'),
         table.concat(rDone.text, '|'))
+
+    -- 25a: the hold decays — DOCK_LANE_DONE_HOLD_MS later the lane is idle again while
+    -- lootRunFinished is STILL set (a new run clears the flag; the clock ends the hold).
+    stub.advance(T.DOCK_LANE_DONE_HOLD_MS + 500)
+    dockState.tick(stub.now)
+    local rDecayed = stub.frame(function() dockTop.render(ctxDone) end)
+    check('wash: the done hold decays to idle after 6s', stub.drew(rDecayed, 'nothing running'),
+        table.concat(rDecayed.text, '|'))
+
+    -- Disabling a segment hands its width to the lane (26a: "unchecked width goes to the
+    -- action lane") — same total, bigger lane, and the disabled cell is gone.
+    resetInput()
+    local ctxLess = newCtx({ segments = 'status,bags,sell,buffs,xp' })   -- session off
+    dockState.init(newDeps(ctxLess))
+    warmState()
+    stub.frame(function() dockTop.render(ctxLess) end)
+    local lessLane = dockTop.slots.lane and dockTop.slots.lane.w
+    check('fixed: disabled segment frees its width to the lane',
+        dockTop.slots.session == nil and type(lessLane) == 'number'
+        and lessLane > (idleWidths.lane or 0), tostring(lessLane))
 end
 
 -- ---------------------------------------------------------------- summary
