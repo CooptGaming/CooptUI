@@ -198,8 +198,9 @@ local function renderCompareTile(ctx, row, baseX, baseY)
     ctx.theme.TextFurniture(string.upper(row.label or ""))
 
     ImGui.SetCursorPos(baseX + TILE_PAD_X, baseY + 20)
+    local valStr = tileValueString(row)  -- computed before the push so a throw stays outside it
     fonts.pushHeading()
-    ImGui.Text(tileValueString(row))
+    pcall(ImGui.Text, valStr)
     fonts.pop()
 
     ImGui.SetCursorPos(baseX + TILE_PAD_X, baseY + 46)
@@ -319,12 +320,15 @@ local function renderHeader(ctx, entry)
     end
     local parts = {}
     if flags and flags ~= "" then parts[#parts + 1] = (flags:gsub(", ", " \xc2\xb7 ")) end
-    if item.size and TooltipData.formatSize then
-        local sz = TooltipData.formatSize(item.size)
+    if TooltipData.formatSize then
+        -- formatSize takes the ITEM (it reads item.size itself) — passing the number
+        -- indexed a number and threw mid-child on the first in-game render.
+        local sz = TooltipData.formatSize(item)
         if sz and sz ~= "" then parts[#parts + 1] = "size " .. sz end
     end
     if (tonumber(item.weight) or 0) > 0 then parts[#parts + 1] = string.format("wt %s", tostring(item.weight)) end
-    if (tonumber(item.reqLevel) or 0) > 0 then parts[#parts + 1] = string.format("req %d", item.reqLevel) end
+    local reqLevel = tonumber(item.reqLevel) or 0
+    if reqLevel > 0 then parts[#parts + 1] = string.format("req %d", reqLevel) end
     if canUseInfo.canUse then parts[#parts + 1] = "you can use this" end
     if #parts > 0 then ctx.theme.TextFurniture(table.concat(parts, " \xc2\xb7 ")) end
     if not canUseInfo.canUse then
@@ -466,20 +470,25 @@ local function renderEffectsSection(ctx, effects)
         ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Kit.SpellBlue), e.spellName or "?")
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text(e.spellName or "?")
-            ctx.theme.TextFurniture((EFFECT_KIND_LABEL[e.key] or tostring(e.key))
-                .. " \xc2\xb7 spell " .. tostring(e.spellId))
-            if e.desc and e.desc ~= "" then
-                ImGui.PushTextWrapPos(320)
-                ImGui.TextWrapped(e.desc)
-                ImGui.PopTextWrapPos()
-            end
-            if tonumber(e.castTime) and tonumber(e.castTime) > 0 then
-                ctx.theme.TextContent(string.format("cast %.1fs", e.castTime))
-            end
-            if tonumber(e.recastTime) and tonumber(e.recastTime) > 0 then
-                ctx.theme.TextContent("recast " .. TooltipRender.formatSeconds(e.recastTime))
-            end
+            -- pcall between Begin/EndTooltip: a throw here must never skip EndTooltip.
+            pcall(function()
+                ImGui.Text(e.spellName or "?")
+                ctx.theme.TextFurniture((EFFECT_KIND_LABEL[e.key] or tostring(e.key))
+                    .. " \xc2\xb7 spell " .. tostring(e.spellId))
+                if e.desc and e.desc ~= "" then
+                    ImGui.PushTextWrapPos(320)
+                    pcall(ImGui.TextWrapped, e.desc)  -- keep the wrap-pos stack balanced too
+                    ImGui.PopTextWrapPos()
+                end
+                local castT = tonumber(e.castTime)
+                if castT and castT > 0 then
+                    ctx.theme.TextContent(string.format("cast %.1fs", castT))
+                end
+                local recastT = tonumber(e.recastTime)
+                if recastT and recastT > 0 then
+                    ctx.theme.TextContent("recast " .. TooltipRender.formatSeconds(recastT))
+                end
+            end)
             ImGui.EndTooltip()
         end
         ImGui.SameLine()
@@ -995,7 +1004,16 @@ function ItemDisplayView.render(ctx)
             end
             ImGui.Spacing()
             if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
-                renderOneItemContent(ctx, tab)
+                -- pcall INSIDE the child: a throw in content must never skip EndChild —
+                -- one skipped EndChild pauses the whole plugin overlay ("ImGui Critical
+                -- Failure: Missing EndChild()"), and /lua stop from that paused state
+                -- crashes the client in mq2lua. Learned in-game 2026-07-30.
+                local contentOk, contentErr = pcall(renderOneItemContent, ctx, tab)
+                if not contentOk then
+                    ctx.theme.TextError("Error drawing this item.")
+                    local diagnostics = require('itemui.core.diagnostics')
+                    diagnostics.recordError("Item Display", "Error drawing item content", contentErr)
+                end
             end
             ImGui.EndChild()
         end

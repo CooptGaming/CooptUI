@@ -159,6 +159,14 @@ do
 
     local r4 = stub.frame(function() header.render(nil) end)
     check('header: nil spec is inert', r4.ok, r4.err)
+
+    -- The in-game lesson (2026-07-30): a throw INSIDE the band must never skip EndChild —
+    -- a single skipped close pauses MQ's whole plugin overlay. Injected via the stub.
+    stub.throwOn = { Text = true }
+    local r5 = stub.frame(function() header.render({ title = 'Boom', stat = 'x' }) end)
+    stub.throwOn = {}
+    check('header: throw inside band never skips EndChild', r5.ok and stub.balanced(r5),
+        (r5.err or '') .. ' ' .. stub.imbalance(r5))
 end
 
 -- ---------------------------------------------------------------- registry: classicOnly

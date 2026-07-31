@@ -384,6 +384,7 @@ function M.render()
     local scriptData = cachedScriptData or getScriptCountsFromInventory(deps and deps.inventoryItems)
     -- Number table at the mono register (13px Lucida) — real glyphs, not a scaled bitmap.
     fonts.pushMono()
+    local monoOk = pcall(function()  -- a throw in the table must not leak the mono push
     ImGui.Text("")
     ImGui.SameLine(48)
     ImGui.TextColored(tv(C.Muted), "Cnt")
@@ -397,6 +398,8 @@ function M.render()
         ImGui.Text(tostring(row.aa))
     end
     ImGui.TextColored(tv(C.Highlight), "Total: " .. tostring(scriptData.totalAA) .. " AA")
+    end)
+    if not monoOk then ImGui.Text("(scripts table unavailable)") end
     fonts.pop()
 
     ImGui.EndChild()

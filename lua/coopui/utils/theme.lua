@@ -106,7 +106,7 @@ local Kit = {
 local function TextInfo(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Info))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -114,7 +114,7 @@ end
 local function TextMuted(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Muted))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -122,7 +122,7 @@ end
 local function TextContent(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.TextContent))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -131,7 +131,7 @@ end
 local function TextFurniture(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.TextFurniture))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -139,7 +139,7 @@ end
 local function TextWarning(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Warning))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -147,7 +147,7 @@ end
 local function TextSuccess(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Success))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -155,7 +155,7 @@ end
 local function TextHeader(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Header))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -163,7 +163,7 @@ end
 local function TextHeaderAlt(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.HeaderAlt))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -171,7 +171,7 @@ end
 local function TextWrappedHeaderAlt(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.HeaderAlt))
-    ImGui.TextWrapped(tostring(text))
+    pcall(ImGui.TextWrapped, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 
@@ -179,7 +179,7 @@ end
 local function TextError(text)
     ensureImGui()
     ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.Error))
-    ImGui.Text(tostring(text))
+    pcall(ImGui.Text, tostring(text))  -- throw-safe: the pop below must always run
     ImGui.PopStyleColor(1)
 end
 

@@ -71,6 +71,46 @@ function M.iconButton(id, label, tooltip, disabled, accent)
     return clicked and not disabled
 end
 
+--- Band content, split out so M.render can pcall it INSIDE the child: a throw here
+--- must never skip EndChild — one skipped close pauses the plugin overlay in-game.
+local function renderBandContent(spec, idScope, actions, rightSlots)
+    fonts.pushHeading()
+    pcall(ImGui.Text, tostring(spec.title or ''))  -- a throw must not leak the font push
+    fonts.pop()
+
+    if spec.stat and spec.stat ~= '' then
+        ImGui.SameLine(0, K.PAD)
+        theme.TextContent(spec.stat)
+    end
+
+    if rightSlots > 0 then
+        local needed = rightSlots * ICON_W + (rightSlots - 1) * ICON_GAP
+        ImGui.SameLine(0, 0)
+        local slack = availWidth() - needed
+        if slack > 0 then
+            ImGui.SameLine(0, slack)
+        else
+            ImGui.SameLine(0, ICON_GAP)
+        end
+        for i, a in ipairs(actions) do
+            if i > 1 then ImGui.SameLine(0, ICON_GAP) end
+            if M.iconButton('##hdract_' .. idScope .. '_' .. i, tostring(a.label or '?'),
+                    a.tooltip, a.disabled, false) and a.onClick then
+                pcall(a.onClick)
+            end
+        end
+        if spec.lock then
+            if #actions > 0 then ImGui.SameLine(0, ICON_GAP) end
+            local glyph = spec.lock.locked and GLYPH_LOCKED or GLYPH_UNLOCKED
+            local tip = spec.lock.locked and 'Unlock window position' or 'Lock window position'
+            if M.iconButton('##hdrlock_' .. idScope, glyph, tip, false, spec.lock.locked)
+                    and spec.lock.onToggle then
+                pcall(spec.lock.onToggle)
+            end
+        end
+    end
+end
+
 function M.render(spec)
     if not spec then return end
     local idScope = tostring(spec.id or spec.title or 'window')
@@ -81,41 +121,7 @@ function M.render(spec)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(K.PAD, (K.HEADER_H - K.FONT_HEADING) / 2))
     local flags = bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)
     if ImGui.BeginChild('##winheader_' .. idScope, ImVec2(0, K.HEADER_H), false, flags) then
-        fonts.pushHeading()
-        ImGui.Text(tostring(spec.title or ''))
-        fonts.pop()
-
-        if spec.stat and spec.stat ~= '' then
-            ImGui.SameLine(0, K.PAD)
-            theme.TextContent(spec.stat)
-        end
-
-        if rightSlots > 0 then
-            local needed = rightSlots * ICON_W + (rightSlots - 1) * ICON_GAP
-            ImGui.SameLine(0, 0)
-            local slack = availWidth() - needed
-            if slack > 0 then
-                ImGui.SameLine(0, slack)
-            else
-                ImGui.SameLine(0, ICON_GAP)
-            end
-            for i, a in ipairs(actions) do
-                if i > 1 then ImGui.SameLine(0, ICON_GAP) end
-                if M.iconButton('##hdract_' .. idScope .. '_' .. i, tostring(a.label or '?'),
-                        a.tooltip, a.disabled, false) and a.onClick then
-                    pcall(a.onClick)
-                end
-            end
-            if spec.lock then
-                if #actions > 0 then ImGui.SameLine(0, ICON_GAP) end
-                local glyph = spec.lock.locked and GLYPH_LOCKED or GLYPH_UNLOCKED
-                local tip = spec.lock.locked and 'Unlock window position' or 'Lock window position'
-                if M.iconButton('##hdrlock_' .. idScope, glyph, tip, false, spec.lock.locked)
-                        and spec.lock.onToggle then
-                    pcall(spec.lock.onToggle)
-                end
-            end
-        end
+        pcall(renderBandContent, spec, idScope, actions, rightSlots)
     end
     ImGui.EndChild()
     ImGui.PopStyleVar(1)
