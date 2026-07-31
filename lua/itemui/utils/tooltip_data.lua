@@ -372,6 +372,14 @@ function M.getCachedTooltipEntry(item, opts)
     return tooltipCache[tooltipCacheKey(item, opts or {})]
 end
 
+--- Test seam: plant a cache entry under the same key the render path will look up.
+--- Headless suites can't run the TLO socket walk that normally fills the cache, and the
+--- socket-row render code deserves coverage (a dead aug row shipped once).
+function M._seedTooltipCacheForTests(item, opts, entry)
+    if not item then return end
+    tooltipCache[tooltipCacheKey(item, opts or {})] = entry
+end
+
 -- Exports for item_tooltip api table and tooltip_render
 M.getTypeLine = getTypeLine
 M.formatSize = formatSize

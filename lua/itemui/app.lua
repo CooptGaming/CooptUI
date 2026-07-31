@@ -1621,6 +1621,11 @@ local function main()
     end
     flushLayoutSave()  -- Persist any pending layout changes before unload
     mq.imgui.destroy('ItemUI')
+    -- One overlay pass between deregistering the callback and closing the state: if the
+    -- fork's ImGui processor drops callbacks on its next pass rather than synchronously,
+    -- returning immediately would let the state die while a stale entry can still be
+    -- rawgeti'd (the /lua stop client crash lives in that family). Costs 50ms at unload.
+    mq.delay(50)
     mq.unbind('/itemui')
     mq.unbind('/inv')
     mq.unbind('/inventoryui')

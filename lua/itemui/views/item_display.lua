@@ -476,6 +476,8 @@ local function textWidth(s)
     return tonumber(w) or 0
 end
 
+local effectRowBody  -- declared ahead: the loop pcalls it between PushID/PopID
+
 --- EFFECTS: one row per effect (item's own + socketed augs' — the cache already merged
 --- them), spell-blue name left, the kind right-justified at the row's far edge, and a
 --- hover card with the readable facts.
@@ -484,6 +486,13 @@ local function renderEffectsSection(ctx, effects)
     if not beginSection("Effects", string.format("EFFECTS (%d)", #effects)) then return end
     for i, e in ipairs(effects) do
         ImGui.PushID("IDeffect_" .. i)
+        pcall(effectRowBody, ctx, e)
+        ImGui.PopID()
+    end
+end
+
+effectRowBody = function(ctx, e)
+    do
         local availX = contentAvailX()
         ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Kit.SpellBlue), e.spellName or "?")
         if ImGui.IsItemHovered() then
@@ -512,7 +521,6 @@ local function renderEffectsSection(ctx, effects)
         local kind = EFFECT_KIND_LABEL[e.key] or tostring(e.key)
         ImGui.SameLine(math.max(availX - textWidth(kind), 0))
         ctx.theme.TextFurniture(kind)
-        ImGui.PopID()
     end
 end
 
@@ -668,8 +676,7 @@ end
 --- Left-click: empty → Aug Utility opened to this socket; filled → opens as a tab.
 --- Right-click on a filled socket: the augInserted context menu — where the shift-gated,
 --- cost-stated Remove lives (rule 6; the old icon right-click removed with NO gate).
-local function renderAugmentRow(ctx, entry, row, isOrnament)
-    ImGui.PushID("IDaug_" .. tostring(row.slotIndex) .. (isOrnament and "_orn" or ""))
+local function augmentRowBody(ctx, entry, row, isOrnament)
     local isEmpty = (row.augName == nil or row.augName == "empty" or row.augName == "")
     if (row.iconId or 0) > 0 and ctx.drawItemIcon then
         pcall(function() ctx.drawItemIcon(row.iconId, 20) end)
@@ -700,8 +707,11 @@ local function renderAugmentRow(ctx, entry, row, isOrnament)
     ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(color))
     ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
     ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-    local _sel, rowPressed = ImGui.Selectable(label .. "##augrow", false)
+    -- pcall between push and pop: a throwing Selectable must not leak the three colors
+    -- (pcall returns ok, selected, pressed — the click is the THIRD value here).
+    local okSel, _sel, pressed = pcall(ImGui.Selectable, label .. "##augrow", false)
     ImGui.PopStyleColor(3)
+    local rowPressed = okSel and pressed or false
     if rowPressed then
         if isEmpty then
             uiState.augmentUtilitySlotIndex = row.slotIndex
@@ -733,6 +743,14 @@ local function renderAugmentRow(ctx, entry, row, isOrnament)
             end or nil,
         })
     end
+end
+
+--- One socket row. PushID/PopID pair OUTSIDE the pcall'd body: a throw anywhere in the
+--- row (icon, Selectable, menu) must never leak the id stack — the render suite injects
+--- exactly that and asserts balance.
+local function renderAugmentRow(ctx, entry, row, isOrnament)
+    ImGui.PushID("IDaug_" .. tostring(row.slotIndex) .. (isOrnament and "_orn" or ""))
+    pcall(augmentRowBody, ctx, entry, row, isOrnament)
     ImGui.PopID()
 end
 
@@ -838,49 +856,12 @@ local function renderOneItemContent(ctx, entry)
 end
 
 -- Module interface: render main Item Display window (tabbed)
-function ItemDisplayView.render(ctx)
-    if not registry.shouldDraw("itemDisplay") then return end
-
-    local layoutConfig = ctx.layoutConfig
-    local tabs = state.itemDisplayTabs
-    local activeIdx = state.itemDisplayActiveTabIndex
-    if activeIdx < 1 or activeIdx > #tabs then
-        state.itemDisplayActiveTabIndex = #tabs > 0 and 1 or 0
-        activeIdx = state.itemDisplayActiveTabIndex
-    end
-
-    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
-    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
-    local px = layoutConfig.ItemDisplayWindowX or 0
-    local py = layoutConfig.ItemDisplayWindowY or 0
-    if px and py and (px ~= 0 or py ~= 0) then
-        ImGui.SetNextWindowPos(ImVec2(px, py), condPos)
-    end
-
-    local w = layoutConfig.WidthItemDisplayPanel or constants.VIEWS.WidthItemDisplayPanel
-    local h = layoutConfig.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
-    if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
-    end
-
-    local windowFlags = 0
-    if ctx.uiState.uiLocked then
-        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
-    end
-
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Item Display##ItemUIItemDisplay", registry.isOpen("itemDisplay"), windowFlags)
-    registry.setWindowState("itemDisplay", winOpen, winOpen)
-
-    if not winOpen then
-        state.itemDisplayTabs = {}
-        state.itemDisplayActiveTabIndex = 1
-        ImGui.End()
-        return
-    end
-    -- Escape closes this window via main Inventory Companion's LIFO handler only
-    if not winVis then ImGui.End(); return end
-    -- (The old top-right Lock checkbox moved into the icon toolbar below — same registry pin.)
-
+--- Everything between Begin and End, extracted so render() can pcall it: a throw
+--- ANYWHERE in the window body (geometry tracking, tab strip, toolbar, content) must
+--- never skip ImGui.End() — a missing End is an ImGuiException in MQ2Lua, which KILLS
+--- the script and resets the overlay, and stopping from that poisoned state crashes the
+--- client (lua_rawgeti). The stub render suite drives this with injected throws.
+local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
         if cw and ch and cw > 0 and ch > 0 then
@@ -1082,6 +1063,57 @@ function ItemDisplayView.render(ctx)
             end
             ImGui.EndChild()
         end
+    end
+end
+
+function ItemDisplayView.render(ctx)
+    if not registry.shouldDraw("itemDisplay") then return end
+
+    local layoutConfig = ctx.layoutConfig
+    local tabs = state.itemDisplayTabs
+    local activeIdx = state.itemDisplayActiveTabIndex
+    if activeIdx < 1 or activeIdx > #tabs then
+        state.itemDisplayActiveTabIndex = #tabs > 0 and 1 or 0
+        activeIdx = state.itemDisplayActiveTabIndex
+    end
+
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
+    local px = layoutConfig.ItemDisplayWindowX or 0
+    local py = layoutConfig.ItemDisplayWindowY or 0
+    if px and py and (px ~= 0 or py ~= 0) then
+        ImGui.SetNextWindowPos(ImVec2(px, py), condPos)
+    end
+
+    local w = layoutConfig.WidthItemDisplayPanel or constants.VIEWS.WidthItemDisplayPanel
+    local h = layoutConfig.HeightItemDisplay or constants.VIEWS.HeightItemDisplay
+    if w > 0 and h > 0 then
+        ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
+    end
+
+    local windowFlags = 0
+    if ctx.uiState.uiLocked then
+        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
+    end
+
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Item Display##ItemUIItemDisplay", registry.isOpen("itemDisplay"), windowFlags)
+    registry.setWindowState("itemDisplay", winOpen, winOpen)
+
+    if not winOpen then
+        state.itemDisplayTabs = {}
+        state.itemDisplayActiveTabIndex = 1
+        ImGui.End()
+        return
+    end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
+    if not winVis then ImGui.End(); return end
+    -- (The old top-right Lock checkbox moved into the icon toolbar below — same registry pin.)
+
+    local bodyOk, bodyErr = pcall(renderWindowBody, ctx, layoutConfig, tabs, activeIdx)
+    if not bodyOk then
+        pcall(function() ctx.theme.TextError("Item Display hit an error this frame.") end)
+        local diagnostics = require('itemui.core.diagnostics')
+        diagnostics.recordError("Item Display", "Window body error", bodyErr)
     end
 
     ImGui.End()

@@ -140,6 +140,7 @@ function ImGuiStub.TextDisabled(s) lastLabel = s; addText(s) end
 function ImGuiStub.Separator() end
 function ImGuiStub.SeparatorText(s) addText(s) end
 function ImGuiStub.Spacing() end
+function ImGuiStub.NewLine() end
 function ImGuiStub.Dummy() end
 function ImGuiStub.Indent() end
 function ImGuiStub.Unindent() end
@@ -259,6 +260,10 @@ function ImGuiStub.GetWindowWidth() return 2560 end
 function ImGuiStub.GetWindowHeight() return 30 end
 function ImGuiStub.GetWindowSize() return 2560, 30 end
 function ImGuiStub.GetContentRegionAvail() return 400, 300 end
+function ImGuiStub.GetWindowPos() return 100, 100 end
+local stubStyle = { FramePadding = { x = 4, y = 3 }, ItemSpacing = { x = 8, y = 4 } }
+function ImGuiStub.GetStyle() return stubStyle end
+function ImGuiStub.GetStyleColorVec4() return vec4(0.5, 0.5, 0.5, 1) end
 function ImGuiStub.GetCursorPosX() return 400 end
 function ImGuiStub.GetCursorPos() return 0, 0 end
 function ImGuiStub.SetCursorPos() end
