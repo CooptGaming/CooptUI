@@ -90,6 +90,13 @@ do
     layoutDefaults.WidthChatPanel = 560
     layoutDefaults.HeightChat = 380
     layoutDefaults.ShowChatWindow = 1
+    -- Chat console renderer. 0 = the built-in ring-buffer renderer; 1 = MQ's Zep console.
+    -- DEFAULT 0 because Zep crashes the CLIENT on script stop: requiring 'Zep' registers a
+    -- sol2 usertype whose __gc reaches into the Lua registry during lua_close, and LuaJIT
+    -- has already torn the registry down by then (dump 2026-07-31: lj_gc_finalize_udata ->
+    -- gc_call_finalizer -> destroy_usertype_storage<LuaZepConsole> -> luaL_unref ->
+    -- lua_rawgeti null-deref). Flip to 1 only once that is fixed in the plugin.
+    layoutDefaults.ChatUseZep = 0
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

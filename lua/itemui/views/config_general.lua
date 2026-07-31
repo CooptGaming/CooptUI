@@ -412,6 +412,24 @@ function ConfigGeneral.render(ctx)
                 end
             end
 
+            ImGui.Spacing()
+            local zepOn = (tonumber(layoutConfig.ChatUseZep) or 0) ~= 0
+            local nextZep = ImGui.Checkbox("Rich chat console (clickable item links)##chatUseZep", zepOn)
+            if nextZep ~= zepOn then
+                setLayoutValue("ChatUseZep", nextZep and 1 or 0)
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("OFF by default, and it is not a style choice: MQ's Zep console")
+                ImGui.Text("crashes the EverQuest client when a Lua script stops (its Lua")
+                ImGui.Text("binding tears down after the script's registry is already gone).")
+                ImGui.Text("")
+                ImGui.Text("Off, chat still shows every line - you lose clickable item links")
+                ImGui.Text("in chat and Zep's scrollback widget. Turn this on only if the")
+                ImGui.Text("plugin-side fix has shipped and you have tested /lua stop itemui.")
+                ImGui.EndTooltip()
+            end
+
             -- Segment membership AND order. Enabled rows render in the BAR's actual (INI)
             -- order with reorder arrows -- the rows must mirror the screen or moving
             -- things is visually incoherent; disabled rows follow in canonical order.

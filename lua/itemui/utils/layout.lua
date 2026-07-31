@@ -107,6 +107,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.WidthChatPanel then layoutDefaults.WidthChatPanel = tonumber(d.WidthChatPanel) or layoutDefaults.WidthChatPanel end
     if d.HeightChat then layoutDefaults.HeightChat = tonumber(d.HeightChat) or layoutDefaults.HeightChat end
     if d.ShowChatWindow then layoutDefaults.ShowChatWindow = tonumber(d.ShowChatWindow) or layoutDefaults.ShowChatWindow end
+    if d.ChatUseZep then layoutDefaults.ChatUseZep = tonumber(d.ChatUseZep) or layoutDefaults.ChatUseZep end
     if d.ItemDisplayWindowX then layoutDefaults.ItemDisplayWindowX = tonumber(d.ItemDisplayWindowX) or layoutDefaults.ItemDisplayWindowX end
     if d.ItemDisplayWindowY then layoutDefaults.ItemDisplayWindowY = tonumber(d.ItemDisplayWindowY) or layoutDefaults.ItemDisplayWindowY end
     if d.WidthItemDisplayPanel then layoutDefaults.WidthItemDisplayPanel = tonumber(d.WidthItemDisplayPanel) or layoutDefaults.WidthItemDisplayPanel end
@@ -388,6 +389,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("WidthChatPanel=" .. tostring(layoutConfig.WidthChatPanel or layoutDefaults.WidthChatPanel) .. "\n")
         f:write("HeightChat=" .. tostring(layoutConfig.HeightChat or layoutDefaults.HeightChat) .. "\n")
         f:write("ShowChatWindow=" .. tostring(layoutConfig.ShowChatWindow or layoutDefaults.ShowChatWindow) .. "\n")
+        f:write("ChatUseZep=" .. tostring(layoutConfig.ChatUseZep or layoutDefaults.ChatUseZep) .. "\n")
         f:write("\n[ColumnVisibility]\n")
         local fixedOrder = layoutConfig.fixedColumnOrder or {}
         for view, cols in pairs(columnVisibility) do
@@ -621,6 +623,7 @@ local function applyLayoutSection(parsed)
     layoutConfig.WidthChatPanel = LayoutUtils.loadLayoutValue(layout, "WidthChatPanel", layoutDefaults.WidthChatPanel or 560)
     layoutConfig.HeightChat = LayoutUtils.loadLayoutValue(layout, "HeightChat", layoutDefaults.HeightChat or 380)
     layoutConfig.ShowChatWindow = LayoutUtils.loadLayoutValue(layout, "ShowChatWindow", layoutDefaults.ShowChatWindow)
+    layoutConfig.ChatUseZep = LayoutUtils.loadLayoutValue(layout, "ChatUseZep", layoutDefaults.ChatUseZep)
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
 end
 

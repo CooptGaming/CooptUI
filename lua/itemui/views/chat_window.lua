@@ -90,6 +90,9 @@ function ChatWindowView.render(ctx)
     ctx.uiState.chatOpenedFromBar = nil
 
     local layoutConfig = ctx.layoutConfig
+    -- Zep is opt-in and OFF by default: requiring it registers a usertype whose teardown
+    -- crashes the CLIENT on script stop (see chat_console.lua's zepAvailable comment).
+    chatConsole.setZepEnabled((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.ChatWindowX or 0

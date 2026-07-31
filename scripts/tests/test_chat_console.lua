@@ -146,5 +146,40 @@ do
     check('fallback: empty state message shown', stub.drew(r2, 'no chat yet'), table.concat(r2.text, '|'))
 end
 
+-- =================================================================
+-- The Zep gate (client-crash mitigation, 2026-07-31)
+--
+-- Requiring 'Zep' registers a sol2 usertype whose __gc reaches into the Lua registry
+-- during lua_close -- the confirmed cause of the EQ client crash on /lua stop. The gate
+-- must therefore prevent the REQUIRE ITSELF, not merely skip using the module: once the
+-- usertype is registered the crash is armed for the rest of the state's life. A require
+-- trap proves it, which a "did we draw the fallback" assertion never could.
+-- =================================================================
+do
+    local requiredZep = false
+    local realRequire = require
+    _G.require = function(name, ...)
+        if name == 'Zep' then requiredZep = true end
+        return realRequire(name, ...)
+    end
+
+    chatConsole.setZepEnabled(false)
+    check('zep gate: off -> zepAvailable() false', chatConsole.zepAvailable() == false)
+    check('zep gate: off -> Zep was never required (the crash is armed by the require)',
+        requiredZep == false)
+
+    -- Turned on, the module IS attempted. Headless there is no Zep, so pcall(require)
+    -- fails and we degrade to the ring buffer -- which is exactly the shape the in-game
+    -- "plugin missing" case takes, and it must not throw.
+    chatConsole.setZepEnabled(true)
+    local ok, avail = pcall(chatConsole.zepAvailable)
+    check('zep gate: on -> attempt is contained, never throws', ok, avail)
+    check('zep gate: on -> require was attempted', requiredZep == true)
+    check('zep gate: on with no Zep present -> still reports unavailable', avail == false)
+
+    _G.require = realRequire
+    chatConsole.setZepEnabled(false)
+end
+
 print(string.format('\n%d passed, %d failed', pass, fail))
 os.exit(fail == 0 and 0 or 1)

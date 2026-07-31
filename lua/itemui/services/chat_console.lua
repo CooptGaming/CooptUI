@@ -44,9 +44,25 @@ local zepChecked = false
 local zepOk = false
 local zepModule = nil
 
---- pcall(require, 'Zep') exactly once; memoized so a missing module (or an environment with
---- no Zep plugin support at all) does not retry every frame.
+--- Opt-in gate for the Zep console (layoutConfig.ChatUseZep, default 0 = OFF).
+---
+--- CLIENT-CRASH MITIGATION, not a preference. `require('Zep')` registers a sol2 usertype
+--- (LuaZepConsole) whose storage carries a __gc that reaches into the Lua registry. On
+--- script stop LuaJIT closes the state, finalizes userdata, and that __gc runs AFTER the
+--- registry is already gone -- a null-deref that takes the whole EQ client down, not just
+--- the script. Confirmed from a real minidump (2026-07-31): lj_gc_finalize_udata ->
+--- gc_call_finalizer -> destroy_usertype_storage<LuaZepConsole> -> luaL_unref ->
+--- lua_rawgeti (lj_api.c:842), read of 0x18 off a null pointer. It only bites once Zep has
+--- actually been required, which is why stopping right after a start was always safe and
+--- stopping after a session of play was not.
+---
+--- The fallback ring-buffer renderer draws the same lines; what is lost is Zep's native
+--- \x12 link execution and its scrollback widget. Flip ChatUseZep=1 once the plugin-side
+--- teardown is fixed (destroy the usertype storages before lua_close, or guard that __gc).
+local zepEnabled = nil  -- set by M.init from layoutConfig; nil = not yet initialised (off)
+
 local function zepAvailable()
+    if not zepEnabled then return false end
     if not zepChecked then
         zepChecked = true
         local ok, mod = pcall(require, 'Zep')
@@ -56,6 +72,14 @@ local function zepAvailable()
         end
     end
     return zepOk
+end
+
+--- Called from the chat window each frame with the live layoutConfig value, so a Settings
+--- flip takes effect without a reload. Turning it OFF mid-session cannot un-require Zep
+--- (the usertype is already registered for this state's lifetime) -- it stops NEW consoles
+--- and falls back to the ring buffer; the crash-free guarantee needs the next script start.
+function M.setZepEnabled(v)
+    zepEnabled = v and true or false
 end
 M.zepAvailable = zepAvailable
 
