@@ -450,6 +450,24 @@ local function accumulateSession(now)
     snap.sessionPlat = session.looted + session.sold
 end
 
+--- Session-record counts (§12 / phase 14): the strip's four values. Pure in-memory
+--- reads over the record the main loop maintains; amber lives in the view, the counts
+--- live here.
+local sessionRecord = require('itemui.services.session_record')
+local function readSessionRecord()
+    local ok, c = pcall(sessionRecord.getCounts)
+    if not ok or not c then return end
+    snap.srAugsCall = c.augsCall
+    snap.srAugsTotal = c.augsTotal
+    snap.srMythicsCall = c.mythicsCall
+    snap.srMythicsTotal = c.mythicsTotal
+    snap.srScripts = c.scripts
+    snap.srSorted = c.sorted
+    snap.srLooted = c.looted
+    snap.srStartedAt = c.startedAt
+    snap.srCanUndo = c.canUndo
+end
+
 --- Script turn-in progress (25c / phase 15): pure uiState reads over the consume FSM's
 --- queue. The plan total is stamped by the Scripts window when it enqueues; menu-driven
 --- single consumes never set it, so the lane shows "N left" without a denominator there.
@@ -681,6 +699,8 @@ function M.tick(now)
         pcall(readSellRun)
         -- Script turn-in: pure uiState reads, every tick, so the lane's count stays live.
         pcall(readScriptTurnin)
+        -- Session-record counts: in-memory reads over the record main_loop maintains.
+        pcall(readSessionRecord)
         -- Loot and session are pure cached reads, so they run every tick and progress stays
         -- live. readLoot consumes snap.bagFree, so it must follow the bags walk above.
         pcall(readLoot, now)

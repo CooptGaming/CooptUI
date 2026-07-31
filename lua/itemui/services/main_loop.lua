@@ -2207,6 +2207,10 @@ function M.tick(now)
     phase3_autoSellRequest()
     phase4_sellMacroFinish(now)
     nativeBridge.tick(now)
+    -- Session record merge (§12 / phase 14): classify this session's loot and run the
+    -- needs-a-call pre-emption. Main-loop side (TLO-free walk over the shared list);
+    -- the service debounces its own file writes.
+    pcall(require('itemui.services.session_record').tick, now)
     do
         -- Bump the AA view's sort/filter cache key when a rebuild COMPLETES
         -- (building true -> false), not when it is requested: the completed

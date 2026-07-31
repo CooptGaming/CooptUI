@@ -648,6 +648,20 @@ local function applySellListChange(itemName, inKeep, inJunk)
     if storage and inventoryItems then storage.saveInventory(inventoryItems) end
 end
 
+-- Session record (windows pass §12 / phase 14): tonight's augs/mythics/scripts with the
+-- needs-a-call queue. Keep/junk decisions ride applySellListChange above, reroll rides
+-- the pending list — the same mutations the menu performs. Ticked from main_loop.
+require('itemui.services.session_record').init({
+    inventoryItems = inventoryItems,
+    getSessionStartAcquiredSeq = function() return scanState.sessionStartAcquiredSeq end,
+    getSellStatusForItem = function(i) return sellStatusService.getSellStatusForItem(i) end,
+    applySellListChange = applySellListChange,
+    rerollService = rerollService,
+    getCharStoragePath = config.getCharStoragePath,
+    safeWrite = file_safe.safeWrite,
+    safeReadAll = file_safe.safeReadAll,
+})
+
 -- Shared helper: is any cursor-based action currently running or queued?
 local function cursorActionBusy()
     return uiState.pendingDestroyAction ~= nil

@@ -276,7 +276,7 @@ do
         { seg = 'status',  needle = 'CoOpt' },
         { seg = 'bags',    needle = 'bags' },
         { seg = 'sell',    needle = 'sell' },
-        { seg = 'loot',    needle = 'loot' },
+        { seg = 'lane',    needle = 'nothing running' },
         { seg = 'buffs',   needle = 'buffs' },
         { seg = 'xp',      needle = 'XP' },
         { seg = 'session', needle = 'session' },
@@ -997,6 +997,92 @@ do
     check('fixed: disabled segment frees its width to the lane',
         dockTop.slots.session == nil and type(lessLane) == 'number'
         and lessLane > (idleWidths.lane or 0), tostring(lessLane))
+end
+
+-- =================================================================
+-- Phase 14 (§12 / 26b): the session strip's four values + the triage panel. The record
+-- service is seeded directly (its own suite covers the pre-emption logic); this block
+-- proves the CELL and PANEL read it honestly: amber only for needs-a-call, zero muted
+-- and inert, value clicks are doors, and a panel chip decides.
+-- =================================================================
+do
+    resetInput()
+    local sessionRecord = require('itemui.services.session_record')
+    sessionRecord._resetForTests()
+    local files = {}
+    local srDeps
+    srDeps = {
+        inventoryItems = {
+            { name = 'Fresh Emerald', id = 11, type = 'Augmentation', bag = 1, slot = 1,
+              value = 142000, totalValue = 142000, stackSize = 1, acquiredSeq = 500 },
+            { name = 'Script of Lost Memories', id = 30, type = 'Misc', bag = 1, slot = 2,
+              value = 0, totalValue = 0, stackSize = 3, acquiredSeq = 501 },
+        },
+        getSessionStartAcquiredSeq = function() return 500 end,
+        getSellStatusForItem = function() return '-', false, false, false end,
+        applySellListChange = function(name, k, j) srDeps._applied = { name = name, k = k, j = j } end,
+        rerollService = {
+            getListStatus = function() return nil end,
+            addToPendingList = function() return true end,
+            removeFromPending = function() return true end,
+        },
+        getCharStoragePath = function(char, file) return 'FAKE/' .. char .. '/' .. file end,
+        safeWrite = function(path, content) files[path] = content return true end,
+        safeReadAll = function(path) return files[path] end,
+    }
+    sessionRecord.init(srDeps)
+    -- tick() resolves the character through mq.TLO.Me.Name; this suite's TLO is the
+    -- no-render-access trap, so lend it a name JUST for the seeding tick (renders below
+    -- keep the trap — the no-TLO-from-the-render-path assertions stay real).
+    local mqTab = package.loaded['mq']
+    local savedTLO = mqTab.TLO
+    mqTab.TLO = { Me = { Name = function() return 'Testchar' end } }
+    sessionRecord.tick(1000)
+    mqTab.TLO = savedTLO
+
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx))
+    warmState()
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    check('session strip: amber-eligible aug count drawn', stub.drew(r, '1 aug'),
+        table.concat(r.text, '|'))
+    check('session strip: scripts counted by stack', stub.drew(r, '3 scripts'),
+        table.concat(r.text, '|'))
+    check('session strip: zero mythics muted', stub.drew(r, '0 mythics'),
+        table.concat(r.text, '|'))
+    check('session strip: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- A non-zero value is a door: clicking the aug count toggles Aug Utility.
+    stub.hover = { ['1 aug'] = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('session strip: the aug value is a door', q and #q >= 1
+        and q[#q].kind == 'window' and q[#q].id == 'augmentUtility' and q[#q].toggle == true,
+        q and q[#q] and tostring(q[#q].id) or 'nil')
+
+    -- Hovering the cell opens the triage panel; a Keep chip decides through the record.
+    resetInput()
+    stub.hover = { dockseg_session = true }
+    local r2 = stub.frame(function() dockTop.render(ctx) end)
+    check('session panel: opens on hover', #r2.windows == 2, table.concat(r2.windows, ','))
+    check('session panel: truth line carries the full totals', stub.drew(r2, '2 looted . 1 need a call . 1 sorted'),
+        table.concat(r2.text, '|'))
+    check('session panel: the call row is offered best-first', stub.drew(r2, 'Fresh Emerald'),
+        table.concat(r2.text, '|'))
+    check('session panel: balanced with the panel open', stub.balanced(r2), stub.imbalance(r2))
+
+    stub.hover = { dockseg_session = true }
+    stub.click = { ['Keep##sess1'] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    check('session panel: Keep chip decides through the record',
+        srDeps._applied and srDeps._applied.name == 'Fresh Emerald' and srDeps._applied.k == true,
+        srDeps._applied and srDeps._applied.name)
+    local c = sessionRecord.getCounts()
+    check('session panel: amber cleared, sorted grew', c.augsCall == 0 and c.sorted == 2,
+        c.augsCall .. '/' .. c.sorted)
+    sessionRecord._resetForTests()
 end
 
 -- =================================================================

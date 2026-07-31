@@ -478,15 +478,61 @@ segments.xp = function(ctx, s)
     end
 end
 
+--- One session value: white when it has something to say, amber while it needs a call,
+--- muted AND INERT at zero (26b: the strip never invites a dead click). Non-zero values
+--- are doors — click queues the toggle for the window that answers them.
+local function sessionValue(ctx, text, color, action)
+    if color then
+        ImGui.TextColored(theme.ToVec4(color), text)
+    else
+        ImGui.Text(text)
+    end
+    if action and ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+        M.queue(ctx, action)
+    end
+end
+
 segments.session = function(ctx, s)
-    -- 26a slot 2, fixed 470px: the session strip. Money renders now; the augs/mythics/
-    -- scripts counts and their triage panels are phase 14 — the cell's width is already
-    -- theirs, so nothing will shift when they land. Zero renders muted and inert (26b).
-    labelled("session", plat(s.sessionPlat) .. "p")
-    ImGui.SameLine(0, 8)
-    theme.TextMuted(string.format("looted %sp", plat(s.sessionLooted)))
-    ImGui.SameLine(0, 6)
-    theme.TextMuted(string.format(". sold %sp", plat(s.sessionSold)))
+    -- 26a slot 2, fixed 470px: the session strip — four values, every non-zero one a
+    -- door. The counting rule (§12): augs/mythics show what still NEEDS A CALL, amber
+    -- while any do, white 0 once cleared (that 0 is the whole point of a tuned rule
+    -- set); scripts have no decision and stay white. The word "session" (and money —
+    -- money reports) opens the session log in Chat.
+    theme.TextMuted("session")
+    if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+        M.queue(ctx, { kind = "window", id = "chat", toggle = true })
+    end
+    ImGui.SameLine(0, 4)
+    sessionValue(ctx, plat(s.sessionPlat) .. "p", nil, { kind = "window", id = "chat", toggle = true })
+
+    ImGui.SameLine(0, 10)
+    local augsCall, augsTotal = s.srAugsCall or 0, s.srAugsTotal or 0
+    if augsTotal <= 0 then
+        theme.TextMuted("0 augs")
+    else
+        sessionValue(ctx, string.format("%d aug%s", augsCall, augsCall == 1 and "" or "s"),
+            (augsCall > 0) and theme.Colors.Warning or nil,
+            { kind = "window", id = "augmentUtility", toggle = true })
+    end
+
+    ImGui.SameLine(0, 10)
+    local mythCall, mythTotal = s.srMythicsCall or 0, s.srMythicsTotal or 0
+    if mythTotal <= 0 then
+        theme.TextMuted("0 mythics")
+    else
+        sessionValue(ctx, string.format("%d mythic%s", mythCall, mythCall == 1 and "" or "s"),
+            (mythCall > 0) and theme.Colors.Warning or nil,
+            { kind = "window", id = "mythicals", toggle = true })
+    end
+
+    ImGui.SameLine(0, 10)
+    local scripts = s.srScripts or 0
+    if scripts <= 0 then
+        theme.TextMuted("0 scripts")
+    else
+        sessionValue(ctx, string.format("%d script%s", scripts, scripts == 1 and "" or "s"),
+            nil, { kind = "window", id = "scripttracker", toggle = true })
+    end
 end
 
 -- Which dock_state walks each cell needs, so an unused cell costs no TLO reads.
@@ -532,11 +578,10 @@ local function cellOpen(ctx, id, s)
 end
 
 --- The queue action a background click on this cell fires. Nil = the cell has no toggle
---- (the button pair). The hub actions carry toggle=true — main_loop's drain hides the
---- hub when it is already up, mirroring /itemui hide semantics.
+--- (the button pair; the session cell, whose values are their own doors — §12 — so its
+--- background stays inert rather than surprising a missed click).
 local function cellToggleAction(id, s)
     if id == "status" or id == "bags" or id == "sell" then return { kind = "hub", toggle = true } end
-    if id == "session" then return { kind = "window", id = "chat", toggle = true } end
     if id == "buffs" then return { kind = "window", id = "effects", toggle = true } end
     if id == "xp" then return { kind = "window", id = "aa", toggle = true } end
     if id == "lane" then
@@ -698,6 +743,121 @@ popovers.buffs = function(ctx, s)
 
     if ImGui.Button("Open Buffs window##dockBuffsOpen") then
         M.queue(ctx, { kind = "window", id = "effects" })
+    end
+end
+
+--- The session triage panel (26b/26c): hover to open, decide from the panel. Nothing
+--- ever leaves — a decided item drops into SORTED and the bar counts only what's left.
+--- Keyboard triage (arrows + K/R/J) waits on the keybind pass: these bar windows refuse
+--- focus by design, so keys belong to the future docked form of this list.
+local sessionRecord = require('itemui.services.session_record')
+
+local CALL_ROWS_MAX = 8      -- panel rows before "+N more" (the panel is a glance, not a table)
+local SORTED_ROWS_MAX = 10
+
+popovers.session = function(ctx, s)
+    theme.TextHeaderAlt("This session")
+    ImGui.SameLine(0, 8)
+    if s.srStartedAt and s.srStartedAt > 0 then
+        theme.TextMuted("since " .. os.date("%H:%M", s.srStartedAt))
+    else
+        theme.TextMuted("nothing looted yet")
+    end
+    ImGui.SameLine(0, 12)
+    if s.srCanUndo then
+        if ImGui.SmallButton("Undo last##dockSessUndo") then
+            pcall(sessionRecord.undo)
+        end
+        ImGui.SameLine(0, 4)
+    end
+    if ImGui.SmallButton("Clear##dockSessClear") then
+        -- The design's answer to "does the session end at logout": no — it ends HERE.
+        pcall(sessionRecord.clear)
+    end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        ImGui.Text("Starts a fresh session record. The one thing that ends a session.")
+        ImGui.EndTooltip()
+    end
+    ImGui.Separator()
+
+    -- The truth line (§12): the header carries the full total; the bar's amber count is
+    -- only what still needs a call.
+    local needCall = (s.srAugsCall or 0) + (s.srMythicsCall or 0)
+    theme.TextMuted(string.format("%d looted . %d need a call . %d sorted",
+        s.srLooted or 0, needCall, s.srSorted or 0))
+    theme.TextMuted(string.format("money  %sp looted . %sp sold",
+        plat(s.sessionLooted), plat(s.sessionSold)))
+
+    theme.SectionBreak()
+    if theme.TextFurniture then theme.TextFurniture("NEEDS A CALL") else theme.TextMuted("NEEDS A CALL") end
+    ImGui.SameLine(0, 6)
+    theme.TextMuted("best first")
+    local calls = {}
+    pcall(function() calls = sessionRecord.getCallList() end)
+    if #calls == 0 then
+        theme.TextMuted("Nothing waiting on you.")
+    else
+        for i = 1, math.min(#calls, CALL_ROWS_MAX) do
+            local e = calls[i]
+            ImGui.PushID("dockSessCall" .. i)
+            safeText(tostring(e.name or "?"))
+            ImGui.SameLine(280)
+            ImGui.Text(plat(e.value) .. "p")
+            ImGui.SameLine(0, 10)
+            -- Three chips cover the common calls; an impossible one greys with its
+            -- reason inline (§12) — never a tooltip.
+            for _, chip in ipairs({ { c = "keep", l = "Keep" }, { c = "reroll", l = "Reroll" }, { c = "junk", l = "Junk" } }) do
+                local okTo, why = sessionRecord.canDecide(e.uid, chip.c)
+                if okTo then
+                    if ImGui.SmallButton(chip.l .. "##sess" .. i) then
+                        pcall(sessionRecord.decide, e.uid, chip.c)
+                    end
+                else
+                    theme.TextMuted(chip.l .. (why and (" - " .. why) or ""))
+                end
+                ImGui.SameLine(0, 4)
+            end
+            -- Why it deserves attention: category + departed state (the fits-your-slots
+            -- line needs a compare walk that does not exist yet — deferred honestly,
+            -- same as Equipment's "N upgrades in bags").
+            theme.TextMuted(e.cat == "mythic" and "mythic" or "augment")
+            if e.departed then
+                ImGui.SameLine(0, 6)
+                theme.TextMuted(". no longer in bags")
+            end
+            ImGui.PopID()
+        end
+        if #calls > CALL_ROWS_MAX then
+            theme.TextMuted(string.format("+%d more", #calls - CALL_ROWS_MAX))
+        end
+    end
+
+    theme.SectionBreak()
+    -- SORTED stays countable (nothing ever leaves the session) but collapsed — a record,
+    -- not a queue.
+    if ImGui.CollapsingHeader(string.format("SORTED %d##dockSessSorted", s.srSorted or 0)) then
+        local sorted = {}
+        pcall(function() sorted = sessionRecord.getSortedList() end)
+        for i = 1, math.min(#sorted, SORTED_ROWS_MAX) do
+            local e = sorted[i]
+            ImGui.PushID("dockSessSorted" .. i)
+            safeText(tostring(e.name or "?"))
+            ImGui.SameLine(280)
+            theme.TextMuted(tostring(e.reason or e.choice or ""))
+            ImGui.PopID()
+        end
+        if #sorted > SORTED_ROWS_MAX then
+            theme.TextMuted(string.format("+%d more", #sorted - SORTED_ROWS_MAX))
+        end
+    end
+
+    if (s.srScripts or 0) > 0 then
+        theme.SectionBreak()
+        theme.TextMuted(string.format("scripts  %d looted this session - the Scripts window turns them in", s.srScripts))
+        if ImGui.SmallButton("Open Scripts##dockSessScripts") then
+            M.queue(ctx, { kind = "window", id = "scripttracker" })
+        end
     end
 end
 
