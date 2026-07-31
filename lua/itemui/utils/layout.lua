@@ -149,6 +149,15 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end
+    -- Dock / bars arrangement strings (CSV / name keys). Read verbatim with ~= nil guards:
+    -- tonumber() would nil them out, and empty is meaningful (e.g. ZoneAssign= means "no
+    -- overrides" was captured). Paradigm keys (UIMode, Dock toggles/style) are deliberately
+    -- never in [Defaults] — see layout_setup.lua.
+    if d.DockSegments ~= nil then layoutDefaults.DockSegments = d.DockSegments end
+    if d.ZoneAssign ~= nil then layoutDefaults.ZoneAssign = d.ZoneAssign end
+    if d.WindowAttach ~= nil then layoutDefaults.WindowAttach = d.WindowAttach end
+    if d.LayoutPreset ~= nil then layoutDefaults.LayoutPreset = d.LayoutPreset end
+    if d.UserPlaced ~= nil then layoutDefaults.UserPlaced = d.UserPlaced end
     local cvd = parsed.columnVisibilityDefaults or {}
     for view, v in pairs(cvd) do
         if columnVisibility[view] then

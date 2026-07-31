@@ -95,6 +95,16 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.HeightReroll = layoutConfig.HeightReroll or layoutDefaults.HeightReroll
     layoutDefaults.RerollWindowX = layoutConfig.RerollWindowX or layoutDefaults.RerollWindowX
     layoutDefaults.RerollWindowY = layoutConfig.RerollWindowY or layoutDefaults.RerollWindowY
+    -- Dock / bars ARRANGEMENT keys (where things are) round-trip through [Defaults]. The
+    -- paradigm keys (UIMode, DockTop, DockBottom, DockPosition, DockChat, DockBottomStyle,
+    -- DockButtons) are deliberately absent: same intent as the bundled-revert keep-list in
+    -- settings.lua — capture/reset must never switch the UI paradigm out from under the
+    -- player, so those live only in [Layout] and survive both operations untouched.
+    layoutDefaults.DockSegments = layoutConfig.DockSegments or layoutDefaults.DockSegments
+    layoutDefaults.ZoneAssign = layoutConfig.ZoneAssign or layoutDefaults.ZoneAssign or ""
+    layoutDefaults.WindowAttach = layoutConfig.WindowAttach or layoutDefaults.WindowAttach or ""
+    layoutDefaults.LayoutPreset = layoutConfig.LayoutPreset or layoutDefaults.LayoutPreset or ""
+    layoutDefaults.UserPlaced = layoutConfig.UserPlaced or layoutDefaults.UserPlaced or ""
     layoutDefaults.AlignToContext = uiState.alignToContext and 1 or 0
     layoutDefaults.UILocked = uiState.uiLocked and 1 or 0
     layoutDefaults.SuppressWhenLootMac = uiState.suppressWhenLootMac and 1 or 0
@@ -208,6 +218,13 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("EnableLootHistory=" .. (layoutDefaults.EnableLootHistory or 0) .. "\n")
             f:write("EnableSkipHistory=" .. (layoutDefaults.EnableSkipHistory or 0) .. "\n")
             f:write("ConfirmBeforeDelete=" .. (layoutDefaults.ConfirmBeforeDelete or 1) .. "\n")
+            -- Bars arrangement only — paradigm keys (UIMode, Dock toggles/style) never enter
+            -- [Defaults]; see the capture block above.
+            f:write("DockSegments=" .. tostring(layoutDefaults.DockSegments or "") .. "\n")
+            f:write("ZoneAssign=" .. tostring(layoutDefaults.ZoneAssign or "") .. "\n")
+            f:write("WindowAttach=" .. tostring(layoutDefaults.WindowAttach or "") .. "\n")
+            f:write("LayoutPreset=" .. tostring(layoutDefaults.LayoutPreset or "") .. "\n")
+            f:write("UserPlaced=" .. tostring(layoutDefaults.UserPlaced or "") .. "\n")
             f:write("\n[ColumnVisibilityDefaults]\n")
             for view, cols in pairs(columnVisibility) do
                 local visibleCols = {}
@@ -311,6 +328,16 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightReroll = layoutDefaults.HeightReroll
     layoutConfig.RerollWindowX = layoutDefaults.RerollWindowX or 0
     layoutConfig.RerollWindowY = layoutDefaults.RerollWindowY or 0
+    -- Dock / bars arrangement restored from the captured snapshot (or state.lua shipped
+    -- defaults when never captured). UIMode and the other paradigm keys are deliberately
+    -- NOT touched — mirroring the bundled-revert keep-list in settings.lua: resetting the
+    -- LAYOUT must not flip classic<->bars or the dock's configuration out from under the
+    -- player. window_zones picks up UserPlaced/WindowAttach via its own change detection.
+    layoutConfig.DockSegments = layoutDefaults.DockSegments
+    layoutConfig.ZoneAssign = layoutDefaults.ZoneAssign or ""
+    layoutConfig.WindowAttach = layoutDefaults.WindowAttach or ""
+    layoutConfig.LayoutPreset = layoutDefaults.LayoutPreset or ""
+    layoutConfig.UserPlaced = layoutDefaults.UserPlaced or ""
     if sortState then
         sortState.invColumn = "Name"
         sortState.invDirection = ImGuiSortDirection.Ascending
