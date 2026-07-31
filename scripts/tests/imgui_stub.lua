@@ -34,7 +34,7 @@ local function newRec()
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
         windows = {},       -- names passed to Begin
-        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0 },
+        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0, tab = 0 },
         max = { win = 0, child = 0 },
         tloAccess = {},     -- any mq.TLO.* touched during the frame
         commands = {},      -- any mq.cmd/cmdf issued during the frame
@@ -211,6 +211,12 @@ end
 function ImGuiStub.EndPopup() rec.depth.win = rec.depth.win - 1 end
 function ImGuiStub.OpenPopup() end
 function ImGuiStub.CloseCurrentPopup() end
+-- Tab bars: every tab reports selected so tests exercise all tab bodies in one frame
+-- (real ImGui shows one). Balance rides the tab counter.
+function ImGuiStub.BeginTabBar() rec.depth.tab = rec.depth.tab + 1; return true end
+function ImGuiStub.EndTabBar() rec.depth.tab = rec.depth.tab - 1 end
+function ImGuiStub.BeginTabItem(label) addText(label); rec.depth.tab = rec.depth.tab + 1; return true, true end
+function ImGuiStub.EndTabItem() rec.depth.tab = rec.depth.tab - 1 end
 function ImGuiStub.BeginMenu(label)
     lastLabel = label
     rec.buttons[#rec.buttons + 1] = label
@@ -401,12 +407,12 @@ end
 function M.balanced(r)
     local d = r.depth
     return d.win == 0 and d.child == 0 and d.group == 0 and d.id == 0 and d.sv == 0 and d.sc == 0
-        and d.font == 0 and d.menu == 0
+        and d.font == 0 and d.tab == 0 and d.menu == 0
 end
 
 function M.imbalance(r)
     local out, d = {}, r.depth
-    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc', 'font', 'menu' }) do
+    for _, k in ipairs({ 'win', 'child', 'group', 'id', 'sv', 'sc', 'font', 'menu', 'tab' }) do
         if d[k] ~= 0 then out[#out + 1] = string.format('%s=%+d', k, d[k]) end
     end
     return table.concat(out, ' ')

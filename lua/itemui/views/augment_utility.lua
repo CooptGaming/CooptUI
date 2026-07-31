@@ -12,8 +12,11 @@ local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local ItemDisplayView = require('itemui.views.item_display')
+local AugmentsView = require('itemui.views.augments')
 
 local AugmentUtilityView = {}
+
+local renderForSlotContent  -- declared ahead: render()'s tab bar calls it before its definition
 
 -- Per 4.2 state ownership: slot, search filter, only-show-usable
 local state = {
@@ -102,6 +105,36 @@ function AugmentUtilityView.render(ctx)
         end
     end
 
+    -- Bars mode (spec §8's one consolidation): a tab bar — the slot-driven flow, plus the
+    -- Augments window's whole list as "All augments" (that window is classicOnly now; same
+    -- list, one window, one shortcut). Classic keeps the un-tabbed layout untouched.
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    if barsOn then
+        if ImGui.BeginTabBar("##AugUtilTabs") then
+            -- Single-arg BeginTabItem returns show FIRST in this binding (tuple (show, show)).
+            local showSlot = ImGui.BeginTabItem("For this slot")
+            if showSlot then
+                renderForSlotContent(ctx)
+                ImGui.EndTabItem()
+            end
+            local showAll = ImGui.BeginTabItem("All augments")
+            if showAll then
+                AugmentsView.renderListContent(ctx)
+                ImGui.EndTabItem()
+            end
+            ImGui.EndTabBar()
+        end
+    else
+        renderForSlotContent(ctx)
+    end
+
+    ImGui.End()
+end
+
+--- The slot-driven flow (target item, slot picker, candidate list) — the window's whole
+--- body before the fold. No Begin/End in here: render() owns the window, the tab owns
+--- the region. Early returns are plain returns for the same reason.
+renderForSlotContent = function(ctx)
     -- Target: current Item Display tab
     local itemDisplayState = ItemDisplayView.getState()
     local tabs = itemDisplayState.itemDisplayTabs or {}
@@ -111,8 +144,7 @@ function AugmentUtilityView.render(ctx)
 
     if not tab or not tab.item then
         ctx.theme.TextWarning("No item selected.")
-        ImGui.TextWrapped("Open an item in CoOpt UI Item Display (right-click an item -> CoOp UI Item Display), then use this utility to add or remove augments.")
-        ImGui.End()
+        ImGui.TextWrapped("Open an item in CoOpt UI Item Display (right-click an item -> Item info), then use this utility to add or remove augments.")
         return
     end
 
@@ -561,8 +593,6 @@ function AugmentUtilityView.render(ctx)
         ImGui.SameLine()
         ctx.theme.TextInfo(string.format("Optimizing %d/%d", #oq.steps, oq.total))
     end
-
-    ImGui.End()
 end
 
 -- Registry: Augment Utility module (4.2 state ownership — window in registry, slot/search in view)

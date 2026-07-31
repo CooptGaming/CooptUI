@@ -109,6 +109,15 @@ function AugmentsView.render(ctx)
         end
     end
 
+    AugmentsView.renderListContent(ctx)
+
+    ImGui.End()
+end
+
+--- The list body — filters, search, the 240-row table — shared VERBATIM between the
+--- standalone window (classic mode) and Aug Utility's "All augments" tab (bars mode;
+--- spec §8's one consolidation). No Begin/End in here: callers own the window or tab.
+function AugmentsView.renderListContent(ctx)
     -- Filter to augmentations only (cached until inventory rescans or count changes)
     local invItems = ctx.inventoryItems or {}
     local augKey = string.format("%d|%s", #invItems, tostring(invItems[1]))
@@ -159,7 +168,6 @@ function AugmentsView.render(ctx)
         else
             ctx.theme.TextMuted("No augmentations match your search.")
         end
-        ImGui.End()
         return
     end
 
@@ -369,13 +377,15 @@ function AugmentsView.render(ctx)
         end
         ImGui.EndTable()
     end
-
-    ImGui.End()
 end
 
 -- Registry: Augments module (4.2 state ownership — window in registry, search/sort in view)
 registry.register({
     id          = "augments",
+    -- Spec §8, the one consolidation: in bars mode this window's list IS Aug Utility's
+    -- "All augments" tab — the standalone window is classic-only (registry hides it from
+    -- launchers/render/tick while UIMode=bars, same mechanism as Command Center).
+    classicOnly = true,
     zone        = "L2",  -- window_zones placement column/slot (mockup 10a)
     label       = "Augments",
     buttonWidth = 55,
