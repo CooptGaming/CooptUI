@@ -14,6 +14,7 @@ local registry = require('itemui.core.registry')
 local ItemDisplayView = require('itemui.views.item_display')
 local AugmentsView = require('itemui.views.augments')
 local windowHeader = require('itemui.components.window_header')
+local TooltipData = require('itemui.utils.tooltip_data')
 
 local AugmentUtilityView = {}
 
@@ -229,24 +230,68 @@ renderForSlotContent = function(ctx)
         slotIdx = 1
         state.augmentUtilitySlotIndex = 1
     end
-    ImGui.Text("Augment slot:")
-    ImGui.SameLine()
-    ImGui.SetNextItemWidth(140)
-    local slotNames = {}
     local itForSlot = ctx.getItemTLO and ctx.getItemTLO(bag, slot, source)
-    for i = 1, maxSlots do
-        if ctx.getSlotType and itForSlot then
-            local typ = ctx.getSlotType(itForSlot, i)
-            slotNames[i] = (typ and typ > 0) and string.format("Slot %d (type %d)", i, typ) or string.format("Slot %d", i)
-        else
-            slotNames[i] = string.format("Slot %d (augment)", i)
+    if tostring(ctx.layoutConfig.UIMode or "classic") == "bars" then
+        -- 20c: the slot map IS the picker — one Selectable cell per socket, filled cells
+        -- named from the same scan-invalidated cache Item Display's AUGMENTS section
+        -- reads, the active cell in open-blue on the active-tab fill. This replaces the
+        -- "Augment slot:" combo; classic keeps the combo below.
+        local tipOpts = { source = source, bag = bag, slot = slot }
+        pcall(function() ItemTooltip.prepareTooltipContent(targetItem, ctx, tipOpts) end)
+        local tip = TooltipData.getCachedTooltipEntry(targetItem, tipOpts)
+        local byIndex = {}
+        if tip and type(tip.augLines) == "table" then
+            for _, r in ipairs(tip.augLines) do byIndex[r.slotIndex] = r end
         end
+        for i = 1, maxSlots do
+            local r = byIndex[i]
+            local cell
+            if r and r.augName and r.augName ~= "empty" and r.augName ~= "" then
+                cell = r.augName
+            elseif r and r.prefix and r.prefix ~= "" then
+                cell = r.prefix .. "empty"
+            else
+                local typ = (ctx.getSlotType and itForSlot) and ctx.getSlotType(itForSlot, i) or 0
+                cell = (typ and typ > 0) and string.format("empty Â· type %d", typ) or "empty"
+            end
+            local active = (i == slotIdx)
+            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(active and ctx.theme.Kit.OpenBlue or ctx.theme.Colors.TextContent))
+            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+            ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+            local okSel, _sel, pressed = pcall(ImGui.Selectable,
+                string.format("SLOT %d   %s##augmap%d", i, cell, i), active)
+            ImGui.PopStyleColor(3)
+            if okSel and pressed then slotIdx = i end
+        end
+        if tip and tip.ornamentLine then
+            local o = tip.ornamentLine
+            local oname = (o.augName and o.augName ~= "empty" and o.augName ~= "") and o.augName
+                or "empty Â· type 20"
+            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Kit.Mythic))
+            pcall(ImGui.Selectable, "ORNAMENT   " .. oname .. "##augmapOrn", false)
+            ImGui.PopStyleColor(1)
+        end
+        ctx.theme.TextFurniture("click a slot to work on it")
+        state.augmentUtilitySlotIndex = slotIdx
+    else
+        ImGui.Text("Augment slot:")
+        ImGui.SameLine()
+        ImGui.SetNextItemWidth(140)
+        local slotNames = {}
+        for i = 1, maxSlots do
+            if ctx.getSlotType and itForSlot then
+                local typ = ctx.getSlotType(itForSlot, i)
+                slotNames[i] = (typ and typ > 0) and string.format("Slot %d (type %d)", i, typ) or string.format("Slot %d", i)
+            else
+                slotNames[i] = string.format("Slot %d (augment)", i)
+            end
+        end
+        local newIdx = ImGui.Combo("##AugmentUtilitySlot", slotIdx, slotNames, maxSlots)
+        if type(newIdx) == "number" and newIdx >= 1 and newIdx <= maxSlots then
+            slotIdx = newIdx
+        end
+        state.augmentUtilitySlotIndex = slotIdx
     end
-    local newIdx = ImGui.Combo("##AugmentUtilitySlot", slotIdx, slotNames, maxSlots)
-    if type(newIdx) == "number" and newIdx >= 1 and newIdx <= maxSlots then
-        slotIdx = newIdx
-    end
-    state.augmentUtilitySlotIndex = slotIdx
     ImGui.Spacing()
 
     -- Phase 2: detect optimize-queue completion (main_loop drains steps then clears the queue).
