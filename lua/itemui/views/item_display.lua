@@ -374,8 +374,10 @@ local function renderRulesBlock(ctx, entry, memo)
     end
 
     local packBacked = (source == "inv" or source == "sell" or source == "augments")
-    local sellListSource = packBacked or source == "bank" or source == "reroll"  -- mirror ui_common.lua:339
-    if not sellListSource then return end  -- equipped/corpse tabs: status line only, as today
+    -- Keep/Junk are name-keyed lists, so an EQUIPPED item's rules are just as real — the
+    -- rule fires when the item is in a pack again (smoke test 2026-07-30 expected them).
+    local sellListSource = packBacked or source == "bank" or source == "reroll" or source == "equipped"
+    if not sellListSource then return end  -- corpse tabs: status line only
 
     ImGui.Spacing()
     if item.name and item.name ~= "" and ctx.applySellListChange then
@@ -460,13 +462,29 @@ end
 local EFFECT_KIND_LABEL = { Clicky = "clicky", Worn = "worn", Proc = "combat proc",
                             Focus = "focus", Spell = "spell" }
 
+--- Tuple-safe content-region width and text width (the binding returns two floats).
+local function contentAvailX()
+    local ax = ImGui.GetContentRegionAvail()
+    if type(ax) == "number" then return ax end
+    if type(ax) == "table" and ax.x then return ax.x end
+    return 0
+end
+
+local function textWidth(s)
+    local w = ImGui.CalcTextSize(tostring(s))
+    if type(w) == "table" and w.x then return w.x end
+    return tonumber(w) or 0
+end
+
 --- EFFECTS: one row per effect (item's own + socketed augs' — the cache already merged
---- them), spell-blue name, furniture kind, and a hover card with the readable facts.
+--- them), spell-blue name left, the kind right-justified at the row's far edge, and a
+--- hover card with the readable facts.
 local function renderEffectsSection(ctx, effects)
     if not effects or #effects == 0 then return end
     if not beginSection("Effects", string.format("EFFECTS (%d)", #effects)) then return end
     for i, e in ipairs(effects) do
         ImGui.PushID("IDeffect_" .. i)
+        local availX = contentAvailX()
         ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Kit.SpellBlue), e.spellName or "?")
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
@@ -491,76 +509,118 @@ local function renderEffectsSection(ctx, effects)
             end)
             ImGui.EndTooltip()
         end
-        ImGui.SameLine()
-        ctx.theme.TextFurniture("\xc2\xb7 " .. (EFFECT_KIND_LABEL[e.key] or tostring(e.key)))
+        local kind = EFFECT_KIND_LABEL[e.key] or tostring(e.key)
+        ImGui.SameLine(math.max(availX - textWidth(kind), 0))
+        ctx.theme.TextFurniture(kind)
         ImGui.PopID()
     end
 end
 
--- The compact stat grid's field set. The strip's own cells (hp/mana/end/ac/haste/regen —
--- or the weapon cells) stay out of this list so nothing is stated twice (§9); attack and
--- dmg/delay join it only when the GENERAL strip is up (they'd otherwise be invisible on
--- e.g. attack jewelry).
-local ALL_STATS_SPECS = {
-    { key = "str", h = "heroicSTR", label = "str" },
-    { key = "sta", h = "heroicSTA", label = "sta" },
-    { key = "agi", h = "heroicAGI", label = "agi" },
-    { key = "dex", h = "heroicDEX", label = "dex" },
-    { key = "int", h = "heroicINT", label = "int" },
-    { key = "wis", h = "heroicWIS", label = "wis" },
-    { key = "cha", h = "heroicCHA", label = "cha" },
-    { key = "svMagic", h = "heroicSvMagic", label = "magic" },
-    { key = "svFire", h = "heroicSvFire", label = "fire" },
-    { key = "svCold", h = "heroicSvCold", label = "cold" },
-    { key = "svPoison", h = "heroicSvPoison", label = "poison" },
-    { key = "svDisease", h = "heroicSvDisease", label = "disease" },
-    { key = "svCorruption", h = "heroicSvCorruption", label = "corrupt" },
-    { key = "accuracy", label = "accuracy" },
-    { key = "avoidance", label = "avoidance" },
-    { key = "shielding", label = "shielding" },
-    { key = "strikeThrough", label = "strikethru" },
-    { key = "damageShield", label = "dmg shield" },
-    { key = "combatEffects", label = "combat eff" },
-    { key = "dotShielding", label = "dot shield" },
-    { key = "spellShield", label = "spell shield" },
-    { key = "stunResist", label = "stun resist" },
-    { key = "clairvoyance", label = "clairvoy" },
-    { key = "healAmount", label = "heal amt" },
-    { key = "spellDamage", label = "spell dmg" },
-    { key = "dmgBonus", label = "dmg bonus" },
-    { key = "manaRegen", label = "mana regen" },
-    { key = "enduranceRegen", label = "end regen" },
-    { key = "luck", label = "luck" },
-    { key = "purity", label = "purity" },
+-- The stat grid, grouped like the endgame item display: attributes on the left, resists
+-- in the middle, the extra bonuses on the right — each column filling top to bottom. The
+-- strip's own cells (hp/mana/end/ac/haste/regen — or the weapon cells) stay out so
+-- nothing is stated twice (§9); attack and dmg/delay join the bonuses column only when
+-- the GENERAL strip is up (they'd otherwise be invisible on e.g. attack jewelry).
+local ALL_STATS_GROUPS = {
+    { title = "attributes", specs = {
+        { key = "str", h = "heroicSTR", label = "strength" },
+        { key = "sta", h = "heroicSTA", label = "stamina" },
+        { key = "agi", h = "heroicAGI", label = "agility" },
+        { key = "dex", h = "heroicDEX", label = "dexterity" },
+        { key = "int", h = "heroicINT", label = "intelligence" },
+        { key = "wis", h = "heroicWIS", label = "wisdom" },
+        { key = "cha", h = "heroicCHA", label = "charisma" },
+    } },
+    { title = "resists", specs = {
+        { key = "svMagic", h = "heroicSvMagic", label = "magic" },
+        { key = "svFire", h = "heroicSvFire", label = "fire" },
+        { key = "svCold", h = "heroicSvCold", label = "cold" },
+        { key = "svPoison", h = "heroicSvPoison", label = "poison" },
+        { key = "svDisease", h = "heroicSvDisease", label = "disease" },
+        { key = "svCorruption", h = "heroicSvCorruption", label = "corrupt" },
+    } },
+    { title = "bonuses", specs = {
+        { key = "accuracy", label = "accuracy" },
+        { key = "avoidance", label = "avoidance" },
+        { key = "shielding", label = "shielding" },
+        { key = "strikeThrough", label = "strikethru" },
+        { key = "damageShield", label = "dmg shield" },
+        { key = "combatEffects", label = "combat eff" },
+        { key = "dotShielding", label = "dot shield" },
+        { key = "spellShield", label = "spell shield" },
+        { key = "stunResist", label = "stun resist" },
+        { key = "clairvoyance", label = "clairvoy" },
+        { key = "healAmount", label = "heal amt" },
+        { key = "spellDamage", label = "spell dmg" },
+        { key = "dmgBonus", label = "dmg bonus" },
+        { key = "manaRegen", label = "mana regen" },
+        { key = "enduranceRegen", label = "end regen" },
+        { key = "luck", label = "luck" },
+        { key = "purity", label = "purity" },
+    } },
 }
 
---- ALL STATS: every non-zero stat as "label value" ("40 +8" = base+heroic, the game's own
---- convention), aug-inclusive, three columns. Nothing here restates a strip cell.
+--- ALL STATS: three type columns (attributes | resists | bonuses), labels left in
+--- furniture, values right-justified per column at the mono register ("40 +8" =
+--- base+heroic, the game's own convention). Aug-inclusive. Empty groups drop out and the
+--- rest widen — the counts differ per item, so the columns flex rather than pretend.
 local function renderAllStatsSection(ctx, item, augStats, strip)
     local function sv(f) return (tonumber(item[f]) or 0) + ((augStats and tonumber(augStats[f])) or 0) end
-    local rows = {}
-    local function consider(spec)
-        local v = sv(spec.key)
-        local h = spec.h and sv(spec.h) or 0
-        if v ~= 0 or h ~= 0 then rows[#rows + 1] = { label = spec.label, v = v, h = h } end
+    local groups, total, maxRows = {}, 0, 0
+    for gi, g in ipairs(ALL_STATS_GROUPS) do
+        local rows = {}
+        for _, spec in ipairs(g.specs) do
+            local v = sv(spec.key)
+            local h = spec.h and sv(spec.h) or 0
+            if v ~= 0 or h ~= 0 then
+                local valStr = tostring(v)
+                if h ~= 0 then valStr = valStr .. string.format(" +%d", h) end
+                rows[#rows + 1] = { label = spec.label, value = valStr }
+            end
+        end
+        if gi == #ALL_STATS_GROUPS and strip == "general" then
+            for _, extra in ipairs({
+                { key = "attack", label = "attack" },
+                { key = "damage", label = "dmg" },
+                { key = "itemDelay", label = "delay" },
+            }) do
+                local v = sv(extra.key)
+                if v ~= 0 then rows[#rows + 1] = { label = extra.label, value = tostring(v) } end
+            end
+        end
+        if #rows > 0 then
+            groups[#groups + 1] = { title = g.title, rows = rows }
+            total = total + #rows
+            maxRows = math.max(maxRows, #rows)
+        end
     end
-    for _, spec in ipairs(ALL_STATS_SPECS) do consider(spec) end
-    if strip == "general" then
-        consider({ key = "attack", label = "attack" })
-        consider({ key = "damage", label = "dmg" })
-        consider({ key = "itemDelay", label = "delay" })
+    if total == 0 then return end
+    if not beginSection("AllStats", string.format("ALL STATS (%d)", total)) then return end
+
+    local COL_GAP = 16  -- breathing room between a column's value and the next column's label
+    local colW = math.max(140, math.floor(contentAvailX() / #groups))
+
+    for gi, g in ipairs(groups) do
+        if gi > 1 then ImGui.SameLine((gi - 1) * colW) end
+        ctx.theme.TextFurniture(string.upper(g.title))
     end
-    if #rows == 0 then return end
-    if not beginSection("AllStats", string.format("ALL STATS (%d)", #rows)) then return end
-    local COL_W, LABEL_W, PER_ROW = 150, 70, 3
-    for i, r in ipairs(rows) do
-        local col = (i - 1) % PER_ROW
-        if col ~= 0 then ImGui.SameLine(col * COL_W) end
-        ctx.theme.TextFurniture(r.label)
-        ImGui.SameLine(col * COL_W + LABEL_W)
-        local str = tostring(r.v)
-        if r.h ~= 0 then str = str .. string.format(" +%d", r.h) end
-        ctx.theme.TextContent(str)
+    for r = 1, maxRows do
+        -- A zero-size anchor starts each line so every cell can place itself absolutely —
+        -- a later column can be deeper than an earlier one without inheriting its x.
+        ImGui.Dummy(ImVec2(0, 0))
+        for gi, g in ipairs(groups) do
+            local row = g.rows[r]
+            if row then
+                local x = (gi - 1) * colW
+                ImGui.SameLine(x)
+                ctx.theme.TextFurniture(row.label)
+                fonts.pushMono()
+                local valW = textWidth(row.value)
+                ImGui.SameLine(math.max(x + colW - COL_GAP - valW, x))
+                pcall(ImGui.Text, row.value)
+                fonts.pop()
+            end
+        end
     end
 end
 
@@ -609,7 +669,7 @@ end
 --- Right-click on a filled socket: the augInserted context menu — where the shift-gated,
 --- cost-stated Remove lives (rule 6; the old icon right-click removed with NO gate).
 local function renderAugmentRow(ctx, entry, row, isOrnament)
-    ImGui.PushID("IDaug_" .. tostring(row.slotIndex))
+    ImGui.PushID("IDaug_" .. tostring(row.slotIndex) .. (isOrnament and "_orn" or ""))
     local isEmpty = (row.augName == nil or row.augName == "empty" or row.augName == "")
     if (row.iconId or 0) > 0 and ctx.drawItemIcon then
         pcall(function() ctx.drawItemIcon(row.iconId, 20) end)
@@ -619,25 +679,30 @@ local function renderAugmentRow(ctx, entry, row, isOrnament)
         ImGui.Dummy(ImVec2(20, 20))
     end
     ImGui.SameLine()
+    -- The row is a full-width Selectable, not bare text: a spanning hitbox (the icon-only
+    -- and name-only hit targets read as dead in game) and the kit's #161b22 hover fill.
+    -- Never selected=true — no selection state exists anywhere in this UI (§2).
+    local label
+    local color
     if isEmpty then
-        local t
         if row.prefix and row.prefix ~= "" then
-            t = row.prefix .. "empty"
+            label = "+ " .. row.prefix .. "empty"
         elseif isOrnament then
-            t = "Ornament (type 20): empty"
+            label = "+ Ornament (type 20): empty"
         else
-            t = "Slot " .. tostring(row.slotIndex) .. ": empty"
+            label = "+ Slot " .. tostring(row.slotIndex) .. ": empty"
         end
-        ctx.theme.TextFurniture("+ " .. t)
+        color = ctx.theme.Colors.TextFurniture
     else
-        local color = isOrnament and ctx.theme.Kit.Mythic or ctx.theme.Kit.SpellBlue
-        ImGui.TextColored(ctx.theme.ToVec4(color), row.augName)
-        if isOrnament then
-            ImGui.SameLine()
-            ctx.theme.TextFurniture("\xc2\xb7 ornament")
-        end
+        label = row.augName .. (isOrnament and "  \xc2\xb7 ornament" or "")
+        color = isOrnament and ctx.theme.Kit.Mythic or ctx.theme.Kit.SpellBlue
     end
-    if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
+    ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(color))
+    ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+    ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+    local _sel, rowPressed = ImGui.Selectable(label .. "##augrow", false)
+    ImGui.PopStyleColor(3)
+    if rowPressed then
         if isEmpty then
             uiState.augmentUtilitySlotIndex = row.slotIndex
             uiState.augmentUtilityWindowOpen = true

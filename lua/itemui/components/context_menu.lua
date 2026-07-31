@@ -256,7 +256,9 @@ ROWS = {
         id = "open", group = "look", families = { item = true, script = true, book = true },
         contexts = { bags = true, bank = true, equipped = true, augInserted = true, ornament = true },
         applies = function(ctx, _, env) return ctx.addItemDisplayTab ~= nil or env.onOpenSubject ~= nil end,
-        label = function() return "Open it" end,
+        -- "Open it" read as a synonym of "Inspect it" in the smoke test — this row opens
+        -- the CoOpt Item Display window, so it says which window it means.
+        label = function() return "Item info" end,
         action = function(ctx, item, env)
             -- Hosts whose subject needs live resolution first (a socketed augment: the row
             -- table is cache-shaped, the tab wants full stats) pass onOpenSubject instead.
@@ -651,7 +653,9 @@ ROWS = {
         end,
         action = function(ctx, item)
             local stackSize = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
-            ctx.requestDestroyItem(item.bag, item.slot, item.name, stackSize)
+            -- wholeStack: this row's label promises the whole stack, and the user's shift
+            -- (held for the gate) means the pickup must not rely on QuantityWnd appearing.
+            ctx.requestDestroyItem(item.bag, item.slot, item.name, stackSize, true)
         end,
     },
 }

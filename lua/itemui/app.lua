@@ -1015,17 +1015,17 @@ context.init({
         uiState.destroyQuantityMax = sz
         uiState.destroyQuantityValue = tostring(sz)
     end,
-    requestDestroyItem = function(bag, slot, name, stackSize)
+    requestDestroyItem = function(bag, slot, name, stackSize, wholeStack)
         local qty = (stackSize and stackSize > 0) and stackSize or 1
         -- Queue if any cursor action is already running or pending, so rapid deletes chain correctly.
         if cursorActionBusy() then
             local q = uiState.cursorActionQueue or {}
-            q[#q + 1] = { type = "destroy", bag = bag, slot = slot, name = name or "", qty = qty }
+            q[#q + 1] = { type = "destroy", bag = bag, slot = slot, name = name or "", qty = qty, wholeStack = wholeStack and true or nil }
             uiState.cursorActionQueue = q
             setStatusMessage(string.format("Delete queued (%d in queue).", #q))
             return
         end
-        uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "", qty = qty }
+        uiState.pendingDestroyAction = { bag = bag, slot = slot, name = name or "", qty = qty, wholeStack = wholeStack and true or nil }
         uiState.pendingDestroy = nil
         uiState.destroyQuantityValue = ""
         uiState.destroyQuantityMax = 1

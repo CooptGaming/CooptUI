@@ -325,7 +325,7 @@ function M.install()
         'NoFocusOnAppearing', 'NoBringToFrontOnFocus', 'NoNav', 'NoDocking', 'NoBackground',
         'AlwaysVerticalScrollbar', 'MenuBar' })
     _G.ImGuiCol = enum({ 'Text', 'Button', 'ButtonHovered', 'ButtonActive', 'ChildBg',
-        'Border', 'PlotHistogram', 'Header' })
+        'Border', 'PlotHistogram', 'Header', 'HeaderHovered', 'HeaderActive' })
     _G.ImGuiStyleVar = enum({ 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
         'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding',
         'FrameRounding', 'FrameBorderSize' })

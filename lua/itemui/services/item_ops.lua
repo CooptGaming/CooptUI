@@ -933,7 +933,21 @@ function M.advanceDestroyStateMachine(now)
             local slotId = (slotItem and slotItem.ID and slotItem.ID()) or 0
             if slotId > 0 then action.id = slotId end
         end
-        mq.cmdf('/itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
+        -- /nomodkey on every pickup: the context menu's Destroy is SHIFT-gated, so the
+        -- user's physical shift is often still down when this command lands — and a
+        -- shift-click pickup grabs the whole stack with NO QuantityWnd, which left the
+        -- qty dance below waiting on a window that never opens (then timing out and
+        -- autoinv'ing the stack back). Strip physical modifiers and choose explicitly.
+        if action.wholeStack and qty > 1 then
+            -- Whole-stack destroy (the menu's contract — its label says "the whole
+            -- stack of N"): shift-pickup grabs the entire stack deliberately, skipping
+            -- QuantityWnd; confirm_destroy still id-verifies before /destroy.
+            mq.cmdf('/nomodkey /shiftkey /itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
+            action.phase = "pickup_delay"
+            action.enteredAt = now
+            return
+        end
+        mq.cmdf('/nomodkey /itemnotify in pack%d %d leftmouseup', action.bag, action.slot)
         if qty > 1 then
             action.phase = "wait_qty_window"
             action.enteredAt = now

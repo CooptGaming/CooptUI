@@ -122,7 +122,7 @@ do
     check('anatomy: MOVE heading', stub.drew(r, 'MOVE'))
     check('anatomy: RULES heading', stub.drew(r, 'RULES'))
     check('anatomy: destructive group has no heading', not stub.drew(r, 'DESTROY'))
-    check('anatomy: Open it offered', stub.drew(r, 'Open it'))
+    check('anatomy: Item info offered', stub.drew(r, 'Item info'))
     check('anatomy: Inspect offered', stub.drew(r, 'Inspect it'))
     -- Group order: LOOK before MOVE before RULES in the recorded stream.
     local pos = {}
@@ -365,7 +365,7 @@ do
     local ctx = newCtx(spies, { favLists = { { name = 'Burn' } }, favContaining = {} })
     local worn = { name = 'Old Helm', id = 666, slot = 2, type = 'Armor', icon = 0 }
     local r = render(ctx, worn, { source = 'equipped' })
-    check('equipped: look verbs offered', stub.drew(r, 'Open it') and stub.drew(r, 'Inspect it'))
+    check('equipped: look verbs offered', stub.drew(r, 'Item info') and stub.drew(r, 'Inspect it'))
     check('equipped: no sell-list rows', not stub.drew(r, 'Keep it') and not stub.drew(r, 'Always sell it'))
     check('equipped: no destroy', not stub.drew(r, 'Destroy it'))
     check('equipped: clicky submenu present', stub.drew(r, 'Clicky lists'))
@@ -418,7 +418,7 @@ do
     check('effect: where states the kind', r.text[2] == 'buff', r.text[2])
     check('effect: Remove it offered', stub.drew(r, 'Remove it'))
     check('effect: no item verbs leak in', not stub.drew(r, 'Keep it')
-        and not stub.drew(r, 'Open it') and not stub.drew(r, 'Destroy it'))
+        and not stub.drew(r, 'Item info') and not stub.drew(r, 'Destroy it'))
     check('effect: balanced', stub.balanced(r), stub.imbalance(r))
     stub.click = { ['Remove it'] = true }
     render(ctx, buff, { context = 'effect', where = 'buff',

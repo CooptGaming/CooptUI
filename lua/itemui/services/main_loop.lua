@@ -1570,7 +1570,7 @@ local function phase0_cursorActionQueue(now)
     if not next then return end
     local remaining = #q
     if next.type == "destroy" then
-        uiState.pendingDestroyAction = { bag = next.bag, slot = next.slot, name = next.name, qty = next.qty }
+        uiState.pendingDestroyAction = { bag = next.bag, slot = next.slot, name = next.name, qty = next.qty, wholeStack = next.wholeStack }
         uiState.pendingDestroy = nil
         uiState.destroyQuantityValue = ""
         uiState.destroyQuantityMax = 1
