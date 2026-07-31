@@ -844,6 +844,52 @@ do
         table.concat(r.windows, ','))
 end
 
+-- =================================================================
+-- Phase 13: job-state washes + the loot cell flex (mockups 21c / 22a)
+-- =================================================================
+do
+    resetInput()
+    local ctxIdle = newCtx()
+    dockState.init(newDeps(ctxIdle))
+    warmState()
+    local rIdle = stub.frame(function() dockTop.render(ctxIdle) end)
+    check('flex: idle frame balanced (status wash push/pop nets zero)',
+        stub.balanced(rIdle), stub.imbalance(rIdle))
+    local idleW = dockTop.slots and dockTop.slots.loot and dockTop.slots.loot.w
+    check('flex: idle loot slot measured', type(idleW) == 'number' and idleW > 0, idleW)
+    check('flex: idle still offers Loot All', stub.drew(rIdle, 'Loot All'),
+        table.concat(rIdle.buttons, '|'))
+
+    resetInput()
+    local uiState = {
+        lootRunCorpsesLooted = 1, lootRunTotalCorpses = 3,
+        lootRunCurrentCorpse = 'a rat', lootRunLootedItems = {}, lootRunTotalValue = 0,
+    }
+    local ctxRun = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctxRun, { lootRunning = true }))
+    warmState()
+    local rRun = stub.frame(function() dockTop.render(ctxRun) end)
+    check('flex: running frame balanced (running wash nets zero)',
+        stub.balanced(rRun), stub.imbalance(rRun))
+    local runW = dockTop.slots and dockTop.slots.loot and dockTop.slots.loot.w
+    check('flex: the loot cell grows for a run (22a)',
+        type(runW) == 'number' and type(idleW) == 'number' and runW > idleW,
+        tostring(idleW) .. ' -> ' .. tostring(runW))
+
+    resetInput()
+    local ctxDone = newCtx({ uiState = {
+        lootRunFinished = true, lootRunTotalCorpses = 3,
+        lootRunLootedItems = {}, lootRunTotalValue = 500000,
+    } })
+    dockState.init(newDeps(ctxDone))
+    warmState()
+    local rDone = stub.frame(function() dockTop.render(ctxDone) end)
+    check('wash: done frame balanced (done wash nets zero)',
+        stub.balanced(rDone), stub.imbalance(rDone))
+    check('wash: done frame keeps the full-width summary', stub.drew(rDone, 'looted'),
+        table.concat(rDone.text, '|'))
+end
+
 -- ---------------------------------------------------------------- summary
 local missing = {}
 for k, v in pairs(stub.missing) do missing[#missing + 1] = k .. 'x' .. v end

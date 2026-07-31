@@ -67,6 +67,32 @@ local WIDEST = {
 -- margin a narrower or already-crowded DockSegments list had.
 local EXTRA = { loot = 264, sell = 112 }
 
+-- Phase 13 (mockup 22a) supersedes 12a's "one fixed width" rule for the LOOT slot only:
+-- idle, the cell shrinks to just its Loot All button and label, and the run states get the
+-- full 264-extra budget back the moment they need it. The width cache is keyed by slot id,
+-- so the idle shape uses its own key ("loot@idle") rather than fighting the cache.
+local LOOT_IDLE_WIDEST = { "Loot All . loot idle" }
+local LOOT_IDLE_EXTRA = 28
+
+-- Phase 13 (mockup 21c): the slot's background says what the job is doing — the kit's
+-- three washes, one meaning each. Sell has no finished/aborted edge in dock_state (the
+-- run simply stops being running), so it honestly only gets the running wash; loot's
+-- state machine carries all three. Status washes bad when the plugin is missing or
+-- errors are queued — same conditions its label already colors.
+local function segmentWash(id, s)
+    if id == "loot" then
+        local st = s.lootState
+        if st == "looting" or st == "decision" then return theme.Kit.WashRunning end
+        if st == "done" then return theme.Kit.WashDone end
+        if st == "problem" then return theme.Kit.WashBad end
+    elseif id == "sell" then
+        if s.sellRunning then return theme.Kit.WashRunning end
+    elseif id == "status" then
+        if (not s.pluginPresent) or (s.errorCount or 0) > 0 then return theme.Kit.WashBad end
+    end
+    return nil
+end
+
 local SEGMENT_ORDER_FALLBACK = { "status", "bags", "sell", "loot", "buffs", "xp", "session" }
 
 --- Split a CSV INI value into a list, trimming each entry. Empty string -> empty list.
@@ -1022,7 +1048,13 @@ function M.render(ctx)
         for _, id in ipairs(order) do
             local draw = segments[id]
             if draw then
-                local slotW = dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id])
+                local slotW
+                if id == "loot" and s.lootState == "idle" then
+                    -- 22a: the loot cell flexes — compact when idle, full budget mid-run.
+                    slotW = dockLayout.slotWidth("loot@idle", LOOT_IDLE_WIDEST, LOOT_IDLE_EXTRA)
+                else
+                    slotW = dockLayout.slotWidth(id, WIDEST[id] or { id }, EXTRA[id])
+                end
                 local needed = slotW + (first and 0 or constants.UI.DOCK_SLOT_GAP)
                 if not first and usedW + needed > w then break end
                 usedW = usedW + needed
@@ -1038,7 +1070,18 @@ function M.render(ctx)
                 end
                 first = false
                 -- A fixed-width, borderless child is what pins the slot: content reflows
-                -- inside it and the neighbours never move.
+                -- inside it and the neighbours never move. (Exception, deliberate: the loot
+                -- slot's width FLEXES with its state — see the slotW branch above.)
+                -- 21c wash: pushed tight around the child so the pop can never be skipped —
+                -- only EndChild sits between, and the throwable content is contained inside.
+                local wash = segmentWash(id, s)
+                if wash then
+                    ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(wash))
+                end
+                -- The child block runs under pcall so the wash pop below is unconditional —
+                -- a throwing BeginChild must not strand the pushed color (the suite injects
+                -- exactly that). The error re-raises after the pop for the outer contained.
+                local okChild, childErr = pcall(function()
                 if ImGui.BeginChild("dockseg_" .. id, ImVec2(slotW, h - constants.UI.DOCK_BAR_PADDING_Y * 2), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
                     -- NO AlignTextToFramePadding here. The child is exactly one text line tall
@@ -1057,6 +1100,11 @@ function M.render(ctx)
                     dockLayout.contained(ctx.uiState, "dock segment " .. id, draw, ctx, s)
                 end
                 ImGui.EndChild()
+                end)
+                if wash then
+                    ImGui.PopStyleColor(1)
+                end
+                if not okChild then error(childErr, 0) end
                 -- Slot screen rect + hover state, remembered for phase 2: a popover opens
                 -- under the segment it belongs to (or over it, when bottom-docked), so it
                 -- needs where the slot actually landed. NOTE: GetItemRectMin returns TWO
