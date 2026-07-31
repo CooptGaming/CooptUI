@@ -255,9 +255,14 @@ ROWS = {
     {
         id = "open", group = "look", families = { item = true, script = true, book = true },
         contexts = { bags = true, bank = true, equipped = true, augInserted = true, ornament = true },
-        applies = function(ctx) return ctx.addItemDisplayTab ~= nil end,
+        applies = function(ctx, _, env) return ctx.addItemDisplayTab ~= nil or env.onOpenSubject ~= nil end,
         label = function() return "Open it" end,
-        action = function(ctx, item, env) ctx.addItemDisplayTab(item, env.source) end,
+        action = function(ctx, item, env)
+            -- Hosts whose subject needs live resolution first (a socketed augment: the row
+            -- table is cache-shaped, the tab wants full stats) pass onOpenSubject instead.
+            if env.onOpenSubject then env.onOpenSubject()
+            else ctx.addItemDisplayTab(item, env.source) end
+        end,
     },
     {
         id = "inspect", group = "look", families = { item = true },
@@ -604,6 +609,17 @@ ROWS = {
     },
 
     -- ============================================================== destructive (no heading)
+    {
+        -- Inserted augment (socket row in Item Display): removal costs a distiller and the
+        -- old right-click-the-icon path had NO confirmation at all — rule 6 makes it a
+        -- shift-gated row that states its cost.
+        id = "augRemove", group = "destroy", families = { item = true },
+        contexts = { augInserted = true },
+        destructive = true, shiftGated = true,
+        applies = function(_, _, env) return env.onRemoveAugment ~= nil end,
+        label = function() return "Remove it — uses a distiller" end,
+        action = function(_, _, env) env.onRemoveAugment() end,
+    },
     {
         -- Effect rows (§7's seventh context): the one verb the Effects window offered,
         -- kept instant — shedding a buff is not destroying property, so no shift gate.

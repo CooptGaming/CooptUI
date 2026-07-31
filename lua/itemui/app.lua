@@ -52,6 +52,7 @@ local aa_data = require('itemui.services.aa_data')
 local aaTransferService = require('itemui.services.aa_transfer')
 local rerollService = require('itemui.services.reroll_service')
 local favoritesService = require('itemui.services.favorites_service')
+local sectionStateService = require('itemui.services.section_state')
 local skinSync = require('itemui.services.skin_sync')
 local MainWindow = require('itemui.views.main_window')
 local ConfigFilters = require('itemui.views.config_filters')
@@ -378,6 +379,13 @@ end
 favoritesService.init({
     getStoragePath = config.getCharStoragePath,
     onChanged = function() events.emit(events.EVENTS.CONFIG_SELL_CHANGED) end,
+})
+-- Section memory (windows pass §6): per-character collapsible state, own file — zero
+-- [Layout] loader sites involved (see services/section_state.lua header for why).
+sectionStateService.init({
+    getCharStoragePath = config.getCharStoragePath,
+    parseSectionsMatching = require('itemui.utils.layout_io').parseSectionsMatching,
+    safeWrite = file_safe.safeWrite,
 })
 sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C, getRerollListProtection = function() return rerollService.getRerollListProtection() end, getFavoritesProtection = function() return favoritesService.getProtectedIdSet() end })
 local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end

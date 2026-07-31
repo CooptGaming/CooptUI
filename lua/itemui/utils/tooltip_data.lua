@@ -325,6 +325,25 @@ function M.prepareTooltipContent(item, ctx, opts)
     end
     -- false = computed and none (lets tooltip_render skip its live fallback entirely)
     local augLines = getAugmentSlotLinesFromIt(it, item.augSlots) or false
+    -- Ornament slot (windows pass 19a): slot 5, type 20, kept out of augLines by design —
+    -- cached separately so Item Display's AUGMENTS section can render it without a TLO walk.
+    local ornamentLine = nil
+    if it and not opts.socketIndex and itemHelpers.itemHasOrnamentSlot(it) then
+        local augName, iconId = "empty", 0
+        local okN, nVal = pcall(function()
+            local itemN = it.Item and it.Item(ORNAMENT_SLOT_INDEX)
+            return itemN and itemN.Name and itemN.Name()
+        end)
+        if okN and nVal and tostring(nVal) ~= "" and tostring(nVal):lower() ~= "null" then
+            augName = tostring(nVal)
+            local okI, ico = pcall(function()
+                local itemN = it.Item and it.Item(ORNAMENT_SLOT_INDEX)
+                return itemN and itemN.Icon and itemN.Icon()
+            end)
+            if okI and ico then iconId = tonumber(ico) or 0 end
+        end
+        ornamentLine = { iconId = iconId, augName = augName, slotIndex = ORNAMENT_SLOT_INDEX, typ = 20 }
+    end
     local itemInfoRows = tooltip_layout.getItemInfoRowCount(item)
     local statRows = tooltip_layout.getStatRowCount(item)
     local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHelpers.itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
@@ -332,7 +351,7 @@ function M.prepareTooltipContent(item, ctx, opts)
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     local width, height = tooltip_layout.computeTooltipSize(leftRows, rightRows)
     opts.tooltipColWidth = tooltip_layout.TOOLTIP_COL_WIDTH
-    tooltipCache[cacheKey] = { effects = effects, width = width, height = height, augStats = augStats, augLines = augLines }
+    tooltipCache[cacheKey] = { effects = effects, width = width, height = height, augStats = augStats, augLines = augLines, ornamentLine = ornamentLine }
     if TOOLTIP_CACHE_MAX > 0 then
         local n = 0
         for _ in pairs(tooltipCache) do n = n + 1; if n > TOOLTIP_CACHE_MAX then break end end

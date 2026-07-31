@@ -22,6 +22,19 @@ function M.getOpenCounts()
     return openCounts.child, openCounts.columns
 end
 
+--- §9 formatting: seconds for humans. 0 → "—" (zero is never 0.00), under a minute stays
+--- seconds ("45s"), otherwise minutes ("10m", "10m30s" when the remainder matters).
+--- Shared by the spell-info blocks here and Item Display's sections.
+function M.formatSeconds(v)
+    local n = tonumber(v) or 0
+    if n == 0 then return "\xe2\x80\x94" end
+    if n < 60 then return string.format("%ds", n) end
+    local m = math.floor(n / 60)
+    local s = n % 60
+    if s == 0 then return string.format("%dm", m) end
+    return string.format("%dm%02ds", m, s)
+end
+
 --- Error recovery only: close containers opened since the (child0, cols0) snapshot.
 --- Children first (they are opened after the outer Columns set), then Columns.
 function M.closeOpenContainers(child0, cols0)
@@ -106,17 +119,23 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.TextColored(headerColor, headerText)
         ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
         ImGui.Text("ID: " .. tostring(spellId))
+        -- Windows pass §9 formatting: zero is "—", never 0.00; a raw tick count never
+        -- appears where minutes exist (600 → 10m).
         if ctx.getSpellDuration then
             local dur = ctx.getSpellDuration(spellId)
-            if dur ~= nil then ImGui.Text("Duration: " .. tostring(dur)) end
+            if dur ~= nil then ImGui.Text("Duration: " .. M.formatSeconds(dur)) end
         end
         if ctx.getSpellRecoveryTime then
             local rec = ctx.getSpellRecoveryTime(spellId)
-            if rec ~= nil then ImGui.Text("RecoveryTime: " .. string.format("%.2f", rec)) end
+            if rec ~= nil then
+                ImGui.Text("Recovery: " .. ((tonumber(rec) or 0) == 0 and "\xe2\x80\x94" or string.format("%.2f", rec)))
+            end
         end
         if ctx.getSpellRecastTime then
             local rt = ctx.getSpellRecastTime(spellId)
-            if rt ~= nil then ImGui.Text("RecastTime: " .. string.format("%.2f", rt)) end
+            if rt ~= nil then
+                ImGui.Text("Recast: " .. ((tonumber(rt) or 0) == 0 and "\xe2\x80\x94" or string.format("%.2f", rt)))
+            end
         end
         if ctx.getSpellRange then
             local rng = ctx.getSpellRange(spellId)
@@ -624,7 +643,9 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         for _, key in ipairs(spellInfoOrder) do
             for _, e in ipairs(effects) do
                 if e.key == key and e.spellId and e.spellName then
-                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], "Spell Info for " .. key .. " effect: " .. e.spellName)
+                    -- Windows pass §9: "Spell Info for Clicky effect: X" was six words of
+                    -- prefix per line — the kind and the name say everything.
+                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], key .. " — " .. e.spellName)
                     break
                 end
             end

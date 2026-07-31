@@ -47,7 +47,9 @@ local function availWidth()
     return 0
 end
 
-local function iconButton(id, label, tooltip, disabled, accent)
+--- 20px inset icon button (exported: toolbars that are not header bands — Item Display's
+--- tab strip — draw the same control so the kit stays one kit).
+function M.iconButton(id, label, tooltip, disabled, accent)
     if disabled then
         theme.PushKitDisabledButton()
     else
@@ -99,7 +101,7 @@ function M.render(spec)
             end
             for i, a in ipairs(actions) do
                 if i > 1 then ImGui.SameLine(0, ICON_GAP) end
-                if iconButton('##hdract_' .. idScope .. '_' .. i, tostring(a.label or '?'),
+                if M.iconButton('##hdract_' .. idScope .. '_' .. i, tostring(a.label or '?'),
                         a.tooltip, a.disabled, false) and a.onClick then
                     pcall(a.onClick)
                 end
@@ -108,7 +110,7 @@ function M.render(spec)
                 if #actions > 0 then ImGui.SameLine(0, ICON_GAP) end
                 local glyph = spec.lock.locked and GLYPH_LOCKED or GLYPH_UNLOCKED
                 local tip = spec.lock.locked and 'Unlock window position' or 'Lock window position'
-                if iconButton('##hdrlock_' .. idScope, glyph, tip, false, spec.lock.locked)
+                if M.iconButton('##hdrlock_' .. idScope, glyph, tip, false, spec.lock.locked)
                         and spec.lock.onToggle then
                     pcall(spec.lock.onToggle)
                 end

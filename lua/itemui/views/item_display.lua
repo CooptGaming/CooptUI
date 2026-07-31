@@ -1,8 +1,11 @@
 --[[
-    Item Display View - CoOpt UI Item Display window
+    Item Display View - CoOpt UI Item Display window (windows pass v2, mockups 17b/18a/19a).
 
-    Tabbed window: each "CoOp UI Item Display" open adds a tab. Toolbar: Can I use?, Source,
-    Locate, Refresh, Recent.
+    Tabbed window: each "Open it" adds a tab. Tab strip carries the icon actions (recents,
+    locate, refresh) and the lock. Below: identity card (the name appears HERE, once),
+    verdict box, the type-aware stat strip (aug-inclusive totals — §0.1: one number
+    everywhere), then the remembered sections: EFFECTS · ALL STATS · SPELL DATA & IDS ·
+    AUGMENTS · RULES (open/closed persists per character via services/section_state).
 --]]
 
 local mq = require('mq')
@@ -10,12 +13,26 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local ItemCompare = require('itemui.utils.item_compare')
+local TooltipData = require('itemui.utils.tooltip_data')
+local TooltipRender = require('itemui.utils.tooltip_render')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local uiState = require('itemui.state').uiState
+local fonts = require('itemui.utils.fonts')
+local dockLayout = require('itemui.utils.dock_layout')
+local windowHeader = require('itemui.components.window_header')
+local contextMenu = require('itemui.components.context_menu')
+local sectionState = require('itemui.services.section_state')
 
 local ItemDisplayView = {}
+
+-- FontAwesome glyphs (merged into MQ's default font at atlas build).
+local GLYPH_RECENT   = "\xEF\x87\x9A"  -- U+F1DA history
+local GLYPH_LOCATE   = "\xEF\x81\x9B"  -- U+F05B crosshairs
+local GLYPH_REFRESH  = "\xEF\x80\xA1"  -- U+F021 refresh
+local GLYPH_LOCKED   = "\xEF\x80\xA3"  -- U+F023 lock
+local GLYPH_UNLOCKED = "\xEF\x82\x9C"  -- U+F09C unlock
 
 -- Per 4.2 state ownership: tabs, active index, recent, locate request, augment slot active
 local state = {
@@ -145,38 +162,67 @@ local function resolveEquippedForSlot(ctx, slotIndex)
     return nil
 end
 
---- One stat tile: label, value (large-ish), delta line (colored + / − / muted =).
-local function renderCompareTile(ctx, row)
-    local w = constants.UI.ITEM_DISPLAY_TILE_WIDTH
-    local h = constants.UI.ITEM_DISPLAY_TILE_HEIGHT
-    if ImGui.BeginChild("##ItemDisplayTile_" .. row.key, ImVec2(w, h), true) then
-        ctx.theme.TextMuted(row.label)
-        local valStr
-        if type(row.value) == "number" then
-            valStr = tostring(row.value) .. (row.suffix or "")
-        else
-            valStr = tostring(row.value)
-        end
-        ImGui.Text(valStr)
-        if row.isRatio then
-            ctx.theme.TextMuted(" ")
-        elseif row.delta == nil then
-            ctx.theme.TextMuted("—")
-        elseif row.delta > 0 then
-            ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Success), string.format("+%d%s", row.delta, row.suffix or ""))
-        elseif row.delta < 0 then
-            ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Error), string.format("%d%s", row.delta, row.suffix or ""))
-        else
-            ctx.theme.TextMuted("=")
-        end
+--- Format one tile's big value. Kit rule: zero is "—" where the row asks for it (heroic).
+local function tileValueString(row)
+    if row.zeroAsDash and tonumber(row.value) == 0 then return "\xe2\x80\x94" end
+    if type(row.value) == "number" then
+        return tostring(row.value) .. (row.suffix or "")
     end
-    ImGui.EndChild()
+    return tostring(row.value)
 end
 
---- 3x2 (wraps to 6x1 on wide windows) tile grid, one tile per item_compare row.
+--- One stat tile, drawn WITHOUT a BeginChild (§3.7.1: a stat tile is never a scroll
+--- region — the old 54px child clipped its own delta behind a scrollbar). The cell is a
+--- reserved Dummy with an inset fill painted under it, then the three lines are laid at
+--- fixed offsets: label (16, furniture) / value (22, heading register) / delta (16).
+--- delta colouring honours betterWhenLower (delay: negative is the good direction);
+--- isText rows (proc) print their note where the delta would be.
+local TILE_W = 110
+local TILE_H = 68
+local TILE_PAD_X = 8
+
+local function renderCompareTile(ctx, row, baseX, baseY)
+    ImGui.SetCursorPos(baseX, baseY)
+    ImGui.Dummy(ImVec2(TILE_W, TILE_H))
+    pcall(function()
+        local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+        if not drawList or not drawList.AddRectFilled then return end
+        local x1, y1 = dockLayout.itemRectMin()
+        local x2, y2 = dockLayout.itemRectMax()
+        if not (x1 and x2) then return end
+        local color = ImGui.GetColorU32 and ImGui.GetColorU32(ctx.theme.ToVec4(ctx.theme.Kit.Inset)) or 0xFF1B1B1B
+        drawList:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), color)
+    end)
+
+    ImGui.SetCursorPos(baseX + TILE_PAD_X, baseY + 4)
+    ctx.theme.TextFurniture(string.upper(row.label or ""))
+
+    ImGui.SetCursorPos(baseX + TILE_PAD_X, baseY + 20)
+    fonts.pushHeading()
+    ImGui.Text(tileValueString(row))
+    fonts.pop()
+
+    ImGui.SetCursorPos(baseX + TILE_PAD_X, baseY + 46)
+    if row.isText then
+        ctx.theme.TextFurniture(row.note or " ")
+    elseif row.isRatio then
+        ctx.theme.TextFurniture(" ")
+    elseif row.delta == nil then
+        ctx.theme.TextFurniture("\xe2\x80\x94")
+    elseif row.delta == 0 then
+        ctx.theme.TextFurniture("=")
+    else
+        local good = (row.delta > 0) ~= (row.betterWhenLower == true)
+        local color = good and ctx.theme.Kit.Good or ctx.theme.Kit.Loss
+        local fmt = row.isFloat and "%+.1f%s" or "%+d%s"
+        ImGui.TextColored(ctx.theme.ToVec4(color), string.format(fmt, row.delta, row.suffix or ""))
+    end
+end
+
+--- Tile grid: fixed-size cells laid by explicit cursor math (wraps on width), cursor left
+--- at flow position under the last row so the rest of the window renders normally.
 local function renderCompareTileGrid(ctx, rows)
     if not rows or #rows == 0 then return end
-    local tileW = constants.UI.ITEM_DISPLAY_TILE_WIDTH
     local spacing = constants.UI.ITEM_DISPLAY_TILE_SPACING
     local availX = constants.UI.ITEM_DISPLAY_AVAIL_X
     do
@@ -184,11 +230,19 @@ local function renderCompareTileGrid(ctx, rows)
         if type(ax) == "number" and ax > 0 then availX = ax end
         if type(ax) == "table" and ax.x then availX = ax.x end
     end
-    local perRow = math.max(1, math.floor((availX + spacing) / (tileW + spacing)))
+    local perRow = math.max(1, math.floor((availX + spacing) / (TILE_W + spacing)))
+    local cx, cy = ImGui.GetCursorPos()
+    cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
+    local gridRows = 0
     for i, row in ipairs(rows) do
-        if (i - 1) % perRow ~= 0 then ImGui.SameLine(0, spacing) end
-        renderCompareTile(ctx, row)
+        local col = (i - 1) % perRow
+        local rowIdx = math.floor((i - 1) / perRow)
+        gridRows = math.max(gridRows, rowIdx + 1)
+        renderCompareTile(ctx, row,
+            cx + col * (TILE_W + spacing),
+            cy + rowIdx * (TILE_H + spacing))
     end
+    ImGui.SetCursorPos(cx, cy + gridRows * (TILE_H + spacing))
 end
 
 -- Verdict -> theme color key + headline verb. "none" covers both "not wearable" (box isn't
@@ -227,8 +281,11 @@ local function renderVerdictBox(ctx, cmp, equippedItem, hasWornSlot, isSelfView)
     ImGui.PopStyleColor()
 end
 
---- Header: icon + name (theme-colored by usability), subtitle (type · location · value), and
---- the can-use banner (folded in from the old standalone banner; themed instead of hardcoded).
+--- Identity card (18a): the ONE place the item's name and location appear (§9 killed the
+--- other three). icon + name at the heading register, coloured by usability; then a
+--- content line (type · value), a furniture flags line ("Magic · No Drop · … · you can
+--- use this"), and a furniture locator line (where · id · tribute). A failed usability
+--- check stays a loud red line — that one is load-bearing, not furniture.
 local function renderHeader(ctx, entry)
     local item = entry.item
     local source = entry.source or "inv"
@@ -240,23 +297,51 @@ local function renderHeader(ctx, entry)
     end
     local nameColorKey = canUseInfo.canUse and "Success" or "Error"
     ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Colors[nameColorKey]))
-    ImGui.TextWrapped(item.name or "—")
+    fonts.pushHeading()
+    ImGui.TextWrapped(item.name or "\xe2\x80\x94")
+    fonts.pop()
     ImGui.PopStyleColor()
 
-    local subtitle = {}
-    if item.type and item.type ~= "" then subtitle[#subtitle + 1] = item.type end
-    subtitle[#subtitle + 1] = string.format("Bag %s, Slot %s", tostring(entry.bag), tostring(entry.slot))
+    local line2 = {}
+    if item.type and item.type ~= "" then line2[#line2 + 1] = item.type end
     local val = item.totalValue or item.value
     if val and val ~= 0 then
-        subtitle[#subtitle + 1] = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
+        line2[#line2 + 1] = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
     end
-    if #subtitle > 0 then ctx.theme.TextMuted(table.concat(subtitle, "  ·  ")) end
+    if #line2 > 0 then ctx.theme.TextContent(table.concat(line2, "  \xc2\xb7  ")) end
 
-    if canUseInfo.canUse then
-        ctx.theme.TextSuccess("You can use this item.")
-    else
+    -- Flags + fit, one furniture line. getTypeLine already ends with the item type — that
+    -- lives on line 2 here, so strip a trailing ", <type>" match before reusing it.
+    local flags = TooltipData.getTypeLine and TooltipData.getTypeLine(item) or nil
+    if flags and item.type and item.type ~= "" then
+        local suffix = ", " .. item.type
+        if flags:sub(-#suffix) == suffix then flags = flags:sub(1, #flags - #suffix) end
+    end
+    local parts = {}
+    if flags and flags ~= "" then parts[#parts + 1] = (flags:gsub(", ", " \xc2\xb7 ")) end
+    if item.size and TooltipData.formatSize then
+        local sz = TooltipData.formatSize(item.size)
+        if sz and sz ~= "" then parts[#parts + 1] = "size " .. sz end
+    end
+    if (tonumber(item.weight) or 0) > 0 then parts[#parts + 1] = string.format("wt %s", tostring(item.weight)) end
+    if (tonumber(item.reqLevel) or 0) > 0 then parts[#parts + 1] = string.format("req %d", item.reqLevel) end
+    if canUseInfo.canUse then parts[#parts + 1] = "you can use this" end
+    if #parts > 0 then ctx.theme.TextFurniture(table.concat(parts, " \xc2\xb7 ")) end
+    if not canUseInfo.canUse then
         ctx.theme.TextError("You cannot use: " .. (canUseInfo.reason or "restriction"))
     end
+
+    local loc = {}
+    if source == "bank" then
+        loc[#loc + 1] = string.format("bank %s, slot %s", tostring(entry.bag), tostring(entry.slot))
+    elseif source == "equipped" then
+        loc[#loc + 1] = "equipped"
+    else
+        loc[#loc + 1] = string.format("bag %s, slot %s", tostring(entry.bag), tostring(entry.slot))
+    end
+    if item.id and item.id ~= 0 then loc[#loc + 1] = "id " .. tostring(item.id) end
+    if (tonumber(item.tribute) or 0) > 0 then loc[#loc + 1] = "tribute " .. tostring(item.tribute) end
+    ctx.theme.TextFurniture(table.concat(loc, " \xc2\xb7 "))
 end
 
 --- Rules block: sell status line (all sources) + action buttons gated per-action rather than by
@@ -274,10 +359,7 @@ local function renderRulesBlock(ctx, entry, memo)
     local source = entry.source or "inv"
     if not ctx.getSellStatusForItem then return end
 
-    ImGui.Spacing()
-    ctx.theme.SectionBreak()
-    ctx.theme.TextHeader("Rules")
-
+    -- Header/space come from the RULES section wrapper (beginSection) since the v2 pass.
     local reason, willSell, inKeep, inJunk = memo.reason, memo.willSell, memo.inKeep, memo.inJunk
     local label = willSell and "Sells because: " or "Stays because: "
     if ctx.formatSellStatus then
@@ -355,6 +437,257 @@ local function renderRulesBlock(ctx, entry, memo)
     end
 end
 
+-- ---------------------------------------------------------------- v2 sections (18a)
+-- Collapsibles remember open/closed per character (services/section_state, spec §6).
+-- Defaults per the mockup: SPELL DATA starts closed, everything else open.
+
+local SECTION_DEFAULTS = { Effects = true, AllStats = true, SpellData = false, Augments = true, Rules = true }
+
+local function beginSection(id, label)
+    local default = SECTION_DEFAULTS[id]
+    local open = sectionState.isOpen("ItemDisplay", id, default)
+    if ImGui.SetNextItemOpen then ImGui.SetNextItemOpen(open) end
+    -- The count lives in the label; the ##IDsec id keeps the header stable while it moves.
+    local shown = ImGui.CollapsingHeader(tostring(label) .. "##IDsec" .. id) and true or false
+    if shown ~= open then sectionState.set("ItemDisplay", id, default, shown) end
+    return shown
+end
+
+local EFFECT_KIND_LABEL = { Clicky = "clicky", Worn = "worn", Proc = "combat proc",
+                            Focus = "focus", Spell = "spell" }
+
+--- EFFECTS: one row per effect (item's own + socketed augs' — the cache already merged
+--- them), spell-blue name, furniture kind, and a hover card with the readable facts.
+local function renderEffectsSection(ctx, effects)
+    if not effects or #effects == 0 then return end
+    if not beginSection("Effects", string.format("EFFECTS (%d)", #effects)) then return end
+    for i, e in ipairs(effects) do
+        ImGui.PushID("IDeffect_" .. i)
+        ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Kit.SpellBlue), e.spellName or "?")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text(e.spellName or "?")
+            ctx.theme.TextFurniture((EFFECT_KIND_LABEL[e.key] or tostring(e.key))
+                .. " \xc2\xb7 spell " .. tostring(e.spellId))
+            if e.desc and e.desc ~= "" then
+                ImGui.PushTextWrapPos(320)
+                ImGui.TextWrapped(e.desc)
+                ImGui.PopTextWrapPos()
+            end
+            if tonumber(e.castTime) and tonumber(e.castTime) > 0 then
+                ctx.theme.TextContent(string.format("cast %.1fs", e.castTime))
+            end
+            if tonumber(e.recastTime) and tonumber(e.recastTime) > 0 then
+                ctx.theme.TextContent("recast " .. TooltipRender.formatSeconds(e.recastTime))
+            end
+            ImGui.EndTooltip()
+        end
+        ImGui.SameLine()
+        ctx.theme.TextFurniture("\xc2\xb7 " .. (EFFECT_KIND_LABEL[e.key] or tostring(e.key)))
+        ImGui.PopID()
+    end
+end
+
+-- The compact stat grid's field set. The strip's own cells (hp/mana/end/ac/haste/regen —
+-- or the weapon cells) stay out of this list so nothing is stated twice (§9); attack and
+-- dmg/delay join it only when the GENERAL strip is up (they'd otherwise be invisible on
+-- e.g. attack jewelry).
+local ALL_STATS_SPECS = {
+    { key = "str", h = "heroicSTR", label = "str" },
+    { key = "sta", h = "heroicSTA", label = "sta" },
+    { key = "agi", h = "heroicAGI", label = "agi" },
+    { key = "dex", h = "heroicDEX", label = "dex" },
+    { key = "int", h = "heroicINT", label = "int" },
+    { key = "wis", h = "heroicWIS", label = "wis" },
+    { key = "cha", h = "heroicCHA", label = "cha" },
+    { key = "svMagic", h = "heroicSvMagic", label = "magic" },
+    { key = "svFire", h = "heroicSvFire", label = "fire" },
+    { key = "svCold", h = "heroicSvCold", label = "cold" },
+    { key = "svPoison", h = "heroicSvPoison", label = "poison" },
+    { key = "svDisease", h = "heroicSvDisease", label = "disease" },
+    { key = "svCorruption", h = "heroicSvCorruption", label = "corrupt" },
+    { key = "accuracy", label = "accuracy" },
+    { key = "avoidance", label = "avoidance" },
+    { key = "shielding", label = "shielding" },
+    { key = "strikeThrough", label = "strikethru" },
+    { key = "damageShield", label = "dmg shield" },
+    { key = "combatEffects", label = "combat eff" },
+    { key = "dotShielding", label = "dot shield" },
+    { key = "spellShield", label = "spell shield" },
+    { key = "stunResist", label = "stun resist" },
+    { key = "clairvoyance", label = "clairvoy" },
+    { key = "healAmount", label = "heal amt" },
+    { key = "spellDamage", label = "spell dmg" },
+    { key = "dmgBonus", label = "dmg bonus" },
+    { key = "manaRegen", label = "mana regen" },
+    { key = "enduranceRegen", label = "end regen" },
+    { key = "luck", label = "luck" },
+    { key = "purity", label = "purity" },
+}
+
+--- ALL STATS: every non-zero stat as "label value" ("40 +8" = base+heroic, the game's own
+--- convention), aug-inclusive, three columns. Nothing here restates a strip cell.
+local function renderAllStatsSection(ctx, item, augStats, strip)
+    local function sv(f) return (tonumber(item[f]) or 0) + ((augStats and tonumber(augStats[f])) or 0) end
+    local rows = {}
+    local function consider(spec)
+        local v = sv(spec.key)
+        local h = spec.h and sv(spec.h) or 0
+        if v ~= 0 or h ~= 0 then rows[#rows + 1] = { label = spec.label, v = v, h = h } end
+    end
+    for _, spec in ipairs(ALL_STATS_SPECS) do consider(spec) end
+    if strip == "general" then
+        consider({ key = "attack", label = "attack" })
+        consider({ key = "damage", label = "dmg" })
+        consider({ key = "itemDelay", label = "delay" })
+    end
+    if #rows == 0 then return end
+    if not beginSection("AllStats", string.format("ALL STATS (%d)", #rows)) then return end
+    local COL_W, LABEL_W, PER_ROW = 150, 70, 3
+    for i, r in ipairs(rows) do
+        local col = (i - 1) % PER_ROW
+        if col ~= 0 then ImGui.SameLine(col * COL_W) end
+        ctx.theme.TextFurniture(r.label)
+        ImGui.SameLine(col * COL_W + LABEL_W)
+        local str = tostring(r.v)
+        if r.h ~= 0 then str = str .. string.format(" +%d", r.h) end
+        ctx.theme.TextContent(str)
+    end
+end
+
+--- SPELL DATA & IDS: the raw numbers, off by default (18a: "stays closed"). Zero-valued
+--- recovery/recast rows are omitted outright — a zero here is furniture, not information.
+local function renderSpellDataSection(ctx, effects)
+    if not effects or #effects == 0 then return end
+    if not beginSection("SpellData", "SPELL DATA & IDS") then return end
+    for i, e in ipairs(effects) do
+        ctx.theme.TextContent(string.format("%s \xe2\x80\x94 %s", tostring(e.key), tostring(e.spellName)))
+        ctx.theme.TextFurniture("  id " .. tostring(e.spellId))
+        local dur = ctx.getSpellDuration and ctx.getSpellDuration(e.spellId) or nil
+        if dur ~= nil and (tonumber(dur) or 0) ~= 0 then
+            ctx.theme.TextFurniture("  duration " .. TooltipRender.formatSeconds(dur))
+        end
+        local rec = ctx.getSpellRecoveryTime and ctx.getSpellRecoveryTime(e.spellId) or nil
+        if rec ~= nil and (tonumber(rec) or 0) > 0 then
+            ctx.theme.TextFurniture(string.format("  recovery %.2fs", rec))
+        end
+        local rt = ctx.getSpellRecastTime and ctx.getSpellRecastTime(e.spellId) or nil
+        if rt ~= nil and (tonumber(rt) or 0) > 0 then
+            ctx.theme.TextFurniture("  recast " .. TooltipRender.formatSeconds(rt))
+        end
+        local rng = ctx.getSpellRange and ctx.getSpellRange(e.spellId) or nil
+        if rng ~= nil and rng ~= 0 then
+            ctx.theme.TextFurniture("  range " .. tostring(rng))
+        end
+        if i < #effects then ImGui.Spacing() end
+    end
+end
+
+--- Resolve a socket's full item table (live TLO — click-time only, never per frame).
+local function resolveSocketItem(entry, socketIndex)
+    local ItemHelpers = require('itemui.utils.item_helpers')
+    local ok, full = pcall(function()
+        local parentIt = ItemHelpers.getItemTLO(entry.bag, entry.slot, entry.source)
+        if not parentIt then return nil end
+        return TooltipData.getSocketItemStats(parentIt, entry.bag, entry.slot, entry.source, socketIndex)
+    end)
+    if ok then return full end
+    return nil
+end
+
+--- One socket row: icon, name (spell-blue; ornament in mythic), or "+ empty · type".
+--- Left-click: empty → Aug Utility opened to this socket; filled → opens as a tab.
+--- Right-click on a filled socket: the augInserted context menu — where the shift-gated,
+--- cost-stated Remove lives (rule 6; the old icon right-click removed with NO gate).
+local function renderAugmentRow(ctx, entry, row, isOrnament)
+    ImGui.PushID("IDaug_" .. tostring(row.slotIndex))
+    local isEmpty = (row.augName == nil or row.augName == "empty" or row.augName == "")
+    if (row.iconId or 0) > 0 and ctx.drawItemIcon then
+        pcall(function() ctx.drawItemIcon(row.iconId, 20) end)
+    elseif ctx.drawEmptySlotIcon then
+        pcall(function() ctx.drawEmptySlotIcon() end)
+    else
+        ImGui.Dummy(ImVec2(20, 20))
+    end
+    ImGui.SameLine()
+    if isEmpty then
+        local t
+        if row.prefix and row.prefix ~= "" then
+            t = row.prefix .. "empty"
+        elseif isOrnament then
+            t = "Ornament (type 20): empty"
+        else
+            t = "Slot " .. tostring(row.slotIndex) .. ": empty"
+        end
+        ctx.theme.TextFurniture("+ " .. t)
+    else
+        local color = isOrnament and ctx.theme.Kit.Mythic or ctx.theme.Kit.SpellBlue
+        ImGui.TextColored(ctx.theme.ToVec4(color), row.augName)
+        if isOrnament then
+            ImGui.SameLine()
+            ctx.theme.TextFurniture("\xc2\xb7 ornament")
+        end
+    end
+    if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
+        if isEmpty then
+            uiState.augmentUtilitySlotIndex = row.slotIndex
+            uiState.augmentUtilityWindowOpen = true
+            uiState.augmentUtilityWindowShouldDraw = true
+        else
+            local full = resolveSocketItem(entry, row.slotIndex)
+            if full and ctx.addItemDisplayTab then ctx.addItemDisplayTab(full, entry.source) end
+        end
+    end
+    if not isEmpty then
+        contextMenu.render(ctx, {
+            name = row.augName, icon = row.iconId,
+            type = isOrnament and "Ornament" or "Augmentation",
+            bag = entry.bag, slot = entry.slot,
+        }, {
+            popupId = "ItemContextAugSocket_" .. tostring(row.slotIndex) .. "_"
+                .. tostring(entry.bag) .. "_" .. tostring(entry.slot),
+            context = "augInserted",
+            source = entry.source,
+            where = isOrnament and "Ornament slot"
+                or ("Socket " .. tostring(row.slotIndex) .. " of " .. tostring(entry.item and entry.item.name or "?")),
+            onOpenSubject = function()
+                local full = resolveSocketItem(entry, row.slotIndex)
+                if full and ctx.addItemDisplayTab then ctx.addItemDisplayTab(full, entry.source) end
+            end,
+            onRemoveAugment = (not isOrnament and ctx.removeAugment) and function()
+                ctx.removeAugment(entry.bag, entry.slot, entry.source, row.slotIndex)
+            end or nil,
+        })
+    end
+    ImGui.PopID()
+end
+
+--- AUGMENTS (n/m): standard sockets from the scan-invalidated cache, then the ornament
+--- slot (19a). The one how-to line is this section's footer — no per-row hints.
+local function renderAugmentsSection(ctx, entry, cachedTip)
+    local augLines = cachedTip and cachedTip.augLines or nil
+    if augLines == false then augLines = nil end
+    local ornament = cachedTip and cachedTip.ornamentLine or nil
+    if (not augLines or #augLines == 0) and not ornament then return end
+    local filled, total = 0, 0
+    if augLines then
+        total = #augLines
+        for _, r in ipairs(augLines) do
+            if r.augName and r.augName ~= "empty" and r.augName ~= "" then filled = filled + 1 end
+        end
+    end
+    if ornament then
+        total = total + 1
+        if ornament.augName and ornament.augName ~= "empty" and ornament.augName ~= "" then filled = filled + 1 end
+    end
+    if not beginSection("Augments", string.format("AUGMENTS (%d/%d)", filled, total)) then return end
+    if augLines then
+        for _, row in ipairs(augLines) do renderAugmentRow(ctx, entry, row, false) end
+    end
+    if ornament then renderAugmentRow(ctx, entry, ornament, true) end
+    ctx.theme.TextFurniture("click an empty slot \xe2\x86\x92 Aug Utility \xc2\xb7 click a filled one \xe2\x86\x92 opens it as a tab")
+end
+
 --- Draw the full verdict card + full detail for one tab entry. entry = { bag, slot, source, item, label }
 local function renderOneItemContent(ctx, entry)
     if not entry or not entry.item then return end
@@ -370,6 +703,14 @@ local function renderOneItemContent(ctx, entry)
     renderHeader(ctx, entry)
     ImGui.Spacing()
 
+    -- One prepare per frame: effects + the scan-invalidated cache entry carrying the
+    -- summed socket stats (augStats) and the socket rows (augLines/ornamentLine). This is
+    -- what makes every number below aug-inclusive — §0.1's "one number everywhere".
+    local tipOpts = { source = source, bag = entry.bag, slot = entry.slot, entry = entry }
+    local effects = ItemTooltip.prepareTooltipContent(item, ctx, tipOpts)
+    local cachedTip = TooltipData.getCachedTooltipEntry(item, tipOpts)
+    local augStats = cachedTip and cachedTip.augStats or nil
+
     local memo = getVerdictMemo(ctx, entry)
     local wornSlotIndex = memo.wornSlotIndex
     local equippedItem = resolveEquippedForSlot(ctx, wornSlotIndex)
@@ -381,7 +722,24 @@ local function renderOneItemContent(ctx, entry)
     -- occupant) are NOT a self-view and still compare normally.
     local isSelfView = (source == "equipped" and entry.slot == wornSlotIndex)
     if isSelfView then equippedItem = nil end
-    local cmp = ItemCompare.compare(item, equippedItem)
+
+    -- The equipped side's socket stats, same cache, so the comparison is totals vs totals.
+    local equippedAugStats = nil
+    if equippedItem then
+        local eqOpts = { source = "equipped", bag = equippedItem.bag or 0, slot = equippedItem.slot }
+        pcall(function() ItemTooltip.prepareTooltipContent(equippedItem, ctx, eqOpts) end)
+        local eqTip = TooltipData.getCachedTooltipEntry(equippedItem, eqOpts)
+        equippedAugStats = eqTip and eqTip.augStats or nil
+    end
+
+    local procName = nil
+    for _, e in ipairs(effects or {}) do
+        if e.key == "Proc" then procName = e.spellName; break end
+    end
+
+    local cmp = ItemCompare.compare(item, equippedItem, {
+        augStats = augStats, equippedAugStats = equippedAugStats, procName = procName,
+    })
     renderVerdictBox(ctx, cmp, equippedItem, wornSlotIndex ~= nil, isSelfView)
     if wornSlotIndex ~= nil then ImGui.Spacing() end
 
@@ -389,35 +747,20 @@ local function renderOneItemContent(ctx, entry)
     if cmp.rows and #cmp.rows > 0 then ImGui.Spacing() end
 
     ImGui.Separator()
-    ImGui.Spacing()
-    if ImGui.CollapsingHeader("All stats & effects##ItemDisplayFull", ImGuiTreeNodeFlags.DefaultOpen) then
-        local opts = {
-            source = source,
-            bag = entry.bag,
-            slot = entry.slot,
-            isItemDisplayWindow = true,
-            entry = entry,
-        }
-        local effects, _w, _h = ItemTooltip.prepareTooltipContent(item, ctx, opts)
-        opts.effects = effects
-        opts.tooltipColWidth = nil
-        local ok, err = pcall(function()
-            ItemTooltip.renderItemDisplayContent(item, ctx, opts)
-        end)
-        if not ok then
-            ctx.theme.TextError("Error drawing item stats.")
-            local diagnostics = require('itemui.core.diagnostics')
-            diagnostics.recordError("Item Display", "Error drawing item stats", err)
+    local ok, err = pcall(function()
+        renderEffectsSection(ctx, effects)
+        renderAllStatsSection(ctx, item, augStats, cmp.strip)
+        renderSpellDataSection(ctx, effects)
+        renderAugmentsSection(ctx, entry, cachedTip)
+        if beginSection("Rules", "RULES") then
+            renderRulesBlock(ctx, entry, memo)
         end
+    end)
+    if not ok then
+        ctx.theme.TextError("Error drawing item sections.")
+        local diagnostics = require('itemui.core.diagnostics')
+        diagnostics.recordError("Item Display", "Error drawing item sections", err)
     end
-
-    renderRulesBlock(ctx, entry, memo)
-end
-
-local function sourceLabel(source)
-    if source == "bank" then return "Bank" end
-    if source == "inv" then return "Inventory" end
-    return tostring(source)
 end
 
 -- Module interface: render main Item Display window (tabbed)
@@ -462,7 +805,7 @@ function ItemDisplayView.render(ctx)
     end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "itemDisplay") end
+    -- (The old top-right Lock checkbox moved into the icon toolbar below — same registry pin.)
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -576,14 +919,28 @@ function ItemDisplayView.render(ctx)
     else
         local tab = tabs[activeIdx]
         if tab then
-            -- Toolbar: row 1 = Locate, Refresh, Recent; row 2 = Source
+            -- Icon toolbar (18a): recents · locate · refresh, lock right-aligned. The old
+            -- Source line and the wide Recent combo are gone — the identity card states
+            -- where the item is (§9), and recents live behind the history glyph.
             ImGui.Spacing()
-            if ImGui.SmallButton("Locate##ItemDisplay") then
+            local recent = state.itemDisplayRecent
+            if windowHeader.iconButton("##IDRecentBtn", GLYPH_RECENT,
+                    "Recent items", #recent == 0, false) then
+                ImGui.OpenPopup("##IDRecentPopup")
+            end
+            if #recent > 0 then
+                ImGui.SameLine(0, 2)
+                ctx.theme.TextFurniture(tostring(#recent))
+            end
+            ImGui.SameLine(0, 8)
+            if windowHeader.iconButton("##IDLocateBtn", GLYPH_LOCATE,
+                    "Locate: flash this item's native slot", false, false) then
                 state.itemDisplayLocateRequest = { source = tab.source, bag = tab.bag, slot = tab.slot }
                 state.itemDisplayLocateRequestAt = mq.gettime()
             end
-            ImGui.SameLine()
-            if ImGui.SmallButton("Refresh##ItemDisplay") then
+            ImGui.SameLine(0, 4)
+            if windowHeader.iconButton("##IDRefreshBtn", GLYPH_REFRESH,
+                    "Re-read this item from the game", false, false) then
                 if ctx.getItemStatsForTooltip then
                     local fresh = ctx.getItemStatsForTooltip({ bag = tab.bag, slot = tab.slot }, tab.source)
                     if fresh and fresh.id and fresh.id ~= 0 then
@@ -592,46 +949,50 @@ function ItemDisplayView.render(ctx)
                     end
                 end
             end
-            ImGui.SameLine()
-            local recent = state.itemDisplayRecent
-            if #recent > 0 then
-                local currentLabel = tab.label or ""
-                local comboW = 280
-                do
-                    local cw, ch = ImGui.CalcTextSize(("W"):rep(35))
-                    if type(cw) == "number" then comboW = cw end
-                    if type(cw) == "table" and cw and cw.x then comboW = cw.x end
-                    comboW = comboW + 24
-                end
-                ImGui.SetNextItemWidth(comboW)
-                if ImGui.BeginCombo("Recent##ItemDisplay", currentLabel, ImGuiComboFlags.None) then
-                    for _, r in ipairs(recent) do
-                        local sel = (r.bag == tab.bag and r.slot == tab.slot and r.source == tab.source)
-                        if ImGui.Selectable((r.label or "?") .. "##Recent" .. tostring(r.bag) .. "_" .. tostring(r.slot), sel) then
-                            -- Find or add tab for this recent entry
-                            local found
-                            for i, t in ipairs(tabs) do
-                                if t.bag == r.bag and t.slot == r.slot and t.source == r.source then
-                                    state.itemDisplayActiveTabIndex = i
-                                    found = true
-                                    break
-                                end
-                            end
-                            if not found and ctx.getItemStatsForTooltip then
-                                local showItem = ctx.getItemStatsForTooltip({ bag = r.bag, slot = r.slot }, r.source)
-                                if showItem and showItem.id and showItem.id ~= 0 then
-                                    local label = (showItem.name and showItem.name ~= "" and showItem.name:sub(1, 35)) or "Item"
-                                    if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
-                                    tabs[#tabs + 1] = { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label }
-                                    state.itemDisplayActiveTabIndex = #tabs
-                                end
-                            end
-                        end
-                    end
-                    ImGui.EndCombo()
+            do  -- lock, right-aligned: the same registry pin the old checkbox drove
+                local availX = 0
+                local ax = ImGui.GetContentRegionAvail()
+                if type(ax) == "number" then availX = ax
+                elseif type(ax) == "table" and ax.x then availX = ax.x end
+                if availX > 30 then ImGui.SameLine(0, availX - 24) else ImGui.SameLine(0, 8) end
+                local locked = registry.isPinned("itemDisplay")
+                local tip = locked and "Unlock: ESC and close-alls affect this window again"
+                    or "Lock: stays up through ESC, the toggle keybind and close-alls"
+                if windowHeader.iconButton("##IDLockBtn", locked and GLYPH_LOCKED or GLYPH_UNLOCKED,
+                        tip, false, locked) then
+                    registry.setPinned("itemDisplay", not locked)
+                    if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
                 end
             end
-            ImGui.TextColored(ImVec4(0.6, 0.6, 0.65, 1.0), "Source: " .. sourceLabel(tab.source) .. " | Bag " .. tostring(tab.bag) .. ", Slot " .. tostring(tab.slot))
+            if ImGui.BeginPopup("##IDRecentPopup") then
+                for _, r in ipairs(recent) do
+                    local isCurrent = (r.bag == tab.bag and r.slot == tab.slot and r.source == tab.source)
+                    -- Selectable returns (selected, pressed) — act on the SECOND value.
+                    local _sel, pressed = ImGui.Selectable(
+                        (r.label or "?") .. "##Recent" .. tostring(r.bag) .. "_" .. tostring(r.slot), isCurrent)
+                    if pressed then
+                        local found
+                        for i, t in ipairs(tabs) do
+                            if t.bag == r.bag and t.slot == r.slot and t.source == r.source then
+                                state.itemDisplayActiveTabIndex = i
+                                found = true
+                                break
+                            end
+                        end
+                        if not found and ctx.getItemStatsForTooltip then
+                            local showItem = ctx.getItemStatsForTooltip({ bag = r.bag, slot = r.slot }, r.source)
+                            if showItem and showItem.id and showItem.id ~= 0 then
+                                local label = (showItem.name and showItem.name ~= "" and showItem.name:sub(1, 35)) or "Item"
+                                if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+                                tabs[#tabs + 1] = { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label }
+                                state.itemDisplayActiveTabIndex = #tabs
+                            end
+                        end
+                        ImGui.CloseCurrentPopup()
+                    end
+                end
+                ImGui.EndPopup()
+            end
             ImGui.Spacing()
             if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
                 renderOneItemContent(ctx, tab)

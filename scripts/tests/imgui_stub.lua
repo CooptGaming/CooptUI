@@ -177,7 +177,19 @@ function ImGuiStub.Selectable(label, sel)
 end
 function ImGuiStub.Checkbox(label, v) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return v end
 function ImGuiStub.RadioButton(label, active) lastLabel = label; rec.buttons[#rec.buttons + 1] = label; return matches(M.click, label) and not active end
-function ImGuiStub.CollapsingHeader(label) addText(label); return true end
+--- Faithful enough for section-memory tests: SetNextItemOpen forces the next header's
+--- state (consumed once, like real ImGui); a matching M.click flips it (user toggle).
+local nextItemOpen = nil
+function ImGuiStub.SetNextItemOpen(v) nextItemOpen = v and true or false end
+function ImGuiStub.CollapsingHeader(label)
+    addText(label)
+    rec.buttons[#rec.buttons + 1] = label
+    local open = nextItemOpen
+    nextItemOpen = nil
+    if open == nil then open = true end
+    if matches(M.click, label) then open = not open end
+    return open
+end
 function ImGuiStub.ProgressBar() end
 function ImGuiStub.InputText(_id, buf) return buf, false end
 -- popups & menus -------------------------------------------------------------
@@ -197,6 +209,7 @@ function ImGuiStub.BeginPopup(id)
 end
 function ImGuiStub.EndPopup() rec.depth.win = rec.depth.win - 1 end
 function ImGuiStub.OpenPopup() end
+function ImGuiStub.CloseCurrentPopup() end
 function ImGuiStub.BeginMenu(label)
     lastLabel = label
     rec.buttons[#rec.buttons + 1] = label

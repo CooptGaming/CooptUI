@@ -57,8 +57,9 @@ do
     check('upgrade summary top-3 by magnitude', result.summary == '+412 HP +18 AC -6 Mana', result.summary)
     local hasteRow = rowByKey(result.rows, 'haste')
     check('haste delta is zero (=)', hasteRow and hasteRow.delta == 0, hasteRow and hasteRow.delta)
-    local attackRow = rowByKey(result.rows, 'attack')
-    check('attack delta is +3', attackRow and attackRow.delta == 3, attackRow and attackRow.delta)
+    -- 18a: the general strip has no Attack tile — but attack still scores the verdict
+    -- (asserted separately below).
+    check('attack row absent from general strip', rowByKey(result.rows, 'attack') == nil)
     local manaRow = rowByKey(result.rows, 'mana')
     check('mana delta is -6', manaRow and manaRow.delta == -6, manaRow and manaRow.delta)
 end
@@ -141,13 +142,17 @@ end
 do
     local ok1, result1 = pcall(ItemCompare.compare, {}, {})
     check('empty-vs-empty does not error', ok1, result1)
-    check('empty-vs-empty -> no rows', ok1 and #result1.rows == 0, ok1 and result1.rows)
+    -- The heroic rank cell is always last and always present (18a); zero renders as "—".
+    check('empty-vs-empty -> only the heroic rank row', ok1 and #result1.rows == 1
+        and result1.rows[1].key == 'heroic' and result1.rows[1].zeroAsDash == true
+        and result1.rows[1].value == 0, ok1 and #result1.rows)
     check('empty-vs-empty -> sidegrade (both present, all zero)', ok1 and result1.verdict == 'sidegrade', ok1 and result1.verdict)
 
     local ok2, result2 = pcall(ItemCompare.compare, nil, nil)
     check('nil item and nil equipped does not error', ok2, result2)
     check('nil item and nil equipped -> verdict none', ok2 and result2.verdict == 'none', ok2 and result2.verdict)
-    check('nil item and nil equipped -> no rows', ok2 and #result2.rows == 0, ok2 and result2.rows)
+    check('nil item and nil equipped -> only the heroic rank row', ok2 and #result2.rows == 1
+        and result2.rows[1].key == 'heroic', ok2 and #result2.rows)
 
     local ok3, result3 = pcall(ItemCompare.compare, { hp = 'not a number', ac = 50 }, { hp = 10 })
     check('non-numeric stat field does not error', ok3, result3)
@@ -165,6 +170,118 @@ do
     check('scoreForClass stub returns nil', ItemCompare.scoreForClass({ hp = 100 }, 'WAR') == nil)
     local ok = pcall(ItemCompare.scoreForClass, nil, nil)
     check('scoreForClass stub tolerates nil args', ok)
+end
+
+-- ---------------------------------------------------------------------------
+-- 10. Windows pass v2: aug-inclusive totals (§0.1 — one number everywhere).
+-- ---------------------------------------------------------------------------
+do
+    -- The 1493/1764 earring: bare 1493 HP + 271 from three augs = 1764 everywhere.
+    local item     = { hp = 1493, ac = 102, mana = 896 }
+    local equipped = { hp = 700,  ac = 48,  mana = 770 }
+    local result = ItemCompare.compare(item, equipped, {
+        augStats = { hp = 271, ac = 21, mana = 181 },
+        equippedAugStats = { hp = 4 },
+    })
+    local hpRow = rowByKey(result.rows, 'hp')
+    check('totals: tile value is aug-inclusive', hpRow and hpRow.value == 1764, hpRow and hpRow.value)
+    check('totals: delta uses both sides aug-inclusive', hpRow and hpRow.delta == 1764 - 704, hpRow and hpRow.delta)
+    check('totals: no-opts call still bare (back-compat)',
+        rowByKey(ItemCompare.compare(item, equipped).rows, 'hp').value == 1493)
+end
+
+-- ---------------------------------------------------------------------------
+-- 11. Windows pass v2: attack still scores the verdict without a visible row.
+-- ---------------------------------------------------------------------------
+do
+    local item     = { hp = 100, attack = 14 }
+    local equipped = { hp = 100, attack = 11 }
+    local result = ItemCompare.compare(item, equipped)
+    check('verdict counts attack with no attack tile', result.verdict == 'upgrade', result.verdict)
+    check('general strip chosen', result.strip == 'general', result.strip)
+end
+
+-- ---------------------------------------------------------------------------
+-- 12. Windows pass v2: the weapon strip (18a) — dmg/delay/ratio/dps/proc cells.
+-- ---------------------------------------------------------------------------
+do
+    -- 18a's own numbers: 512/45 vs 464/48 -> ratio 11.4 vs 9.7, dps 114 vs 97.
+    local item     = { damage = 512, itemDelay = 45, attack = 62, hp = 2140 }
+    local equipped = { damage = 464, itemDelay = 48, attack = 53, hp = 2200 }
+    local result = ItemCompare.compare(item, equipped, { procName = 'Pacify', procRate = 120 })
+    check('weapon strip chosen', result.strip == 'weapon', result.strip)
+    local dmg = rowByKey(result.rows, 'damage')
+    check('weapon: dmg row +48', dmg and dmg.value == 512 and dmg.delta == 48, dmg and dmg.delta)
+    local delay = rowByKey(result.rows, 'itemDelay')
+    check('weapon: delay row -3, flagged betterWhenLower', delay and delay.delta == -3
+        and delay.betterWhenLower == true, delay and delay.delta)
+    local ratio = rowByKey(result.rows, 'ratio')
+    check('weapon: ratio 11.4 (+1.7), isFloat', ratio and ratio.value == 11.4
+        and ratio.delta == 1.7 and ratio.isFloat == true,
+        ratio and (tostring(ratio.value) .. '/' .. tostring(ratio.delta)))
+    local dps = rowByKey(result.rows, 'dps')
+    check('weapon: dps 114 (+17)', dps and dps.value == 114 and dps.delta == 17,
+        dps and (tostring(dps.value) .. '/' .. tostring(dps.delta)))
+    local proc = rowByKey(result.rows, 'proc')
+    check('weapon: proc cell is text with rate note', proc and proc.isText == true
+        and proc.value == 'Pacify' and proc.note == 'rate 120', proc and proc.note)
+    check('weapon: verdict decided by dps', result.verdict == 'upgrade', result.verdict)
+    check('weapon: summary leads with the biggest mover and appends nothing heroic',
+        result.summary:find('+48', 1, true) ~= nil, result.summary)
+
+    -- DPS dominates: a big HP loss cannot flip a weapon with better dps.
+    local hpTrade = ItemCompare.compare(
+        { damage = 512, itemDelay = 45, hp = 100 },
+        { damage = 464, itemDelay = 48, hp = 900 })
+    check('weapon: dps beats an hp loss', hpTrade.verdict == 'upgrade', hpTrade.verdict)
+
+    -- Equal dps falls through to the stat sum.
+    local tie = ItemCompare.compare(
+        { damage = 100, itemDelay = 20, hp = 50 },
+        { damage = 100, itemDelay = 20, hp = 900 })
+    check('weapon: equal dps falls back to stats', tie.verdict == 'downgrade', tie.verdict)
+
+    -- Weapon vs a non-weapon equipped side: ratio/dps have no honest delta.
+    local vsEmptyHand = ItemCompare.compare(
+        { damage = 100, itemDelay = 20 }, { hp = 10 })
+    local r2 = rowByKey(vsEmptyHand.rows, 'ratio')
+    check('weapon vs non-weapon: ratio delta nil', r2 and r2.delta == nil, r2 and r2.delta)
+end
+
+-- ---------------------------------------------------------------------------
+-- 13. Windows pass v2: the heroic rank cell (always last, — at zero, aug-aware).
+-- ---------------------------------------------------------------------------
+do
+    local item     = { hp = 10, heroicSTR = 20, heroicWIS = 15 }
+    local equipped = { hp = 10, heroicSTR = 25, heroicWIS = 18 }
+    local result = ItemCompare.compare(item, equipped, { augStats = { heroicSTA = 8 } })
+    local last = result.rows[#result.rows]
+    check('heroic: last row is the rank', last and last.key == 'heroic', last and last.key)
+    check('heroic: rank sums primaries incl. augs', last and last.value == 43, last and last.value)
+    check('heroic: delta vs equipped rank', last and last.delta == 0, last and last.delta)
+    check('heroic: zeroAsDash flagged', last and last.zeroAsDash == true)
+    check('heroic: nonzero delta lands in the summary',
+        ItemCompare.compare({ heroicSTR = 8 }, { hp = 0 }).rows ~= nil
+        and ItemCompare.compare({ hp = 5, heroicSTR = 8 }, { hp = 5 }).summary:find('+8 Heroic', 1, true) ~= nil,
+        ItemCompare.compare({ hp = 5, heroicSTR = 8 }, { hp = 5 }).summary)
+end
+
+-- ---------------------------------------------------------------------------
+-- 14. Windows pass v2: augment-type items get no Augs cell; endurance/regen rows exist.
+-- ---------------------------------------------------------------------------
+do
+    local aug = { type = 'Augmentation', hp = 30, augsTotal = 0 }
+    local r = ItemCompare.compare(aug, nil)
+    check('augment subject: no augs row', rowByKey(r.rows, 'augs') == nil)
+
+    local jewel = { hp = 100, endurance = 1417, hpRegen = 8, augsTotal = 3, augsFilled = 3 }
+    local r2 = ItemCompare.compare(jewel, nil)
+    local endRow = rowByKey(r2.rows, 'endurance')
+    local regenRow = rowByKey(r2.rows, 'hpRegen')
+    local augsRow = rowByKey(r2.rows, 'augs')
+    check('general strip: End cell present', endRow and endRow.value == 1417, endRow and endRow.value)
+    check('general strip: Regen cell present', regenRow and regenRow.value == 8, regenRow and regenRow.value)
+    check('general strip: Augs 3/3 ratio row', augsRow and augsRow.value == '3/3', augsRow and augsRow.value)
 end
 
 print(string.format('\n%d passed, %d failed', pass, fail))
