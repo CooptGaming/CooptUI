@@ -83,6 +83,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightBank then layoutDefaults.HeightBank = tonumber(d.HeightBank) or layoutDefaults.HeightBank end
     if d.BankWindowX then layoutDefaults.BankWindowX = tonumber(d.BankWindowX) or layoutDefaults.BankWindowX end
     if d.BankWindowY then layoutDefaults.BankWindowY = tonumber(d.BankWindowY) or layoutDefaults.BankWindowY end
+    if d.InventoryBankSplitX then layoutDefaults.InventoryBankSplitX = tonumber(d.InventoryBankSplitX) or layoutDefaults.InventoryBankSplitX end
     if d.WidthAugmentsPanel then layoutDefaults.WidthAugmentsPanel = tonumber(d.WidthAugmentsPanel) or layoutDefaults.WidthAugmentsPanel end
     if d.HeightAugments then layoutDefaults.HeightAugments = tonumber(d.HeightAugments) or layoutDefaults.HeightAugments end
     if d.AugmentsWindowX then layoutDefaults.AugmentsWindowX = tonumber(d.AugmentsWindowX) or layoutDefaults.AugmentsWindowX end
@@ -284,6 +285,7 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightBank=" .. tostring(layoutConfig.HeightBank or layoutDefaults.HeightBank) .. "\n")
         f:write("BankWindowX=" .. tostring(layoutConfig.BankWindowX or layoutDefaults.BankWindowX) .. "\n")
         f:write("BankWindowY=" .. tostring(layoutConfig.BankWindowY or layoutDefaults.BankWindowY) .. "\n")
+        f:write("InventoryBankSplitX=" .. tostring(layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0) .. "\n")
         f:write("WidthAugmentsPanel=" .. tostring(layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel) .. "\n")
         f:write("HeightAugments=" .. tostring(layoutConfig.HeightAugments or layoutDefaults.HeightAugments) .. "\n")
         f:write("AugmentsWindowX=" .. tostring(layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX) .. "\n")
@@ -489,6 +491,7 @@ local function applyLayoutSection(parsed)
     layoutConfig.HeightBank = LayoutUtils.loadLayoutValue(layout, "HeightBank", layoutDefaults.HeightBank)
     layoutConfig.BankWindowX = LayoutUtils.loadLayoutValue(layout, "BankWindowX", layoutDefaults.BankWindowX)
     layoutConfig.BankWindowY = LayoutUtils.loadLayoutValue(layout, "BankWindowY", layoutDefaults.BankWindowY)
+    layoutConfig.InventoryBankSplitX = LayoutUtils.loadLayoutValue(layout, "InventoryBankSplitX", layoutDefaults.InventoryBankSplitX)
     layoutConfig.WidthAugmentsPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentsPanel", layoutDefaults.WidthAugmentsPanel)
     layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
     layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)

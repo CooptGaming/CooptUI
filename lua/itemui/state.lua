@@ -75,6 +75,9 @@ do
     for k, v in pairs(V) do layoutDefaults[k] = v end
     layoutDefaults.BankWindowX = 0
     layoutDefaults.BankWindowY = 0
+    -- Merged Inventory (phase 10): bags-pane width in px. 0 = auto (55% of the content
+    -- region); any positive value is the user's dragged splitter position.
+    layoutDefaults.InventoryBankSplitX = 0
     layoutDefaults.AugmentsWindowX = 0
     layoutDefaults.AugmentsWindowY = 0
     layoutDefaults.MythicalsWindowX = 0

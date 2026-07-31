@@ -42,6 +42,7 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.LootWindowY = layoutConfig.LootWindowY or layoutDefaults.LootWindowY
     layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
     layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
+    layoutDefaults.InventoryBankSplitX = layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0
     layoutDefaults.WidthAugmentsPanel = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel
     layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
     layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
@@ -156,6 +157,7 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightBank=" .. layoutDefaults.HeightBank .. "\n")
             f:write("BankWindowX=" .. layoutDefaults.BankWindowX .. "\n")
             f:write("BankWindowY=" .. layoutDefaults.BankWindowY .. "\n")
+            f:write("InventoryBankSplitX=" .. tostring(layoutDefaults.InventoryBankSplitX or 0) .. "\n")
             f:write("WidthLootPanel=" .. tostring(layoutDefaults.WidthLootPanel or 420) .. "\n")
             f:write("HeightLoot=" .. tostring(layoutDefaults.HeightLoot or 380) .. "\n")
             f:write("LootWindowX=" .. tostring(layoutDefaults.LootWindowX or 0) .. "\n")
@@ -271,6 +273,7 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightBank = layoutDefaults.HeightBank
     layoutConfig.BankWindowX = layoutDefaults.BankWindowX
     layoutConfig.BankWindowY = layoutDefaults.BankWindowY
+    layoutConfig.InventoryBankSplitX = layoutDefaults.InventoryBankSplitX or 0
     layoutConfig.WidthLootPanel = layoutDefaults.WidthLootPanel
     layoutConfig.HeightLoot = layoutDefaults.HeightLoot
     layoutConfig.LootWindowX = layoutDefaults.LootWindowX

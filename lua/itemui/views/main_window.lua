@@ -95,7 +95,14 @@ local function renderInventoryContent(refs)
     if merchOpen or simulateSellView then
         SellView.render(ctx, simulateSellView)
     else
-        InventoryView.render(ctx, bankOpen)
+        -- Phase 10 (23a): in bars mode the hub IS the merged Inventory — Bags and Bank as
+        -- two panes behind one toolbar. Classic keeps the standalone shape byte-for-byte
+        -- (acceptance §14.1), and the standalone Bank window is classicOnly to match.
+        if tostring(ctx.layoutConfig.UIMode or "classic") == "bars" then
+            InventoryView.renderMergedContent(ctx, bankOpen)
+        else
+            InventoryView.render(ctx, bankOpen)
+        end
     end
 end
 

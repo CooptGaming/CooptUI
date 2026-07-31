@@ -1,8 +1,14 @@
 --[[
     Bank View - Separate window showing live bank data or cached snapshot
-    
+
     Part of ItemUI Phase 5: View Extraction
     Renders the bank window with online/offline modes
+
+    Windows pass phase 10 (23a): the table body and the list resolve are exported
+    (resolveList / renderTable) so the merged Inventory hub can host the bank as a pane.
+    The standalone window below is the `classic` surface only — the registration is
+    classicOnly, mirroring the Command Center (§0.3): registered always, never offered,
+    drawn or ticked while UIMode=bars, force-closed on a live mode flip.
 --]]
 
 local mq = require('mq')
@@ -17,12 +23,11 @@ local ItemDisplayView = require('itemui.views.item_display')
 
 local BankView = {}
 
--- Module interface: render bank window
--- Params: context table containing all necessary state and functions from init.lua
-function BankView.render(ctx)
-    if not registry.shouldDraw("bank") then return end
-    
-    local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
+--- Resolve which list the bank surface shows (live items vs cached snapshot) and make
+--- sure the snapshot rows carry sell status before first paint. Shared by the classic
+--- window and the merged pane — the live/snapshot decision is per-source (23a) and must
+--- not fork between hosts.
+function BankView.resolveList(ctx, bankOpen)
     ctx.ensureBankCacheFromStorage()
     local list = bankOpen and ctx.bankItems or ctx.bankCache
     -- Ensure cached bank list has current sell status (e.g. RerollList) so initial display matches reroll list before live scan runs.
@@ -33,131 +38,24 @@ function BankView.render(ctx)
         end
         if needStatus then ctx.computeAndAttachSellStatus(list) end
     end
-    
-    -- Window positioning: free-float with saved position; hub-relative default when 0,0 is set in main_window
-    local bankX = ctx.layoutConfig.BankWindowX
-    local bankY = ctx.layoutConfig.BankWindowY
-    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
-    if bankX and bankY then
-        ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
-    end
-    
-    -- Window size (Always when forceApply so revert takes effect)
-    local w = ctx.layoutConfig.WidthBankPanel or constants.VIEWS.WidthBankPanel
-    local h = ctx.layoutConfig.HeightBank or constants.VIEWS.HeightBank
-    if w > 0 and h > 0 then
-        ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
-    end
-    
-    -- Window flags - allow resizing unless UI is locked
-    local windowFlags = 0
-    if ctx.uiState.uiLocked then
-        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
-    end
-    
-    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", registry.isOpen("bank"), windowFlags)
-    registry.setWindowState("bank", winOpen, winOpen)
-    
-    if not winOpen then ImGui.End(); return end
-    -- Escape closes this window via main Inventory Companion's LIFO handler only
-    if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "bank") end
-    
-    -- Save window size when resized (if unlocked)
-    if not ctx.uiState.uiLocked then
-        local currentW, currentH = ImGui.GetWindowSize()
-        if currentW and currentH and currentW > 0 and currentH > 0 then
-            ctx.layoutConfig.WidthBankPanel = currentW
-            ctx.layoutConfig.HeightBank = currentH
-        end
-    end
-    
-    -- Save position when window is moved
-    local currentX, currentY = ImGui.GetWindowPos()
-    if currentX and currentY then
-        if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or
-           not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
-            ctx.layoutConfig.BankWindowX = currentX
-            ctx.layoutConfig.BankWindowY = currentY
-            ctx.scheduleLayoutSave()
-        end
-    end
-    
-    -- Header
-    ctx.theme.TextHeader("Bank")
-    ImGui.SameLine()
-    ctx.renderRefreshButton(ctx, "Refresh##BankHeader", "Rescan bank", function() ctx.scanBank() end, { width = 80, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
-    ImGui.Separator()
-    
-    -- Bank status
-    if bankOpen then
-        ctx.theme.TextSuccess("Online")
-        ImGui.SameLine()
-        ctx.theme.TextInfo("— Shift+click item to move to inventory")
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window is open; hold Shift and left-click an item to move it to inventory"); ImGui.EndTooltip() end
-    else
-        ctx.theme.TextWarning("Offline")
-        ImGui.SameLine()
-        ctx.theme.TextMuted(ctx.perfCache.lastBankCacheTime > 0 and string.format("(last: %s)", os.date("%m/%d %H:%M", ctx.perfCache.lastBankCacheTime)) or "(no data)")
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window closed; showing last saved snapshot"); ImGui.EndTooltip() end
-    end
-    ImGui.Separator()
-    
-    -- Search
-    ImGui.Text("Search:")
-    ImGui.SameLine()
-    ImGui.SetNextItemWidth(120)
-    ctx.uiState.searchFilterBank, _ = ImGui.InputText("##BankSearch", ctx.uiState.searchFilterBank)
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter bank items by name"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("X##BankSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterBank = "" end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
-    if bankOpen then
-        ImGui.SameLine()
-        ctx.renderRefreshButton(ctx, "Refresh##Bank", "Rescan bank", function() ctx.scanBank() end, { width = 60, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
-    end
-    ImGui.Separator()
-    
-    local hasCursor = ctx.hasItemOnCursor()
-    local lp = ctx.uiState.lastPickup
-    -- Pre-filter bank list
-    local filteredBank = {}
-    local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
-    for _, item in ipairs(list or {}) do
-        if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
-            if not ctx.shouldHideRowForCursor(item, "bank") then
-                table.insert(filteredBank, item)
-            end
-        end
-    end
-    
-    -- Build fixed columns list (from config; ImGui SaveSettings handles sort/order)
-    local visibleCols = ctx.getFixedColumns("Bank")
-    local nCols = #visibleCols
-    if nCols == 0 then 
-        nCols = 6
-        visibleCols = {
-            {key = "Name", label = "Name", numeric = false},
-            {key = "Bag", label = "Bag", numeric = true},
-            {key = "Slot", label = "Slot", numeric = true},
-            {key = "Value", label = "Value", numeric = true},
-            {key = "Stack", label = "Stack", numeric = true},
-            {key = "Type", label = "Type", numeric = false}
-        }
-    end
-    
-    if ImGui.BeginTable("ItemUI_Bank", nCols, ctx.uiState.tableFlags) then
+    return list
+end
+
+-- Everything between BeginTable and EndTable, split out so renderTable can pcall it
+-- INSIDE the pair: a body throw that skips EndTable is an unbalanced-table
+-- ImGuiException from C++ — uncatchable from Lua, kills the script (aec75c0's class).
+local function renderBankTableInner(ctx, list, bankOpen, visibleCols, filteredBank, hasCursor, lp)
         local simpleHash = ctx.sortColumns.simpleHash
         local bankSortCol = (ctx.sortState.bankColumn and type(ctx.sortState.bankColumn) == "string" and ctx.sortState.bankColumn) or "Name"
         for i, colDef in ipairs(visibleCols) do
             -- Set base flags: Name = WidthStretch, others = WidthFixed
             local flags = (colDef.key == "Name") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
-            
+
             -- Add DefaultSort flag if this is the current sort column
             if colDef.key == bankSortCol then
                 flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort)
             end
-            
+
             -- Set width: 0 for Name (stretch column), specific widths for fixed columns
             local width = 0
             if colDef.key ~= "Name" then
@@ -178,13 +76,13 @@ function BankView.render(ctx)
             ImGui.TableSetupColumn(colDef.label, flags, width, userID)
         end
         ImGui.TableSetupScrollFreeze(0, 1)
-        
+
         -- Build column mapping for sort handler
         local colKeyByUserID = {}
         for i, colDef in ipairs(visibleCols) do
             colKeyByUserID[simpleHash(colDef.key)] = colDef.key
         end
-        
+
         -- Handle sort clicks
         local sortSpecs = ImGui.TableGetSortSpecs()
         if sortSpecs and sortSpecs.SpecsDirty and sortSpecs.SpecsCount > 0 then
@@ -205,7 +103,7 @@ function BankView.render(ctx)
             end
             sortSpecs.SpecsDirty = false
         end
-        
+
         -- Capture header rect before/after TableHeadersRow for header-only right-click
         local headerTop = ImGui.GetCursorScreenPosVec and ImGui.GetCursorScreenPosVec()
         ImGui.TableHeadersRow()
@@ -223,7 +121,7 @@ function BankView.render(ctx)
         if hoveredColumn >= 0 and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and inHeader then
             ImGui.OpenPopup("ColumnMenu_Bank")
         end
-        
+
         if ImGui.BeginPopup("ColumnMenu_Bank") then
             ImGui.Text("Columns (changes apply on next open)")
             ImGui.Separator()
@@ -240,7 +138,7 @@ function BankView.render(ctx)
             end
             ImGui.EndPopup()
         end
-        
+
         -- Sort cache (Phase 3: shared getSortedList helper)
         local bankSortKey = (ctx.sortState.bankColumn and type(ctx.sortState.bankColumn) == "string" and ctx.sortState.bankColumn) or "Name"
         local bankSortDir = ctx.sortState.bankDirection or ImGuiSortDirection.Ascending
@@ -281,7 +179,7 @@ function BankView.render(ctx)
                 for _, colDef in ipairs(visibleCols) do
                     ImGui.TableNextColumn()
                     local colKey = colDef.key
-                    
+
                     if colKey == "Name" then
                         -- Name column with special interaction logic
                         local dn = item.name or ""
@@ -355,9 +253,142 @@ function BankView.render(ctx)
                 ::bank_continue::
             end
         end
+end
+
+--- The bank table, host-agnostic: no Begin/End, no window chrome, no position writes.
+--- Everything row-level lives in renderBankTableInner verbatim from the pre-split window —
+--- including the deliberate asymmetry that bank rows have NO drop-on-click branch
+--- (dropping into the bank is not a thing item_ops supports; do not "fix" it in a host).
+function BankView.renderTable(ctx, list, bankOpen)
+    local hasCursor = ctx.hasItemOnCursor()
+    local lp = ctx.uiState.lastPickup
+    -- Pre-filter bank list
+    local filteredBank = {}
+    local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
+    for _, item in ipairs(list or {}) do
+        if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
+            if not ctx.shouldHideRowForCursor(item, "bank") then
+                table.insert(filteredBank, item)
+            end
+        end
+    end
+
+    -- Build fixed columns list (from config; ImGui SaveSettings handles sort/order)
+    local visibleCols = ctx.getFixedColumns("Bank")
+    local nCols = #visibleCols
+    if nCols == 0 then
+        nCols = 6
+        visibleCols = {
+            {key = "Name", label = "Name", numeric = false},
+            {key = "Bag", label = "Bag", numeric = true},
+            {key = "Slot", label = "Slot", numeric = true},
+            {key = "Value", label = "Value", numeric = true},
+            {key = "Stack", label = "Stack", numeric = true},
+            {key = "Type", label = "Type", numeric = false}
+        }
+    end
+
+    if ImGui.BeginTable("ItemUI_Bank", nCols, ctx.uiState.tableFlags) then
+        -- pcall INSIDE the pair: EndTable is unconditional (see renderBankTableInner).
+        pcall(renderBankTableInner, ctx, list, bankOpen, visibleCols, filteredBank, hasCursor, lp)
         ImGui.EndTable()
     end
-    
+end
+
+-- Module interface: render bank window (the classic standalone surface)
+-- Params: context table containing all necessary state and functions from init.lua
+function BankView.render(ctx)
+    if not registry.shouldDraw("bank") then return end
+
+    local bankOpen = ctx.isBankWindowOpen and ctx.isBankWindowOpen() or false
+    local list = BankView.resolveList(ctx, bankOpen)
+
+    -- Window positioning: free-float with saved position; hub-relative default when 0,0 is set in main_window
+    local bankX = ctx.layoutConfig.BankWindowX
+    local bankY = ctx.layoutConfig.BankWindowY
+    local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
+    if bankX and bankY then
+        ImGui.SetNextWindowPos(ImVec2(bankX, bankY), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
+    end
+
+    -- Window size (Always when forceApply so revert takes effect)
+    local w = ctx.layoutConfig.WidthBankPanel or constants.VIEWS.WidthBankPanel
+    local h = ctx.layoutConfig.HeightBank or constants.VIEWS.HeightBank
+    if w > 0 and h > 0 then
+        ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
+    end
+
+    -- Window flags - allow resizing unless UI is locked
+    local windowFlags = 0
+    if ctx.uiState.uiLocked then
+        windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoResize)
+    end
+
+    local winOpen, winVis = ImGui.Begin("CoOpt UI Bank Companion##ItemUIBank", registry.isOpen("bank"), windowFlags)
+    registry.setWindowState("bank", winOpen, winOpen)
+
+    if not winOpen then ImGui.End(); return end
+    -- Escape closes this window via main Inventory Companion's LIFO handler only
+    if not winVis then ImGui.End(); return end
+    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "bank") end
+
+    -- Save window size when resized (if unlocked)
+    if not ctx.uiState.uiLocked then
+        local currentW, currentH = ImGui.GetWindowSize()
+        if currentW and currentH and currentW > 0 and currentH > 0 then
+            ctx.layoutConfig.WidthBankPanel = currentW
+            ctx.layoutConfig.HeightBank = currentH
+        end
+    end
+
+    -- Save position when window is moved
+    local currentX, currentY = ImGui.GetWindowPos()
+    if currentX and currentY then
+        if not ctx.layoutConfig.BankWindowX or math.abs(ctx.layoutConfig.BankWindowX - currentX) > 1 or
+           not ctx.layoutConfig.BankWindowY or math.abs(ctx.layoutConfig.BankWindowY - currentY) > 1 then
+            ctx.layoutConfig.BankWindowX = currentX
+            ctx.layoutConfig.BankWindowY = currentY
+            ctx.scheduleLayoutSave()
+        end
+    end
+
+    -- Header
+    ctx.theme.TextHeader("Bank")
+    ImGui.SameLine()
+    ctx.renderRefreshButton(ctx, "Refresh##BankHeader", "Rescan bank", function() ctx.scanBank() end, { width = 80, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
+    ImGui.Separator()
+
+    -- Bank status
+    if bankOpen then
+        ctx.theme.TextSuccess("Online")
+        ImGui.SameLine()
+        ctx.theme.TextInfo("— Shift+click item to move to inventory")
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window is open; hold Shift and left-click an item to move it to inventory"); ImGui.EndTooltip() end
+    else
+        ctx.theme.TextWarning("Offline")
+        ImGui.SameLine()
+        ctx.theme.TextMuted(ctx.perfCache.lastBankCacheTime > 0 and string.format("(last: %s)", os.date("%m/%d %H:%M", ctx.perfCache.lastBankCacheTime)) or "(no data)")
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window closed; showing last saved snapshot"); ImGui.EndTooltip() end
+    end
+    ImGui.Separator()
+
+    -- Search
+    ImGui.Text("Search:")
+    ImGui.SameLine()
+    ImGui.SetNextItemWidth(120)
+    ctx.uiState.searchFilterBank, _ = ImGui.InputText("##BankSearch", ctx.uiState.searchFilterBank)
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Filter bank items by name"); ImGui.EndTooltip() end
+    ImGui.SameLine()
+    if ImGui.Button("X##BankSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterBank = "" end
+    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
+    if bankOpen then
+        ImGui.SameLine()
+        ctx.renderRefreshButton(ctx, "Refresh##Bank", "Rescan bank", function() ctx.scanBank() end, { width = 60, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
+    end
+    ImGui.Separator()
+
+    BankView.renderTable(ctx, list, bankOpen)
+
     ImGui.End()
 end
 
@@ -370,6 +401,10 @@ registry.register({
     tooltip     = "View bank items; shift+click to move to inventory",
     layoutKeys  = { x = "BankWindowX", y = "BankWindowY" },
     enableKey   = "ShowBankWindow",
+    -- Phase 10 (23a): in bars mode the bank is a pane inside the merged Inventory hub,
+    -- so the standalone window is classic-only. A pinned classic Bank goes inert on a
+    -- live flip to bars (applyEnabledFromLayout force-closes it) — accepted by design.
+    classicOnly = true,
     render      = function(refs)
         local ctx = context.build()
         BankView.render(ctx)

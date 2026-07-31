@@ -34,7 +34,8 @@ local function newRec()
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
         windows = {},       -- names passed to Begin
-        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0, tab = 0 },
+        childArgs = {},     -- every BeginChild call's raw args (name/a/b/c/d), in order
+        depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0, tab = 0, tbl = 0 },
         max = { win = 0, child = 0 },
         tloAccess = {},     -- any mq.TLO.* touched during the frame
         commands = {},      -- any mq.cmd/cmdf issued during the frame
@@ -63,6 +64,10 @@ M.throwOn = {}
 M.childInvisible = false
 M.keys  = {}    -- e.g. { Escape = true }
 M.mouse = {}    -- e.g. { [2] = true } for a middle-click (ImGuiMouseButton.Middle)
+--- Geometry overrides: { w, h } for GetWindowSize / GetContentRegionAvail. nil keeps the
+--- historical defaults (2560x30 bar / 400x300 region) that older suites assert against.
+M.windowSize = nil
+M.contentAvail = nil
 
 local function matches(set, label)
     if not label then return false end
@@ -100,11 +105,16 @@ function ImGuiStub.End() rec.depth.win = rec.depth.win - 1 end
 -- pattern dock_top uses for its slots. Without this the label is whatever the segment drew
 -- INSIDE the child, and hover never matches the slot.
 local childStack = {}
-function ImGuiStub.BeginChild(name, _size, _border, _flags)
+function ImGuiStub.BeginChild(name, a, b, c, d)
     lastLabel = name
     childStack[#childStack + 1] = name
     rec.depth.child = rec.depth.child + 1
     if rec.depth.child > rec.max.child then rec.max.child = rec.depth.child end
+    -- Arg recording, both binding formats (lua_ImGuiCore.cpp:438-457): the deprecated
+    -- (name, sx, sy, boolBorder, flags) and the new (name, sx, sy, childFlags, flags).
+    -- Position 4's TYPE is what disambiguates them in sol2, so it is preserved raw here
+    -- and tests assert on it — the ResizeX+NoSavedSettings pairing is load-bearing.
+    rec.childArgs[#rec.childArgs + 1] = { name = name, a = a, b = b, c = c, d = d }
     -- Real ImGui returns false for a clipped/invisible child, and EndChild must STILL be
     -- called. Returning false here proves callers do that.
     return not M.childInvisible
@@ -140,6 +150,7 @@ function ImGuiStub.TextDisabled(s) lastLabel = s; addText(s) end
 function ImGuiStub.Separator() end
 function ImGuiStub.SeparatorText(s) addText(s) end
 function ImGuiStub.Spacing() end
+function ImGuiStub.SetNextItemWidth() end
 function ImGuiStub.NewLine() end
 function ImGuiStub.Dummy() end
 function ImGuiStub.Indent() end
@@ -264,8 +275,16 @@ function ImGuiStub.GetTextLineHeightWithSpacing() return 18 end
 function ImGuiStub.CalcTextSize(s) return #tostring(s or "") * 7, 14 end
 function ImGuiStub.GetWindowWidth() return 2560 end
 function ImGuiStub.GetWindowHeight() return 30 end
-function ImGuiStub.GetWindowSize() return 2560, 30 end
-function ImGuiStub.GetContentRegionAvail() return 400, 300 end
+function ImGuiStub.GetWindowSize()
+    local ws = M.windowSize
+    if ws then return ws[1] or 2560, ws[2] or 30 end
+    return 2560, 30
+end
+function ImGuiStub.GetContentRegionAvail()
+    local ca = M.contentAvail
+    if ca then return ca[1] or 400, ca[2] or 300 end
+    return 400, 300
+end
 function ImGuiStub.GetWindowPos() return 100, 100 end
 local stubStyle = { FramePadding = { x = 4, y = 3 }, ItemSpacing = { x = 8, y = 4 } }
 function ImGuiStub.GetStyle() return stubStyle end
@@ -289,6 +308,25 @@ function ImGuiStub.SetNextFrameWantCaptureKeyboard() end
 function ImGuiStub.SetKeyboardFocusHere() end
 function ImGuiStub.GetWindowDrawList() return nil end
 function ImGuiStub.GetColorU32() return 0 end
+
+-- tables --------------------------------------------------------------------
+-- Modeled just enough for the row loops to run: BeginTable returns true (a false return
+-- means "skip the body AND EndTable" in real ImGui, so tests that want the false branch
+-- can throwOn it instead), the sort-spec object is nil (every caller guards), and the
+-- hovered column is -1 (no header menu). Column layout itself is not modeled.
+function ImGuiStub.BeginTable(_id, _nCols, _flags)
+    rec.depth.tbl = rec.depth.tbl + 1
+    return true
+end
+function ImGuiStub.EndTable() rec.depth.tbl = rec.depth.tbl - 1 end
+function ImGuiStub.TableSetupColumn() end
+function ImGuiStub.TableSetupScrollFreeze() end
+function ImGuiStub.TableHeadersRow() end
+function ImGuiStub.TableNextRow() end
+function ImGuiStub.TableNextColumn() return true end
+function ImGuiStub.TableSetBgColor() end
+function ImGuiStub.TableGetSortSpecs() return nil end
+function ImGuiStub.TableGetHoveredColumn() return -1 end
 
 --- Wrap every entry so M.throwOn can make a named call raise.
 for name, fn in pairs(ImGuiStub) do
@@ -337,7 +375,7 @@ function M.install()
         'AlwaysVerticalScrollbar', 'MenuBar' })
     _G.ImGuiCol = enum({ 'Text', 'Button', 'ButtonHovered', 'ButtonActive', 'ChildBg',
         'Border', 'PlotHistogram', 'Header', 'HeaderHovered', 'HeaderActive' })
-    _G.ImGuiStyleVar = enum({ 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
+    _G.ImGuiStyleVar = enum({ 'Alpha', 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
         'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding',
         'FrameRounding', 'FrameBorderSize' })
     _G.ImGuiKey = enum({ 'Escape', 'F1', 'F2', 'Tab', 'Enter' })
@@ -348,7 +386,28 @@ function M.install()
     _G.ImGuiInputTextFlags = enum({ 'None', 'CharsDecimal' })
     _G.ImGuiSortDirection = { None = 0, Ascending = 1, Descending = 2 }
     _G.ImGuiCond = enum({ 'None', 'Always', 'Once', 'FirstUseEver', 'Appearing' })
-    _G.ImGuiChildFlags = enum({ 'None', 'Border' })
+    -- Both spellings: the real binding enums 'Borders' (1.92 name); 'Border' kept for any
+    -- older caller. ResizeX is the splitter flag the merged Inventory pairs with
+    -- NoSavedSettings (lua_ImGuiEnums.cpp:73-77).
+    _G.ImGuiChildFlags = enum({ 'None', 'Border', 'Borders', 'AlwaysUseWindowPadding', 'ResizeX', 'ResizeY' })
+    _G.ImGuiTableColumnFlags = enum({ 'None', 'WidthStretch', 'WidthFixed', 'DefaultSort' })
+    _G.ImGuiTableBgTarget = { None = 0, RowBg0 = 1, RowBg1 = 2, CellBg = 3 }
+    -- One-pass clipper: Step() hands back the whole range once, so row loops render every
+    -- item under test instead of a viewport's worth.
+    _G.ImGuiListClipper = {
+        new = function()
+            local c = { DisplayStart = 0, DisplayEnd = 0 }
+            function c.Begin(self, n) self._n = n or 0; self._stepped = false end
+            function c.Step(self)
+                if self._stepped then return false end
+                self._stepped = true
+                self.DisplayStart = 0
+                self.DisplayEnd = self._n or 0
+                return true
+            end
+            return c
+        end,
+    }
 end
 
 --- An mq stub whose TLO is a trap: touching it during a frame is recorded, which is how the
@@ -407,7 +466,7 @@ end
 function M.balanced(r)
     local d = r.depth
     return d.win == 0 and d.child == 0 and d.group == 0 and d.id == 0 and d.sv == 0 and d.sc == 0
-        and d.font == 0 and d.tab == 0 and d.menu == 0
+        and d.font == 0 and d.tab == 0 and d.menu == 0 and d.tbl == 0
 end
 
 function M.imbalance(r)
