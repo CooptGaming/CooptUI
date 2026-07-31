@@ -43,6 +43,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
     layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
     layoutDefaults.InventoryBankSplitX = layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0
+    layoutDefaults.ScriptTrackerWindowX = layoutConfig.ScriptTrackerWindowX or layoutDefaults.ScriptTrackerWindowX or 0
+    layoutDefaults.ScriptTrackerWindowY = layoutConfig.ScriptTrackerWindowY or layoutDefaults.ScriptTrackerWindowY or 0
+    layoutDefaults.WidthScriptTrackerPanel = layoutConfig.WidthScriptTrackerPanel or layoutDefaults.WidthScriptTrackerPanel
+    layoutDefaults.HeightScriptTracker = layoutConfig.HeightScriptTracker or layoutDefaults.HeightScriptTracker
     layoutDefaults.WidthAugmentsPanel = layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel
     layoutDefaults.HeightAugments = layoutConfig.HeightAugments or layoutDefaults.HeightAugments
     layoutDefaults.AugmentsWindowX = layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX
@@ -158,6 +162,10 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("BankWindowX=" .. layoutDefaults.BankWindowX .. "\n")
             f:write("BankWindowY=" .. layoutDefaults.BankWindowY .. "\n")
             f:write("InventoryBankSplitX=" .. tostring(layoutDefaults.InventoryBankSplitX or 0) .. "\n")
+            f:write("ScriptTrackerWindowX=" .. tostring(layoutDefaults.ScriptTrackerWindowX or 0) .. "\n")
+            f:write("ScriptTrackerWindowY=" .. tostring(layoutDefaults.ScriptTrackerWindowY or 0) .. "\n")
+            f:write("WidthScriptTrackerPanel=" .. tostring(layoutDefaults.WidthScriptTrackerPanel or 460) .. "\n")
+            f:write("HeightScriptTracker=" .. tostring(layoutDefaults.HeightScriptTracker or 400) .. "\n")
             f:write("WidthLootPanel=" .. tostring(layoutDefaults.WidthLootPanel or 420) .. "\n")
             f:write("HeightLoot=" .. tostring(layoutDefaults.HeightLoot or 380) .. "\n")
             f:write("LootWindowX=" .. tostring(layoutDefaults.LootWindowX or 0) .. "\n")
@@ -274,6 +282,10 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.BankWindowX = layoutDefaults.BankWindowX
     layoutConfig.BankWindowY = layoutDefaults.BankWindowY
     layoutConfig.InventoryBankSplitX = layoutDefaults.InventoryBankSplitX or 0
+    layoutConfig.ScriptTrackerWindowX = layoutDefaults.ScriptTrackerWindowX or 0
+    layoutConfig.ScriptTrackerWindowY = layoutDefaults.ScriptTrackerWindowY or 0
+    layoutConfig.WidthScriptTrackerPanel = layoutDefaults.WidthScriptTrackerPanel
+    layoutConfig.HeightScriptTracker = layoutDefaults.HeightScriptTracker
     layoutConfig.WidthLootPanel = layoutDefaults.WidthLootPanel
     layoutConfig.HeightLoot = layoutDefaults.HeightLoot
     layoutConfig.LootWindowX = layoutDefaults.LootWindowX

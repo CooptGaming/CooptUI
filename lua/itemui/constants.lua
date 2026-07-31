@@ -244,6 +244,9 @@ M.VIEWS = {
     -- Reroll Companion (Augment / Mythical server reroll lists)
     WidthRerollPanel = 520,
     HeightReroll = 480,
+    -- Script Tracker (25c, phase 15): the by-tier grid + turn-in verbs
+    WidthScriptTrackerPanel = 460,
+    HeightScriptTracker = 400,
 }
 
 -- ---------------------------------------------------------------------------

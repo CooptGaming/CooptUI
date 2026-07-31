@@ -516,6 +516,10 @@ function M.render(refs)
                 layoutConfig.BankWindowX = hubX + hubW + defGap
                 layoutConfig.BankWindowY = hubY
             end
+            if registry.shouldDraw("scripttracker") and (layoutConfig.ScriptTrackerWindowX or 0) == 0 and (layoutConfig.ScriptTrackerWindowY or 0) == 0 then
+                layoutConfig.ScriptTrackerWindowX = hubX + hubW + defGap
+                layoutConfig.ScriptTrackerWindowY = hubY
+            end
         end
 
         -- Reset Window Positions: re-apply hub-relative defaults for all companions (positions only)
@@ -542,6 +546,8 @@ function M.render(refs)
             layoutConfig.LootWindowY = hubY
             layoutConfig.BankWindowX = hubX + hubW + defGapReset
             layoutConfig.BankWindowY = hubY
+            layoutConfig.ScriptTrackerWindowX = hubX + hubW + defGapReset
+            layoutConfig.ScriptTrackerWindowY = hubY
             uiState.resetWindowPositionsRequested = false
             uiState.layoutRevertedApplyFrames = 5
             if refs.scheduleLayoutSave then refs.scheduleLayoutSave() end

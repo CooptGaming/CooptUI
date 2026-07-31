@@ -45,6 +45,7 @@ require('itemui.views.command_center')  -- registers the Command Center
 require('itemui.views.favorites')  -- registers the Clickies (favorites) companion
 require('itemui.views.effects')  -- registers the Effects (buffs/songs/auras) companion
 require('itemui.views.chat_window')  -- registers the Chat console companion
+require('itemui.views.script_tracker')  -- registers the Scripts companion (25c, phase 15)
 local AugmentUtilityView = require('itemui.views.augment_utility')
 local ItemDisplayView = require('itemui.views.item_display')
 local AAView = require('itemui.views.aa')

@@ -21,37 +21,23 @@ local theme = require('coopui.utils.theme')
 
 local VERSION = CoopVersion.SCRIPTTRACKER
 
--- Rarity tiers: same AA value for Planar and Lost of same rarity
-local RARITY_ROWS = {
-    { label = "Normal", tierKey = "normal", aa = 1 },
-    { label = "Enhanced", tierKey = "enhanced", aa = 2 },
-    { label = "Rare", tierKey = "rare", aa = 3 },
-    { label = "Epic", tierKey = "epic", aa = 4 },
-    { label = "Legendary", tierKey = "legendary", aa = 5 },
-}
+-- Phase 15 (windows pass): definitions come from the ONE shared list. This tool and the
+-- suite's Scripts companion (itemui/views/script_tracker.lua) must never drift on what a
+-- script is worth. Shapes are adapted below so the rest of this file stays untouched.
+local sharedDefs = require('itemui.utils.script_defs')
 
--- Script definitions: { suffix = "Lost Memories"|"Planar Power"|"Rebirthed Memories", tier = prefix, aa = value }
-local SCRIPT_DEFS = {
-    { suffix = "Lost Memories", tier = "", aa = 1 },
-    { suffix = "Lost Memories", tier = "Enhanced ", aa = 2 },
-    { suffix = "Lost Memories", tier = "Rare ", aa = 3 },
-    { suffix = "Lost Memories", tier = "Epic ", aa = 4 },
-    { suffix = "Lost Memories", tier = "Legendary ", aa = 5 },
-    { suffix = "Planar Power", tier = "", aa = 1 },
-    { suffix = "Planar Power", tier = "Enhanced ", aa = 2 },
-    { suffix = "Planar Power", tier = "Rare ", aa = 3 },
-    { suffix = "Planar Power", tier = "Epic ", aa = 4 },
-    { suffix = "Planar Power", tier = "Legendary ", aa = 5 },
-    { suffix = "Rebirthed Memories", tier = "", aa = 1 },
-    { suffix = "Rebirthed Memories", tier = "Enhanced ", aa = 2 },
-    { suffix = "Rebirthed Memories", tier = "Rare ", aa = 3 },
-    { suffix = "Rebirthed Memories", tier = "Epic ", aa = 4 },
-    { suffix = "Rebirthed Memories", tier = "Legendary ", aa = 5 },
-}
+-- Rarity tiers: same AA value for Planar, Lost and Rebirthed of same rarity
+local RARITY_ROWS = sharedDefs.TIERS
 
--- Precompute full item names once ("<tier>Script of <suffix>") so scans don't concat per item per def
-for _, def in ipairs(SCRIPT_DEFS) do
-    def.fullName = def.tier .. "Script of " .. def.suffix
+-- Script definitions: { suffix, tier = prefix, aa, fullName }
+local SCRIPT_DEFS = {}
+for _, def in ipairs(sharedDefs.DEFS) do
+    SCRIPT_DEFS[#SCRIPT_DEFS + 1] = {
+        suffix = def.suffix,
+        tier = (def.tierKey == "normal") and "" or (def.tierLabel .. " "),
+        aa = def.aa,
+        fullName = def.fullName,
+    }
 end
 
 -- State

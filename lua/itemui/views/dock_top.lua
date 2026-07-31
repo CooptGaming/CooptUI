@@ -59,7 +59,7 @@ local function segmentWash(id, s)
         if st == "looting" or st == "decision" then return theme.Kit.WashRunning end
         if st == "done" then return theme.Kit.WashDone end
         if st == "problem" then return theme.Kit.WashBad end
-        if s.sellRunning then return theme.Kit.WashRunning end
+        if s.sellRunning or s.scriptRunning then return theme.Kit.WashRunning end
     elseif id == "status" then
         if (not s.pluginPresent) or (s.errorCount or 0) > 0 then return theme.Kit.WashBad end
     end
@@ -416,6 +416,22 @@ segments.lane = function(ctx, s)
             theme.TextSuccess(plat(s.sellRunValue) .. "p")
         end
 
+    elseif s.scriptRunning then
+        -- The third owner (25c): script turn-in. Unlike loot/sell it has no start button
+        -- on the bar (the Scripts window starts it), so its Stop lives HERE — the one
+        -- lane state that carries its own interrupt.
+        if s.scriptPlanTotal and s.scriptDone then
+            labelled("turning in scripts", string.format("%d of %d", s.scriptDone, s.scriptPlanTotal))
+        else
+            labelled("turning in scripts", string.format("%d left", s.scriptRemaining or 0))
+        end
+        ImGui.SameLine(0, 8)
+        theme.PushStopButton()
+        local okStop, clickedStop = pcall(ImGui.SmallButton, "Stop##dockLaneScriptStop")
+        theme.PopKitButton()
+        if not okStop then error(clickedStop, 0) end
+        if clickedStop then M.queue(ctx, { kind = "script_stop" }) end
+
     else
         -- Idle (26a): the lane names what it is for instead of sitting empty.
         theme.TextMuted("nothing running")
@@ -524,11 +540,15 @@ local function cellToggleAction(id, s)
     if id == "buffs" then return { kind = "window", id = "effects", toggle = true } end
     if id == "xp" then return { kind = "window", id = "aa", toggle = true } end
     if id == "lane" then
-        -- Only meaningful while loot owns the lane; an idle lane click does nothing
-        -- rather than opening a window nobody asked for.
+        -- Only meaningful while a job owns the lane; an idle lane click does nothing
+        -- rather than opening a window nobody asked for. Loot states route to the Loot
+        -- window (the old field ask); a script turn-in routes to the Scripts window.
         local st = s and s.lootState
         if st == "looting" or st == "decision" or st == "done" or st == "problem" then
             return { kind = "window", id = "loot" }
+        end
+        if s and s.scriptRunning then
+            return { kind = "window", id = "scripttracker" }
         end
     end
     return nil
@@ -1246,6 +1266,9 @@ function M.render(ctx)
                         frac = (s.lootCorpse or 0) / s.lootTotalCorpses
                     elseif s.lootState ~= "looting" and s.sellRunning then
                         frac = s.sellRunFrac or 0
+                    elseif s.lootState ~= "looting" and not s.sellRunning
+                        and s.scriptRunning and s.scriptPlanTotal and (s.scriptPlanTotal or 0) > 0 then
+                        frac = (s.scriptDone or 0) / s.scriptPlanTotal
                     end
                     if frac then
                         pcall(function()

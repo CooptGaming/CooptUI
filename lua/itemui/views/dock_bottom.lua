@@ -55,7 +55,10 @@ local MENUS = {
             { kind = "module", id = "equipment" },
             { kind = "module", id = "effects" },
             { kind = "module", id = "aa" },
-            { kind = "scripttracker", label = "ScriptTracker" },
+            -- Phase 15: a registry module now (views/script_tracker.lua), so it lights,
+            -- toggles and Esc-closes like everything else — no more /lua run sidecar
+            -- from the bars (the standalone script remains for classic/CC).
+            { kind = "module", id = "scripttracker" },
             { kind = "header", label = "LAYOUTS" },
             { kind = "layouts_dynamic" },
         },

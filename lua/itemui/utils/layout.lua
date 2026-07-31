@@ -84,6 +84,10 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.BankWindowX then layoutDefaults.BankWindowX = tonumber(d.BankWindowX) or layoutDefaults.BankWindowX end
     if d.BankWindowY then layoutDefaults.BankWindowY = tonumber(d.BankWindowY) or layoutDefaults.BankWindowY end
     if d.InventoryBankSplitX then layoutDefaults.InventoryBankSplitX = tonumber(d.InventoryBankSplitX) or layoutDefaults.InventoryBankSplitX end
+    if d.ScriptTrackerWindowX then layoutDefaults.ScriptTrackerWindowX = tonumber(d.ScriptTrackerWindowX) or layoutDefaults.ScriptTrackerWindowX end
+    if d.ScriptTrackerWindowY then layoutDefaults.ScriptTrackerWindowY = tonumber(d.ScriptTrackerWindowY) or layoutDefaults.ScriptTrackerWindowY end
+    if d.WidthScriptTrackerPanel then layoutDefaults.WidthScriptTrackerPanel = tonumber(d.WidthScriptTrackerPanel) or layoutDefaults.WidthScriptTrackerPanel end
+    if d.HeightScriptTracker then layoutDefaults.HeightScriptTracker = tonumber(d.HeightScriptTracker) or layoutDefaults.HeightScriptTracker end
     if d.WidthAugmentsPanel then layoutDefaults.WidthAugmentsPanel = tonumber(d.WidthAugmentsPanel) or layoutDefaults.WidthAugmentsPanel end
     if d.HeightAugments then layoutDefaults.HeightAugments = tonumber(d.HeightAugments) or layoutDefaults.HeightAugments end
     if d.AugmentsWindowX then layoutDefaults.AugmentsWindowX = tonumber(d.AugmentsWindowX) or layoutDefaults.AugmentsWindowX end
@@ -286,6 +290,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("BankWindowX=" .. tostring(layoutConfig.BankWindowX or layoutDefaults.BankWindowX) .. "\n")
         f:write("BankWindowY=" .. tostring(layoutConfig.BankWindowY or layoutDefaults.BankWindowY) .. "\n")
         f:write("InventoryBankSplitX=" .. tostring(layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0) .. "\n")
+        f:write("ScriptTrackerWindowX=" .. tostring(layoutConfig.ScriptTrackerWindowX or layoutDefaults.ScriptTrackerWindowX or 0) .. "\n")
+        f:write("ScriptTrackerWindowY=" .. tostring(layoutConfig.ScriptTrackerWindowY or layoutDefaults.ScriptTrackerWindowY or 0) .. "\n")
+        f:write("WidthScriptTrackerPanel=" .. tostring(layoutConfig.WidthScriptTrackerPanel or layoutDefaults.WidthScriptTrackerPanel or 460) .. "\n")
+        f:write("HeightScriptTracker=" .. tostring(layoutConfig.HeightScriptTracker or layoutDefaults.HeightScriptTracker or 400) .. "\n")
         f:write("WidthAugmentsPanel=" .. tostring(layoutConfig.WidthAugmentsPanel or layoutDefaults.WidthAugmentsPanel) .. "\n")
         f:write("HeightAugments=" .. tostring(layoutConfig.HeightAugments or layoutDefaults.HeightAugments) .. "\n")
         f:write("AugmentsWindowX=" .. tostring(layoutConfig.AugmentsWindowX or layoutDefaults.AugmentsWindowX) .. "\n")
@@ -492,6 +500,10 @@ local function applyLayoutSection(parsed)
     layoutConfig.BankWindowX = LayoutUtils.loadLayoutValue(layout, "BankWindowX", layoutDefaults.BankWindowX)
     layoutConfig.BankWindowY = LayoutUtils.loadLayoutValue(layout, "BankWindowY", layoutDefaults.BankWindowY)
     layoutConfig.InventoryBankSplitX = LayoutUtils.loadLayoutValue(layout, "InventoryBankSplitX", layoutDefaults.InventoryBankSplitX)
+    layoutConfig.ScriptTrackerWindowX = LayoutUtils.loadLayoutValue(layout, "ScriptTrackerWindowX", layoutDefaults.ScriptTrackerWindowX)
+    layoutConfig.ScriptTrackerWindowY = LayoutUtils.loadLayoutValue(layout, "ScriptTrackerWindowY", layoutDefaults.ScriptTrackerWindowY)
+    layoutConfig.WidthScriptTrackerPanel = LayoutUtils.loadLayoutValue(layout, "WidthScriptTrackerPanel", layoutDefaults.WidthScriptTrackerPanel)
+    layoutConfig.HeightScriptTracker = LayoutUtils.loadLayoutValue(layout, "HeightScriptTracker", layoutDefaults.HeightScriptTracker)
     layoutConfig.WidthAugmentsPanel = LayoutUtils.loadLayoutValue(layout, "WidthAugmentsPanel", layoutDefaults.WidthAugmentsPanel)
     layoutConfig.HeightAugments = LayoutUtils.loadLayoutValue(layout, "HeightAugments", layoutDefaults.HeightAugments)
     layoutConfig.AugmentsWindowX = LayoutUtils.loadLayoutValue(layout, "AugmentsWindowX", layoutDefaults.AugmentsWindowX)

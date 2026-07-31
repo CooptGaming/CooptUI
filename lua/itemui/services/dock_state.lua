@@ -450,6 +450,31 @@ local function accumulateSession(now)
     snap.sessionPlat = session.looted + session.sold
 end
 
+--- Script turn-in progress (25c / phase 15): pure uiState reads over the consume FSM's
+--- queue. The plan total is stamped by the Scripts window when it enqueues; menu-driven
+--- single consumes never set it, so the lane shows "N left" without a denominator there.
+local function readScriptTurnin()
+    local uiState = d and d.uiState
+    if not uiState then return end
+    local remaining = 0
+    local ps = uiState.pendingScriptConsume
+    if ps then remaining = remaining + math.max(0, (ps.totalToConsume or 0) - (ps.consumedSoFar or 0)) end
+    for _, e in ipairs(uiState.pendingScriptConsumeQueue or {}) do
+        remaining = remaining + (e.totalToConsume or 0)
+    end
+    snap.scriptRunning = remaining > 0
+    snap.scriptRemaining = remaining
+    if remaining == 0 then
+        -- Job over (finished or stopped): the plan dissolves with it.
+        uiState.scriptTurninPlanTotal = nil
+        snap.scriptPlanTotal = nil
+        snap.scriptDone = nil
+    else
+        snap.scriptPlanTotal = tonumber(uiState.scriptTurninPlanTotal) or nil
+        snap.scriptDone = snap.scriptPlanTotal and math.max(0, snap.scriptPlanTotal - remaining) or nil
+    end
+end
+
 --- Sell-run progress + session banking for the macro path. Cheap cached reads only while
 --- idle; getSellProgress (one TLO + throttled INI read) is called only while a macro sell
 --- is actually running.
@@ -654,6 +679,8 @@ function M.tick(now)
         -- Sell-run progress must precede accumulateSession so a macro run's income banked on
         -- its finish edge is published in the same tick.
         pcall(readSellRun)
+        -- Script turn-in: pure uiState reads, every tick, so the lane's count stays live.
+        pcall(readScriptTurnin)
         -- Loot and session are pure cached reads, so they run every tick and progress stays
         -- live. readLoot consumes snap.bagFree, so it must follow the bags walk above.
         pcall(readLoot, now)

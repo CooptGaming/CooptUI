@@ -999,6 +999,52 @@ do
         and lessLane > (idleWidths.lane or 0), tostring(lessLane))
 end
 
+-- =================================================================
+-- Phase 15 (25c): the script turn-in is the lane's third owner — progress from the
+-- consume FSM's queue, and the ONE lane state that carries its own Stop (it has no
+-- start button on the bar; the Scripts window starts it).
+-- =================================================================
+do
+    resetInput()
+    local uiState = {
+        scriptTurninPlanTotal = 38,
+        pendingScriptConsume = { bag = 1, slot = 1, source = 'inv',
+            totalToConsume = 10, consumedSoFar = 4, nextClickAt = 0, itemName = 'Script of Lost Memories' },
+        pendingScriptConsumeQueue = {
+            { bag = 1, slot = 2, source = 'inv', totalToConsume = 20, consumedSoFar = 0, nextClickAt = 0 },
+        },
+    }
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx))
+    warmState()
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    -- remaining = (10-4) + 20 = 26; done = 38 - 26 = 12
+    check('script job: lane shows turn-in progress', stub.drew(r, 'turning in scripts')
+        and stub.drew(r, '12 of 38'), table.concat(r.text, '|'))
+    check('script job: the lane Stop is offered', stub.drew(r, 'Stop##dockLaneScriptStop'),
+        table.concat(r.buttons, '|'))
+    check('script job: balanced (stop button kit push/pop nets zero)',
+        stub.balanced(r), stub.imbalance(r))
+
+    stub.click = { dockLaneScriptStop = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('script job: Stop enqueues script_stop', q and #q >= 1 and q[#q].kind == 'script_stop',
+        q and q[#q] and tostring(q[#q].kind) or 'nil')
+
+    -- The job ending clears the plan through dock_state's own tick.
+    resetInput()
+    uiState.pendingScriptConsume = nil
+    uiState.pendingScriptConsumeQueue = nil
+    stub.advance(1000)
+    dockState.tick(stub.now)
+    local r2 = stub.frame(function() dockTop.render(ctx) end)
+    check('script job: lane returns to idle when the queue drains',
+        stub.drew(r2, 'nothing running'), table.concat(r2.text, '|'))
+    check('script job: the plan total dissolved with the job',
+        uiState.scriptTurninPlanTotal == nil, tostring(uiState.scriptTurninPlanTotal))
+end
+
 -- ---------------------------------------------------------------- summary
 local missing = {}
 for k, v in pairs(stub.missing) do missing[#missing + 1] = k .. 'x' .. v end

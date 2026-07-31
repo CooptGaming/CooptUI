@@ -1429,20 +1429,34 @@ local function phase0b_dockActionQueue(now)
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
 
     elseif a.kind == "scripttracker" then
-        -- Same start-if-needed probe the Command Center's button does
-        -- (views/command_center.lua:123-133), so retiring that window loses nothing.
-        local running = nil
-        local ok, status = pcall(function()
-            local l = mq.TLO and mq.TLO.Lua
-            local s = l and l.Script and l.Script('scripttracker')
-            return s and s.Status and s.Status()
-        end)
-        if ok and type(status) == 'string' then running = (status:upper() == 'RUNNING') end
-        if running == false then
-            mq.cmd('/lua run scripttracker')
-        else
-            mq.cmd('/st show')
-            if running == nil then mq.cmd('/lua run scripttracker') end
+        -- Phase 15: the Scripts companion is a registry module now
+        -- (views/script_tracker.lua), so this action is just a window toggle. The old
+        -- /lua run sidecar probe lives on only in the classic Command Center's button.
+        local registry = require('itemui.core.registry')
+        if registry.isRegistered("scripttracker") then
+            local open = registry.isOpen("scripttracker")
+            registry.toggleWindow("scripttracker")
+            if not open and d.recordCompanionWindowOpened then
+                d.recordCompanionWindowOpened("scripttracker")
+            end
+        end
+
+    elseif a.kind == "script_stop" then
+        -- Stop the script turn-in job (25c): drop the current slot and the whole queue.
+        -- The FSM checks pendingScriptConsume each tick, so clearing here is a clean
+        -- interrupt — anything already right-clicked keeps its chat confirmation.
+        local remaining = 0
+        local ps = uiState.pendingScriptConsume
+        if ps then remaining = remaining + math.max(0, (ps.totalToConsume or 0) - (ps.consumedSoFar or 0)) end
+        for _, e in ipairs(uiState.pendingScriptConsumeQueue or {}) do
+            remaining = remaining + (e.totalToConsume or 0)
+        end
+        uiState.pendingScriptConsume = nil
+        uiState.pendingScriptConsumeQueue = nil
+        uiState.scriptTurninPlanTotal = nil
+        if d.setStatusMessage then
+            d.setStatusMessage(string.format("Turn-in stopped - %d script%s left in bags.",
+                remaining, remaining == 1 and "" or "s"))
         end
 
     elseif a.kind == "clicky" and a.bag and a.slot then
