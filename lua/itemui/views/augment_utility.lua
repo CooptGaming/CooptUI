@@ -13,6 +13,7 @@ local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local ItemDisplayView = require('itemui.views.item_display')
 local AugmentsView = require('itemui.views.augments')
+local windowHeader = require('itemui.components.window_header')
 
 local AugmentUtilityView = {}
 
@@ -23,7 +24,29 @@ local state = {
     augmentUtilitySlotIndex = 1,
     searchFilterAugmentUtility = "",
     augmentUtilityOnlyShowUsable = true,
+    -- 23b subject link: nil = follow Item Display's active tab live (the link); a table
+    -- (a captured tab entry) = the pin — the subject freezes until unpinned.
+    pinnedTarget = nil,
 }
+
+-- FontAwesome glyphs (merged into the default font): link f0c1, thumbtack f08d.
+local GLYPH_LINK = "ï"
+local GLYPH_PIN  = "ï"
+
+--- The live subject: Item Display's active tab (the one selection bus this pair needs —
+--- Aug Utility answers a different question about the same item, spec §8's "link" kind).
+local function currentLiveTarget()
+    local ids = ItemDisplayView.getState()
+    local tabs = ids.itemDisplayTabs or {}
+    local activeIdx = ids.itemDisplayActiveTabIndex or 1
+    if activeIdx < 1 or activeIdx > #tabs then activeIdx = #tabs > 0 and 1 or 0 end
+    return (activeIdx >= 1 and activeIdx <= #tabs) and tabs[activeIdx] or nil
+end
+
+--- Pinned beats live; both may be nil (no subject).
+local function resolveTarget()
+    return state.pinnedTarget or currentLiveTarget()
+end
 
 -- Cache for optimize plan: recompute only when item/slot/bank state changes
 local optimizeCache = {
@@ -86,7 +109,9 @@ function AugmentUtilityView.render(ctx)
     end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "augmentUtility") end
+    if tostring(layoutConfig.UIMode or "classic") ~= "bars" and ctx.renderWindowLock then
+        ctx.renderWindowLock(ctx, "augmentUtility")
+    end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -103,6 +128,41 @@ function AugmentUtilityView.render(ctx)
             layoutConfig.AugmentUtilityWindowY = cy
             if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
         end
+    end
+
+    local subject = resolveTarget()
+    local subjectName = subject and subject.item and subject.item.name or nil
+    if tostring(layoutConfig.UIMode or "classic") == "bars" then
+        -- 23b: the band states the link — GLYPH_LINK + the subject — and the pin action
+        -- freezes it. Restating the target's identity beyond the chip is §9 redundancy;
+        -- Item Display is beside this window and owns the full card.
+        windowHeader.render({
+            id = "augmentUtility", title = "Aug Utility",
+            stat = subjectName and (GLYPH_LINK .. " " .. subjectName)
+                or (GLYPH_LINK .. " no subject â open an item"),
+            actions = {
+                {
+                    label = GLYPH_PIN,
+                    tooltip = state.pinnedTarget and "Unpin: follow Item Display again"
+                        or "Pin: keep this subject while Item Display moves on",
+                    disabled = (subject == nil),
+                    onClick = function()
+                        if state.pinnedTarget then
+                            state.pinnedTarget = nil
+                        else
+                            state.pinnedTarget = currentLiveTarget()
+                        end
+                    end,
+                },
+            },
+            lock = {
+                locked = registry.isPinned("augmentUtility"),
+                onToggle = function()
+                    registry.setPinned("augmentUtility", not registry.isPinned("augmentUtility"))
+                    if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+                end,
+            },
+        })
     end
 
     -- Bars mode (spec §8's one consolidation): a tab bar — the slot-driven flow, plus the
@@ -135,12 +195,8 @@ end
 --- body before the fold. No Begin/End in here: render() owns the window, the tab owns
 --- the region. Early returns are plain returns for the same reason.
 renderForSlotContent = function(ctx)
-    -- Target: current Item Display tab
-    local itemDisplayState = ItemDisplayView.getState()
-    local tabs = itemDisplayState.itemDisplayTabs or {}
-    local activeIdx = itemDisplayState.itemDisplayActiveTabIndex or 1
-    if activeIdx < 1 or activeIdx > #tabs then activeIdx = #tabs > 0 and 1 or 0 end
-    local tab = (activeIdx >= 1 and activeIdx <= #tabs) and tabs[activeIdx] or nil
+    -- Target: the subject link (pinned target beats Item Display's live tab).
+    local tab = resolveTarget()
 
     if not tab or not tab.item then
         ctx.theme.TextWarning("No item selected.")
