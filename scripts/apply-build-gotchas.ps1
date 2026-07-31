@@ -915,6 +915,33 @@ if ($cmakeDirty -and $MQBuildDir -and (Test-Path (Join-Path $MQBuildDir 'CMakeCa
     }
 }
 
+# --- #32: cherry-pick upstream b8fdf618 — "/lua stop" crash on dead scripts ---
+# Dead entries in runningScripts keep a NULL mainThread (OnLuaThreadDestroyed marks
+# script.dead and resets the pointer) but linger in the vector; the kill-ALL branch of
+# LuaStopCommand called script.mainThread->Exit() on them with no dead check — a client
+# crash (observed 2026-07-30 as lua_rawgeti/lj_api.c:842 after an ImGui-callback failure
+# had killed itemui, then a bare "/lua stop" or "/unload" swept all scripts). The named
+# stop path already filters !script.dead; this makes the all-branch match. Byte-exact
+# upstream diff, so advancing the MQ pin past b8fdf618 makes this skip as already-applied.
+$mq2luaCpp = Join-Path $MQClone "src\plugins\lua\MQ2Lua.cpp"
+if (Replace-InFile $mq2luaCpp @"
+		// kill all scripts
+		for (RunningScript& script : s_globalState->runningScripts)
+		{
+			script.mainThread->Exit();
+		}
+"@ @"
+		// kill all scripts
+		for (RunningScript& script : s_globalState->runningScripts)
+		{
+			if (script.dead)
+				continue;
+			script.mainThread->Exit();
+		}
+"@ "32") {
+    Write-Fix "32" "MQ2Lua.cpp: /lua stop kill-all skips dead scripts (upstream b8fdf618)"
+}
+
 Write-Host ""
 Write-Host "Done. Applied: $applied fix(es), Skipped: $skipped (already applied or N/A)." -ForegroundColor Cyan
 exit 0
