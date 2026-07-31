@@ -357,16 +357,24 @@ segments.loot = function(ctx, s)
         end
 
     elseif st == "looting" then
-        labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
+        if (s.lootTotalCorpses or 0) > 0 then
+            labelled("corpse", string.format("%d/%d", s.lootCorpse, s.lootTotalCorpses))
+        else
+            -- Run started, corpse census not in yet: "corpse 0/0" with a dead bar read
+            -- as a rendering bug in the field. Say what the run is actually doing.
+            theme.TextWarning("finding corpses")
+        end
         if s.lootCorpseName and ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
-        ImGui.SameLine(0, 6)
-        local lootFrac = (s.lootTotalCorpses or 0) > 0 and (s.lootCorpse / s.lootTotalCorpses) or 0
-        -- Enlarged to 90x16 (mockup 13d), same treatment as the sell segment's running bar.
-        theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(90, 16), "")
+        if (s.lootTotalCorpses or 0) > 0 then
+            ImGui.SameLine(0, 6)
+            local lootFrac = s.lootCorpse / s.lootTotalCorpses
+            -- Enlarged to 90x16 (mockup 13d), same treatment as the sell segment's running bar.
+            theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(90, 16), "")
+        end
         ImGui.SameLine(0, 6)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         ImGui.SameLine(0, 8)
@@ -382,7 +390,11 @@ segments.loot = function(ctx, s)
             theme.TextMuted(string.format("%d skipped", s.lootSkipped))
         end
         ImGui.SameLine(0, 8)
-        if ImGui.SmallButton("Review##dockLootReview") then M.queue(ctx, { kind = "window", id = "loot" }) end
+        theme.PushKeepButton()
+        local okLA, clickedLA = pcall(ImGui.SmallButton, "Loot All##dockLootAllDone")
+        theme.PopButtonColors()
+        if not okLA then error(clickedLA, 0) end
+        if clickedLA then M.queue(ctx, { kind = "loot_all" }) end
 
     else
         -- Loot All lives here and only here (mockup 13d): every other state above already has
@@ -1074,6 +1086,7 @@ function M.render(ctx)
                 -- slot's width FLEXES with its state — see the slotW branch above.)
                 -- 21c wash: pushed tight around the child so the pop can never be skipped —
                 -- only EndChild sits between, and the throwable content is contained inside.
+                local lootQueueLenBefore = (id == "loot" and ctx.uiState.dockActionQueue) and #ctx.uiState.dockActionQueue or 0
                 local wash = segmentWash(id, s)
                 if wash then
                     ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(wash))
@@ -1112,6 +1125,16 @@ function M.render(ctx)
                 -- is the line that silently blanked every segment after the first. The
                 -- helper owns that knowledge now (see dockLayout.itemRectMin).
                 local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+                -- Loot slot: clicking the slot itself opens the Loot window (field ask,
+                -- replaces the old Review button). Every inner loot button queues an
+                -- action, so "the queue did not grow" identifies a background click
+                -- without knowing where the buttons are.
+                if id == "loot" and hovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+                    local q = ctx.uiState.dockActionQueue
+                    if (q and #q or 0) == lootQueueLenBefore then
+                        M.queue(ctx, { kind = "window", id = "loot" })
+                    end
+                end
                 local rx, ry = dockLayout.itemRectMin()
                 M.slots[id] = { x = rx, y = ry, w = slotW, h = h, hovered = hovered }
                 if rx then lastRect = M.slots[id] end

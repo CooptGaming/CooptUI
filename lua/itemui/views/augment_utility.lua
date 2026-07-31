@@ -210,11 +210,16 @@ renderForSlotContent = function(ctx)
     local itemName = (targetItem.name or targetItem.Name or "?"):sub(1, 50)
     if (targetItem.name or ""):len() > 50 then itemName = itemName .. "..." end
 
-    ctx.theme.TextHeader("Target item")
-    ImGui.SameLine()
-    ImGui.Text(itemName)
-    ctx.theme.TextMuted(string.format("Source: %s | Bag %s, Slot %s", source == "bank" and "Bank" or "Inventory", tostring(bag), tostring(slot)))
-    ImGui.Spacing()
+    -- Bars mode: the band's link chip IS the target's identity (23b), and the slot map
+    -- says the rest — restating name/source here was two rows of §9 redundancy the
+    -- 2026-07-31 field pass called out as wasted vertical space. Classic keeps the block.
+    if tostring(ctx.layoutConfig.UIMode or "classic") ~= "bars" then
+        ctx.theme.TextHeader("Target item")
+        ImGui.SameLine()
+        ImGui.Text(itemName)
+        ctx.theme.TextMuted(string.format("Source: %s | Bag %s, Slot %s", source == "bank" and "Bank" or "Inventory", tostring(bag), tostring(slot)))
+        ImGui.Spacing()
+    end
 
     -- Slot selector: show only standard augment slots (1-4). Ornament (slot 5, type 20) is excluded so we
     -- don't show a phantom "Slot 3" when the item has e.g. slots 1, 2 and an ornament. Ornament add/remove
