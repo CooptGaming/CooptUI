@@ -34,27 +34,30 @@ local M = {}
 
 -- Menu definitions. Module entries are resolved through the registry at draw time, so a
 -- companion the user disabled simply is not listed, and "lit" means registry.isOpen.
+--
+-- Phase 11 (23c): the old Items/Character/Layouts menus fold into ONE "Hub" menu — the
+-- same launcher list vertically, grouped ITEMS / CHARACTER / LAYOUTS, "nothing in it is a
+-- duplicate of a launcher, it is the same launcher in a form you can read". Pairs read as
+-- one row that travels together: Inventory is the merged Bags+Bank hub (phase 10), and
+-- Item Display + Aug Utility open and close as a unit. Shortcut labels wait on the
+-- keybind proposal (§10 — audit first, nothing wired until approved).
 local MENUS = {
     {
-        id = "items", label = "Items",
+        id = "hub", label = "Hub",
         entries = {
-            { kind = "hub",    label = "Bags" },
-            { kind = "module", id = "bank" },
-            { kind = "module", id = "itemDisplay" },
-            { kind = "module", id = "augments" },
-            { kind = "module", id = "augmentUtility" },
+            { kind = "header", label = "ITEMS" },
+            { kind = "hub",    label = "Inventory (bags + bank)" },
+            { kind = "pair",   ids = { "itemDisplay", "augmentUtility" } },
             { kind = "module", id = "mythicals" },
             { kind = "module", id = "reroll" },
-        },
-    },
-    {
-        id = "character", label = "Character",
-        entries = {
+            { kind = "module", id = "favorites" },
+            { kind = "header", label = "CHARACTER" },
             { kind = "module", id = "equipment" },
             { kind = "module", id = "effects" },
-            { kind = "module", id = "favorites" },
             { kind = "module", id = "aa" },
             { kind = "scripttracker", label = "ScriptTracker" },
+            { kind = "header", label = "LAYOUTS" },
+            { kind = "layouts_dynamic" },
         },
     },
     {
@@ -79,13 +82,6 @@ local MENUS = {
             -- is lost when it is closed for good -- that is a phase 3 acceptance criterion.
             { kind = "native", label = "Native panel", window = "TipWindow" },
         },
-    },
-    {
-        -- Phase 4 (mockup 10c): presets + Re-tidy. Entries are dynamic — the preset list
-        -- comes from uiState.dockPresetNames, primed OUTSIDE the frame by main_loop so this
-        -- file keeps the "no file reads" bar rule.
-        id = "layouts", label = "Layouts",
-        entries = { { kind = "layouts_dynamic" } },
     },
 }
 
@@ -134,6 +130,81 @@ local function moduleLabel(id)
     return nil
 end
 
+-- Lazy requires (same reason as inventory.lua's bankView): both modules register
+-- themselves at require time, and a top-level require here would move their registry
+-- slot. By first bar frame app.lua has loaded them, so these are table lookups.
+local ItemDisplayViewLazy, TooltipDataLazy
+local function itemDisplayView()
+    ItemDisplayViewLazy = ItemDisplayViewLazy or require('itemui.views.item_display')
+    return ItemDisplayViewLazy
+end
+local function tooltipData()
+    TooltipDataLazy = TooltipDataLazy or require('itemui.utils.tooltip_data')
+    return TooltipDataLazy
+end
+
+--- 23c's pill: empty aug sockets on the item currently in Item Display. PEEK ONLY —
+--- reads the tooltip cache entry ID's own render already built; a cache miss is nil (no
+--- pill), never a TLO walk. The bar must stay read-cheap every frame.
+local function pairPillCount()
+    local ok, n = pcall(function()
+        local st = itemDisplayView().getState()
+        local tabs = st.itemDisplayTabs or {}
+        local idx = st.itemDisplayActiveTabIndex or 1
+        local tab = tabs[idx]
+        if not tab or not tab.item then return nil end
+        local entry = tooltipData().getCachedTooltipEntry(tab.item,
+            { source = tab.source, bag = tab.bag, slot = tab.slot })
+        local lines = entry and entry.augLines
+        if type(lines) ~= "table" then return nil end  -- augLines caches `false` for "none"
+        local count = 0
+        for _, l in ipairs(lines) do
+            if l and l.augName == "empty" then count = count + 1 end
+        end
+        return count
+    end)
+    if not ok or not n or n <= 0 then return nil end
+    return n
+end
+
+--- The Item Display + Aug Utility pair (23c): halves resolve through the registry, the
+--- pair exists only when BOTH are enabled, and it opens/closes as a unit — "the open pair
+--- lights the whole chip, because they travel together".
+local function pairModules()
+    local a, b = moduleLabel("itemDisplay"), moduleLabel("augmentUtility")
+    if a and b then return a, b end
+    return nil, nil
+end
+
+local function pairOpen()
+    return (registry.isOpen("itemDisplay") or registry.isOpen("augmentUtility")) == true
+end
+
+--- Open both halves, or close both when the pair is already open. Queued, never a direct
+--- registry write from the render callback.
+local function togglePair(ctx)
+    if pairOpen() then
+        -- Close whichever halves are open (toggle only the open ones).
+        if registry.isOpen("itemDisplay") then
+            dockTop.queue(ctx, { kind = "window", id = "itemDisplay", toggle = true })
+        end
+        if registry.isOpen("augmentUtility") then
+            dockTop.queue(ctx, { kind = "window", id = "augmentUtility", toggle = true })
+        end
+    else
+        -- Idempotent opens (non-toggle) for both.
+        dockTop.queue(ctx, { kind = "window", id = "itemDisplay" })
+        dockTop.queue(ctx, { kind = "window", id = "augmentUtility" })
+    end
+end
+
+--- Is the hub (the merged Inventory in bars) on screen? The whole Bags|Bank chip lights
+--- on this OR a stray open bank companion (defensive — bank is classicOnly in bars).
+local function hubOpen(ctx)
+    local f = ctx and ctx.getShouldDraw
+    return ((f and f()) or registry.isOpen("bank")) == true
+end
+
 local function drawMenuEntries(ctx, menu, s)
     local drew = false
     for _, e in ipairs(menu.entries) do
@@ -164,8 +235,38 @@ local function drawMenuEntries(ctx, menu, s)
 
         elseif e.kind == "hub" then
             drew = true
-            if ImGui.Selectable(e.label .. "##dockmenu_hub") then
+            local lit = hubOpen(ctx)
+            if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
+            -- Selectable returns (selected, pressed) — read the SECOND (see the module
+            -- branch above for the bug the first return caused).
+            local _, pressedHub = ImGui.Selectable(e.label .. "##dockmenu_hub", lit)
+            if pressedHub then
                 dockTop.queue(ctx, { kind = "hub" })
+            end
+            if lit then ImGui.PopStyleColor() end
+
+        elseif e.kind == "header" then
+            -- 23c group label: furniture, not a row. Never counts as `drew` on its own —
+            -- a menu of nothing but headers is still "Nothing enabled here."
+            if theme.TextFurniture then theme.TextFurniture(e.label) else theme.TextMuted(e.label) end
+
+        elseif e.kind == "pair" then
+            -- Item Display + Aug Utility as one row that travels together (23c). Only
+            -- offered when both halves are enabled; the pill is the empty-socket count on
+            -- ID's current subject, peeked from the tooltip cache.
+            local a, b = pairModules()
+            if a and b then
+                drew = true
+                local lit = pairOpen()
+                local label = a .. " + " .. b
+                local pill = pairPillCount()
+                if pill then label = string.format("%s  %d", label, pill) end
+                if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
+                local _, pressedPair = ImGui.Selectable(label .. "##dockmenu_pair_idau", lit)
+                if pressedPair then
+                    togglePair(ctx)
+                end
+                if lit then ImGui.PopStyleColor() end
             end
 
         elseif e.kind == "scripttracker" then
@@ -347,13 +448,44 @@ local function rerollPendingCount(ctx)
     return #aug + #myth
 end
 
---- The ordered, filtered list of launcher entries this frame: { id, label, isHub }. Shared by
---- the width estimate and the actual draw so the two never disagree about what is on the bar.
+--- The ordered, filtered list of launcher entries this frame. Shared by the width estimate
+--- and the actual draw so the two never disagree about what is on the bar.
+---
+--- Phase 11 (23c): pairs read as one chip with two halves split by a hairline, and the
+--- open pair lights the whole chip. "bags" becomes the Bags|Bank pair (both halves are the
+--- merged hub — phase 10 — so both route there; the split names the two panes). If
+--- itemDisplay and augmentUtility are BOTH present/enabled, the first of them becomes the
+--- Item Display|Aug Utility pair and the other's standalone entry is absorbed.
+--- Entry shapes: { id, label, isHub } (plain) or { isPair = true, id, halves = { {label,
+--- action}, ... } } where action is the queue payload half-clicks send.
 local function launcherEntries(ctx, layoutConfig)
+    local ids = dockTop.csv(layoutConfig.DockButtons)
+    local present = {}
+    for _, id in ipairs(ids) do present[id] = true end
+    local idLabel, auLabel = pairModules()
+    local pairIDAU = present["itemDisplay"] and present["augmentUtility"] and idLabel and auLabel
     local out = {}
-    for _, id in ipairs(dockTop.csv(layoutConfig.DockButtons)) do
+    for _, id in ipairs(ids) do
         if id == "bags" then
-            out[#out + 1] = { id = id, label = "Bags", isHub = true }
+            out[#out + 1] = { isPair = true, id = "bagsbank", halves = {
+                { label = "Bags", action = { kind = "hub" } },
+                { label = "Bank", action = { kind = "hub" } },
+            } }
+        elseif id == "bank" and present["bags"] then
+            -- Absorbed into the Bags|Bank pair above (saved CSVs still carry the id).
+            local _ = id
+        elseif pairIDAU and (id == "itemDisplay" or id == "augmentUtility") then
+            -- The pair renders at the FIRST half's slot; the second occurrence is absorbed.
+            if not out._idauPlaced then
+                out._idauPlaced = true
+                local auHalf = auLabel
+                local pill = pairPillCount()
+                if pill then auHalf = string.format("%s %d", auHalf, pill) end
+                out[#out + 1] = { isPair = true, id = "idau", halves = {
+                    { label = idLabel, action = { kind = "window", id = "itemDisplay", toggle = true } },
+                    { label = auHalf,  action = { kind = "window", id = "augmentUtility", toggle = true } },
+                } }
+            end
         else
             local label = moduleLabel(id)
             if label then
@@ -365,7 +497,15 @@ local function launcherEntries(ctx, layoutConfig)
             end
         end
     end
+    out._idauPlaced = nil
     return out
+end
+
+--- Whole-chip lit state for a pair entry (23c: the open pair lights the whole chip).
+local function pairEntryLit(ctx, e)
+    if e.id == "bagsbank" then return hubOpen(ctx) end
+    if e.id == "idau" then return pairOpen() end
+    return false
 end
 
 --- Rough reserved width for the whole launcher row, so the chat strip ahead of it (buttons
@@ -379,7 +519,15 @@ local function launcherRowWidth(ctx, layoutConfig)
     for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
         if not first then total = total + constants.UI.DOCK_SLOT_GAP end
         first = false
-        total = total + dockLayout.textWidth(e.label) + pad
+        if e.isPair then
+            -- Two half-buttons + the 1px hairline between them.
+            for _, h in ipairs(e.halves) do
+                total = total + dockLayout.textWidth(h.label) + pad
+            end
+            total = total + 1
+        else
+            total = total + dockLayout.textWidth(e.label) + pad
+        end
     end
     return total
 end
@@ -393,16 +541,30 @@ local function drawLauncherButtons(ctx, layoutConfig)
     for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
         if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
         first = false
-        local open = (not e.isHub) and registry.isOpen(e.id) or false
-        if open then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
-        if ImGui.SmallButton(e.label .. "##dockbtn_" .. e.id) then
-            if e.isHub then
-                dockTop.queue(ctx, { kind = "hub" })
-            else
-                dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
+        if e.isPair then
+            -- One chip, two halves split by a hairline (the 1px gap against the dark bar).
+            -- The whole chip lights when the pair is open — both halves get the lit fill.
+            local lit = pairEntryLit(ctx, e)
+            if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
+            for hi, h in ipairs(e.halves) do
+                if hi > 1 then ImGui.SameLine(0, 1) end
+                if ImGui.SmallButton(h.label .. "##dockbtn_" .. e.id .. "_" .. hi) then
+                    dockTop.queue(ctx, h.action)
+                end
             end
+            if lit then ImGui.PopStyleColor() end
+        else
+            local open = (not e.isHub) and registry.isOpen(e.id) or false
+            if open then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
+            if ImGui.SmallButton(e.label .. "##dockbtn_" .. e.id) then
+                if e.isHub then
+                    dockTop.queue(ctx, { kind = "hub" })
+                else
+                    dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
+                end
+            end
+            if open then ImGui.PopStyleColor() end
         end
-        if open then ImGui.PopStyleColor() end
     end
 end
 
@@ -677,11 +839,10 @@ function M.render(ctx)
             ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
             dockLayout.contained(ctx.uiState, "dock launcher buttons", drawLauncherButtons, ctx, layoutConfig)
         else
-            -- The hover menus, left to right (Items / Character / Actions / Game windows /
-            -- Layouts), with section dividers at the group boundaries the user reads them
-            -- as: CoOpt windows (Items/Character/Actions) | the game's own windows |
-            -- Layouts | chat. Dividers draw into the gaps -- zero layout width.
-            local DIVIDER_BEFORE = { game = true, layouts = true }
+            -- The hover menus, left to right (Hub / Actions / Game windows), with a section
+            -- divider at the one group boundary left: CoOpt windows (Hub/Actions) | the
+            -- game's own windows | chat. Dividers draw into the gaps -- zero layout width.
+            local DIVIDER_BEFORE = { game = true }
             local prevRight, prevTop, prevBot = nil, nil, nil
             for _, menu in ipairs(MENUS) do
                 if DIVIDER_BEFORE[menu.id] and prevRight then

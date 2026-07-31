@@ -521,45 +521,82 @@ do
     warmState(900000)
 
     local r = stub.frame(function() dockBottom.render(ctx) end)
-    check('bottom: four menu buttons', stub.drew(r, 'Items') and stub.drew(r, 'Character')
-        and stub.drew(r, 'Actions') and stub.drew(r, 'Game windows'),
+    check('bottom: three menu buttons (23c: Items/Character/Layouts folded into Hub)',
+        stub.drew(r, 'Hub') and stub.drew(r, 'Actions') and stub.drew(r, 'Game windows')
+        and not stub.drew(r, '##dockmenubtn_items') and not stub.drew(r, '##dockmenubtn_character'),
         table.concat(r.buttons, '|'))
     check('bottom: Settings is present', stub.drew(r, 'Settings'), table.concat(r.buttons, '|'))
     check('bottom: balanced', stub.balanced(r), stub.imbalance(r))
     check('bottom: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     check('bottom: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
 
-    -- Hovering a menu button opens the menu as a second window.
-    stub.hover = { dockmenubtn_items = true }
+    -- Hovering the Hub button opens the grouped launcher list as a second window.
+    stub.hover = { dockmenubtn_hub = true }
     local r2 = stub.frame(function() dockBottom.render(ctx) end)
     check('bottom: hover opens the menu', #r2.windows == 2, table.concat(r2.windows, ','))
-    check('bottom: menu lists Bank', stub.drew(r2, 'Bank'), table.concat(r2.buttons, '|'))
+    check('bottom: hub lists the merged Inventory', stub.drew(r2, 'Inventory (bags + bank)'),
+        table.concat(r2.buttons, '|'))
+    check('bottom: hub lists the Item Display + Aug Utility pair',
+        stub.drew(r2, 'Item Display + Augment Utility'), table.concat(r2.buttons, '|'))
+    check('bottom: hub carries the group headers', stub.drew(r2, 'ITEMS')
+        and stub.drew(r2, 'CHARACTER') and stub.drew(r2, 'LAYOUTS'), table.concat(r2.text, '|'))
+    check('bottom: hub carries the layouts entries', stub.drew(r2, 'Re-tidy now'),
+        table.concat(r2.buttons, '|'))
+    check('bottom: hub does NOT list bank as its own row', not stub.drew(r2, '##dockmenu_bank'),
+        table.concat(r2.buttons, '|'))
     check('bottom: balanced with the menu open', stub.balanced(r2), stub.imbalance(r2))
 
     -- Clicking a menu entry enqueues rather than acting inline, and asks for a TOGGLE.
-    stub.hover = { dockmenubtn_items = true }
-    stub.click = { dockmenu_bank = true }
+    stub.hover = { dockmenubtn_hub = true }
+    stub.click = { dockmenu_mythicals = true }
     stub.frame(function() dockBottom.render(ctx) end)
     local q = uiState.dockActionQueue
     check('bottom: a menu click enqueues instead of acting inline', q and #q >= 1, q and #q)
     local a = q and q[#q]
     check('bottom: the action is a window toggle',
-        a and a.kind == 'window' and a.id == 'bank' and a.toggle == true,
+        a and a.kind == 'window' and a.id == 'mythicals' and a.toggle == true,
         a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
+
+    -- Clicking the pair row opens BOTH halves (non-toggle idempotent opens).
+    resetInput()
+    stub.hover = { dockmenubtn_hub = true }
+    stub.click = { dockmenu_pair_idau = true }
+    uiState.dockActionQueue = nil
+    stub.frame(function() dockBottom.render(ctx) end)
+    q = uiState.dockActionQueue
+    check('bottom: pair row queues both halves', q and #q == 2
+        and q[1].kind == 'window' and q[1].id == 'itemDisplay' and not q[1].toggle
+        and q[2].kind == 'window' and q[2].id == 'augmentUtility' and not q[2].toggle,
+        q and #q)
+
+    -- With the pair open, the same row closes both (toggle only the open halves).
+    resetInput()
+    if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
+    if not registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
+    stub.hover = { dockmenubtn_hub = true }
+    stub.click = { dockmenu_pair_idau = true }
+    uiState.dockActionQueue = nil
+    stub.frame(function() dockBottom.render(ctx) end)
+    q = uiState.dockActionQueue
+    check('bottom: open pair row queues both closes', q and #q == 2
+        and q[1].id == 'itemDisplay' and q[1].toggle == true
+        and q[2].id == 'augmentUtility' and q[2].toggle == true, q and #q)
+    if registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
+    if registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
 
     -- A LIT entry (window already open) must NOT queue anything without a click. Selectable
     -- returns (selected, pressed) in this binding -- selected FIRST -- so a lit entry's first
     -- return is true EVERY frame; reading it as "clicked" slammed the window shut the moment
     -- its menu opened. The stub models the tuple, so this would regress loudly now.
     resetInput()
-    if not registry.isOpen('bank') then registry.toggleWindow('bank') end
-    stub.hover = { dockmenubtn_items = true }
+    if not registry.isOpen('mythicals') then registry.toggleWindow('mythicals') end
+    stub.hover = { dockmenubtn_hub = true }
     uiState.dockActionQueue = nil
     stub.frame(function() dockBottom.render(ctx) end)
     check('bottom: a lit entry does not self-close without a click',
         uiState.dockActionQueue == nil or #uiState.dockActionQueue == 0,
         uiState.dockActionQueue and #uiState.dockActionQueue)
-    if registry.isOpen('bank') then registry.toggleWindow('bank') end
+    if registry.isOpen('mythicals') then registry.toggleWindow('mythicals') end
 end
 
 -- =================================================================
@@ -629,8 +666,8 @@ do
     dockState.init(newDeps(ctx))
     warmState(1250000)
 
-    -- Hover the Items button AND click it: still just open, same as hover alone would give.
-    stub.hover = { dockmenubtn_items = true }
+    -- Hover the Hub button AND click it: still just open, same as hover alone would give.
+    stub.hover = { dockmenubtn_hub = true }
     stub.mouse = { [ImGuiMouseButton.Left] = true }
     local r1 = stub.frame(function() dockBottom.render(ctx) end)
     check('menu click: opens the menu (click behaves like hover)', #r1.windows == 2,
@@ -657,7 +694,7 @@ do
     -- Esc handling is the one still allowed to claim dockEscConsumed, for the thing that can
     -- still be pinned).
     resetInput()
-    stub.hover = { dockmenubtn_items = true }
+    stub.hover = { dockmenubtn_hub = true }
     stub.keys = { [ImGuiKey.Escape] = true }
     stub.frame(function() dockBottom.render(ctx) end)
     check('menu click: Esc no longer claims dockEscConsumed (nothing left to unpin)',
@@ -679,47 +716,78 @@ do
     warmState(1260000)
 
     local r = stub.frame(function() dockBottom.render(ctx) end)
-    check('buttons: bags/bank/reroll launcher buttons drawn',
-        stub.drew(r, 'Bags##dockbtn_bags') and stub.drew(r, 'Bank##dockbtn_bank')
+    check('buttons: Bags|Bank pair chip drawn (23c: one chip, two halves)',
+        stub.drew(r, 'Bags##dockbtn_bagsbank_1') and stub.drew(r, 'Bank##dockbtn_bagsbank_2')
         and stub.drew(r, 'Reroll##dockbtn_reroll'), table.concat(r.buttons, '|'))
+    check('buttons: the bank id is absorbed into the pair (no standalone chip)',
+        not stub.drew(r, 'Bank##dockbtn_bank'), table.concat(r.buttons, '|'))
     check('buttons: no hover-menu buttons in this style',
-        not stub.drew(r, '##dockmenubtn_items'), table.concat(r.buttons, '|'))
+        not stub.drew(r, '##dockmenubtn_hub'), table.concat(r.buttons, '|'))
     check('buttons: Settings still present (right anchor unchanged)',
         stub.drew(r, 'Settings'), table.concat(r.buttons, '|'))
     check('buttons: balanced', stub.balanced(r), stub.imbalance(r))
     check('buttons: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     check('buttons: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
 
-    -- Clicking a launcher button enqueues, same shape as a menu entry click.
+    -- Both halves of Bags|Bank route to the merged hub (phase 10: the hub IS Inventory).
     resetInput()
-    stub.click = { dockbtn_bank = true }
+    stub.click = { dockbtn_bagsbank_2 = true }
     stub.frame(function() dockBottom.render(ctx) end)
     local q = uiState.dockActionQueue
-    check('buttons: a click enqueues instead of acting inline', q and #q >= 1, q and #q)
+    check('buttons: the Bank half enqueues instead of acting inline', q and #q >= 1, q and #q)
     local a = q and q[#q]
-    check('buttons: the action is a window toggle',
-        a and a.kind == 'window' and a.id == 'bank' and a.toggle == true,
-        a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
+    check('buttons: the Bank half routes to the merged hub',
+        a and a.kind == 'hub', a and tostring(a.kind))
 
-    -- "bags" queues the hub, exactly like the menus' hub entry -- not a window toggle.
     resetInput()
-    stub.click = { dockbtn_bags = true }
+    stub.click = { dockbtn_bagsbank_1 = true }
     uiState.dockActionQueue = nil
     stub.frame(function() dockBottom.render(ctx) end)
     q = uiState.dockActionQueue
-    check('buttons: bags queues the hub', q and #q >= 1 and q[#q].kind == 'hub',
+    check('buttons: the Bags half queues the hub too', q and #q >= 1 and q[#q].kind == 'hub',
         q and q[#q] and tostring(q[#q].kind) or 'nil')
 
-    -- An already-open companion is LIT (push/pop Button/Keep.Normal around its SmallButton --
-    -- the balance check is what proves the push and pop are paired).
+    -- A stray open bank companion lights the whole pair chip (defensive OR), and the
+    -- push/pop pairing around both halves is what the balance check proves.
     resetInput()
     if not registry.isOpen('bank') then registry.toggleWindow('bank') end
     uiState.dockActionQueue = nil
     local rLit = stub.frame(function() dockBottom.render(ctx) end)
-    check('buttons: an open (lit) companion button still draws', stub.drew(rLit, 'Bank##dockbtn_bank'),
+    check('buttons: pair chip halves still draw while lit',
+        stub.drew(rLit, 'Bags##dockbtn_bagsbank_1') and stub.drew(rLit, 'Bank##dockbtn_bagsbank_2'),
         table.concat(rLit.buttons, '|'))
-    check('buttons: balanced with a lit companion button', stub.balanced(rLit), stub.imbalance(rLit))
+    check('buttons: balanced with a lit pair chip', stub.balanced(rLit), stub.imbalance(rLit))
     if registry.isOpen('bank') then registry.toggleWindow('bank') end
+
+    -- A plain companion still lights alone (push/pop pairing on the single-chip path).
+    resetInput()
+    if not registry.isOpen('reroll') then registry.toggleWindow('reroll') end
+    local rLit2 = stub.frame(function() dockBottom.render(ctx) end)
+    check('buttons: an open (lit) standalone chip still draws', stub.drew(rLit2, 'Reroll##dockbtn_reroll'),
+        table.concat(rLit2.buttons, '|'))
+    check('buttons: balanced with a lit standalone chip', stub.balanced(rLit2), stub.imbalance(rLit2))
+    if registry.isOpen('reroll') then registry.toggleWindow('reroll') end
+
+    -- The Item Display|Aug Utility pair: both ids in the CSV collapse into one chip at the
+    -- first id's slot, halves toggling their own windows.
+    resetInput()
+    local pairCtx = newCtx({})
+    pairCtx.layoutConfig.DockBottomStyle = 'buttons'
+    pairCtx.layoutConfig.DockButtons = 'itemDisplay,augmentUtility,reroll'
+    dockState.init(newDeps(pairCtx))
+    warmState(1265000)
+    local rPair = stub.frame(function() dockBottom.render(pairCtx) end)
+    check('buttons: ID|AU pair chip drawn, second id absorbed',
+        stub.drew(rPair, 'Item Display##dockbtn_idau_1') and stub.drew(rPair, 'Augment Utility##dockbtn_idau_2')
+        and not stub.drew(rPair, '##dockbtn_itemDisplay') and not stub.drew(rPair, '##dockbtn_augmentUtility'),
+        table.concat(rPair.buttons, '|'))
+    local pairUi = pairCtx.uiState
+    stub.click = { dockbtn_idau_2 = true }
+    stub.frame(function() dockBottom.render(pairCtx) end)
+    local qp = pairUi.dockActionQueue
+    check('buttons: the AU half toggles its own window',
+        qp and #qp >= 1 and qp[#qp].kind == 'window' and qp[#qp].id == 'augmentUtility'
+        and qp[#qp].toggle == true, qp and #qp)
 
     -- Reroll's pending count comes from getPendingAugList/getPendingMythicalList (not
     -- getState(), which holds in-flight add/sync bookkeeping, not the pending lists).
@@ -754,8 +822,8 @@ do
     dockState.init(newDeps(menusCtx))
     warmState(1280000)
     local rMenus = stub.frame(function() dockBottom.render(menusCtx) end)
-    check('menus (explicit): four menu buttons still drawn', stub.drew(rMenus, 'Items')
-        and stub.drew(rMenus, 'Character') and stub.drew(rMenus, 'Actions')
+    check('menus (explicit): the three menu buttons still drawn', stub.drew(rMenus, 'Hub')
+        and stub.drew(rMenus, 'Actions')
         and stub.drew(rMenus, 'Game windows'), table.concat(rMenus.buttons, '|'))
     check('menus (explicit): no launcher buttons drawn', not stub.drew(rMenus, '##dockbtn_'),
         table.concat(rMenus.buttons, '|'))

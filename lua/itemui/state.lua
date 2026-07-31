@@ -148,7 +148,11 @@ do
     -- flat row of launcher buttons (mockup's second option). DockButtons is only consulted
     -- when DockBottomStyle is "buttons".
     layoutDefaults.DockBottomStyle = "menus"
-    layoutDefaults.DockButtons = "bags,bank,equipment,augments,augmentUtility,mythicals,reroll,aa,effects"
+    -- 23c order: the two pairs first (bags+bank collapse into the Bags|Bank chip;
+    -- itemDisplay+augmentUtility into Item Display|Aug Utility), then the standalones.
+    -- "augments" left out: that window folded into Aug Utility's All tab (phase 11) and
+    -- the id is classicOnly-dead on the bar; saved CSVs that still carry it just skip it.
+    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,aa"
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""
