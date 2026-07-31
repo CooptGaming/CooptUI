@@ -369,12 +369,9 @@ segments.loot = function(ctx, s)
             safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
-        if (s.lootTotalCorpses or 0) > 0 then
-            ImGui.SameLine(0, 6)
-            local lootFrac = s.lootCorpse / s.lootTotalCorpses
-            -- Enlarged to 90x16 (mockup 13d), same treatment as the sell segment's running bar.
-            theme.RenderProgressBar(math.min(1, math.max(0, lootFrac)), ImVec2(90, 16), "")
-        end
+        -- Progress is the slot-wide underline drawn by the render loop (universal bar,
+        -- field pass 3): an inline 16px bar grew the text line and clipped the Stop
+        -- button out of the strip.
         ImGui.SameLine(0, 6)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         ImGui.SameLine(0, 8)
@@ -1136,6 +1133,19 @@ function M.render(ctx)
                     end
                 end
                 local rx, ry = dockLayout.itemRectMin()
+                -- 22a's universal progress: a 3px fill along the slot's bottom edge, full
+                -- slot width at 100%. Foreground draw over the child, so no line-height
+                -- games and nothing can clip; only while a census exists.
+                if id == "loot" and s.lootState == "looting" and (s.lootTotalCorpses or 0) > 0 and rx then
+                    pcall(function()
+                        local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+                        if not drawList or not drawList.AddRectFilled then return end
+                        local frac = math.min(1, math.max(0, (s.lootCorpse or 0) / s.lootTotalCorpses))
+                        local childH = h - constants.UI.DOCK_BAR_PADDING_Y * 2
+                        local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.GoBorder)) or 0xFF408C33
+                        drawList:AddRectFilled(ImVec2(rx, ry + childH - 3), ImVec2(rx + slotW * frac, ry + childH), color)
+                    end)
+                end
                 M.slots[id] = { x = rx, y = ry, w = slotW, h = h, hovered = hovered }
                 if rx then lastRect = M.slots[id] end
             end
