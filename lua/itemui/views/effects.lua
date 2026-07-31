@@ -22,6 +22,7 @@ require('ImGui')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local dockState = require('itemui.services.dock_state')
+local windowHeader = require('itemui.components.window_header')
 local contextMenu = require('itemui.components.context_menu')
 
 local EffectsView = {}
@@ -308,7 +309,8 @@ function EffectsView.render(ctx)
     registry.setWindowState("effects", winOpen, winOpen)
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "effects") end
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "effects") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -348,6 +350,28 @@ function EffectsView.render(ctx)
             cache.at = now
             rescan()
         end
+    end
+
+    if barsOn then
+        local nb = #(cache.buffs or {})
+        local stat
+        if (cache.maxBuffs or 0) > 0 then
+            stat = string.format("Buffs %d/%d Â· Songs %d Â· Auras %d",
+                nb, cache.maxBuffs, #(cache.songs or {}), #(cache.auras or {}))
+        else
+            stat = string.format("Buffs %d Â· Songs %d Â· Auras %d",
+                nb, #(cache.songs or {}), #(cache.auras or {}))
+        end
+        windowHeader.render({
+            id = "effects", title = "Effects", stat = stat,
+            lock = {
+                locked = registry.isPinned("effects"),
+                onToggle = function()
+                    registry.setPinned("effects", not registry.isPinned("effects"))
+                    if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+                end,
+            },
+        })
     end
 
     local iconMode = (tonumber(layoutConfig.EffectsCompact) or 0) == 1

@@ -6,6 +6,7 @@
 
 local mq = require('mq')
 require('ImGui')
+local windowHeader = require('itemui.components.window_header')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
@@ -85,7 +86,8 @@ function EquipmentView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "equipment") end
+    local barsOn = tostring(ctx.layoutConfig.UIMode or "classic") == "bars"
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "equipment") end
 
     -- Save size when resized (if unlocked)
     if not ctx.uiState.uiLocked then
@@ -106,8 +108,31 @@ function EquipmentView.render(ctx)
         end
     end
 
-    ctx.theme.TextHeader("Equipment")
-    ImGui.Separator()
+    if barsOn then
+        -- Kit 3.6. The designed number here is "N upgrades in bags" (mockup 19d); that
+        -- needs a cached compare walk that does not exist yet (docs/WINDOWS_PASS.md notes
+        -- it), so until it does the band states the one cheap number the bar never shows:
+        -- how many of the 23 slots are dressed.
+        local worn = 0
+        for i = 1, 23 do
+            local e = (ctx.equipmentCache or {})[i]
+            if e and e.id and e.id ~= 0 then worn = worn + 1 end
+        end
+        windowHeader.render({
+            id = "equipment", title = "Equipment",
+            stat = string.format("%d/23 worn", worn),
+            lock = {
+                locked = registry.isPinned("equipment"),
+                onToggle = function()
+                    registry.setPinned("equipment", not registry.isPinned("equipment"))
+                    if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+                end,
+            },
+        })
+    else
+        ctx.theme.TextHeader("Equipment")
+        ImGui.Separator()
+    end
 
     -- Tighter vertical spacing between rows (icons unchanged)
     local style = ImGui.GetStyle()
