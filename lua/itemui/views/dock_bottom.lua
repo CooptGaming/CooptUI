@@ -771,7 +771,10 @@ function M.render(ctx)
         -- on the bar in the middle of two fixed groups.
         local rightMenus = menusIn("right")
         local leftMenus = menusIn("left")
-        local rightW = menuRowWidth(rightMenus)
+        -- + one gap: menuRowWidth counts the gaps BETWEEN its own buttons, not the one
+        -- before Settings. Under-reserving here starts the right group too far right and
+        -- pushes Settings past the window edge.
+        local rightW = menuRowWidth(rightMenus) + constants.UI.DOCK_SLOT_GAP
             + dockLayout.slotWidth("dockRight", { "Settings" }, 16)
         local leftW = menuRowWidth(leftMenus)
 
