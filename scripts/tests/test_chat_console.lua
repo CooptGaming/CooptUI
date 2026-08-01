@@ -66,6 +66,28 @@ do
     check('sendInput: bare text with surrounding whitespace trims before prefixing',
         chatConsole.sendInput('  gg  ') == '/say gg',
         chatConsole.sendInput('  gg  '))
+
+    -- 19c: the picker decides where BARE text goes. Everything above is the default
+    -- target's behaviour and must not change.
+    check('sendInput: the picked target prefixes bare text',
+        chatConsole.sendInput('inc', nil, 'group') == '/gsay inc',
+        chatConsole.sendInput('inc', nil, 'group'))
+    check('sendInput: guild target', chatConsole.sendInput('hi', nil, 'guild') == '/gu hi')
+    check('sendInput: box target', chatConsole.sendInput('follow', nil, 'bca') == '/bca follow')
+    check('sendInput: an unknown target id falls back to /say, never to nothing',
+        chatConsole.sendInput('hi', nil, 'nonsense') == '/say hi',
+        chatConsole.sendInput('hi', nil, 'nonsense'))
+    -- The one rule the input has always had outranks the picker.
+    check('sendInput: a leading slash still wins over the picker',
+        chatConsole.sendInput('/who all', nil, 'guild') == '/who all')
+    -- /tell needs somebody to tell. Emitting "/tell  hi" would be a command that cannot work.
+    check('sendInput: /tell with a name aims at them',
+        chatConsole.sendInput('omw', nil, 'tell', 'Alotta') == '/tell Alotta omw',
+        chatConsole.sendInput('omw', nil, 'tell', 'Alotta'))
+    check('sendInput: /tell with nobody to tell degrades to /say, not a broken command',
+        chatConsole.sendInput('omw', nil, 'tell', nil) == '/say omw',
+        chatConsole.sendInput('omw', nil, 'tell', nil))
+    check('sendInput: six targets offered', #chatConsole.SEND_TARGETS == 6, #chatConsole.SEND_TARGETS)
 end
 
 -- =================================================================
@@ -144,6 +166,37 @@ do
     end)
     check('fallback: balanced with no lines', stub.balanced(r2), stub.imbalance(r2))
     check('fallback: empty state message shown', stub.drew(r2, 'no chat yet'), table.concat(r2.text, '|'))
+
+    -- 19c's time column. Stamped at CAPTURE, so a line the window has not drawn for
+    -- minutes still reports when it was SAID.
+    check('feed: every captured line carries the time it arrived',
+        type(mainLines[#mainLines].time) == 'string'
+        and mainLines[#mainLines].time:match('^%d%d:%d%d$') ~= nil,
+        tostring(mainLines[#mainLines].time))
+    local r3 = stub.frame(function()
+        chatConsole.renderFallback('main', 150, mainLines, { timestamps = true })
+    end)
+    check('fallback: the time column draws when asked',
+        stub.drew(r3, mainLines[#mainLines].time), table.concat(r3.text, '|'))
+    check('fallback: balanced with timestamps', stub.balanced(r3), stub.imbalance(r3))
+    check('fallback: no time column by default',
+        not stub.drew(r2, mainLines[#mainLines].time))
+
+    -- The pill needs to know whether the view is parked at the newest line.
+    check('fallback: reports whether it is parked at the bottom',
+        chatConsole.renderFallback ~= nil and (function()
+            local at
+            stub.frame(function() at = chatConsole.renderFallback('main', 150, mainLines) end)
+            return at == true
+        end)())
+
+    -- /tell last: <name> comes from the line the classifier already matched.
+    chatFeed._inject("Alotta tells you, 'ready when you are'")
+    check('feed: remembers who last sent you a tell', chatFeed.lastTellFrom() == 'Alotta',
+        tostring(chatFeed.lastTellFrom()))
+    chatFeed._inject("Bob says, 'not a tell'")
+    check('feed: a non-tell does not overwrite it', chatFeed.lastTellFrom() == 'Alotta',
+        tostring(chatFeed.lastTellFrom()))
 end
 
 -- =================================================================

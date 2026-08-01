@@ -33,6 +33,7 @@ local registry = require('itemui.core.registry')
 -- require-time registration order is launcher-button order.
 local keybinds = require('itemui.utils.keybinds')
 local hubList = require('itemui.components.hub_list')
+local windowHeader = require('itemui.components.window_header')
 
 local M = {}
 
@@ -125,69 +126,20 @@ local hover = { id = nil, lastAt = 0, inMenu = false }
 -- Chips (19b): one control shape for every button on this bar
 -- ---------------------------------------------------------------------------
 
-local ACCENT_H = 2
-
---- The 2px open-state accent, drawn over the item just closed, on the chip edge that FACES
---- the screen — bottom-docked bars accent the top, top-docked bars the bottom. Same pair the
---- top bar's cells use (OpenWash fill + accent), so "open" reads identically on both.
---- AddRectFilled, not AddRect: an outline is unproven in this binding, a filled 2px strip
---- is the treatment the mockups actually draw, and it is what dock_top already ships.
-local function drawOpenAccent(edge)
-    pcall(function()
-        local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
-        if not dl or not dl.AddRectFilled then return end
-        local x1, y1 = dockLayout.itemRectMin()
-        local x2, y2 = dockLayout.itemRectMax()
-        if not (x1 and y1 and x2 and y2) then return end
-        local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue))
-            or 0xFFFA9642
-        if edge == "top" then
-            dl:AddRectFilled(ImVec2(x1, y2 - ACCENT_H), ImVec2(x2, y2), col)
-        else
-            dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + ACCENT_H), col)
-        end
-    end)
+--- The chip and its count pill are the KIT's, not this bar's: chat's tab strip draws the
+--- same control, and a second copy would be a second dialect (components/window_header).
+--- The one thing this bar decides is which EDGE the open accent sits on -- the one that
+--- FACES the screen, so a bottom-docked bar accents the top of its chips and a top-docked
+--- bar the bottom.
+local function accentEdgeFor(edge)
+    return (edge == "top") and "bottom" or "top"
 end
 
---- A bar chip. `lit` means "the thing this opens is on screen RIGHT NOW" and gets the
---- product's open pair; anything else is a plain label on the bar's own background, so the
---- lit chips are the only things with weight. `tint` colours an unlit label (the Hub chip's
---- SpellBlue identity).
----
---- The Push/Pop is a pcall SANDWICH, not a bare pair: an ImGui throw between them would
---- skip the pop and leak a colour every frame until ImGui asserts. Same rule as everywhere
---- else here — the pcall goes INSIDE the pair, and the error re-raises after the pop for
---- dockLayout.contained to log.
 local function chipButton(label, uid, lit, edge, tint)
-    local pushed = 0
-    if lit then
-        ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.OpenWash))
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.TextOnOpen))
-        pushed = 2
-    elseif tint then
-        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(tint))
-        pushed = 1
-    end
-    local ok, clicked = pcall(ImGui.SmallButton, label .. "##" .. uid)
-    if pushed > 0 then ImGui.PopStyleColor(pushed) end
-    if not ok then error(clicked, 0) end
-    if lit then drawOpenAccent(edge) end
-    return clicked == true
+    return windowHeader.chip(label, uid, lit, accentEdgeFor(edge), tint)
 end
 
---- 19b: "counts sit in their own pill". A number welded into a chip's label reads as part
---- of the window's NAME ("Reroll 3" is not a window called Reroll 3); a pill next to it
---- reads as a quantity belonging to that window. It stays clickable and does the chip's own
---- action, so the pill is never a dead zone inside a live control.
-local function pillButton(count, uid)
-    ImGui.SameLine(0, 1)
-    ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.Divider))
-    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.TextContent))
-    local ok, clicked = pcall(ImGui.SmallButton, tostring(count) .. "##" .. uid)
-    ImGui.PopStyleColor(2)
-    if not ok then error(clicked, 0) end
-    return clicked == true
-end
+local pillButton = windowHeader.pill
 
 --- How tall the strip is. Always one row now that peek (the old 5-row tab+lines mode) is
 --- retired in favor of the chat window -- collapsed and hidden were already both one row, so

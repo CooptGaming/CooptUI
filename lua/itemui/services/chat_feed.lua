@@ -98,11 +98,24 @@ function M.tabFor(text)
     return TAB_OF[classify(text)] or "other"
 end
 
+--- Who last sent you a tell, for the send-to picker's `/tell last: <name>` row (19c). Taken
+--- from the line the classifier already matched, so it costs one match on tell lines only —
+--- and never on the ~30Hz general path.
+local lastTell = nil
+function M.lastTellFrom() return lastTell end
+
 local function onChatLine(line)
     if not line or type(line) ~= "string" or line == "" then return end
     local channel = classify(line)
     local tab = TAB_OF[channel] or "other"
-    local entry = { text = line, channel = channel, tab = tab }
+    -- Stamped at CAPTURE, not at render: a chat line's time is when it was said, and the
+    -- window may not draw for minutes. os.date, not mq.gettime -- the user reads a clock,
+    -- not a monotonic tick. Formatted once here rather than per frame per visible line.
+    local entry = { text = line, channel = channel, tab = tab, time = os.date("%H:%M") }
+    if channel == "tell" then
+        local who = line:match("^(%a[%w_]*) tells you,") or line:match("^(%a[%w_]*) told you,")
+        if who then lastTell = who end
+    end
     lines[#lines + 1] = entry
     -- Trim with table.move rather than a table.remove loop: this is the hot path, and the
     -- same trim shape services/loot_feed_events.lua:58-63 already uses.

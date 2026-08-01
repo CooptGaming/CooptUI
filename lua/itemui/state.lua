@@ -104,6 +104,11 @@ do
     -- callback, so nothing outlives its state. See services/chat_console.lua for the full
     -- mechanism; set 0 here (or untick Settings > General) if a console ever misbehaves.
     layoutDefaults.ChatUseZep = 1
+    -- 19c. Timestamps on by default: a chat log without times is a wall, and the column is
+    -- five characters. ChatSendTo is where bare text goes when you press Enter -- "/say" is
+    -- what typing bare text has always meant here, so that is the default.
+    layoutDefaults.ChatTimestamps = 1
+    layoutDefaults.ChatSendTo = "say"
     layoutDefaults.ItemDisplayWindowX = 0
     layoutDefaults.ItemDisplayWindowY = 0
     layoutDefaults.AugmentUtilityWindowX = 0

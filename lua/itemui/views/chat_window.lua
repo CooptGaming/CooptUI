@@ -24,6 +24,7 @@ local chatConsole = require('itemui.services.chat_console')
 local dockTop = require('itemui.views.dock_top')
 local dockLayout = require('itemui.utils.dock_layout')
 local dockBottom = require('itemui.views.dock_bottom')
+local windowHeader = require('itemui.components.window_header')
 
 local ChatWindowView = {}
 
@@ -46,29 +47,47 @@ local TABS = {
 -- Module-locals: one chat window exists per session, same as dock_bottom's old peek tab state.
 local activeTab = "all"
 local inputBuf = ""
+-- 19c's filter. Deliberately NOT persisted: a filter you left on last session and cannot
+-- see is a chat window that has silently stopped showing you your chat.
+local filterOn = false
+local filterText = ""
+-- "N new" bookkeeping: how many lines existed when we were last parked at the bottom.
+local seenCount = 0
+local atBottom = true
 
 local function renderTabs()
     for i, t in ipairs(TABS) do
         -- Plain label, no unread count: the window is where you go to READ chat, so a number
         -- that exists to pull you here has nothing left to say once you have arrived. The
-        -- command bar keeps its badges -- that is the glance surface -- and this window still
+        -- command bar keeps its dots -- that is the glance surface -- and this window still
         -- clears their counts as you view each tab (see the clearUnread call in render).
-        local label = string.format("%s##chatTab_%s", t.label, t.id)
-        local lit = (activeTab == t.id)
-        if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
-        if ImGui.SmallButton(label) then
+        --
+        -- 19c calls these "real tabs", and the kit's active-tab treatment IS the chip: the
+        -- open wash plus a 2px accent, here UNDER the tab, which is where a tab strip's
+        -- accent belongs. Same control the bars draw, so "active" reads the same everywhere.
+        if windowHeader.chip(t.label, "chatTab_" .. t.id, activeTab == t.id, "bottom") then
             activeTab = t.id
         end
-        if lit then ImGui.PopStyleColor() end
         if i < #TABS then ImGui.SameLine(0, 4) end
     end
 end
 
 --- Fallback lines for the active tab (chat_console owns no reference to chat_feed itself --
---- see chat_console.lua's file header).
+--- see chat_console.lua's file header), narrowed by the filter when one is set.
 local function fallbackLines()
-    return chatFeed.getLines(200, activeTab ~= "all" and activeTab or nil)
+    local lines = chatFeed.getLines(200, activeTab ~= "all" and activeTab or nil)
+    local needle = filterOn and filterText:lower() or ""
+    if needle == "" then return lines end
+    local out = {}
+    for i = 1, #lines do
+        if (lines[i].text or ""):lower():find(needle, 1, true) then out[#out + 1] = lines[i] end
+    end
+    return out
 end
+
+-- Forward-declared: render() pcalls it, and it is defined after render() so the file still
+-- reads top-down (open the window, then draw it).
+local renderWindowBody
 
 function ChatWindowView.render(ctx)
     if not registry.shouldDraw("chat") then
@@ -149,7 +168,28 @@ function ChatWindowView.render(ctx)
     registry.setWindowState("chat", winOpen, winOpen)
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "chat") end
+
+    -- Everything between Begin and End runs under one pcall so ImGui.End() is
+    -- UNCONDITIONAL. A throw anywhere in the body -- geometry write-back, the band, a tab,
+    -- the picker -- would otherwise skip End, and a missing End is a C++ ImGuiException
+    -- that Lua cannot catch: MQ2Lua kills the script, and stopping a script in that state
+    -- has crashed the client. Same containment item_display.lua carries (commit aec75c0);
+    -- this window never got it, and the suite's injected SmallButton throw proved it.
+    local bodyOk, bodyErr = pcall(renderWindowBody, ctx, layoutConfig)
+    if not bodyOk then
+        pcall(function() theme.TextError("Chat hit an error this frame.") end)
+        local diagnostics = require('itemui.core.diagnostics')
+        diagnostics.recordError("Chat", "Window body error", bodyErr)
+    end
+    ImGui.End()
+end
+
+--- Everything between Begin and End, extracted so render() can pcall it (see the call site).
+renderWindowBody = function(ctx, layoutConfig)
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if tostring(layoutConfig.UIMode or "classic") ~= "bars" and ctx.renderWindowLock then
+        ctx.renderWindowLock(ctx, "chat")
+    end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -168,24 +208,84 @@ function ChatWindowView.render(ctx)
         end
     end
 
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    local timestamps = (tonumber(layoutConfig.ChatTimestamps) or 1) ~= 0
+
+    -- 19c recovers two lines of chrome. The band replaces the "Esc collapses" hint (Esc
+    -- already closes via the registry's LIFO handler -- the hint was pure label), and the
+    -- send-to picker below replaces "/ commands run as typed - bare text is /say", because
+    -- the picker states where bare text goes and the input's own placeholder states the
+    -- slash rule. Two lines of a 380px window back.
+    if barsOn then
+        windowHeader.render({
+            id = "chat", title = "Chat",
+            stat = string.format("%d line%s", chatFeed.count(),
+                (chatFeed.count() == 1) and "" or "s"),
+            actions = {
+                { label = windowHeader.GLYPHS.FILTER,
+                  tooltip = filterOn and "Stop filtering" or "Filter these lines",
+                  onClick = function()
+                      filterOn = not filterOn
+                      if not filterOn then filterText = "" end
+                  end },
+                { label = windowHeader.GLYPHS.CLOCK,
+                  tooltip = timestamps and "Hide the time column" or "Show the time column",
+                  onClick = function()
+                      if ctx.setLayoutValue then
+                          ctx.setLayoutValue("ChatTimestamps", timestamps and 0 or 1)
+                      else
+                          layoutConfig.ChatTimestamps = timestamps and 0 or 1
+                          if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+                      end
+                  end },
+            },
+            lock = windowHeader.registryLock("chat", ctx),
+        })
+    end
+
     renderTabs()
-    -- Top-right hint line (mockup): muted "Esc collapses" on the tab row. Esc-close already
-    -- works for free via the registry's LIFO close, so this is purely a label -- no new key
-    -- handling. Deferred: the mockup's shift+Enter size-cycling is not implemented here.
-    do
+    if not barsOn then
+        -- Classic keeps the old hint line and the old separator.
         local hintText = "Esc collapses"
         local winW = ImGui.GetWindowWidth and ImGui.GetWindowWidth() or 0
         local tw = dockLayout.textWidth(hintText)
         ImGui.SameLine(math.max(winW - tw - 12, 0))
         theme.TextMuted(hintText)
+        ImGui.Separator()
     end
-    ImGui.Separator()
+
+    -- The filter is a row, not a mode you cannot see: it only exists while it is on, and
+    -- turning it off from the band clears it. A hidden active filter is a chat window that
+    -- has quietly stopped showing you your chat.
+    if filterOn then
+        ImGui.SetNextItemWidth(200)
+        -- NOT `ImGui.InputTextWithHint and ImGui.InputTextWithHint(...) or ImGui.InputText(...)`:
+        -- that idiom TRUNCATES a multi-value call to one value, so `changed` would silently
+        -- be nil. An explicit if is the only correct form (same family as `cond and nil or X`).
+        local ft
+        if ImGui.InputTextWithHint then
+            ft = ImGui.InputTextWithHint("##chatFilter", "show only lines containing...", filterText)
+        else
+            ft = ImGui.InputText("##chatFilter", filterText)
+        end
+        filterText = ft or ""
+        ImGui.SameLine(0, 6)
+        if ImGui.SmallButton("clear##chatFilterClear") then filterText = "" end
+    end
 
     local availW, availH = ImGui.GetContentRegionAvail()
-    local hintH = (ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing()) or 16
-    local inputRowH = ((ImGui.GetFrameHeightWithSpacing and ImGui.GetFrameHeightWithSpacing()) or 24) + hintH
+    local inputRowH = ((ImGui.GetFrameHeightWithSpacing and ImGui.GetFrameHeightWithSpacing()) or 24)
+        + ((ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing()) or 16)
 
-    if chatConsole.zepAvailable() then
+    -- The filter and the time column are ours, not Zep's -- Zep owns its own buffer and
+    -- renders it whole. So either of those forces the plain renderer, which is a real
+    -- tradeoff (no clickable links while filtering) and is stated in the pill line below
+    -- rather than left for the user to discover.
+    local ownRenderer = filterOn or timestamps
+    local lines = fallbackLines()
+    local consoleH = math.max((availH or 0) - inputRowH, 1)
+    local wasAtBottom = atBottom
+    if not ownRenderer and chatConsole.zepAvailable() then
         local console = chatConsole.ensureConsole(activeTab, function()
             return chatFeed.getLines(500, activeTab ~= "all" and activeTab or nil)
         end)
@@ -195,39 +295,113 @@ function ChatWindowView.render(ctx)
             -- a degenerate rect from it (bottom above top) — blank/garbled console, mouse
             -- hit-testing against nothing. Every in-tree caller (MQImGuiConsole.cpp:537,
             -- examples/console.lua:130) subtracts the footer and passes the result.
-            local zepH = math.max((availH or 0) - inputRowH, 1)
-            local ok = pcall(function() console:Render(ImVec2(availW, zepH)) end)
+            local ok = pcall(function() console:Render(ImVec2(availW, consoleH)) end)
             if not ok then
-                chatConsole.renderFallback(activeTab, availH - inputRowH, fallbackLines())
+                atBottom = chatConsole.renderFallback(activeTab, consoleH, lines,
+                    { timestamps = timestamps })
+            else
+                atBottom = true    -- Zep autoscrolls itself; there is nothing to catch up to
             end
         else
-            chatConsole.renderFallback(activeTab, availH - inputRowH, fallbackLines())
+            atBottom = chatConsole.renderFallback(activeTab, consoleH, lines,
+                { timestamps = timestamps })
         end
     else
-        chatConsole.renderFallback(activeTab, availH - inputRowH, fallbackLines())
+        atBottom = chatConsole.renderFallback(activeTab, consoleH, lines, {
+            timestamps = timestamps,
+            -- Scroll to the newest line only when we were ALREADY parked there. Scrolling a
+            -- user who has walked back up the log is the single worst thing a chat window
+            -- can do, and it is what the "N new" pill exists to avoid needing.
+            autoScroll = wasAtBottom,
+            empty = (filterOn and filterText ~= "") and "(nothing on this tab matches)" or nil,
+        })
     end
 
-    -- Input row: Enter or Send both submit. EQ loses keyboard focus while this field is
-    -- active (see docs/DOCK_UI.md) -- the same tradeoff every focusable CoOpt window makes.
-    local buf, submitted = ImGui.InputText("##chatInput", inputBuf, ImGuiInputTextFlags.EnterReturnsTrue)
+    -- "N new" (19c): only while you are scrolled away, and it says how many arrived since
+    -- you left the bottom. Clicking it parks you back at the newest line.
+    local total = chatFeed.count()
+    if atBottom then
+        seenCount = total
+    elseif total > seenCount then
+        if ImGui.SmallButton(string.format("%d new##chatJump", total - seenCount)) then
+            seenCount = total
+            atBottom = true
+        end
+        ImGui.SameLine(0, 8)
+    end
+
+    -- Send row: the picker, the input, Send. Enter and Send both submit. EQ loses keyboard
+    -- focus while this field is active (see docs/DOCK_UI.md) -- the same tradeoff every
+    -- focusable CoOpt window makes.
+    local sendTo = tostring(layoutConfig.ChatSendTo or "say")
+    local target = chatConsole.targetById(sendTo)
+    local lastTell = chatFeed.lastTellFrom()
+    if ImGui.SmallButton(target.label .. " v##chatSendTo") then
+        ImGui.OpenPopup("##chatSendToPopup")
+    end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        ImGui.Text("Where bare text goes. A leading / still runs the command as typed.")
+        ImGui.EndTooltip()
+    end
+    if ImGui.BeginPopup("##chatSendToPopup") then
+        -- pcall INSIDE the pair: a throw between BeginPopup and EndPopup is an unbalanced
+        -- ImGui stack, which is a C++ exception Lua cannot catch and MQ2Lua answers by
+        -- killing the script.
+        pcall(function()
+            for _, t in ipairs(chatConsole.SEND_TARGETS) do
+                local where = t.where
+                if t.needsName then where = lastTell and ("last: " .. lastTell) or nil end
+                if where then
+                    -- Selectable returns (selected, pressed) -- SELECTED first. Read the
+                    -- second, or every already-picked row fires on every frame.
+                    local _, pressed = ImGui.Selectable(t.label .. "##chatTo_" .. t.id, t.id == sendTo)
+                    ImGui.SameLine(70)
+                    if theme.TextFurniture then theme.TextFurniture(where) else theme.TextMuted(where) end
+                    if pressed then
+                        if ctx.setLayoutValue then
+                            ctx.setLayoutValue("ChatSendTo", t.id)
+                        else
+                            layoutConfig.ChatSendTo = t.id
+                            if ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+                        end
+                    end
+                end
+            end
+        end)
+        ImGui.EndPopup()
+    end
+    ImGui.SameLine(0, 6)
+    local sendW = dockLayout.textWidth("Send") + 24
+    -- GetContentRegionAvail returns TWO FLOATS in this binding, not a vec (older paths a
+    -- table) -- indexing it as .x throws, and select(1, ...) on a table hands back the table.
+    local availNow = ImGui.GetContentRegionAvail()
+    if type(availNow) == 'table' then availNow = availNow.x end
+    if type(availNow) ~= 'number' then availNow = 200 end
+    ImGui.SetNextItemWidth(math.max(availNow - sendW, 80))
+    local buf, submitted
+    if ImGui.InputTextWithHint then
+        buf, submitted = ImGui.InputTextWithHint("##chatInput",
+            "type here - a leading / runs the command as typed", inputBuf,
+            ImGuiInputTextFlags.EnterReturnsTrue)
+    else
+        buf, submitted = ImGui.InputText("##chatInput", inputBuf, ImGuiInputTextFlags.EnterReturnsTrue)
+    end
     inputBuf = buf
     ImGui.SameLine()
     local sendClicked = ImGui.SmallButton("Send##chatSend")
     if submitted or sendClicked then
-        local cmd = chatConsole.sendInput(inputBuf)
+        local cmd = chatConsole.sendInput(inputBuf, nil, sendTo, lastTell)
         if cmd then
             dockTop.queue(ctx, { kind = "cmd", cmd = cmd })
         end
         inputBuf = ""
         if ImGui.SetKeyboardFocusHere then ImGui.SetKeyboardFocusHere(-1) end
     end
-    theme.TextMuted("/ commands run as typed - bare text is /say")
 
     -- Viewing is reading: clear the active tab's unread every frame this window is visible.
     -- The All tab clearing everything is correct -- All shows every channel at once.
     chatFeed.clearUnread(activeTab)
-
-    ImGui.End()
 end
 
 registry.register({

@@ -22,6 +22,7 @@ local STRING_KEYS = {
     LayoutPreset = true,    -- active preset name
     UserPlaced = true,      -- CSV: module ids the user dragged; zones skip them until Re-tidy
     Keybinds = true,        -- CSV: bindId:combo pairs (spec §10); empty combo = unbound
+    ChatSendTo = true,      -- say | group | raid | guild | tell | bca (19c's channel picker)
 }
 -- DockLaunchers / DockNative were written by phase 1 but never consumed by anything (the
 -- bottom-bar menus are registry-driven, and the native list is a phase-3 acceptance

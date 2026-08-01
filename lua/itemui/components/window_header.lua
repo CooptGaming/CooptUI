@@ -66,6 +66,71 @@ local function availWidth()
     return 0
 end
 
+--- Item rect as four numbers. The binding returns TWO FLOATS from GetItemRectMin/Max, not
+--- an ImVec2 (lua_ImGuiCore.cpp:879) — indexing the return as `.x` throws.
+local function itemRect()
+    local x1, y1 = ImGui.GetItemRectMin()
+    local x2, y2 = ImGui.GetItemRectMax()
+    if type(x1) ~= 'number' or type(x2) ~= 'number' then return nil end
+    return x1, y1, x2, y2
+end
+
+--- The kit's chip: one control shape for "this thing is open / active".
+---
+--- `lit` gets the product's open pair — the OpenWash fill plus a 2px OpenBlue accent on
+--- `accentEdge` ("top" or "bottom"; nil draws the wash alone). Everything the user reads as
+--- open uses this: bar launchers, the bottom bar's identity group, chat's tab strip. It
+--- lives here because a second copy would be a second dialect.
+---
+--- The Push/Pop is a pcall SANDWICH, not a bare pair: a throw between them would skip the
+--- pop and leak a colour every frame until ImGui asserts.
+function M.chip(label, uid, lit, accentEdge, tint)
+    local pushed = 0
+    if lit then
+        ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.OpenWash))
+        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.TextOnOpen))
+        pushed = 2
+    elseif tint then
+        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(tint))
+        pushed = 1
+    end
+    local ok, clicked = pcall(ImGui.SmallButton, label .. "##" .. uid)
+    if pushed > 0 then ImGui.PopStyleColor(pushed) end
+    if not ok then error(clicked, 0) end
+    if lit and accentEdge then
+        -- AddRectFilled, not AddRect: an outline is unproven in this binding, and a filled
+        -- 2px strip is the treatment the mockups draw and dock_top already ships.
+        pcall(function()
+            local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+            if not dl or not dl.AddRectFilled then return end
+            local x1, y1, x2, y2 = itemRect()
+            if not x1 then return end
+            local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue))
+                or 0xFFFA9642
+            if accentEdge == "bottom" then
+                dl:AddRectFilled(ImVec2(x1, y2 - 2), ImVec2(x2, y2), col)
+            else
+                dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 2), col)
+            end
+        end)
+    end
+    return clicked == true
+end
+
+--- A count that belongs to the chip beside it (19b: "counts sit in their own pill"). A
+--- number welded into a label reads as part of the NAME; a pill reads as a quantity. It
+--- stays clickable and does the chip's own action, so it is never a dead zone inside a
+--- live control.
+function M.pill(count, uid)
+    ImGui.SameLine(0, 1)
+    ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.Divider))
+    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.TextContent))
+    local ok, clicked = pcall(ImGui.SmallButton, tostring(count) .. "##" .. uid)
+    ImGui.PopStyleColor(2)
+    if not ok then error(clicked, 0) end
+    return clicked == true
+end
+
 --- The lock slot every registry window's band carries, built once here rather than
 --- six times at six call sites. The glyph is the CLOSE-SURVIVAL pin (registry.isPinned) —
 --- resize-prevention is the separate global `uiState.uiLocked` toggle, and the two never

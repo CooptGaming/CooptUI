@@ -201,16 +201,46 @@ function M.append(entry)
     end
 end
 
---- Pure: trims, empty -> nil, a leading "/" is returned as-is, anything else is prefixed with
---- "/say ". mqRef is accepted for signature parity with the design doc but unused -- this is
---- a text transform only. The caller enqueues the result onto uiState.dockActionQueue like
---- every other bar action; sendInput itself never touches mq or ImGui.
-function M.sendInput(text, mqRef)
+--- 19c: "a channel picker instead of typing prefixes". Six targets, in the order a player
+--- reaches for them. `needsName` marks the one that has to be aimed at somebody -- it is
+--- offered only when chat_feed knows who last spoke to you, because a /tell with no name is
+--- a command that cannot work.
+M.SEND_TARGETS = {
+    { id = "say",   cmd = "/say",  label = "/say",  where = "nearby" },
+    { id = "group", cmd = "/gsay", label = "/gsay", where = "group" },
+    { id = "raid",  cmd = "/rsay", label = "/rsay", where = "raid" },
+    { id = "guild", cmd = "/gu",   label = "/gu",   where = "guild" },
+    { id = "tell",  cmd = "/tell", label = "/tell", where = "last", needsName = true },
+    { id = "bca",   cmd = "/bca",  label = "/bca",  where = "all boxes" },
+}
+
+function M.targetById(id)
+    for _, t in ipairs(M.SEND_TARGETS) do
+        if t.id == id then return t end
+    end
+    return M.SEND_TARGETS[1]
+end
+
+--- Pure: trims, empty -> nil, a leading "/" is returned as-is, anything else is prefixed
+--- with the picked target's command (default /say, which is what typing bare text has
+--- always meant here). `targetId` is the picker's choice and `name` the /tell recipient;
+--- a /tell with no name falls back to /say rather than emitting a broken command.
+--- mqRef is accepted for signature parity with the design doc but unused -- this is a text
+--- transform only. The caller enqueues the result onto uiState.dockActionQueue like every
+--- other bar action; sendInput itself never touches mq or ImGui.
+function M.sendInput(text, mqRef, targetId, name)
     if type(text) ~= "string" then return nil end
     local trimmed = text:match("^%s*(.-)%s*$")
     if trimmed == "" then return nil end
+    -- A leading slash still wins over the picker: "a leading / runs the command as typed"
+    -- is the one rule the input has always had, and the picker must not silently break it.
     if trimmed:sub(1, 1) == "/" then return trimmed end
-    return "/say " .. trimmed
+    local t = M.targetById(targetId)
+    if t.needsName then
+        if not name or name == "" then return "/say " .. trimmed end
+        return string.format("%s %s %s", t.cmd, name, trimmed)
+    end
+    return t.cmd .. " " .. trimmed
 end
 
 --- Fallback renderer for when Zep is unavailable (or the console for `tab` has not been
@@ -219,10 +249,16 @@ end
 --- the caller (chat_window, which already requires chat_feed) rather than fetched here -- see
 --- the file header's no-cycle note. This is also the path the headless tests exercise, since
 --- there is no real Zep module to require outside the game.
-function M.renderFallback(tab, height, lines)
+--- opts (all optional): { timestamps = bool, autoScroll = bool, empty = string }.
+--- Returns `atBottom` — whether the view is parked at the newest line, which is what the
+--- "N new" pill needs to know (a pill that appears while you are already looking at the
+--- bottom is noise).
+function M.renderFallback(tab, height, lines, opts)
+    opts = opts or {}
+    local atBottom = true
     if ImGui.BeginChild("##ChatFallback_" .. tostring(tab), ImVec2(0, height or 0), false) then
         if not lines or #lines == 0 then
-            theme.TextMuted("(no chat yet)")
+            theme.TextMuted(opts.empty or "(no chat yet)")
         else
             for i = 1, #lines do
                 local e = lines[i]
@@ -230,6 +266,12 @@ function M.renderFallback(tab, height, lines)
                 local text = e.text
                 local ok, stripped = pcall(mq.StripTextLinks, text)
                 if ok and type(stripped) == "string" then text = stripped end
+                -- 19c's time column. Furniture, drawn ahead of the line and never coloured
+                -- by channel: it is the thing you scan past, not the thing you read.
+                if opts.timestamps and e.time then
+                    if theme.TextFurniture then theme.TextFurniture(e.time) else theme.TextMuted(e.time) end
+                    ImGui.SameLine(0, 6)
+                end
                 if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
                 if ImGui.TextUnformatted then
                     ImGui.TextUnformatted(text)
@@ -239,8 +281,16 @@ function M.renderFallback(tab, height, lines)
                 if col then ImGui.PopStyleColor() end
             end
         end
+        -- Scroll bookkeeping INSIDE the child (the scroll values belong to it). A 2px slack
+        -- so "one pixel off the bottom" still counts as parked -- ImGui's max scroll moves
+        -- as content grows and an exact compare flickers the pill on every new line.
+        local y = ImGui.GetScrollY and ImGui.GetScrollY() or 0
+        local maxY = ImGui.GetScrollMaxY and ImGui.GetScrollMaxY() or 0
+        atBottom = (maxY - y) <= 2
+        if opts.autoScroll and ImGui.SetScrollHereY then ImGui.SetScrollHereY(1.0) end
     end
     ImGui.EndChild()
+    return atBottom
 end
 
 return M

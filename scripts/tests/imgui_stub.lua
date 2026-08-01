@@ -56,6 +56,11 @@ M.click = {}
 --- Popups that report open (id substring), and submenus forced shut (label substring).
 M.openPopups = {}
 M.closedMenus = {}
+--- Scripted text fields, keyed by id substring: { chatInput = 'inc' } types "inc" into it.
+M.inputText = {}
+--- Scroll position of the current child, so "is the view parked at the newest line" is
+--- testable. { y = 0, maxY = 400 } is scrolled to the top of a long log; nil is parked.
+M.scroll = nil
 
 --- Make a named ImGui call raise, e.g. M.throwOn = { CalcTextSize = true }. This models the
 --- real failure the first in-game run hit: something between Begin and End threw, app.lua's
@@ -80,6 +85,16 @@ local function matches(set, label)
         if v and string.find(tostring(label), tostring(k), 1, true) then return true end
     end
     return false
+end
+
+--- Same substring match, but hands back the VALUE rather than a boolean — for scripted
+--- inputs, where the point is what the field reports.
+local function valueFor(set, label)
+    if not label then return nil end
+    for k, v in pairs(set) do
+        if v ~= nil and string.find(tostring(label), tostring(k), 1, true) then return v end
+    end
+    return nil
 end
 
 -- ---------------------------------------------------------------- vec types
@@ -243,7 +258,22 @@ function ImGuiStub.ProgressBar(_frac, size)
     if type(size) == 'table' then w, h = size.x, size.y end
     rec.progressBarSizes[#rec.progressBarSizes + 1] = { w = w, h = h }
 end
-function ImGuiStub.InputText(_id, buf) return buf, false end
+--- Scripted text fields. M.inputText = { chatInput = 'inc' } makes the field whose id
+--- CONTAINS "chatInput" report that value with changed=true, which is how a test types into
+--- a window without a keyboard. Unscripted fields echo their buffer back unchanged, exactly
+--- as before.
+function ImGuiStub.InputText(id, buf)
+    lastLabel = id
+    local v = valueFor(M.inputText, id)
+    if v ~= nil then return v, true end
+    return buf, false
+end
+--- (label, hint, text, flags) -> (text, changed). Same tuple shape as InputText; the hint is
+--- placeholder text, so it is recorded as drawn (it IS on screen when the field is empty).
+function ImGuiStub.InputTextWithHint(id, hint, buf)
+    addText(hint)
+    return ImGuiStub.InputText(id, buf)
+end
 -- popups & menus -------------------------------------------------------------
 -- Closed by default like real ImGui. A test opens one by putting an id substring in
 -- M.openPopups; an open popup counts as a window (EndPopup closes it), so imbalance
@@ -316,8 +346,13 @@ function ImGuiStub.GetMainViewport()
     return { Pos = vec2(0, 0), Size = vec2(vpW(), vpH()),
              WorkPos = vec2(0, 0), WorkSize = vec2(vpW(), vpH()), ID = 0 }
 end
+function ImGuiStub.GetScrollY() return (M.scroll and M.scroll.y) or 0 end
+function ImGuiStub.GetScrollMaxY() return (M.scroll and M.scroll.maxY) or 0 end
+function ImGuiStub.SetScrollHereY() end
 function ImGuiStub.GetTextLineHeight() return 14 end
 function ImGuiStub.GetTextLineHeightWithSpacing() return 18 end
+function ImGuiStub.GetFrameHeight() return 22 end
+function ImGuiStub.GetFrameHeightWithSpacing() return 26 end
 function ImGuiStub.CalcTextSize(s) return #tostring(s or "") * 7, 14 end
 function ImGuiStub.GetWindowWidth() return vpW() end
 function ImGuiStub.GetWindowHeight() return 30 end
