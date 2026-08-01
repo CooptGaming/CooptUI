@@ -34,6 +34,8 @@ local function newRec()
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
         buttonSizes = {},   -- { label, w, h } per sized ImGui.Button call, in order
+        progressBars = 0,   -- how many ImGui.ProgressBar calls this frame
+        progressBarSizes = {},  -- { w, h } per ProgressBar call, in order
         windows = {},       -- names passed to Begin
         childArgs = {},     -- every BeginChild call's raw args (name/a/b/c/d), in order
         depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0, tab = 0, tbl = 0 },
@@ -211,7 +213,14 @@ function ImGuiStub.CollapsingHeader(label)
     if matches(M.click, label) then open = not open end
     return open
 end
-function ImGuiStub.ProgressBar() end
+-- Records the requested size. Same reason Button does: a bar taller than the one-line
+-- segment child clips, and "how tall did the caller ask for" is a plain assertable fact.
+function ImGuiStub.ProgressBar(_frac, size)
+    rec.progressBars = (rec.progressBars or 0) + 1
+    local w, h
+    if type(size) == 'table' then w, h = size.x, size.y end
+    rec.progressBarSizes[#rec.progressBarSizes + 1] = { w = w, h = h }
+end
 function ImGuiStub.InputText(_id, buf) return buf, false end
 -- popups & menus -------------------------------------------------------------
 -- Closed by default like real ImGui. A test opens one by putting an id substring in

@@ -1031,6 +1031,92 @@ do
 end
 
 -- =================================================================
+-- 23c: the CoOpt cell opens the LAUNCHER LIST, not Bags. Bags has its own cell one over,
+-- so the identity cell spending its click on the same window was a wasted control.
+-- =================================================================
+do
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx))
+    warmState()
+
+    -- Clicking CoOpt must NOT queue a hub open.
+    stub.hover = { dockseg_status = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    check('CoOpt cell: click does NOT open Bags',
+        uiState.dockActionQueue == nil or #uiState.dockActionQueue == 0,
+        uiState.dockActionQueue and #uiState.dockActionQueue)
+    check('CoOpt cell: click pins the Hub list open', uiState.dockPinnedPopover == 'status',
+        tostring(uiState.dockPinnedPopover))
+
+    -- With it pinned the panel draws, carrying the SAME entries the command bar's Hub menu
+    -- uses (one list, two surfaces - they cannot drift).
+    resetInput()
+    local rHub = stub.frame(function() dockTop.render(ctx) end)
+    check('CoOpt panel: draws as a second window', #rHub.windows >= 2, table.concat(rHub.windows, ','))
+    check('CoOpt panel: carries the grouped launcher list',
+        stub.drew(rHub, 'ITEMS') and stub.drew(rHub, 'CHARACTER') and stub.drew(rHub, 'LAYOUTS'),
+        table.concat(rHub.text, '|'))
+    check('CoOpt panel: lists the windows themselves',
+        stub.drew(rHub, 'Bags##dockmenu_hub') and stub.drew(rHub, 'Bank##dockmenu_bank'),
+        table.concat(rHub.buttons, '|'))
+    check('CoOpt panel: balanced', stub.balanced(rHub), stub.imbalance(rHub))
+
+    -- Clicking again puts it away.
+    resetInput()
+    stub.hover = { dockseg_status = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    stub.frame(function() dockTop.render(ctx) end)
+    check('CoOpt cell: clicking again closes the list', uiState.dockPinnedPopover == nil,
+        tostring(uiState.dockPinnedPopover))
+    resetInput()
+end
+
+-- =================================================================
+-- 25a: the running lane draws a REAL inline progress bar between the label and the counts
+-- (it used to be a 3px underline along the cell's bottom edge - a workaround from when the
+-- loot cell was narrow enough that an inline bar clipped the Stop button out of the strip).
+-- =================================================================
+do
+    resetInput()
+    local uiState = {
+        lootRunCorpsesLooted = 4, lootRunTotalCorpses = 11,
+        lootRunCurrentCorpse = 'a rat', lootRunLootedItems = { {}, {}, {} }, lootRunTotalValue = 0,
+    }
+    local ctx = newCtx({ uiState = uiState })
+    dockState.init(newDeps(ctx, { lootRunning = true }))
+    warmState()
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    check('lane bar: a progress bar is drawn while looting', (r.progressBars or 0) > 0,
+        tostring(r.progressBars))
+    check('lane bar: never taller than the one-line cell (the clipping rule)',
+        (function()
+            local lh = ImGui.GetTextLineHeight()
+            for _, b in ipairs(r.progressBarSizes or {}) do
+                if not b.h or b.h <= 0 or b.h > lh then return false end
+            end
+            return true
+        end)(),
+        (function()
+            local out = {}
+            for _, b in ipairs(r.progressBarSizes or {}) do out[#out + 1] = tostring(b.h) end
+            return table.concat(out, ',') .. ' lineH=' .. tostring(ImGui.GetTextLineHeight())
+        end)())
+    check('lane bar: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- Idle draws none: a bar at 0% reads as a stalled job.
+    resetInput()
+    local ctxIdle = newCtx()
+    dockState.init(newDeps(ctxIdle))
+    warmState()
+    local rIdle = stub.frame(function() dockTop.render(ctxIdle) end)
+    check('lane bar: idle draws no bar at all', (rIdle.progressBars or 0) == 0,
+        tostring(rIdle.progressBars))
+end
+
+-- =================================================================
 -- Phase 14 (§12 / 26b): the session strip's four values + the triage panel. The record
 -- service is seeded directly (its own suite covers the pre-emption logic); this block
 -- proves the CELL and PANEL read it honestly: amber only for needs-a-call, zero muted
@@ -1098,7 +1184,10 @@ do
     stub.hover = { dockseg_session = true }
     local r2 = stub.frame(function() dockTop.render(ctx) end)
     check('session panel: opens on hover', #r2.windows == 2, table.concat(r2.windows, ','))
-    check('session panel: truth line carries the full totals', stub.drew(r2, '2 looted . 1 need a call . 1 sorted'),
+    -- Both rows need a call now: the script is no longer auto-sorted, because scripts are
+    -- keep-protected by default like the rest and the user still has to decide whether to
+    -- turn one in.
+    check('session panel: truth line carries the full totals', stub.drew(r2, '2 looted . 2 need a call . 0 sorted'),
         table.concat(r2.text, '|'))
     check('session panel: the call row is offered best-first', stub.drew(r2, 'Fresh Emerald'),
         table.concat(r2.text, '|'))
@@ -1111,7 +1200,7 @@ do
         srDeps._applied and srDeps._applied.name == 'Fresh Emerald' and srDeps._applied.k == true,
         srDeps._applied and srDeps._applied.name)
     local c = sessionRecord.getCounts()
-    check('session panel: amber cleared, sorted grew', c.augsCall == 0 and c.sorted == 2,
+    check('session panel: amber cleared, sorted grew', c.augsCall == 0 and c.sorted == 1,
         c.augsCall .. '/' .. c.sorted)
 
     -- 26b why-line: every row says why it deserves attention. The free, always-true half

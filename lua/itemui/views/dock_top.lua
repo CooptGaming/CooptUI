@@ -29,6 +29,9 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 -- Leaf module (requires mq only, registers nothing) — safe at the top unlike view
 -- modules, whose require-time registration order is button order.
 local registry = require('itemui.core.registry')
+-- Registers nothing and takes `queue` as an argument rather than requiring this file, so
+-- there is no cycle (dock_bottom -> dock_top already exists).
+local hubList = require('itemui.components.hub_list')
 
 local M = {}
 
@@ -232,6 +235,27 @@ end
 -- mq.cmd from inside the frame.
 -- ---------------------------------------------------------------------------
 
+-- 25a: the running lane carries a REAL progress bar, inline between the label and the
+-- counts — "one progress bar, two owners". It used to be a 3px underline along the cell's
+-- bottom edge, which was a workaround from when the loot cell was ~264px wide and an
+-- inline bar grew the text line enough to clip the Stop button out of the strip. The
+-- phase-13 rebuild moved the buttons OUT of the lane and made the lane the flex cell
+-- (~712px at 2554), so the bar fits where the design puts it.
+--
+-- Height is derived from the text line, never a constant: the segment child is exactly one
+-- line tall, so a bar taller than that clips — the same rule the bar buttons and the
+-- reroll tray cells each had to learn the hard way this pass.
+local LANE_BAR_W = 200
+
+local function laneProgressBar(frac)
+    if not frac then return end
+    local lh = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 13
+    if type(lh) ~= "number" or lh <= 0 then lh = 13 end
+    ImGui.SameLine(0, 8)
+    theme.RenderProgressBar(math.min(1, math.max(0, frac)),
+        ImVec2(LANE_BAR_W, math.max(6, lh - 3)), "")
+end
+
 -- Half the buttons cell, minus its paddings and the gap between the two buttons.
 local BTN_W = math.floor((constants.UI.DOCK_CELL_W.buttons
     - constants.UI.DOCK_SLOT_PADDING_X * 2 - constants.UI.DOCK_SLOT_GAP) / 2)
@@ -402,7 +426,8 @@ segments.lane = function(ctx, s)
             safeText("On: " .. tostring(s.lootCorpseName))
             ImGui.EndTooltip()
         end
-        -- Progress is the lane-wide underline drawn by the render loop (universal bar).
+        laneProgressBar((s.lootTotalCorpses or 0) > 0
+            and ((s.lootCorpse or 0) / s.lootTotalCorpses) or nil)
         ImGui.SameLine(0, 8)
         theme.TextMuted(string.format("%d taken", s.lootTaken))
         if (s.lootSkipped or 0) > 0 then
@@ -428,6 +453,7 @@ segments.lane = function(ctx, s)
         -- The other owner (25a): identical lane, different job. The sell CELL keeps the
         -- standing count ticking down; this is the run readout.
         labelled("selling", string.format("%d of %d", s.sellRunCurrent or 0, s.sellRunTotal or 0))
+        laneProgressBar(s.sellRunFrac)
         if (s.sellRunValue or 0) > 0 then
             ImGui.SameLine(0, 8)
             theme.TextMuted("earned")
@@ -441,6 +467,7 @@ segments.lane = function(ctx, s)
         -- lane state that carries its own interrupt.
         if s.scriptPlanTotal and s.scriptDone then
             labelled("turning in scripts", string.format("%d of %d", s.scriptDone, s.scriptPlanTotal))
+            laneProgressBar((s.scriptPlanTotal > 0) and (s.scriptDone / s.scriptPlanTotal) or nil)
         else
             labelled("turning in scripts", string.format("%d left", s.scriptRemaining or 0))
         end
@@ -588,7 +615,12 @@ end
 --- Sell view (merchant open) — hub-open alone already lights bags, and three cells lit
 --- for one window would read as noise.
 local function cellOpen(ctx, id, s)
-    if id == "status" or id == "bags" then return hubVisible(ctx) end
+    -- The identity cell opens the Hub LIST, not a window, so what it lights for is the
+    -- list being up — not "is Bags open" (that is the bags cell's job).
+    if id == "status" then
+        return (ctx.uiState and ctx.uiState.dockPinnedPopover == "status") == true
+    end
+    if id == "bags" then return hubVisible(ctx) end
     if id == "sell" then return hubVisible(ctx) and s.merchantOpen == true end
     if id == "session" then return registry.isOpen("chat") == true end
     if id == "buffs" then return registry.isOpen("effects") == true end
@@ -600,7 +632,9 @@ end
 --- (the button pair; the session cell, whose values are their own doors — §12 — so its
 --- background stays inert rather than surprising a missed click).
 local function cellToggleAction(id, s)
-    if id == "status" or id == "bags" or id == "sell" then return { kind = "hub", toggle = true } end
+    -- status is handled inline (it opens the Hub LIST, not a window) — see the click
+    -- handler in the render loop.
+    if id == "bags" or id == "sell" then return { kind = "hub", toggle = true } end
     if id == "buffs" then return { kind = "window", id = "effects", toggle = true } end
     if id == "xp" then return { kind = "window", id = "aa", toggle = true } end
     if id == "lane" then
@@ -684,6 +718,18 @@ local function mutedNameList(prefix, list)
     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
     safeText(prefix .. table.concat(names, ", "))
     ImGui.PopStyleColor(1)
+end
+
+--- 23c: the CoOpt cell opens the launcher list — "the same launcher in a form you can
+--- read", grouped ITEMS / CHARACTER / LAYOUTS, each row carrying its shortcut. The rows
+--- and the list itself come from components/hub_list, which the command bar's Hub menu
+--- draws from too, so the two surfaces cannot drift.
+popovers.status = function(ctx, s)
+    theme.TextHeaderAlt("CoOpt")
+    ImGui.SameLine(0, 8)
+    theme.TextMuted("everything, and where it is")
+    ImGui.Separator()
+    hubList.drawEntries(hubList.ENTRIES, ctx, s, M.queue)
 end
 
 --- Expiring buffs, each with a Recast when we can identify the item that casts it, plus the
@@ -921,9 +967,8 @@ popovers.session = function(ctx, s)
 
     -- The truth line (§12): the header carries the full total; the bar's amber count is
     -- only what still needs a call.
-    local needCall = (s.srAugsCall or 0) + (s.srMythicsCall or 0)
     theme.TextMuted(string.format("%d looted . %d need a call . %d sorted",
-        s.srLooted or 0, needCall, s.srSorted or 0))
+        s.srLooted or 0, s.srNeedCall or 0, s.srSorted or 0))
     theme.TextMuted(string.format("money  %sp looted . %sp sold",
         plat(s.sessionLooted), plat(s.sessionSold)))
 
@@ -1072,7 +1117,16 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
         hover.lastAt = now
         -- Middle-click pins the popover open so it survives the mouse leaving.
         if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Middle) and uiState then
-            uiState.dockPinnedPopover = (pinned == hoveredId) and nil or hoveredId
+            -- Was `(pinned == hoveredId) and nil or hoveredId`, which is the broken Lua
+            -- ternary: with a nil true-branch, `true and nil` is nil and the `or` hands
+            -- back hoveredId — so middle-clicking an ALREADY-pinned popover re-pinned it
+            -- instead of releasing it, and the only way out was Esc. Pre-existing; found
+            -- because the new CoOpt toggle was written in the same shape.
+            if pinned == hoveredId then
+                uiState.dockPinnedPopover = nil
+            else
+                uiState.dockPinnedPopover = hoveredId
+            end
             pinned = uiState.dockPinnedPopover
         end
     elseif hover.inPopover then
@@ -1557,34 +1611,27 @@ function M.render(ctx)
                 if hovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
                     local q = ctx.uiState.dockActionQueue
                     if (q and #q or 0) == queueLenBefore then
-                        local act = cellToggleAction(id, s)
-                        if act then M.queue(ctx, act) end
+                        if id == "status" then
+                            -- 23c: CoOpt opens the LIST of everything, not Bags. Bags has
+                            -- its own cell one over. Clicking PINS the panel, so it stays
+                            -- while you read it and travel down to a row — hover alone
+                            -- would drop it the moment you left the 190px cell.
+                            -- NOT `cond and nil or "status"`. Lua's ternary idiom breaks
+                            -- when the true-branch value is nil: `true and nil` is nil, so
+                            -- the `or` fires and you get "status" back — the toggle could
+                            -- never turn OFF. An explicit if is the only correct form.
+                            if ctx.uiState.dockPinnedPopover == "status" then
+                                ctx.uiState.dockPinnedPopover = nil
+                            else
+                                ctx.uiState.dockPinnedPopover = "status"
+                            end
+                        else
+                            local act = cellToggleAction(id, s)
+                            if act then M.queue(ctx, act) end
+                        end
                     end
                 end
                 local rx, ry = dockLayout.itemRectMin()
-                -- The universal progress underline: a 3px fill along the LANE's bottom
-                -- edge, full lane width at 100% — loot by corpse census, sell by run frac.
-                if id == "lane" and rx then
-                    local frac = nil
-                    if s.lootState == "looting" and (s.lootTotalCorpses or 0) > 0 then
-                        frac = (s.lootCorpse or 0) / s.lootTotalCorpses
-                    elseif s.lootState ~= "looting" and s.sellRunning then
-                        frac = s.sellRunFrac or 0
-                    elseif s.lootState ~= "looting" and not s.sellRunning
-                        and s.scriptRunning and s.scriptPlanTotal and (s.scriptPlanTotal or 0) > 0 then
-                        frac = (s.scriptDone or 0) / s.scriptPlanTotal
-                    end
-                    if frac then
-                        pcall(function()
-                            local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
-                            if not drawList or not drawList.AddRectFilled then return end
-                            local f = math.min(1, math.max(0, frac))
-                            local childH = h - constants.UI.DOCK_BAR_PADDING_Y * 2
-                            local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.GoBorder)) or 0xFF408C33
-                            drawList:AddRectFilled(ImVec2(rx, ry + childH - 3), ImVec2(rx + slotW * f, ry + childH), color)
-                        end)
-                    end
-                end
                 -- The lit cell's 2px accent underline — the open-state accent the whole
                 -- product uses (#12161c fill + accent). AddRect (outline) is unproven in
                 -- this binding; the underline uses the proven AddRectFilled and reads as

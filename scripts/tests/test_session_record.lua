@@ -1,6 +1,9 @@
 -- Session record suite (§12 / phase 14, mockups 26b/26c). The load-bearing test is
--- acceptance 12: an augment already on the reroll list, looted fresh, appears in SORTED
--- and does NOT increment the amber count — same for a keep-rule match and for NoDrop.
+-- acceptance 12 as REVISED after field use: an augment already on the reroll list, or
+-- carrying an explicit always-junk rule, lands in SORTED and does not increment the amber
+-- count. A keep-rule match and a NoDrop item do NOT - they stay in the queue, because
+-- every category this record tracks is keep-protected by default, so "protected" is the
+-- resting state of the loot rather than a decision anyone made.
 -- Plus: the decide/undo/clear lifecycle, stack-growth counting for scripts, departure
 -- marking, and the file round-trip.
 
@@ -107,14 +110,27 @@ do
     sessionRecord.init(deps)
     sessionRecord.tick(1000)
 
+    -- The pre-emption is DELIBERATELY NARROW: only an explicit sell (always-junk) or a
+    -- reroll counts as a decision already made. Augments, mythics and scripts are ALL
+    -- keep-protected by default (Augmentation in sell_keep_types; Mythical and Script of
+    -- in sell_keep_contains) - which is exactly the loot this record tracks. Treating
+    -- "matches a keep rule" as a decision therefore pre-empted every single item the
+    -- feature exists to ask about, and the queue sat permanently empty. Protected-from-
+    -- sale is the DEFAULT STATE of this loot, not a call anyone made.
     local c = sessionRecord.getCounts()
-    check('acc12: amber counts ONLY the genuinely undecided aug', c.augsCall == 1, c.augsCall)
-    check('acc12: reroll/keep/junk/NoDrop landed straight in SORTED',
-        c.sorted == 5, c.sorted)  -- 4 pre-empted augs + the auto-sorted script
+    check('acc12: keep-protected and NoDrop augs still NEED a call',
+        c.augsCall == 3, c.augsCall)   -- Fresh Emerald + Kept Gem + Bound Sigil
+    check('acc12: only reroll and explicit-junk pre-empt', c.sorted == 2, c.sorted)
     check('acc12: aug total counts every aug looted', c.augsTotal == 5, c.augsTotal)
     check('acc12: the mythic needs its call', c.mythicsCall == 1 and c.mythicsTotal == 1,
         c.mythicsCall .. '/' .. c.mythicsTotal)
-    check('acc12: scripts counted by stack, no decision', c.scripts == 4, c.scripts)
+    check('acc12: scripts counted by stack', c.scripts == 4, c.scripts)
+    check('acc12: a script stays in the queue too (it is not auto-sorted)', (function()
+        for _, e in ipairs(sessionRecord.getCallList()) do
+            if e.cat == 'script' then return true end
+        end
+        return false
+    end)())
     check('acc12: below-floor loot is not the session', c.looted == 7, c.looted)
     check('acc12: ordinary loot is not recorded', (function()
         for _, e in ipairs(sessionRecord.getSortedList()) do
@@ -131,10 +147,30 @@ do
     for _, e in ipairs(sorted) do reasons[e.name] = e.reason end
     check('acc12: reroll pre-emption carries its reason',
         reasons['Pear Cut Taaffeite'] == 'already on the reroll list', reasons['Pear Cut Taaffeite'])
-    check('acc12: keep pre-emption carries its reason',
-        reasons['Kept Gem'] == 'matches a keep rule', reasons['Kept Gem'])
-    check('acc12: NoDrop pre-emption carries its reason',
-        reasons['Bound Sigil'] == "NoDrop - can't be sold", reasons['Bound Sigil'])
+    check('acc12: explicit junk pre-emption carries its reason',
+        reasons['Junk Oil'] == 'matches an always-junk rule', reasons['Junk Oil'])
+    check('acc12: a keep-rule match is NOT sorted', reasons['Kept Gem'] == nil)
+    check('acc12: a NoDrop item is NOT sorted', reasons['Bound Sigil'] == nil)
+    -- NoDrop still has to block the Junk chip - it just does it from a field on the entry
+    -- now rather than by removing the row from the queue.
+    check('acc12: NoDrop still blocks the Junk chip', (function()
+        for _, e in ipairs(sessionRecord.getCallList()) do
+            if e.name == 'Bound Sigil' then
+                local ok, why = sessionRecord.canDecide(e.uid, 'junk')
+                return ok == false and why == 'NoDrop'
+            end
+        end
+        return false
+    end)())
+    check('acc12: a script cannot be rerolled, and says so', (function()
+        for _, e in ipairs(sessionRecord.getCallList()) do
+            if e.cat == 'script' then
+                local ok, why = sessionRecord.canDecide(e.uid, 'reroll')
+                return ok == false and why == 'not rerollable'
+            end
+        end
+        return false
+    end)())
 
     local calls = sessionRecord.getCallList()
     check('calls: best first (mythic 2410p over aug 142p)',

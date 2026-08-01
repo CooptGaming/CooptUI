@@ -2,12 +2,20 @@
     session_record.lua — tonight's loot as a RECORD with a to-do inside it (§12, 26b).
 
     The whole design is the counting rule: the bar counts only what still needs a call,
-    not what was looted. An item enters NEEDS A CALL only if no existing decision already
-    covers it — already on the reroll list, matching a keep or always-junk rule, or
-    NoDrop (not sellable) lands straight in SORTED with the reason, and never touches
-    the amber count. Evaluated at the moment the item is RECORDED, not when the panel
-    opens. Nothing ever leaves: a decided item moves to SORTED, so "how many augs did I
-    get tonight" stays answerable at 2am — split the number, not the list.
+    not what was looted. An item enters NEEDS A CALL unless a REAL decision already
+    covers it — and after field use that means exactly two things: it is on the reroll
+    list, or it carries an explicit always-junk rule. Both are deliberate overrides.
+
+    A keep-rule match and NoDrop are NOT decisions, and treating them as such was a bug
+    worth remembering: augments, mythics and scripts are all keep-protected by default
+    (Augmentation ships in sell_keep_types; Mythical and Script of in sell_keep_contains),
+    and those three ARE the categories this record tracks. So the pre-emption swallowed
+    every item the feature exists to ask about and the queue sat permanently empty.
+    Protected-from-sale is the resting state of this loot, not a call anyone made.
+
+    Evaluated at the moment the item is RECORDED, not when the panel opens. Nothing ever
+    leaves: a decided item moves to SORTED, so "how many augs did I get tonight" stays
+    answerable at 2am — split the number, not the list.
 
     Source of truth: the shared inventory list. Rows whose acquiredSeq is at or above
     the session floor (the NEW-badge machinery) are this session's loot; the merge walk
@@ -169,11 +177,22 @@ end
 
 --- The §12 pre-emption: a call the player already made counts as made. Returns
 --- (reason, choice) when an existing decision covers the item, nil to queue it.
+---
+--- ONLY TWO THINGS COUNT AS A DECISION HERE: an explicit sell (always-junk) and a reroll.
+--- Everything else stays in the queue.
+---
+--- The reason is that augments, mythics and scripts are ALL keep-protected by default
+--- (Augmentation is in the shipped sell_keep_types; Mythical and Script of are in
+--- sell_keep_contains). Those are exactly the three categories this record tracks — so
+--- treating "matches a keep rule" as a decision pre-empted literally every item the
+--- feature exists to ask about, and the queue sat permanently empty. "Protected from
+--- being sold" is the DEFAULT STATE of this loot, not something the player chose; only a
+--- deliberate override carries information.
+---
+--- NoDrop is out for the same reason: it is a property of the item, not a call anyone
+--- made. It still blocks the Junk chip, via the entry's own nodrop flag rather than by
+--- removing the row.
 local function preemptReason(row, cat)
-    if cat == "script" then
-        -- No decision exists for a script — only a turn-in. Straight to sorted.
-        return "script - converts to AA", "auto"
-    end
     local rs = deps and deps.rerollService
     local id = tonumber(row.id) or 0
     if rs and rs.getListStatus and id > 0 then
@@ -181,16 +200,15 @@ local function preemptReason(row, cat)
         local st = nil
         local ok, v = pcall(rs.getListStatus, kind, id)
         if ok then st = v end
+        if st == "pending" then return "queued for the reroll list", "reroll" end
         if st then return "already on the reroll list", "reroll" end
     end
-    local inKeep, inJunk = false, false
+    local inJunk = false
     if deps and deps.getSellStatusForItem then
-        local ok, _, _, k, j = pcall(deps.getSellStatusForItem, row)
-        if ok then inKeep, inJunk = k == true, j == true end
+        local ok, _, _, _, j = pcall(deps.getSellStatusForItem, row)
+        if ok then inJunk = j == true end
     end
-    if inKeep then return "matches a keep rule", "keep" end
     if inJunk then return "matches an always-junk rule", "junk" end
-    if row.nodrop == true then return "NoDrop - can't be sold", "auto" end
     return nil, nil
 end
 
@@ -239,6 +257,10 @@ function M.tick(now)
                         local entry = {
                             uid = newUid(), name = row.name or "?", cat = cat,
                             augType = augType,
+                            -- Carried as a FIELD, not inferred from the sorted reason:
+                            -- NoDrop no longer pre-empts (it is a property, not a call),
+                            -- but it still has to block the Junk chip.
+                            nodrop = (row.nodrop == true) or nil,
                             itemId = tonumber(row.id) or 0,
                             value = tonumber(row.totalValue or row.value) or 0,
                             stack = tonumber(row.stackSize) or 1,
@@ -285,10 +307,13 @@ function M.canDecide(uid, choice)
     if not e then return false, "gone" end
     if e.state == "sorted" and choice ~= "undo" then return false, "already sorted" end
     if choice == "reroll" then
+        -- Scripts convert to AA; there is no reroll list for them, so offering it would
+        -- add an id to a list the server would never act on.
+        if e.cat == "script" then return false, "not rerollable" end
         if (e.itemId or 0) <= 0 then return false, "no item id" end
         if e.departed then return false, "not in bags" end
     elseif choice == "junk" then
-        if e.reason == "NoDrop - can't be sold" then return false, "NoDrop" end
+        if e.nodrop then return false, "NoDrop" end
     end
     return true, nil
 end
@@ -360,13 +385,21 @@ function M.getCounts()
         augsCall = 0, augsTotal = 0,
         mythicsCall = 0, mythicsTotal = 0,
         scripts = 0,
-        sorted = 0, looted = 0,
+        sorted = 0, looted = 0, needCall = 0,
         startedAt = startedAt,
         canUndo = #undoStack > 0,
     }
     for _, e in ipairs(entries) do
         c.looted = c.looted + 1
-        if e.state == "sorted" then c.sorted = c.sorted + 1 end
+        if e.state == "sorted" then
+            c.sorted = c.sorted + 1
+        else
+            -- Every row actually sitting in NEEDS A CALL, scripts included. The panel's
+            -- truth line uses THIS, not augs+mythics: scripts stay in the queue now, and
+            -- a header that says "1 need a call" over two visible rows is the kind of
+            -- small lie that makes people stop trusting the number.
+            c.needCall = c.needCall + 1
+        end
         if e.cat == "aug" then
             c.augsTotal = c.augsTotal + 1
             if e.state == "call" then c.augsCall = c.augsCall + 1 end

@@ -463,6 +463,7 @@ local function readSessionRecord()
     snap.srMythicsTotal = c.mythicsTotal
     snap.srScripts = c.scripts
     snap.srSorted = c.sorted
+    snap.srNeedCall = c.needCall
     snap.srLooted = c.looted
     snap.srStartedAt = c.startedAt
     snap.srCanUndo = c.canUndo
