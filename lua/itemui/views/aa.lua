@@ -11,6 +11,7 @@ local context = require('itemui.context')
 local aa_data = require('itemui.services.aa_data')
 local aa_transfer = require('itemui.services.aa_transfer')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 local diagnostics = require('itemui.core.diagnostics')
 
 local AAView = {}
@@ -185,7 +186,9 @@ function AAView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "aa") end
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "aa") end
 
     -- Enter = Train selected (if trainable). Gated to this window (incl. child regions) having
     -- focus and no active widget, so Enter in another window or the search box can't train.
@@ -236,6 +239,26 @@ function AAView.render(ctx)
         searchDebounceAt = now
     end
 
+    -- 19d: the shared band. The XP/AA bar cell reports AAPointsTotal -- everything you have
+    -- ever earned. The number you act on in HERE is what is still unspent, which is the one
+    -- the bar never shows, so that is the band's stat (header contract, kit 3.6).
+    if barsOn then
+        local summary = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
+        local unspent = tonumber(summary.aaPoints) or 0
+        local statText = string.format("%d unspent", unspent)
+        if ctx.isAABuilding and ctx.isAABuilding() then
+            statText = statText .. " . scanning AA tables"
+        end
+        windowHeader.render({
+            id = "aa", title = "AA", stat = statText,
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH, tooltip = "Rescan the AA list",
+                  onClick = function() if ctx.refreshAA then ctx.refreshAA() end end },
+            },
+            lock = windowHeader.registryLock("aa", ctx),
+        })
+    end
+
     -- Tabs
     local tab = ctx.sortState.aaTab or 1
     for i = 1, 4 do
@@ -261,8 +284,12 @@ function AAView.render(ctx)
     if changed then searchDebounceAt = mq.gettime() end
     ImGui.SameLine()
     if ImGui.Button("X##AAClearSearch", ImVec2(22, 0)) then searchText = ""; searchTextApplied = ""; sortCache.key = "" end
-    ImGui.SameLine()
-    ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
+    if not barsOn then
+        -- In bars the band above owns Refresh -- two buttons doing the identical thing on
+        -- one window is the redundancy the §9 pass deletes.
+        ImGui.SameLine()
+        ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
+    end
     ImGui.SameLine()
     if ctx.isAABuilding and ctx.isAABuilding() then
         ctx.theme.TextWarning("Scanning AA tables...")

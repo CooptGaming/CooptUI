@@ -26,6 +26,9 @@
 local constants = require('itemui.constants')
 local theme = require('itemui.utils.theme')
 local fonts = require('itemui.utils.fonts')
+-- core/registry requires only mq, so this closes no cycle and registers no window (a view
+-- module's require-time registration order IS launcher-button order; a component's is not).
+local registry = require('itemui.core.registry')
 require('ImGui')
 
 local M = {}
@@ -33,8 +36,24 @@ local M = {}
 local K = constants.UI.KIT
 
 -- FontAwesome glyphs, merged into MQ's default font at atlas build: U+F023 / U+F09C.
+-- They MUST stay \xNN escapes: MQ's ImGui does not render Lua source as UTF-8, and an
+-- editor round-trip through Latin-1 double-encodes a literal glyph permanently (it has
+-- already destroyed two of these). scripts/tests/test_ascii_strings.lua enforces it.
 local GLYPH_LOCKED   = "\xEF\x80\xA3"
 local GLYPH_UNLOCKED = "\xEF\x82\x9C"
+
+--- Shared glyph table, so the windows adopting this band in one pass do not each grow
+--- their own copy of the same three escapes (item_display and augment_utility predate it
+--- and keep theirs).
+M.GLYPHS = {
+    REFRESH = "\xEF\x80\xA1",  -- U+F021 refresh
+    SEARCH  = "\xEF\x80\x82",  -- U+F002 magnifier
+    FILTER  = "\xEF\x82\xB0",  -- U+F0B0 filter
+    CLOCK   = "\xEF\x80\x97",  -- U+F017 clock
+    FOLDER  = "\xEF\x81\xBB",  -- U+F07B folder
+    LOCKED  = GLYPH_LOCKED,
+    UNLOCK  = GLYPH_UNLOCKED,
+}
 
 local ICON_W = 20          -- icon button square, centred in the 26px band
 local ICON_GAP = K.GAP_INNER
@@ -45,6 +64,20 @@ local function availWidth()
     if type(ax) == 'number' then return ax end
     if type(ax) == 'table' and ax.x then return ax.x end
     return 0
+end
+
+--- The lock slot every registry window's band carries, built once here rather than
+--- six times at six call sites. The glyph is the CLOSE-SURVIVAL pin (registry.isPinned) —
+--- resize-prevention is the separate global `uiState.uiLocked` toggle, and the two never
+--- share a word (decision recorded 2026-07-31 in docs/WINDOWS_PASS.md).
+function M.registryLock(id, ctx)
+    return {
+        locked = registry.isPinned(id),
+        onToggle = function()
+            registry.setPinned(id, not registry.isPinned(id))
+            if ctx and ctx.scheduleLayoutSave then ctx.scheduleLayoutSave() end
+        end,
+    }
 end
 
 --- 20px inset icon button (exported: toolbars that are not header bands — Item Display's

@@ -26,6 +26,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 local ItemDisplayView = require('itemui.views.item_display')
 
 local BankView = {}
@@ -67,17 +68,25 @@ local function bankSnapshotAgeText(ts)
 end
 
 --- The chip line: source, age when stale, what it holds, and the input rule that applies.
-function BankView.renderSourceChip(ctx, list, bankOpen)
+--- `withHoldings` is false when the kit band above already states them — the band's stat IS
+--- bankStatText, and printing it twice on two adjacent lines is exactly the duplication the
+--- §9 redundancy pass exists to remove.
+function BankView.renderSourceChip(ctx, list, bankOpen, withHoldings)
+    if withHoldings == nil then withHoldings = true end
     if bankOpen then
         ctx.theme.TextSuccess("live")
-        ImGui.SameLine(0, 8)
-        ctx.theme.TextMuted(bankStatText(list, true, ctx.perfCache.lastBankCacheTime))
+        if withHoldings then
+            ImGui.SameLine(0, 8)
+            ctx.theme.TextMuted(bankStatText(list, true, ctx.perfCache.lastBankCacheTime))
+        end
         ImGui.SameLine(0, 8)
         ctx.theme.TextInfo("shift + left-click moves an item to your bags")
     else
         ctx.theme.TextWarning("snapshot . " .. bankSnapshotAgeText(ctx.perfCache.lastBankCacheTime))
-        ImGui.SameLine(0, 8)
-        ctx.theme.TextMuted(bankStatText(list, false, ctx.perfCache.lastBankCacheTime))
+        if withHoldings then
+            ImGui.SameLine(0, 8)
+            ctx.theme.TextMuted(bankStatText(list, false, ctx.perfCache.lastBankCacheTime))
+        end
         ImGui.SameLine(0, 8)
         if ctx.theme.TextFurniture then
             ctx.theme.TextFurniture("read-only - open a bank to refresh")
@@ -85,6 +94,11 @@ function BankView.renderSourceChip(ctx, list, bankOpen)
             ctx.theme.TextMuted("read-only - open a bank to refresh")
         end
     end
+end
+
+--- The band's stat, exported so the header can state the holdings once (see above).
+function BankView.statText(ctx, list, bankOpen)
+    return bankStatText(list, bankOpen, ctx.perfCache.lastBankCacheTime)
 end
 
 --- Resolve which list the bank surface shows (live items vs cached snapshot) and make
@@ -394,7 +408,9 @@ function BankView.render(ctx)
     if not winOpen then ImGui.End(); return end
     -- Escape closes this window via main Inventory Companion's LIFO handler only
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "bank") end
+    local barsOn = tostring(ctx.layoutConfig.UIMode or "classic") == "bars"
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "bank") end
 
     -- Save window size when resized (if unlocked)
     if not ctx.uiState.uiLocked then
@@ -416,16 +432,34 @@ function BankView.render(ctx)
         end
     end
 
-    -- Header
-    ctx.theme.TextHeader("Bank")
-    ImGui.SameLine()
-    ctx.renderRefreshButton(ctx, "Refresh##BankHeader", "Rescan bank", function() ctx.scanBank() end, { width = 80, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
-    ImGui.Separator()
+    -- Header. In bars this is the shared 26px band (19d): title, the one number the bar
+    -- never shows (what the bank HOLDS), the refresh action as an icon, and the pin. The
+    -- refresh icon is disabled while the bank is closed because a rescan has nothing to
+    -- read then — and the reason is printed in the chip line right below it, never in a
+    -- tooltip (kit rule: a disabled control states its reason beside itself).
+    if barsOn then
+        windowHeader.render({
+            id = "bank", title = "Bank",
+            stat = BankView.statText(ctx, list, bankOpen),
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH,
+                  tooltip = bankOpen and "Rescan the bank" or nil,
+                  disabled = not bankOpen,
+                  onClick = function() if ctx.scanBank then ctx.scanBank() end end },
+            },
+            lock = windowHeader.registryLock("bank", ctx),
+        })
+    else
+        ctx.theme.TextHeader("Bank")
+        ImGui.SameLine()
+        ctx.renderRefreshButton(ctx, "Refresh##BankHeader", "Rescan bank", function() ctx.scanBank() end, { width = 80, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
+        ImGui.Separator()
+    end
 
     -- 20a: the source chip replaces the old Online/Offline pair. It supersedes both — it
     -- says the same thing plus the age, the holdings, and the input rule, in one line and
-    -- without a tooltip carrying the load.
-    BankView.renderSourceChip(ctx, list, bankOpen)
+    -- without a tooltip carrying the load. In bars the holdings move up into the band.
+    BankView.renderSourceChip(ctx, list, bankOpen, not barsOn)
     ImGui.Separator()
 
     -- Search

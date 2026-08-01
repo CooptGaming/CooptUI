@@ -13,6 +13,7 @@ local constants = require('itemui.constants')
 local context = require('itemui.context')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 
 local REROLL = constants.REROLL or {}
 local ITEMS_REQUIRED = REROLL.ITEMS_REQUIRED or 10
@@ -757,7 +758,9 @@ function RerollView.render(ctx)
 
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "reroll") end
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "reroll") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -781,6 +784,26 @@ function RerollView.render(ctx)
         ctx.theme.TextMuted("Reroll service not available.")
         ImGui.End()
         return
+    end
+
+    -- 19d: the shared band, above the tab bar because it describes the window, not a tab.
+    -- The stat is deliberately NOT the tray's "N of 10 ready" (each tab already says that
+    -- for itself, and loudly) and not the bar chip's pending count either -- it is how big
+    -- the two server lists are, which is the fact neither surface states.
+    if barsOn then
+        local augN = #((rerollService.getAugList and rerollService.getAugList()) or {})
+        local mythN = #((rerollService.getMythicalList and rerollService.getMythicalList()) or {})
+        windowHeader.render({
+            id = "reroll", title = "Reroll",
+            stat = string.format("on the server list: %d augs . %d mythics", augN, mythN),
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH, tooltip = "Request both lists from the server",
+                  onClick = function()
+                      if rerollService.requestBothLists then rerollService.requestBothLists() end
+                  end },
+            },
+            lock = windowHeader.registryLock("reroll", ctx),
+        })
     end
 
     -- Tab bar: Augments | Mythicals

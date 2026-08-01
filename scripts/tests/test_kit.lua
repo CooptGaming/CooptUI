@@ -169,6 +169,40 @@ do
         (r5.err or '') .. ' ' .. stub.imbalance(r5))
 end
 
+-- ------------------------------------------------- header: shared lock + glyph table
+-- Six windows adopted the band in one pass (19d). They share ONE lock builder and ONE
+-- glyph table so the pin cannot mean different things on different windows and the
+-- escapes cannot be re-typed (a raw glyph literal is unrenderable — see
+-- test_ascii_strings.lua). Both are tested here rather than six times over.
+do
+    registry.init({ layoutConfig = { UIMode = 'bars' }, companionWindowOpenedAt = {} })
+    registry.register({ id = 'kitTestLock', label = 'Lock', render = function() end })
+
+    local saves = 0
+    local ctx = { scheduleLayoutSave = function() saves = saves + 1 end }
+    local lock = header.registryLock('kitTestLock', ctx)
+    check('lock: reports the registry pin, unpinned to start', lock.locked == false)
+    lock.onToggle()
+    check('lock: toggle pins the window', registry.isPinned('kitTestLock') == true)
+    check('lock: toggle persists the layout', saves == 1)
+    -- Rebuilt each frame from the registry, so it can never cache a stale state — and
+    -- toggling back must actually reach false. (`cond and nil or X` cannot return nil;
+    -- an explicit not is the only form that flips both ways.)
+    header.registryLock('kitTestLock', ctx).onToggle()
+    check('lock: toggles back off', registry.isPinned('kitTestLock') == false)
+
+    local glyphErrors = {}
+    for name, g in pairs(header.GLYPHS) do
+        if type(g) ~= 'string' or #g ~= 3 or g:byte(1) ~= 0xEF then
+            glyphErrors[#glyphErrors + 1] = name
+        end
+    end
+    check('glyphs: every entry is a 3-byte FontAwesome escape (U+F0xx block)',
+        #glyphErrors == 0, table.concat(glyphErrors, ','))
+    check('glyphs: the lock pair is the same one the band draws',
+        header.GLYPHS.LOCKED ~= header.GLYPHS.UNLOCK)
+end
+
 -- ---------------------------------------------------------------- registry: classicOnly
 do
     local layoutConfig = { UIMode = 'classic' }

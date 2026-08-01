@@ -386,9 +386,13 @@ function EffectsView.render(ctx)
         ImGui.Text("Unchecked: one row per effect with name, hit counter, and colored time remaining.")
         ImGui.EndTooltip()
     end
-    ImGui.SameLine()
-    ctx.theme.TextMuted(string.format("Buffs %d/%d | Songs %d | Auras %d",
-        #cache.buffs, cache.maxBuffs, #cache.songs, #cache.auras))
+    if not barsOn then
+        -- §9: in bars the band above already states exactly this, two lines higher. One
+        -- window, one home for a number.
+        ImGui.SameLine()
+        ctx.theme.TextMuted(string.format("Buffs %d/%d | Songs %d | Auras %d",
+            #cache.buffs, cache.maxBuffs, #cache.songs, #cache.auras))
+    end
     ImGui.Spacing()
 
     if ImGui.BeginChild("EffectsScroll", ImVec2(0, 0), false) then

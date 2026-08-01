@@ -12,6 +12,7 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 local constants = require('itemui.constants')
 
 local MythicalsView = {}
@@ -34,6 +35,9 @@ local MYTHICALS_WINDOW_HEIGHT = 500
 local mythCache = { key = nil, list = {} }
 local filterCache = { key = nil, list = {} }
 local sortCache = { key = nil, list = {} }
+-- The 26px band's stat, on the SAME key as the list it summarises: summing every row each
+-- frame is the per-frame recompute the perf pass removed elsewhere (bank.lua does this too).
+local statCache = { key = nil, text = "" }
 
 local function isMythical(name)
     return name and name:sub(1, #MYTHICAL_PREFIX) == MYTHICAL_PREFIX
@@ -88,7 +92,9 @@ function MythicalsView.render(ctx)
 
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "mythicals") end
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "mythicals") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -122,12 +128,32 @@ function MythicalsView.render(ctx)
     end
     local mythicals = mythCache.list
 
-    ctx.theme.TextHeader("Mythicals")
-    ImGui.SameLine()
-    ctx.theme.TextInfo(string.format("(%d in inventory)", #mythicals))
-    ImGui.SameLine()
-    ctx.renderRefreshButton(ctx, "Refresh##Mythicals", "Rescan inventory", function() ctx.scanInventory() end, { messageBefore = "Scanning...", messageAfter = "Refreshed" })
-    ImGui.SameLine()
+    if barsOn then
+        -- 19d: the shared band. The bar's session strip counts mythics that still need a
+        -- CALL; this window's own question is what you are holding and what it is worth,
+        -- so that is the stat -- the same shape Bank's band uses, because it is one kit.
+        if statCache.key ~= mythKey then
+            local total = 0
+            for _, it in ipairs(mythicals) do total = total + (it.totalValue or 0) end
+            statCache.key = mythKey
+            statCache.text = string.format("%d in bags . %s", #mythicals, ItemUtils.formatValue(total))
+        end
+        windowHeader.render({
+            id = "mythicals", title = "Mythics", stat = statCache.text,
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH, tooltip = "Rescan inventory",
+                  onClick = function() if ctx.scanInventory then ctx.scanInventory() end end },
+            },
+            lock = windowHeader.registryLock("mythicals", ctx),
+        })
+    else
+        ctx.theme.TextHeader("Mythicals")
+        ImGui.SameLine()
+        ctx.theme.TextInfo(string.format("(%d in inventory)", #mythicals))
+        ImGui.SameLine()
+        ctx.renderRefreshButton(ctx, "Refresh##Mythicals", "Rescan inventory", function() ctx.scanInventory() end, { messageBefore = "Scanning...", messageAfter = "Refreshed" })
+        ImGui.SameLine()
+    end
     ImGui.Text("Search:")
     ImGui.SameLine()
     ImGui.SetNextItemWidth(160)

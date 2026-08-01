@@ -9,6 +9,7 @@ require('ImGui')
 
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 
 local ConfigView = {}
 
@@ -68,12 +69,11 @@ local function renderConfigWindow(ctx)
         end
     end
 
-    ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "CoOpt UI Settings")
-    ImGui.SameLine()
-    if ImGui.Button("Reload from files##Config", ImVec2(130, 0)) then loadConfigCache() end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reload all settings from INI files"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Open Config Folder##Config", ImVec2(150, 0)) then
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+
+    --- Open the INI folder in Explorer. Shared by both header forms so the icon and the
+    --- classic button can never drift apart.
+    local function openConfigFolder()
         local path = config.CONFIG_PATH
         if path and path ~= "" then
             path = path:gsub("/", "\\")
@@ -84,13 +84,44 @@ local function renderConfigWindow(ctx)
             ctx.setStatusMessage("Opened config folder")
         else ctx.setStatusMessage("Config path not available") end
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the config folder in Windows Explorer."); ImGui.Text("Quick access to all INI files."); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Revert to Default Layout##Config", ImVec2(170, 0)) then
-        if ctx.revertToBundledDefaultLayoutRequest then ctx.revertToBundledDefaultLayoutRequest() end
+
+    if barsOn then
+        -- 19d: the shared band. "CoOpt UI Settings" as a line under a title bar that
+        -- already says it is the §9 duplication, so the band's title replaces it outright.
+        -- Reload and Open folder become icon actions; Revert stays a NAMED button below,
+        -- because an unlabelled icon is the wrong home for something that rewrites layout
+        -- (rule 6's concern -- destructive verbs say what they are).
+        -- No stat: the band's stat answers "the one number the bar does not show", and this
+        -- window genuinely has no number. Inventing one would be furniture.
+        windowHeader.render({
+            id = "config", title = "Settings",
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH, tooltip = "Reload all settings from INI files",
+                  onClick = function() loadConfigCache() end },
+                { label = windowHeader.GLYPHS.FOLDER, tooltip = "Open the config folder in Windows Explorer",
+                  onClick = openConfigFolder },
+            },
+            lock = windowHeader.registryLock("config", ctx),
+        })
+        if ImGui.Button("Revert to Default Layout##Config", ImVec2(170, 0)) then
+            if ctx.revertToBundledDefaultLayoutRequest then ctx.revertToBundledDefaultLayoutRequest() end
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reset all window positions, sizes, column settings, and layout preferences to the bundled default."); ImGui.Text("Does not affect user data (lists, filters, cached items)."); ImGui.EndTooltip() end
+    else
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "CoOpt UI Settings")
+        ImGui.SameLine()
+        if ImGui.Button("Reload from files##Config", ImVec2(130, 0)) then loadConfigCache() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reload all settings from INI files"); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.Button("Open Config Folder##Config", ImVec2(150, 0)) then openConfigFolder() end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the config folder in Windows Explorer."); ImGui.Text("Quick access to all INI files."); ImGui.EndTooltip() end
+        ImGui.SameLine()
+        if ImGui.Button("Revert to Default Layout##Config", ImVec2(170, 0)) then
+            if ctx.revertToBundledDefaultLayoutRequest then ctx.revertToBundledDefaultLayoutRequest() end
+        end
+        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reset all window positions, sizes, column settings, and layout preferences to the bundled default."); ImGui.Text("Does not affect user data (lists, filters, cached items)."); ImGui.EndTooltip() end
+        ImGui.Separator()
     end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Reset all window positions, sizes, column settings, and layout preferences to the bundled default."); ImGui.Text("Does not affect user data (lists, filters, cached items)."); ImGui.EndTooltip() end
-    ImGui.Separator()
 
     -- Revert to Default Layout confirmation modal
     if uiState.revertLayoutConfirmOpen and not ImGui.IsPopupOpen("Revert to Default Layout##ItemUI") then

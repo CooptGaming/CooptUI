@@ -12,6 +12,7 @@ require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local windowHeader = require('itemui.components.window_header')
 
 local FavoritesView = {}
 
@@ -212,7 +213,9 @@ function FavoritesView.render(ctx)
     registry.setWindowState("favorites", winOpen, winOpen)
     if not winOpen then ImGui.End(); return end
     if not winVis then ImGui.End(); return end
-    if ctx.renderWindowLock then ctx.renderWindowLock(ctx, "favorites") end
+    local barsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+    -- The kit band carries the pin in bars; the legacy checkbox row stays for classic.
+    if not barsOn and ctx.renderWindowLock then ctx.renderWindowLock(ctx, "favorites") end
 
     if not ctx.uiState.uiLocked then
         local cw, ch = ImGui.GetWindowSize()
@@ -229,6 +232,21 @@ function FavoritesView.render(ctx)
             layoutConfig.FavoritesWindowY = py
             ctx.scheduleLayoutSave()
         end
+    end
+
+    -- 19d: the shared band. The stat is what this window alone knows -- how much of your
+    -- inventory these lists are holding safe. That protection is the whole reason the
+    -- window exists (a listed item cannot be sold or destroyed), and no bar cell shows it.
+    if barsOn then
+        local lists = fav.getLists() or {}
+        local protected = 0
+        for _, l in ipairs(lists) do protected = protected + #(l.items or {}) end
+        windowHeader.render({
+            id = "favorites", title = "Clickies",
+            stat = string.format("%d list%s . %d item%s protected",
+                #lists, (#lists == 1) and "" or "s", protected, (protected == 1) and "" or "s"),
+            lock = windowHeader.registryLock("favorites", ctx),
+        })
     end
 
     -- List management row
