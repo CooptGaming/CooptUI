@@ -49,6 +49,7 @@ local dockState  = require('itemui.services.dock_state')
 local chatFeed   = require('itemui.services.chat_feed')
 local T          = require('itemui.constants').TIMING
 local registry   = require('itemui.core.registry')
+local theme      = require('itemui.utils.theme')
 
 -- The launcher menus are registry-driven, and the real registrations live in the view modules
 -- (bank.lua etc.) which this test does not load. Register the ids the menus reference so the
@@ -760,10 +761,15 @@ do
         and stub.drew(r, 'Reroll##dockbtn_reroll'), table.concat(r.buttons, '|'))
     check('buttons: the bank id is absorbed into the pair (no standalone chip)',
         not stub.drew(r, 'Bank##dockbtn_bank'), table.concat(r.buttons, '|'))
-    check('buttons: no hover-menu buttons in this style',
-        not stub.drew(r, '##dockmenubtn_hub'), table.concat(r.buttons, '|'))
-    check('buttons: Settings still present (right anchor unchanged)',
-        stub.drew(r, 'Settings'), table.concat(r.buttons, '|'))
+    -- 19b: the command menus and the identity group are on the bar in BOTH styles now.
+    -- Actions is the only path to Stop once the launcher row is folded or off, and Hub is
+    -- where the launcher LIST lives, so neither may be style-conditional.
+    check('buttons: the command menus are present in this style too',
+        stub.drew(r, '##dockmenubtn_actions') and stub.drew(r, '##dockmenubtn_game'),
+        table.concat(r.buttons, '|'))
+    check('buttons: the identity group is Hub, Layouts, Settings',
+        stub.drew(r, '##dockmenubtn_hub') and stub.drew(r, '##dockmenubtn_layouts')
+        and stub.drew(r, 'Settings##dockSettings'), table.concat(r.buttons, '|'))
     check('buttons: balanced', stub.balanced(r), stub.imbalance(r))
     check('buttons: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     check('buttons: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
@@ -842,16 +848,30 @@ do
     dockState.init(newDeps(badgeCtx))
     warmState(1270000)
     local rBadge = stub.frame(function() dockBottom.render(badgeCtx) end)
-    check('buttons: reroll shows a pending-count badge (2 aug + 1 mythical)',
-        stub.drew(rBadge, 'Reroll 3##dockbtn_reroll'), table.concat(rBadge.buttons, '|'))
+    -- 19b: "counts sit in their own pill". The label stays the WINDOW'S NAME -- "Reroll 3"
+    -- read as if that were what the window is called -- and the count is a separate
+    -- control beside it.
+    check('buttons: the pending count is its own pill, not part of the label',
+        stub.drew(rBadge, 'Reroll##dockbtn_reroll') and stub.drew(rBadge, '3##dockbtn_reroll_pill')
+        and not stub.drew(rBadge, 'Reroll 3##dockbtn_reroll'), table.concat(rBadge.buttons, '|'))
     check('buttons: badge frame balanced', stub.balanced(rBadge), stub.imbalance(rBadge))
+
+    -- The pill is part of the control, not a dead decoration beside it.
+    resetInput()
+    badgeCtx.uiState.dockActionQueue = nil
+    stub.click = { dockbtn_reroll_pill = true }
+    stub.frame(function() dockBottom.render(badgeCtx) end)
+    local qPill = badgeCtx.uiState.dockActionQueue
+    check('buttons: clicking the pill does the chip action',
+        qPill and #qPill >= 1 and qPill[#qPill].kind == 'window' and qPill[#qPill].id == 'reroll'
+        and qPill[#qPill].toggle == true, qPill and #qPill)
 
     resetInput()
     badgeCtx.rerollService.getPendingAugList = function() return {} end
     badgeCtx.rerollService.getPendingMythicalList = function() return {} end
     local rNoBadge = stub.frame(function() dockBottom.render(badgeCtx) end)
-    check('buttons: no pending entries -> plain label, no badge',
-        stub.drew(rNoBadge, 'Reroll##dockbtn_reroll') and not stub.drew(rNoBadge, 'Reroll 3##dockbtn_reroll'),
+    check('buttons: no pending entries -> plain label, no pill',
+        stub.drew(rNoBadge, 'Reroll##dockbtn_reroll') and not stub.drew(rNoBadge, '##dockbtn_reroll_pill'),
         table.concat(rNoBadge.buttons, '|'))
 
     -- "menus" (explicit, and the unset default) draws the hover menus exactly as before --
@@ -868,6 +888,137 @@ do
     check('menus (explicit): no launcher buttons drawn', not stub.drew(rMenus, '##dockbtn_'),
         table.concat(rMenus.buttons, '|'))
     check('menus (explicit): balanced', stub.balanced(rMenus), stub.imbalance(rMenus))
+end
+
+-- =================================================================
+-- 10d. Bottom bar v2 (19b): open is BLUE not green, the accent lands on the screen-facing
+--      edge, unread counts are dots, and the launcher row folds itself away when the
+--      viewport cannot hold it.
+-- =================================================================
+do
+    resetInput()
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    ctx.layoutConfig.DockBottomStyle = 'buttons'
+    ctx.layoutConfig.DockButtons = 'reroll'
+    dockState.init(newDeps(ctx))
+    warmState(1290000)
+
+    -- Closed: no wash, no accent.
+    if registry.isOpen('reroll') then registry.toggleWindow('reroll') end
+    local rOff = stub.frame(function() dockBottom.render(ctx) end)
+    check('v2: a closed chip gets no open wash',
+        not stub.pushedColor(rOff, theme.Kit.OpenWash))
+
+    -- Open: OpenWash fill + the OpenBlue accent. The old code filled it with Keep.Normal,
+    -- which is the GREEN this product spends on "go" -- a launcher that read as an action.
+    resetInput()
+    registry.toggleWindow('reroll')
+    local rOn = stub.frame(function() dockBottom.render(ctx) end)
+    check('v2: an open chip is washed in open-blue', stub.pushedColor(rOn, theme.Kit.OpenWash))
+    check('v2: an open chip is NOT filled with go-green',
+        not stub.pushedColor(rOn, theme.Colors.Keep.Normal))
+    check('v2: the label on a washed chip is legible white',
+        stub.pushedColor(rOn, theme.Kit.TextOnOpen))
+    check('v2: the 2px accent is drawn in open-blue',
+        stub.drewColor(rOn, theme.Kit.OpenBlue, 'rectFilled'))
+    check('v2: still balanced with a lit chip', stub.balanced(rOn), stub.imbalance(rOn))
+
+    -- The accent sits on the edge that FACES the screen: a bottom-docked bar accents the
+    -- top of its chips, a top-docked bar the bottom. The stub's item rect is y 0..30.
+    local function accentRects(r)
+        local out = {}
+        for _, d in ipairs(stub.draws(r, 'rectFilled')) do
+            if d.col == stub.colorOf(theme.Kit.OpenBlue) then out[#out + 1] = d end
+        end
+        return out
+    end
+    local aBottom = accentRects(rOn)
+    check('v2: bottom-docked bar accents the TOP of the chip',
+        #aBottom > 0 and aBottom[1].y1 == 0 and aBottom[1].y2 == 2,
+        #aBottom > 0 and (aBottom[1].y1 .. '..' .. aBottom[1].y2))
+
+    -- position='bottom' puts the STATUS bar at the bottom, which pushes this bar to the top.
+    resetInput()
+    local topCtx = newCtx({ position = 'bottom', uiState = {} })
+    topCtx.layoutConfig.DockBottomStyle = 'buttons'
+    topCtx.layoutConfig.DockButtons = 'reroll'
+    dockState.init(newDeps(topCtx))
+    warmState(1291000)
+    local rTop = stub.frame(function() dockBottom.render(topCtx) end)
+    local aTop = accentRects(rTop)
+    check('v2: the other edge accents the BOTTOM of the chip',
+        #aTop > 0 and aTop[1].y2 == 30 and aTop[1].y1 == 28,
+        #aTop > 0 and (aTop[1].y1 .. '..' .. aTop[1].y2))
+    if registry.isOpen('reroll') then registry.toggleWindow('reroll') end
+
+    -- Unread dots: one per tab, always four, coloured only where something is waiting.
+    -- Four dots always drawn is the point -- the line never reflows as chat arrives.
+    resetInput()
+    dockState.init(newDeps(ctx))
+    warmState(1292000)
+    chatFeed.clearUnread()
+    chatFeed._inject("Alotta tells you, 'ready when you are'")   -- -> Main
+    chatFeed._inject('[Alotta] ready when you are')              -- -> Other, and newest
+    local rDots = stub.frame(function() dockBottom.render(ctx) end)
+    local circles = stub.draws(rDots, 'circleFilled')
+    check('v2: four unread dots, one per tab', #circles == 4, #circles)
+    check('v2: somebody talking to you lights the Main dot amber',
+        stub.drewColor(rDots, theme.Kit.Attention, 'circleFilled'))
+    check('v2: a quiet tab gets the divider grey',
+        stub.drewColor(rDots, theme.Kit.Divider, 'circleFilled'))
+    check('v2: the speaker bracket is drawn apart from the line',
+        stub.drew(rDots, '[Alotta]') and stub.drew(rDots, 'ready when you are'),
+        table.concat(rDots.text, '|'))
+
+    -- Clicking a dot opens chat on that tab -- and must NOT also fire the whole-line click,
+    -- which would toggle the window shut in the same frame.
+    resetInput()
+    uiState.dockActionQueue = nil
+    stub.hover = { dockdot_mq = true, dockChatCollapsed = true }
+    stub.mouse = { [0] = true }
+    stub.frame(function() dockBottom.render(ctx) end)
+    stub.mouse = {}
+    local qd = uiState.dockActionQueue or {}
+    check('v2: a dot click asks for chat exactly once', #qd == 1, #qd)
+    check('v2: ...as an idempotent open, not a toggle',
+        qd[1] and qd[1].kind == 'window' and qd[1].id == 'chat' and qd[1].toggle == nil,
+        qd[1] and tostring(qd[1].toggle))
+    check('v2: ...on the dot\'s own tab', uiState.chatRequestedTab == 'mq',
+        tostring(uiState.chatRequestedTab))
+    resetInput()
+
+    -- 19b's fold: at a viewport too narrow to hold chat AND the launchers, the launcher row
+    -- goes (the Hub menu still has every one of them) and chat survives.
+    local wideCtx = newCtx({ uiState = {} })
+    wideCtx.layoutConfig.DockBottomStyle = 'buttons'
+    wideCtx.layoutConfig.DockButtons = 'bags,bank,reroll,effects,equipment'
+    dockState.init(newDeps(wideCtx))
+    warmState(1293000)
+    local rWide = stub.frame(function() dockBottom.render(wideCtx) end)
+    check('fold: at full width the launcher row is drawn', stub.drew(rWide, '##dockbtn_reroll'),
+        table.concat(rWide.buttons, '|'))
+
+    resetInput()
+    stub.viewportSize = { 520, 1368 }
+    local rNarrow = stub.frame(function() dockBottom.render(wideCtx) end)
+    stub.viewportSize = nil
+    check('fold: a narrow viewport folds the launcher row away',
+        not stub.drew(rNarrow, '##dockbtn_reroll'), table.concat(rNarrow.buttons, '|'))
+    check('fold: ...but chat and the Hub list stay',
+        stub.drew(rNarrow, '##dockChatCycle') and stub.drew(rNarrow, '##dockmenubtn_hub'),
+        table.concat(rNarrow.buttons, '|'))
+    check('fold: narrow frame balanced', stub.balanced(rNarrow), stub.imbalance(rNarrow))
+
+    -- Settings is a window chip: lit while open, and clicking it while lit closes it (26a).
+    resetInput()
+    wideCtx.uiState.dockActionQueue = nil
+    stub.click = { dockSettings = true }
+    stub.frame(function() dockBottom.render(wideCtx) end)
+    local qs = wideCtx.uiState.dockActionQueue or {}
+    check('v2: Settings toggles rather than only opening',
+        qs[1] and qs[1].id == 'config' and qs[1].toggle == true,
+        qs[1] and tostring(qs[1].toggle))
 end
 
 -- =================================================================

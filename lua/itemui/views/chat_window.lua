@@ -89,6 +89,16 @@ function ChatWindowView.render(ctx)
     local openedFromBar = justOpened and ctx.uiState.chatOpenedFromBar == true
     ctx.uiState.chatOpenedFromBar = nil
 
+    -- The command bar's unread dots ask for a specific tab (19b). Consumed once, like the
+    -- open-from-bar flag above, so a later open never inherits a stale request.
+    local wantTab = ctx.uiState.chatRequestedTab
+    ctx.uiState.chatRequestedTab = nil
+    if wantTab then
+        for _, t in ipairs(TABS) do
+            if t.id == wantTab then activeTab = wantTab end
+        end
+    end
+
     local layoutConfig = ctx.layoutConfig
     -- Zep is opt-in and OFF by default: requiring it registers a usertype whose teardown
     -- crashes the CLIENT on script stop (see chat_console.lua's zepAvailable comment).

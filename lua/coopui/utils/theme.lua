@@ -84,6 +84,7 @@ local Kit = {
     Divider       = { 0.169, 0.169, 0.188, 1 },  -- #2b2b30  every divider; every disabled fill
     OpenBlue      = { 0.259, 0.588, 0.980, 1 },  -- #4296fa  open-state / active tab / cursor-target ring
     OpenWash      = { 0.071, 0.086, 0.110, 1 },  -- #12161c  bar chip fill behind an open window
+    TextOnOpen    = { 1.000, 1.000, 1.000, 1 },  -- #ffffff  the label ON an OpenWash chip (19b)
     ActionBlue    = { 0.137, 0.271, 0.427, 1 },  -- #23456d  action button: navigates or commits
     GoBg          = { 0.106, 0.227, 0.122, 1 },  -- #1b3a1f  go button fill
     GoBorder      = { 0.200, 0.549, 0.251, 1 },  -- #338c40  go button outline

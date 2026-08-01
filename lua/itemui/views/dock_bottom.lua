@@ -45,13 +45,28 @@ local M = {}
 -- + Aug Utility are a real pair — one row, opens and closes as a unit. Bags and Bank are
 -- NOT: the merge was rolled back, so they are two rows here and a two-half chip on the
 -- bar, aligned by window_zones rather than welded together.
+-- FontAwesome dot-circle (U+F192), merged into MQ's default font. \xNN escape, never a
+-- literal glyph — see components/window_header.lua for what a literal costs.
+local GLYPH_HUB = "\xEF\x86\x92"
+
+-- Where each menu's button sits (19b and 23c's own bar render agree):
+--   right  — Hub and Layouts, beside Settings. Hub is the launcher LIST; putting it at the
+--            right edge is what makes the middle of the bar the launchers themselves.
+--   left   — Actions and Game windows: commands, which is this bar's whole job (13d).
 local MENUS = {
     {
-        id = "hub", label = "Hub",
+        id = "hub", label = GLYPH_HUB .. " Hub", group = "right",
         entries = hubList.ENTRIES,
     },
     {
-        id = "actions", label = "Actions",
+        -- The SAME rows the Hub list's LAYOUTS section draws — one entry kind, two
+        -- surfaces, so the preset list can never drift between them (23c shows both:
+        -- Hub carries layouts "plus" a Layouts chip of its own).
+        id = "layouts", label = "Layouts", group = "right",
+        entries = { { kind = "layouts_dynamic" } },
+    },
+    {
+        id = "actions", label = "Actions", group = "left",
         entries = {
             { kind = "loot_all",  label = "Loot All" },
             { kind = "loot_stop", label = "Stop" },
@@ -61,7 +76,7 @@ local MENUS = {
         },
     },
     {
-        id = "game", label = "Game windows",
+        id = "game", label = "Game windows", group = "left",
         entries = {
             { kind = "native", label = "Inventory", window = "InventoryWindow" },
             { kind = "native", label = "Merchant",  window = "MerchantWnd" },
@@ -75,18 +90,104 @@ local MENUS = {
     },
 }
 
--- Unread badges for the collapsed one-liner (mockup 13b). Not "all": its badge would just
--- duplicate the sum of these, and the collapsed strip skips it for that reason below.
+--- The menus of one group, in table order.
+local function menusIn(group)
+    local out = {}
+    for _, m in ipairs(MENUS) do
+        if m.group == group then out[#out + 1] = m end
+    end
+    return out
+end
+
+-- Unread markers for the collapsed one-liner. Not "all": its marker would just duplicate
+-- the sum of these, and the collapsed strip skips it for that reason below.
+--
+-- 19b turns these from four little labelled buttons into four DOTS. Four words plus four
+-- numbers is most of a narrow bar's chat cell spent on counts, and the cell's job is the
+-- line itself; a dot answers "is anything waiting, and roughly where" in 7px. The colour
+-- is per tab so the answer is readable without reading: amber = somebody talked to you,
+-- blue = the tool did, green = CoOpt reported something, grey = everything else. Nothing
+-- is lost — each dot still hovers for the exact count and still clicks through to its tab.
 local CHAT_BADGE_TABS = {
-    { id = "main",  label = "Main" },
-    { id = "mq",    label = "MQ" },
-    { id = "other", label = "Other" },
-    { id = "coopt", label = "CoOpt" },
+    { id = "main",  label = "Main",  color = theme.Kit.Attention },
+    { id = "mq",    label = "MQ",    color = theme.Kit.SpellBlue },
+    { id = "other", label = "Other", color = theme.Colors.TextContent },
+    { id = "coopt", label = "CoOpt", color = theme.Kit.Good },
 }
+local DOT_D = 7                 -- dot diameter, 19b
+local CHAT_MIN_W = 220          -- below this the launcher row folds into the Hub menu
 
 -- Transient menu hover state; the pinned menu id lives on uiState (dock state stays outside
 -- ImGui's own storage).
 local hover = { id = nil, lastAt = 0, inMenu = false }
+
+-- ---------------------------------------------------------------------------
+-- Chips (19b): one control shape for every button on this bar
+-- ---------------------------------------------------------------------------
+
+local ACCENT_H = 2
+
+--- The 2px open-state accent, drawn over the item just closed, on the chip edge that FACES
+--- the screen — bottom-docked bars accent the top, top-docked bars the bottom. Same pair the
+--- top bar's cells use (OpenWash fill + accent), so "open" reads identically on both.
+--- AddRectFilled, not AddRect: an outline is unproven in this binding, a filled 2px strip
+--- is the treatment the mockups actually draw, and it is what dock_top already ships.
+local function drawOpenAccent(edge)
+    pcall(function()
+        local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+        if not dl or not dl.AddRectFilled then return end
+        local x1, y1 = dockLayout.itemRectMin()
+        local x2, y2 = dockLayout.itemRectMax()
+        if not (x1 and y1 and x2 and y2) then return end
+        local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue))
+            or 0xFFFA9642
+        if edge == "top" then
+            dl:AddRectFilled(ImVec2(x1, y2 - ACCENT_H), ImVec2(x2, y2), col)
+        else
+            dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + ACCENT_H), col)
+        end
+    end)
+end
+
+--- A bar chip. `lit` means "the thing this opens is on screen RIGHT NOW" and gets the
+--- product's open pair; anything else is a plain label on the bar's own background, so the
+--- lit chips are the only things with weight. `tint` colours an unlit label (the Hub chip's
+--- SpellBlue identity).
+---
+--- The Push/Pop is a pcall SANDWICH, not a bare pair: an ImGui throw between them would
+--- skip the pop and leak a colour every frame until ImGui asserts. Same rule as everywhere
+--- else here — the pcall goes INSIDE the pair, and the error re-raises after the pop for
+--- dockLayout.contained to log.
+local function chipButton(label, uid, lit, edge, tint)
+    local pushed = 0
+    if lit then
+        ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.OpenWash))
+        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.TextOnOpen))
+        pushed = 2
+    elseif tint then
+        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(tint))
+        pushed = 1
+    end
+    local ok, clicked = pcall(ImGui.SmallButton, label .. "##" .. uid)
+    if pushed > 0 then ImGui.PopStyleColor(pushed) end
+    if not ok then error(clicked, 0) end
+    if lit then drawOpenAccent(edge) end
+    return clicked == true
+end
+
+--- 19b: "counts sit in their own pill". A number welded into a chip's label reads as part
+--- of the window's NAME ("Reroll 3" is not a window called Reroll 3); a pill next to it
+--- reads as a quantity belonging to that window. It stays clickable and does the chip's own
+--- action, so the pill is never a dead zone inside a live control.
+local function pillButton(count, uid)
+    ImGui.SameLine(0, 1)
+    ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.Divider))
+    ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.TextContent))
+    local ok, clicked = pcall(ImGui.SmallButton, tostring(count) .. "##" .. uid)
+    ImGui.PopStyleColor(2)
+    if not ok then error(clicked, 0) end
+    return clicked == true
+end
 
 --- How tall the strip is. Always one row now that peek (the old 5-row tab+lines mode) is
 --- retired in favor of the chat window -- collapsed and hidden were already both one row, so
@@ -166,17 +267,20 @@ local function renderMenu(ctx, s, edge)
     local x, y, w, h = dockLayout.viewport()
     local rows = M.rows(ctx.layoutConfig)
     local barH = dockLayout.barHeight() * rows
-    local px = btn.x or x
+    local MENU_MAX_W = 360
     -- Menus grow away from the edge the bar sits on, so they always open into the screen.
     local py = (edge == "bottom") and (y + h - barH) or (y + barH)
     local pivotY = (edge == "bottom") and 1.0 or 0.0
-
-    if pivotY == 1.0 then
-        ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.Always, ImVec2(0, 1))
-    else
-        ImGui.SetNextWindowPos(ImVec2(px, py))
+    -- ... and away from the SIDE they would otherwise leave. Hub and Layouts sit in the
+    -- right group now, where a left-pivoted 360px panel would hang off the viewport, so a
+    -- button whose panel would not fit opens leftward from its own right edge instead.
+    local px, pivotX = btn.x or x, 0.0
+    if btn.x and (btn.x + MENU_MAX_W) > (x + w) then
+        px, pivotX = (btn.x2 or btn.x), 1.0
     end
-    ImGui.SetNextWindowSizeConstraints(ImVec2(190, 0), ImVec2(360, 420))
+
+    ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.Always, ImVec2(pivotX, pivotY))
+    ImGui.SetNextWindowSizeConstraints(ImVec2(190, 0), ImVec2(MENU_MAX_W, 420))
 
     local flags = bit32.bor(dockTop.barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(8, 6))
@@ -271,22 +375,24 @@ local function launcherEntries(ctx, layoutConfig)
             -- The pair renders at the FIRST half's slot; the second occurrence is absorbed.
             if not out._idauPlaced then
                 out._idauPlaced = true
-                local auHalf = auLabel
-                local pill = pairPillCount()
-                if pill then auHalf = string.format("%s %d", auHalf, pill) end
                 out[#out + 1] = { isPair = true, id = "idau", halves = {
                     { label = idLabel, action = { kind = "window", id = "itemDisplay", toggle = true } },
-                    { label = auHalf,  action = { kind = "window", id = "augmentUtility", toggle = true } },
+                    -- The pill is a count that belongs to this window (23c): the empty aug
+                    -- sockets on whatever Item Display is showing. It rides beside the
+                    -- label, not inside it.
+                    { label = auLabel, pill = pairPillCount(),
+                      action = { kind = "window", id = "augmentUtility", toggle = true } },
                 } }
             end
         else
             local label = moduleLabel(id)
             if label then
+                local pill = nil
                 if id == "reroll" then
                     local n = rerollPendingCount(ctx)
-                    if n > 0 then label = string.format("%s %d", label, n) end
+                    if n > 0 then pill = n end
                 end
-                out[#out + 1] = { id = id, label = label, isHub = false }
+                out[#out + 1] = { id = id, label = label, pill = pill, isHub = false }
             end
         end
     end
@@ -304,68 +410,112 @@ local function pairEntryLit(ctx, e)
     return nil
 end
 
---- Rough reserved width for the whole launcher row, so the chat strip ahead of it (buttons
---- style puts chat FIRST -- see M.render) knows how much room is left. Not pixel-exact: the
---- bars' anti-jitter discipline (fixed measured slot widths) is for the top bar's segments,
---- which hold the SAME content across frames; a launcher row's content (the reroll badge)
---- can change, and re-measuring each frame is cheap enough that drift never accumulates.
-local function launcherRowWidth(ctx, layoutConfig)
+--- Rough reserved width for a launcher row, so the chat strip ahead of it (chat owns the
+--- LEFT edge in both styles -- 19b) knows how much room is left, and so the fold below can
+--- ask "does this even fit". Not pixel-exact: the bars' anti-jitter discipline (fixed
+--- measured slot widths) is for the top bar's segments, which hold the SAME content across
+--- frames; a launcher row's content (a count pill appearing) can change, and re-measuring
+--- each frame is cheap enough that drift never accumulates.
+--- Takes the already-resolved entry list so the estimate and the draw can never disagree
+--- about what is on the bar this frame.
+local function launcherRowWidth(entries)
     local pad = (constants.UI.DOCK_SLOT_PADDING_X or 12) * 2
     local total, first = 0, true
-    for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
+    local function chip(label, pill)
+        total = total + dockLayout.textWidth(label) + pad
+        if pill then total = total + dockLayout.textWidth(tostring(pill)) + pad + 1 end
+    end
+    for _, e in ipairs(entries) do
         if not first then total = total + constants.UI.DOCK_SLOT_GAP end
         first = false
         if e.isPair then
             -- Two half-buttons + the 1px hairline between them.
-            for _, h in ipairs(e.halves) do
-                total = total + dockLayout.textWidth(h.label) + pad
-            end
+            for _, h in ipairs(e.halves) do chip(h.label, h.pill) end
             total = total + 1
         else
-            total = total + dockLayout.textWidth(e.label) + pad
+            chip(e.label, e.pill)
         end
     end
     return total
 end
 
+--- Same estimate for a row of menu buttons.
+local function menuRowWidth(menus)
+    local pad = (constants.UI.DOCK_SLOT_PADDING_X or 12) * 2
+    local total, first = 0, true
+    for _, m in ipairs(menus) do
+        if not first then total = total + constants.UI.DOCK_SLOT_GAP end
+        first = false
+        total = total + dockLayout.textWidth(m.label) + pad
+    end
+    return total
+end
+
 --- Draw the launcher row itself. "bags" queues the hub, same as the menus' hub entry; every
---- other id toggles its companion window, LIT (Keep.Normal) while open -- the same
---- push/pop-around-SmallButton idiom this file already used for the (now-removed) pinned menu
---- button, repointed at registry.isOpen instead of a pin.
-local function drawLauncherButtons(ctx, layoutConfig)
+--- other id toggles its companion window.
+---
+--- 19b fixed the colour here: an open window used to fill its chip with Keep.Normal, which
+--- is the GREEN this product spends on "go" — a launcher that reads as an action button.
+--- Open is blue everywhere else in the UI (the OpenWash + OpenBlue pair), and green is
+--- reserved for things that start work. So: filled blue = that window is open right now,
+--- muted = closed.
+local function drawLauncherButtons(ctx, entries, edge)
     local first = true
-    for _, e in ipairs(launcherEntries(ctx, layoutConfig)) do
+    for _, e in ipairs(entries) do
         if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
         first = false
         if e.isPair then
             -- One chip, two halves split by a hairline (the 1px gap against the dark bar).
             -- A pair that travels together (Item Display|Aug Utility) lights whole; a pair
-            -- of independent windows (Bags|Bank) lights per half. The push/pop is per half
-            -- either way so the two paths cannot diverge on stack balance.
+            -- of independent windows (Bags|Bank) lights per half.
             local whole = pairEntryLit(ctx, e)
             for hi, h in ipairs(e.halves) do
                 if hi > 1 then ImGui.SameLine(0, 1) end
                 local lit = whole
                 if lit == nil and h.lit then lit = h.lit(ctx) end
-                if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
-                if ImGui.SmallButton(h.label .. "##dockbtn_" .. e.id .. "_" .. hi) then
-                    dockTop.queue(ctx, h.action)
-                end
-                if lit then ImGui.PopStyleColor() end
+                local uid = "dockbtn_" .. e.id .. "_" .. hi
+                local hit = chipButton(h.label, uid, lit, edge)
+                if h.pill and pillButton(h.pill, uid .. "_pill") then hit = true end
+                if hit then dockTop.queue(ctx, h.action) end
             end
         else
             local open = (not e.isHub) and registry.isOpen(e.id) or false
-            if open then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
-            if ImGui.SmallButton(e.label .. "##dockbtn_" .. e.id) then
+            local uid = "dockbtn_" .. e.id
+            local hit = chipButton(e.label, uid, open, edge)
+            if e.pill and pillButton(e.pill, uid .. "_pill") then hit = true end
+            if hit then
                 if e.isHub then
                     dockTop.queue(ctx, { kind = "hub" })
                 else
                     dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
                 end
             end
-            if open then ImGui.PopStyleColor() end
         end
     end
+end
+
+--- A row of menu buttons, recording each one's rect so renderMenu can anchor to it. A menu
+--- lights while its own panel is showing — these are not windows, so "lit" here means "this
+--- is the list you are reading", which is the same promise the chip makes everywhere else.
+local function drawMenuButtons(ctx, menus, edge, showId)
+    local first = true
+    local lastRight, lastTop, lastBot
+    for _, menu in ipairs(menus) do
+        if not first then ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP) end
+        first = false
+        local tint = (menu.id == "hub") and theme.Kit.SpellBlue or nil
+        chipButton(menu.label, "dockmenubtn_" .. menu.id, showId == menu.id, edge, tint)
+        local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+        -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
+        -- everything after the Items button (see dockLayout.itemRectMin).
+        local rx, ry = dockLayout.itemRectMin()
+        local mxx, mxy = dockLayout.itemRectMax()
+        -- x2 as well as x: a menu button in the RIGHT group has to open leftward or its
+        -- panel hangs off the screen, and that needs the button's right edge to pivot on.
+        M.buttons[menu.id] = { x = rx, y = ry, x2 = mxx, hovered = hovered }
+        if mxx and mxy then lastRight, lastTop, lastBot = mxx, ry, mxy end
+    end
+    return lastRight, lastTop, lastBot
 end
 
 -- ---------------------------------------------------------------------------
@@ -398,17 +548,76 @@ local function chatMode(layoutConfig)
     return (mode == "peek") and "collapsed" or mode
 end
 
+--- TextUnformatted, not Text: chat carries '%' (and item links), which Text would treat as
+--- a format string. views/effects.lua:88-92 hit the same thing.
+local function textRaw(s)
+    if ImGui.TextUnformatted then
+        ImGui.TextUnformatted(s)
+    else
+        ImGui.Text((tostring(s):gsub("%%", "%%%%")))
+    end
+end
+
 local function drawChatLine(e)
     local col = chatConsole.channelColor(e.channel)
-    -- TextUnformatted, not Text: chat carries '%' (and item links), which Text would treat as
-    -- a format string. views/effects.lua:88-92 hit the same thing.
-    if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
-    if ImGui.TextUnformatted then
-        ImGui.TextUnformatted(e.text)
-    else
-        ImGui.Text((tostring(e.text):gsub("%%", "%%%%")))
+    -- 19b draws the speaker's bracket in amber ahead of the line. It is the one token you
+    -- scan a one-line chat cell FOR -- "did someone talk to me" -- and colouring the whole
+    -- line by channel cannot answer that, because a group line and a group emote are the
+    -- same channel. Split, not substring-coloured: only a LEADING bracket is a speaker.
+    local speaker, rest = tostring(e.text or ""):match("^(%[[^%]]+%])%s*(.*)$")
+    if speaker then
+        ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.Attention))
+        local okS = pcall(textRaw, speaker)
+        ImGui.PopStyleColor()
+        if not okS then return end
+        ImGui.SameLine(0, 4)
+        e = { text = rest, channel = e.channel }
     end
+    if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
+    local ok, err = pcall(textRaw, e.text)
     if col then ImGui.PopStyleColor() end
+    if not ok then error(err, 0) end
+end
+
+--- The four unread dots (19b). One InvisibleButton per dot so each is a real, hoverable,
+--- clickable item -- the count and the click-through the labelled badges used to carry are
+--- both still here, they just stopped costing four words of a one-line cell.
+local function drawUnreadDots(ctx)
+    local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
+    for i, t in ipairs(CHAT_BADGE_TABS) do
+        if i > 1 then ImGui.SameLine(0, 3) end
+        local n = chatFeed.getUnread(t.id)
+        ImGui.InvisibleButton("##dockdot_" .. t.id, ImVec2(DOT_D, math.max(lineH, DOT_D)))
+        local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+        pcall(function()
+            local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+            if not dl or not dl.AddCircleFilled then return end
+            local x1, y1 = dockLayout.itemRectMin()
+            local x2, y2 = dockLayout.itemRectMax()
+            if not (x1 and y1 and x2 and y2) then return end
+            -- A dot, not a square: AddCircleFilled IS bound (lua_ImGuiUserTypes.cpp:399).
+            local rgba = (n > 0) and t.color or theme.Kit.Divider
+            local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(rgba)) or 0
+            dl:AddCircleFilled(ImVec2((x1 + x2) / 2, (y1 + y2) / 2), DOT_D / 2, col)
+        end)
+        if hovered then
+            ImGui.BeginTooltip()
+            if n > 0 then
+                ImGui.Text(string.format("%s: %d unread - click to read them.", t.label, n))
+            else
+                ImGui.Text(t.label .. ": nothing new.")
+            end
+            ImGui.EndTooltip()
+            if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+                chatFeed.clearUnread(t.id)
+                -- Non-toggle on purpose: a window action without toggle is an idempotent
+                -- OPEN, so clicking a dot while chat is already showing another tab switches
+                -- to that tab instead of slamming the window shut.
+                ctx.uiState.chatRequestedTab = t.id
+                dockTop.queue(ctx, { kind = "window", id = "chat" })
+            end
+        end
+    end
 end
 
 --- Open the chat window through the same queue every other bar action uses -- never a direct
@@ -450,36 +659,22 @@ local function renderChat(ctx, availW)
     local usedX = (ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0) - chatStartX
     local lineH = ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing() or 16
     local clipW = math.max(availW - usedX, 60)
+    -- The dots inside the child are real clickable items now, and the whole child is ALSO a
+    -- click target. Same rule the top bar's cells use for their inner buttons: remember the
+    -- queue length, and only treat the click as "the background was clicked" if nothing
+    -- inside it enqueued anything. Without this, a dot click fires the dot's open AND the
+    -- line's toggle, and the window opens and shuts in the same frame.
+    local queueLenBefore = ctx.uiState.dockActionQueue and #ctx.uiState.dockActionQueue or 0
     if ImGui.BeginChild("dockChatCollapsed", ImVec2(clipW, lineH), false,
             bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
         dockLayout.contained(ctx.uiState, "dock chat line", function()
-            -- Badges FIRST, then the line: the line is the thing that can be arbitrarily
-            -- long, and drawn first it would push the clear-unread affordance out of the
-            -- clip exactly when chat is busy and the counts matter most.
-            local drewBadge = false
-            for _, t in ipairs(CHAT_BADGE_TABS) do
-                local n = chatFeed.getUnread(t.id)
-                if n > 0 then
-                    if drewBadge then ImGui.SameLine(0, 8) end
-                    drewBadge = true
-                    theme.PushJunkButton()
-                    if ImGui.SmallButton(string.format("%s %s##dockUnread%s", t.label,
-                            (n > 99) and "99+" or tostring(n), t.id)) then
-                        chatFeed.clearUnread(t.id)
-                        -- Non-toggle form on purpose: a window action without toggle is an
-                        -- idempotent OPEN, so clicking a badge while the chat window is
-                        -- already showing another tab clears the count without closing it.
-                        dockTop.queue(ctx, { kind = "window", id = "chat" })
-                    end
-                    theme.PopButtonColors()
-                    if ImGui.IsItemHovered() then
-                        ImGui.BeginTooltip()
-                        ImGui.Text(string.format("%d unread on %s - click to open chat and clear.", n, t.label))
-                        ImGui.EndTooltip()
-                    end
-                end
-            end
-            if drewBadge then ImGui.SameLine(0, 8) end
+            -- Dots FIRST, then the line: the line is the thing that can be arbitrarily
+            -- long, and drawn first it would push the unread markers out of the clip
+            -- exactly when chat is busy and they matter most. Unlike the old badges these
+            -- cost a fixed 40px whether or not anything is unread, so the line never
+            -- reflows sideways as chat arrives.
+            drawUnreadDots(ctx)
+            ImGui.SameLine(0, 8)
             local lines = chatFeed.getLines(1)
             if lines[1] then
                 drawChatLine(lines[1])
@@ -489,11 +684,13 @@ local function renderChat(ctx, availW)
         end)
     end
     ImGui.EndChild()
-    -- Click anywhere in the line's child (badges included) opens the window. EndChild();
-    -- IsItemHovered() is the established pattern for "was the mouse over the child I just
-    -- closed" -- dock_top.lua's segment slots use it the same way.
+    -- Click anywhere in the line's child opens the window. EndChild(); IsItemHovered() is
+    -- the established pattern for "was the mouse over the child I just closed" --
+    -- dock_top.lua's segment slots use it the same way.
     local lineHovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-    if lineHovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+    local q = ctx.uiState.dockActionQueue
+    local consumed = (q and #q or 0) ~= queueLenBefore
+    if lineHovered and not consumed and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
         openChatWindow(ctx)
     end
 end
@@ -615,79 +812,93 @@ function M.render(ctx)
         -- window's content origin, so it has to account for the strip's padding (the hub does
         -- the same thing for its Lock checkbox).
         local winW = ImGui.GetWindowWidth and ImGui.GetWindowWidth() or vw
-        -- Sized for what is actually drawn on the right, which is Settings alone. Layouts
-        -- landed as the fifth hover menu on the left (phase 4), so the right anchor stays
-        -- Settings-only.
-        local rightW = dockLayout.slotWidth("dockRight", { "Settings" }, 16)
 
+        -- 19b's order, and it is the same in both styles now: CHAT OWNS THE LEFT EDGE, then
+        -- the launchers, then the command menus, then the identity group at the right. Chat
+        -- used to sit after the menus in the menus style, which put the one flexible thing
+        -- on the bar in the middle of two fixed groups.
+        local rightMenus = menusIn("right")
+        local leftMenus = menusIn("left")
+        local rightW = menuRowWidth(rightMenus)
+            + dockLayout.slotWidth("dockRight", { "Settings" }, 16)
+        local leftW = menuRowWidth(leftMenus)
+
+        -- 19b: "the launcher row folds itself into menus automatically instead of being a
+        -- setting you have to find". The row is dropped, not squeezed: the Hub menu in the
+        -- right group already holds every one of these launchers in a form that reads, so
+        -- folding costs nothing but the one-click shortcut, and squeezing would cost the
+        -- chat line -- which is the cell that cannot be recovered from a menu.
+        local launchers = nil
+        local launchW = 0
         if style == "buttons" then
-            -- Second mockup: chat FIRST (left edge), then one button per DockButtons id, then
-            -- the same right-anchored Settings every style keeps.
-            local buttonsW = launcherRowWidth(ctx, layoutConfig)
-            local chatW = math.max(winW - buttonsW - rightW - constants.UI.DOCK_SLOT_PADDING_X * 2, 80)
+            launchers = launcherEntries(ctx, layoutConfig)
+            launchW = launcherRowWidth(launchers) + constants.UI.DOCK_SLOT_GAP
+        end
+        local gaps = constants.UI.DOCK_SLOT_GAP * 3
+        local function chatBudget(withLaunchers)
+            return winW - (withLaunchers and launchW or 0) - leftW - rightW
+                - constants.UI.DOCK_SLOT_PADDING_X * 2 - gaps
+        end
+        if launchers and chatBudget(true) < CHAT_MIN_W then
+            launchers, launchW = nil, 0
+        end
+        local chatW = math.max(chatBudget(false), 80)
 
-            ImGui.BeginGroup()
-            dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
-            ImGui.EndGroup()
-            -- Section divider between chat and the launcher row, drawn into the gap so it
-            -- costs no width (see dockTop.drawDividerAt).
-            local cnx, cny = dockLayout.itemRectMin()
-            local cxx, cxy = dockLayout.itemRectMax()
-            if cxx and cxy then
-                dockTop.drawDividerAt(cxx + constants.UI.DOCK_SLOT_GAP * 0.5, (cny or (cxy - 16)) + 1, cxy - 1)
+        --- A section divider in the gap after whatever was just drawn -- zero layout width
+        --- (see dockTop.drawDividerAt).
+        local function dividerAfterLast()
+            local nx, ny = dockLayout.itemRectMin()
+            local xx, xy = dockLayout.itemRectMax()
+            if xx and xy then
+                dockTop.drawDividerAt(xx + constants.UI.DOCK_SLOT_GAP * 0.5,
+                    (ny or (xy - 16)) + 1, xy - 1)
             end
-            ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
-            dockLayout.contained(ctx.uiState, "dock launcher buttons", drawLauncherButtons, ctx, layoutConfig)
-        else
-            -- The hover menus, left to right (Hub / Actions / Game windows), with a section
-            -- divider at the one group boundary left: CoOpt windows (Hub/Actions) | the
-            -- game's own windows | chat. Dividers draw into the gaps -- zero layout width.
-            local DIVIDER_BEFORE = { game = true }
-            local prevRight, prevTop, prevBot = nil, nil, nil
-            for _, menu in ipairs(MENUS) do
-                if DIVIDER_BEFORE[menu.id] and prevRight then
-                    dockTop.drawDividerAt(prevRight + constants.UI.DOCK_SLOT_GAP * 0.5,
-                        (prevTop or (prevBot - 16)) + 1, prevBot - 1)
-                end
-                ImGui.SmallButton(menu.label .. "##dockmenubtn_" .. menu.id)
-                local hovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
-                -- Two numbers, not an ImVec2 -- indexing this return as rmin.x is what killed
-                -- everything after the Items button (see dockLayout.itemRectMin).
-                local rx, ry = dockLayout.itemRectMin()
-                M.buttons[menu.id] = { x = rx, y = ry, hovered = hovered }
-                local mxx, mxy = dockLayout.itemRectMax()
-                if mxx and mxy then prevRight, prevTop, prevBot = mxx, ry, mxy end
-                ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
-            end
-            -- Last boundary: menu row | chat.
-            if prevRight and prevBot then
-                dockTop.drawDividerAt(prevRight + constants.UI.DOCK_SLOT_GAP * 0.5,
-                    (prevTop or (prevBot - 16)) + 1, prevBot - 1)
-            end
-
-            local chatW = math.max(winW - ImGui.GetCursorPosX() - rightW - constants.UI.DOCK_SLOT_PADDING_X, 80)
-            ImGui.BeginGroup()
-            dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
-            ImGui.EndGroup()
+            local _ = nx
         end
 
+        ImGui.BeginGroup()
+        dockLayout.contained(ctx.uiState, "dock chat", renderChat, ctx, chatW)
+        ImGui.EndGroup()
+        dividerAfterLast()
+
+        if launchers then
+            ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+            ImGui.BeginGroup()
+            dockLayout.contained(ctx.uiState, "dock launcher buttons",
+                drawLauncherButtons, ctx, launchers, edge)
+            ImGui.EndGroup()
+            dividerAfterLast()
+        end
+
+        -- Commands: Actions and Game windows. They stay on this bar in BOTH styles -- with
+        -- the launcher row folded (or turned off) they are the only path to Stop, and the
+        -- bar whose job is COMMANDS (13d) cannot be the one that loses them.
+        ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+        ImGui.BeginGroup()
+        dockLayout.contained(ctx.uiState, "dock command menus",
+            drawMenuButtons, ctx, leftMenus, edge, hover.id)
+        ImGui.EndGroup()
+
+        -- The identity group, right-anchored: Hub, Layouts, Settings (19b and 23c both put
+        -- the lit Hub chip HERE, beside them, not on the left).
         ImGui.SameLine(math.max(winW - rightW, 0))
         ImGui.AlignTextToFramePadding()
-        if ImGui.SmallButton("Settings##dockSettings") then
-            dockTop.queue(ctx, { kind = "window", id = "config" })
+        drawMenuButtons(ctx, rightMenus, edge, hover.id)
+        ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
+        -- Settings is a WINDOW, so it lights like one -- and toggles like one. A lit chip
+        -- that will not close its window is the one thing 26a's "every segment is a toggle"
+        -- exists to prevent.
+        if chipButton("Settings", "dockSettings", registry.isOpen("config") == true, edge) then
+            dockTop.queue(ctx, { kind = "window", id = "config", toggle = true })
         end
         end)
     end
     ImGui.End()
     ImGui.PopStyleVar(4)
 
-    -- Menus style only: buttons style has no hover menus, and M.buttons stays empty for it
-    -- (populated only in the branch above), so renderMenu would just no-op anyway -- gating it
-    -- here avoids a stray leftover menu surviving a mid-session style switch during its grace
-    -- window.
-    if style ~= "buttons" then
-        renderMenu(ctx, s, edge)
-    end
+    -- Both styles have hover menus now (the right group is menus in either one), so this is
+    -- no longer gated on the style.
+    renderMenu(ctx, s, edge)
     renderPresetSavePrompt(ctx)
     -- With the status bar off, this bar hosts the 14d degraded strip; rows (not 1) lands
     -- it above the whole strip even when peek chat makes the bar five rows tall.

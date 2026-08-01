@@ -42,6 +42,8 @@ local function newRec()
         max = { win = 0, child = 0 },
         tloAccess = {},     -- any mq.TLO.* touched during the frame
         commands = {},      -- any mq.cmd/cmdf issued during the frame
+        draws = {},         -- every ImDrawList primitive, in order (see M.drawList)
+        styleColors = {},   -- { idx, col } per PushStyleColor, in order
         errors = {},
     }
 end
@@ -137,7 +139,19 @@ function ImGuiStub.EndTooltip() rec.depth.win = rec.depth.win - 1 end
 -- stacks --------------------------------------------------------------------
 function ImGuiStub.PushStyleVar() rec.depth.sv = rec.depth.sv + 1 end
 function ImGuiStub.PopStyleVar(n) rec.depth.sv = rec.depth.sv - (n or 1) end
-function ImGuiStub.PushStyleColor() rec.depth.sc = rec.depth.sc + 1 end
+-- Records WHICH colour, not just that one was pushed: "the open chip is filled with the
+-- open-blue wash, not the go-green" is a real assertion, and it was not previously
+-- expressible (the bottom bar shipped the wrong one for a whole phase).
+local function packVec(v)
+    if type(v) == 'table' and v.x then
+        return string.format('%.3f,%.3f,%.3f,%.3f', v.x or 0, v.y or 0, v.z or 0, v.w or 1)
+    end
+    return v
+end
+function ImGuiStub.PushStyleColor(idx, v)
+    rec.depth.sc = rec.depth.sc + 1
+    rec.styleColors[#rec.styleColors + 1] = { idx = idx, col = packVec(v) }
+end
 function ImGuiStub.PopStyleColor(n) rec.depth.sc = rec.depth.sc - (n or 1) end
 function ImGuiStub.PushID() rec.depth.id = rec.depth.id + 1 end
 function ImGuiStub.PopID() rec.depth.id = rec.depth.id - 1 end
@@ -189,6 +203,14 @@ function ImGuiStub.Button(label, size)
     return widget(label)
 end
 function ImGuiStub.SmallButton(label) return widget(label) end
+-- A real item (hoverable, clickable, occupies layout) that draws nothing itself — the
+-- caller paints it via the draw list. The bottom bar's unread dots are exactly this.
+function ImGuiStub.InvisibleButton(label, size)
+    local h, w
+    if type(size) == 'table' then w, h = size.x, size.y end
+    rec.buttonSizes[#rec.buttonSizes + 1] = { label = tostring(label), w = w, h = h }
+    return widget(label)
+end
 -- (selected, pressed) -- selected FIRST, like the binding (lua_ImGuiWidgets.cpp:906,
 -- std::make_tuple(selected, pressed)). `if ImGui.Selectable(label, true)` therefore takes the
 -- branch EVERY frame, not on click; callers must read the SECOND return for the click.
@@ -284,14 +306,20 @@ function ImGuiStub.GetIO()
 end
 
 -- geometry ------------------------------------------------------------------
+--- Viewport override, so a test can ask "what does this bar do at 1280 wide" without a
+--- game. Set M.viewportSize = { w, h }; nil restores the 2560x1440 default. GetWindowWidth
+--- follows it, because a full-width bar IS the viewport width.
+M.viewportSize = nil
+local function vpW() return (M.viewportSize and M.viewportSize[1]) or 2560 end
+local function vpH() return (M.viewportSize and M.viewportSize[2]) or 1440 end
 function ImGuiStub.GetMainViewport()
-    return { Pos = vec2(0, 0), Size = vec2(2560, 1440),
-             WorkPos = vec2(0, 0), WorkSize = vec2(2560, 1440), ID = 0 }
+    return { Pos = vec2(0, 0), Size = vec2(vpW(), vpH()),
+             WorkPos = vec2(0, 0), WorkSize = vec2(vpW(), vpH()), ID = 0 }
 end
 function ImGuiStub.GetTextLineHeight() return 14 end
 function ImGuiStub.GetTextLineHeightWithSpacing() return 18 end
 function ImGuiStub.CalcTextSize(s) return #tostring(s or "") * 7, 14 end
-function ImGuiStub.GetWindowWidth() return 2560 end
+function ImGuiStub.GetWindowWidth() return vpW() end
 function ImGuiStub.GetWindowHeight() return 30 end
 function ImGuiStub.GetWindowSize()
     local ws = M.windowSize
@@ -324,8 +352,83 @@ function ImGuiStub.SetNextWindowSize() end
 function ImGuiStub.SetNextWindowSizeConstraints() end
 function ImGuiStub.SetNextFrameWantCaptureKeyboard() end
 function ImGuiStub.SetKeyboardFocusHere() end
-function ImGuiStub.GetWindowDrawList() return nil end
-function ImGuiStub.GetColorU32() return 0 end
+-- A RECORDING draw list. It used to be nil, which meant every draw-list guard
+-- (`if not dl then return end`) short-circuited and no primitive was ever exercised — so
+-- "the status dot is a filled square" and "the lit chip has no accent" were both invisible
+-- to the suite. Colours are recorded as whatever GetColorU32 was handed, so a test can ask
+-- WHICH colour a dot got, not just that one was drawn. Methods take an explicit self
+-- (colon call), like the binding: ImDrawList is a usertype, and a dot-call is a real bug
+-- the stub must not paper over — hence the self-shape assertion in each.
+local function drawListSelfCheck(self, name)
+    if self ~= M.drawList then
+        rec.errors[#rec.errors + 1] = 'ImDrawList:' .. name .. ' called without self (dot call?)'
+    end
+end
+M.drawList = {
+    AddRectFilled = function(self, a, b, col)
+        drawListSelfCheck(self, 'AddRectFilled')
+        rec.draws[#rec.draws + 1] = { kind = 'rectFilled', x1 = a and a.x, y1 = a and a.y,
+            x2 = b and b.x, y2 = b and b.y, col = col }
+    end,
+    AddRect = function(self, a, b, col)
+        drawListSelfCheck(self, 'AddRect')
+        rec.draws[#rec.draws + 1] = { kind = 'rect', x1 = a and a.x, y1 = a and a.y,
+            x2 = b and b.x, y2 = b and b.y, col = col }
+    end,
+    AddCircleFilled = function(self, c, r, col)
+        drawListSelfCheck(self, 'AddCircleFilled')
+        rec.draws[#rec.draws + 1] = { kind = 'circleFilled', x = c and c.x, y = c and c.y,
+            r = r, col = col }
+    end,
+    AddLine = function(self, a, b, col)
+        drawListSelfCheck(self, 'AddLine')
+        rec.draws[#rec.draws + 1] = { kind = 'line', x1 = a and a.x, y1 = a and a.y,
+            x2 = b and b.x, y2 = b and b.y, col = col }
+    end,
+    AddText = function(self, p, col, s)
+        drawListSelfCheck(self, 'AddText')
+        rec.draws[#rec.draws + 1] = { kind = 'text', x = p and p.x, y = p and p.y,
+            col = col, text = tostring(s) }
+    end,
+}
+function ImGuiStub.GetWindowDrawList() return M.drawList end
+--- Packs the vec back into something a test can compare. Not ImGui's real ABGR packing —
+--- it only has to round-trip, so `stub.colorOf(theme.Kit.OpenBlue)` names a recorded colour.
+function ImGuiStub.GetColorU32(v)
+    if type(v) == 'table' and v.x then
+        return string.format('%.3f,%.3f,%.3f,%.3f', v.x or 0, v.y or 0, v.z or 0, v.w or 1)
+    end
+    return v or 0
+end
+function M.colorOf(rgba)
+    return string.format('%.3f,%.3f,%.3f,%.3f', rgba[1] or 0, rgba[2] or 0, rgba[3] or 0, rgba[4] or 1)
+end
+--- Every draw-list primitive of `kind` this frame (nil = all of them).
+function M.draws(r, kind)
+    local out = {}
+    for _, d in ipairs((r or rec).draws or {}) do
+        if not kind or d.kind == kind then out[#out + 1] = d end
+    end
+    return out
+end
+
+--- Was `rgba` (a theme colour table) pushed as a style colour this frame?
+function M.pushedColor(r, rgba)
+    local want = M.colorOf(rgba)
+    for _, c in ipairs((r or rec).styleColors or {}) do
+        if c.col == want then return true end
+    end
+    return false
+end
+
+--- Was `rgba` handed to a draw-list primitive this frame (any kind, or one kind)?
+function M.drewColor(r, rgba, kind)
+    local want = M.colorOf(rgba)
+    for _, d in ipairs(M.draws(r, kind)) do
+        if d.col == want then return true end
+    end
+    return false
+end
 
 -- tables --------------------------------------------------------------------
 -- Modeled just enough for the row loops to run: BeginTable returns true (a false return
