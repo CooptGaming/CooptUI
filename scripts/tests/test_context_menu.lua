@@ -87,6 +87,17 @@ local function newCtx(spies, opts)
         rerollService = {
             getAugList = function() return opts.augList or {} end,
             getMythicalList = function() return opts.mythList or {} end,
+            -- The real service's O(1) generation-cached membership check
+            -- (reroll_service.lua getListStatus). The menu uses THIS rather than
+            -- scanning both full lists per row per frame; the fake has to model it or
+            -- the menu correctly reads "not on any list" for everything.
+            getListStatus = function(kind, id)
+                local src = (kind == 'aug') and (opts.augList or {}) or (opts.mythList or {})
+                for _, e in ipairs(src) do
+                    if e.id == id then return 'listed' end
+                end
+                return nil
+            end,
         },
         resolveRerollList = function() return opts.rerollList end,
         requestAddToRerollList = function(list, payload) spies.rerollAdds[#spies.rerollAdds + 1] = { list = list, payload = payload } end,
@@ -302,6 +313,23 @@ do
     })
     stub.click = {}
     check('reroll: window row removes by entry id', removed == 42)
+
+    -- 20b redundancy collapse: inside the Reroll window a listed row used to offer BOTH
+    -- removal verbs in the same RULES group - the instant toggle (fires !augremove on the
+    -- spot) and the staged row (arms an inline confirm). One row per meaning now: where
+    -- the confirmed row exists, the instant one stands down.
+    local ctxOn = newCtx(newSpies(), { rerollList = 'mythical', mythList = { { id = 111 } } })
+    local rBoth = render(ctxOn, plainItem(), {
+        source = 'reroll', rerollEntryId = 111, onRemoveFromRerollList = function() end,
+    })
+    check('collapse: the Reroll window offers ONE removal verb, the confirmed one',
+        stub.drew(rBoth, 'On the reroll list') and not stub.drew(rBoth, 'Reroll it (Mythical)'),
+        table.concat(rBoth.buttons, '|'))
+
+    -- ...and Bags/Bank are untouched: no rerollEntryId there, so the instant toggle stays.
+    local rBags = render(ctxOn, plainItem(), { source = 'inv' })
+    check('collapse: Bags keeps the instant toggle (no verb lost anywhere)',
+        stub.drew(rBags, 'Reroll it (Mythical)'), table.concat(rBags.buttons, '|'))
 end
 
 -- ---------------------------------------------------------------- special families

@@ -456,15 +456,27 @@ ROWS = {
         contexts = { bags = true, bank = true },
         applies = function(ctx, item, env)
             if not (ctx.rerollService and trim(item.name) ~= "") then return false end
+            -- REDUNDANCY COLLAPSE (deferred from phase 9 to the 20b tray work): inside the
+            -- Reroll window a listed row used to offer TWO removal verbs in the same RULES
+            -- group — this instant toggle, which fires /say !augremove on the spot, and
+            -- "On the reroll list", which arms an inline confirm. Same end state, two
+            -- different safety levels, stacked. The host that supplies rerollEntryId is
+            -- exactly the Reroll window, so: there, the confirmed row is the only one.
+            -- Bags and Bank keep the instant toggle, and no verb disappears anywhere.
+            if env.rerollEntryId then return false end
             env._rerollList = ctx.resolveRerollList and ctx.resolveRerollList(item.name, item.type) or nil
             if not env._rerollList then return false end
             local itemId = item.id or item.ID
             env._onAug, env._onMyth = false, false
             if itemId then
-                local augList = ctx.rerollService.getAugList and ctx.rerollService.getAugList() or {}
-                local mythList = ctx.rerollService.getMythicalList and ctx.rerollService.getMythicalList() or {}
-                for _, e in ipairs(augList) do if e.id == itemId then env._onAug = true; break end end
-                for _, e in ipairs(mythList) do if e.id == itemId then env._onMyth = true; break end end
+                -- getListStatus is the service's O(1) generation-cached lookup. This runs
+                -- per row per frame; the two full linear scans it replaces were doing
+                -- #augList + #mythList comparisons every time a menu was even eligible.
+                local status = ctx.rerollService.getListStatus
+                if status then
+                    env._onAug = status("aug", itemId) ~= nil
+                    env._onMyth = status("mythical", itemId) ~= nil
+                end
             end
             return true
         end,

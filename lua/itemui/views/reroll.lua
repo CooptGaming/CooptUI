@@ -31,6 +31,68 @@ local _lastInvCount = -1
 local _lastBankCount = -1
 
 -- Tab index: 1 = Augments, 2 = Mythicals
+
+-- 20b tray geometry. Two rows of five, fixed cells so a long name never shifts a slot.
+local TRAY_PER_ROW = 5
+local TRAY_CELL_W = 96
+local TRAY_NAME_MAX = 14
+
+--- The ten items a roll would actually consume, bags first then bank — the same order
+--- the roll's own bank-move pre-flight uses, so the tray is not a separate opinion about
+--- what would happen. Returns up to ITEMS_REQUIRED entries { name, id, where }.
+---
+--- Membership is a set built ONCE per call, then O(1) per item — not a list scan per
+--- item. This runs every frame the window is open, over the full bag and bank lists.
+local function buildTray(rerollService, list, inventoryItems, bankList)
+    local listed = {}
+    for _, e in ipairs(list or {}) do
+        if e.id then listed[e.id] = true end
+    end
+    local out = {}
+    local function take(items, where)
+        for _, it in ipairs(items or {}) do
+            if #out >= ITEMS_REQUIRED then return end
+            local id = it.id or it.ID
+            if id and listed[id] then
+                -- Stacks count per unit: the roll consumes items, not slots.
+                local n = tonumber(it.stackSize) or 1
+                if n < 1 then n = 1 end
+                for _ = 1, n do
+                    if #out >= ITEMS_REQUIRED then return end
+                    out[#out + 1] = { name = it.name, id = id, where = where }
+                end
+            end
+        end
+    end
+    take(inventoryItems, "inv")
+    take(bankList, "bank")
+    return out
+end
+
+--- Why Roll is off, in the user's words, or nil when it is on. 20b: "Roll says why it's
+--- off" — inline, never a tooltip, because a tooltip hides the answer behind a hover on a
+--- control you have already decided not to press.
+local function rollBlockedReason(ctx, tray, isMovingFromBank, pendingBankMoves, bankConnected, countInBank)
+    if isMovingFromBank then
+        local done = tostring(pendingBankMoves and pendingBankMoves.nextIndex or 0)
+        local total = tostring(#((pendingBankMoves and pendingBankMoves.items) or {}))
+        return string.format("fetching %s of %s from the bank", done, total)
+    end
+    local short = ITEMS_REQUIRED - #tray
+    if short > 0 then
+        -- Name the fix, not just the shortfall: an unopened bank is the common cause and
+        -- the user cannot see it from the count alone.
+        if not bankConnected then
+            return string.format("%d more needed — open your bank if the rest are in it", short)
+        end
+        return string.format("%d more needed", short)
+    end
+    if countInBank > 0 and not bankConnected then
+        return "your bank has to be open to use the items in it"
+    end
+    return nil
+end
+
 local function renderTabContent(ctx, track, rerollService)
     local isAug = (track == "aug")
     local list = isAug and rerollService.getAugList() or rerollService.getMythicalList()
@@ -65,26 +127,72 @@ local function renderTabContent(ctx, track, rerollService)
     local pendingBankMoves = ctx.uiState.pendingRerollBankMoves
     local isMovingFromBank = pendingBankMoves and pendingBankMoves.list == track
 
-    -- Inventory (+ bank when connected) match counter: X / 10 or X / 10 (Y in bank), color grey -> yellow -> green
-    local counterText = string.format("%d / %d items in inventory", countInInv, ITEMS_REQUIRED)
-    if bankConnected and countInBank > 0 then
-        counterText = string.format("%d / %d (%d in bank)", combinedCount, ITEMS_REQUIRED, countInBank)
-    end
-    if combinedCount >= ITEMS_REQUIRED then
-        theme.TextSuccess(counterText)
-    elseif combinedCount >= (ITEMS_REQUIRED - 2) then
-        theme.TextWarning(counterText)
-    else
-        theme.TextMuted(counterText)
-    end
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        if bankConnected and countInBank > 0 then
-            ImGui.Text("Listed items in bags + bank (need 10 total to roll). Roll will move bank items to bags first if needed.")
+    -- ---------------------------------------------------------------------
+    -- 20b: THE TRAY IS THE INTERFACE.
+    --
+    -- A roll consumes ten listed items you own. The old surface said "7 / 10" and left
+    -- you to work out which seven those were from a table sorted by something else. Ten
+    -- slots say it directly: these are the items going in, in the order they will go,
+    -- bags before bank. Empty slots are the shortfall, countable at a glance.
+    --
+    -- The ten is a CLIENT convention (constants.REROLL.ITEMS_REQUIRED). The service does
+    -- not check it: augRoll() takes no arguments, guards nothing, /say-s the command and
+    -- optimistically trims the tail of its own list. So the tray is also the only place
+    -- that can honestly say what a roll would consume.
+    -- ---------------------------------------------------------------------
+    local tray = buildTray(rerollService, list, inventoryItems, bankConnected and bankList or nil)
+    do
+        local filled = #tray
+        local header = string.format("%d of %d ready", filled, ITEMS_REQUIRED)
+        if filled >= ITEMS_REQUIRED then
+            theme.TextSuccess(header)
+        elseif filled >= (ITEMS_REQUIRED - 2) then
+            theme.TextWarning(header)
         else
-            ImGui.Text("Number of listed items currently in your inventory (need 10 to roll)")
+            theme.TextMuted(header)
         end
-        ImGui.EndTooltip()
+        ImGui.SameLine(0, 8)
+        if countInBank > 0 then
+            theme.TextMuted(string.format("bags %d · bank %d", countInInv, countInBank))
+        else
+            theme.TextMuted(string.format("bags %d", countInInv))
+        end
+
+        -- Two rows of five. Each cell is a fixed-width, borderless child so a long item
+        -- name reflows inside its slot instead of shoving the next one sideways.
+        local cellW = TRAY_CELL_W
+        local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
+        for i = 1, ITEMS_REQUIRED do
+            if (i - 1) % TRAY_PER_ROW ~= 0 then ImGui.SameLine(0, 4) end
+            local slot = tray[i]
+            local okCell = pcall(function()
+                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, lineH + 6), true,
+                        bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
+                    if slot then
+                        -- Location is the tint, same vocabulary the list table uses:
+                        -- in bags = ready, in bank = has to be fetched first.
+                        local name = tostring(slot.name or "?")
+                        if #name > TRAY_NAME_MAX then name = name:sub(1, TRAY_NAME_MAX - 1) .. "." end
+                        if slot.where == "bank" then
+                            theme.TextWarning(name)
+                        else
+                            theme.TextSuccess(name)
+                        end
+                    else
+                        theme.TextMuted("empty")
+                    end
+                end
+                ImGui.EndChild()
+            end)
+            if not okCell then break end
+            if slot and ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text(tostring(slot.name or "?"))
+                ImGui.Text(string.format("id %s · %s", tostring(slot.id),
+                    (slot.where == "bank") and "in your bank (moved to bags for the roll)" or "in your bags"))
+                ImGui.EndTooltip()
+            end
+        end
     end
 
     -- Action buttons row. Add auto-routes by cursor item: Mythical-prefixed -> mythical list,
@@ -98,7 +206,12 @@ local function renderTabContent(ctx, track, rerollService)
         cursorOnList = rerollService.isCursorIdInList(destEntries)
     end
     local addDisabled = not hasCursor or not cursorList or cursorOnList or (ctx.uiState.pendingRerollAdd ~= nil)
-    local rollDisabled = combinedCount < ITEMS_REQUIRED or isMovingFromBank
+    -- The TRAY is the gate now, not a raw count: it is capped at ten and built from the
+    -- items a roll would actually take, so "the tray is full" and "the roll can run" are
+    -- the same fact rather than two that can disagree.
+    local rollBlockedText = rollBlockedReason(ctx, tray, isMovingFromBank, pendingBankMoves,
+        bankConnected, countInBank)
+    local rollDisabled = rollBlockedText ~= nil
 
     ImGui.SameLine()
     if addDisabled then
@@ -153,16 +266,19 @@ local function renderTabContent(ctx, track, rerollService)
     else
         theme.PushKeepButton(false)
     end
-    local rollLabel = isMovingFromBank and ("Moving " .. tostring(pendingBankMoves.nextIndex or 0) .. "/" .. tostring(#(pendingBankMoves.items or {})) .. "##" .. track) or ("Reroll##" .. track)
-    if ImGui.Button(rollLabel, ImVec2(60, 0)) then
+    -- The label stays "Roll" in every state (20b: same slot, same width, the reason lives
+    -- beside it) rather than becoming "Moving 3/7" — a button whose text changes under
+    -- your cursor is a button you misclick.
+    if ImGui.Button("Roll##" .. track, ImVec2(60, 0)) then
         if not rollDisabled then ctx.uiState[pendingRollKey] = true end
     end
-    if ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        if isMovingFromBank then ImGui.Text("Moving listed items from bank to bags...") elseif rollDisabled then ImGui.Text("You need 10 listed items (in bags or bank when bank is open) to roll.") else ImGui.Text("Consumes 10 listed items from inventory. Confirm before rolling.") end
-        ImGui.EndTooltip()
-    end
     theme.PopButtonColors()
+    -- 20b: the reason is PRINTED, not hovered. Kit §3.5 - "Disabled = with the reason
+    -- printed beside it, never in a tooltip."
+    if rollBlockedText then
+        ImGui.SameLine(0, 8)
+        theme.TextMuted(rollBlockedText)
+    end
 
     -- Single refresh button: requests both aug and mythical lists
     ImGui.SameLine()
@@ -204,6 +320,22 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.EndTooltip()
     end
     theme.PopButtonColors()
+
+    -- Sync failures, said out loud. main_loop records a per-item {name, reason} for every
+    -- item a sync could not push (equipped, in the bank, not owned) — and until now
+    -- NOTHING rendered it: only failedCount reached the UI, inside a tooltip. A count with
+    -- no reason is the thing 20b exists to delete.
+    if syncActive and sync.failedItems and #sync.failedItems > 0 then
+        theme.TextWarning(string.format("%d could not be synced:", #sync.failedItems))
+        for i = 1, math.min(#sync.failedItems, 5) do
+            local f = sync.failedItems[i]
+            theme.TextMuted(string.format("  %s - %s", tostring(f.name or "?"),
+                tostring(f.reason or "unknown")))
+        end
+        if #sync.failedItems > 5 then
+            theme.TextMuted(string.format("  +%d more", #sync.failedItems - 5))
+        end
+    end
 
     ImGui.Separator()
 
@@ -672,5 +804,11 @@ registry.register({
         RerollView.render(ctx)
     end,
 })
+
+-- Test seams: the tray build and the blocked-reason are pure functions over plain
+-- tables, and they are the whole of 20b's logic - what a roll would consume, and why it
+-- cannot run. Exported so a suite can pin them without driving the window.
+RerollView._buildTray = buildTray
+RerollView._rollBlockedReason = rollBlockedReason
 
 return RerollView
