@@ -160,14 +160,18 @@ segments.status = function(ctx, s)
     end
     pcall(function()
         local drawList = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
-        if not drawList or not drawList.AddRectFilled then return end
+        -- A real DOT, not a square: AddCircleFilled(center, radius, col) is bound on this
+        -- pin (lua_ImGuiUserTypes.cpp:399-401). The square was a first-pass stand-in
+        -- because only AddRectFilled had been proven here; the circle is the design's
+        -- shape (26a) and reads as a status light instead of a block.
+        if not drawList or not drawList.AddCircleFilled then return end
         local rx, ry = dockLayout.itemRectMax()
         local ty = dockLayout.itemRectMin and select(2, dockLayout.itemRectMin()) or ry
         if not rx then return end
         local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 16
         local cy = (ty or 0) + math.floor(lineH / 2)
         local color = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(dotColor)) or 0xFF40BF59
-        drawList:AddRectFilled(ImVec2(rx + 6, cy - 4), ImVec2(rx + 14, cy + 4), color)
+        drawList:AddCircleFilled(ImVec2(rx + 10, cy), 4, color)
     end)
 end
 
@@ -232,6 +236,20 @@ end
 local BTN_W = math.floor((constants.UI.DOCK_CELL_W.buttons
     - constants.UI.DOCK_SLOT_PADDING_X * 2 - constants.UI.DOCK_SLOT_GAP) / 2)
 
+--- Exact height for a bar button: the segment child is EXACTLY one text line tall
+--- (dock_layout.barHeight = lineHeight + DOCK_BAR_PADDING_Y*2, and the child is
+--- barHeight - DOCK_BAR_PADDING_Y*2), so anything taller clips against the child's clip
+--- rect. That is what cut the bottoms off Loot All / Auto Sell in the field: a sized
+--- ImGui.Button under FramePadding.y = 1 measures lineHeight + 2. SmallButton is immune
+--- (it forces FramePadding.y = 0) but takes no size argument, and this pair must hold
+--- IDENTICAL widths across every job state (§11 acceptance 11) — so: explicit size, and
+--- FramePadding.y pushed to 0 by the caller.
+local function barButtonSize()
+    local lh = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 13
+    if type(lh) ~= "number" or lh <= 0 then lh = 13 end
+    return ImVec2(BTN_W, lh)
+end
+
 --- One slot of the pair: go label when startable, solid-red Stop while its own job runs,
 --- kit-disabled otherwise. The pcall-around-the-button pattern is this file's standard —
 --- a throwing Button must not strand the kit push (5 colors + 2 vars).
@@ -246,7 +264,7 @@ local function jobButton(ctx, id, label, running, disabled, startAction, stopAct
         theme.PushGoButton()
     end
     local shown = running and ("Stop##" .. id) or (label .. "##" .. id)
-    local ok, clickedOrErr = pcall(ImGui.Button, shown, ImVec2(BTN_W, 0))
+    local ok, clickedOrErr = pcall(ImGui.Button, shown, barButtonSize())
     theme.PopKitButton()
     if not ok then error(clickedOrErr, 0) end
     if clickedOrErr and not pushedDisabled then
@@ -255,9 +273,10 @@ local function jobButton(ctx, id, label, running, disabled, startAction, stopAct
 end
 
 segments.buttons = function(ctx, s)
-    -- FramePadding (4,1) keeps the sized Button one bar-line tall (SmallButton has no size
-    -- argument, and the pair must hold EXACTLY the same widths in every state).
-    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(4, 1))
+    -- FramePadding.y MUST be 0: the segment child is exactly one text line tall, so any
+    -- vertical frame padding pushes the button's bottom edge (and its 1px kit border)
+    -- outside the clip rect — the clipping the field pass caught. See barButtonSize.
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImVec2(4, 0))
     local okPair, errPair = pcall(function()
         jobButton(ctx, "dockBtnLootAll", "Loot All",
             s.lootRunning == true,

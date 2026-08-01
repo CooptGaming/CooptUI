@@ -33,6 +33,7 @@ local function newRec()
     return {
         text = {},          -- every string drawn, in order
         buttons = {},       -- every button/selectable label offered, in order
+        buttonSizes = {},   -- { label, w, h } per sized ImGui.Button call, in order
         windows = {},       -- names passed to Begin
         childArgs = {},     -- every BeginChild call's raw args (name/a/b/c/d), in order
         depth = { win = 0, child = 0, group = 0, id = 0, sv = 0, sc = 0, font = 0, menu = 0, tab = 0, tbl = 0 },
@@ -176,7 +177,15 @@ local function widget(label)
     rec.buttons[#rec.buttons + 1] = label
     return matches(M.click, label)
 end
-function ImGuiStub.Button(label) return widget(label) end
+-- Button records its REQUESTED size too. The stub is not a layout engine and never will
+-- be, but "how tall did the caller ask for" is a plain fact worth asserting: a bar button
+-- taller than one text line clips against its segment child, which shipped once.
+function ImGuiStub.Button(label, size)
+    local h, w
+    if type(size) == 'table' then w, h = size.x, size.y end
+    rec.buttonSizes[#rec.buttonSizes + 1] = { label = tostring(label), w = w, h = h }
+    return widget(label)
+end
 function ImGuiStub.SmallButton(label) return widget(label) end
 -- (selected, pressed) -- selected FIRST, like the binding (lua_ImGuiWidgets.cpp:906,
 -- std::make_tuple(selected, pressed)). `if ImGui.Selectable(label, true)` therefore takes the

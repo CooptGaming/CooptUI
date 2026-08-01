@@ -311,6 +311,33 @@ do
     check('pair idle: offers Auto Sell in the same fixed cell', stub.drew(r, 'Auto Sell##dockBtnAutoSell'),
         table.concat(r.buttons, '|'))
     check('pair idle: still balanced with the pair drawn', stub.balanced(r), stub.imbalance(r))
+    -- Field regression: the pair clipped because a sized Button under FramePadding.y=1
+    -- measures lineHeight+2 inside a child that is EXACTLY lineHeight tall. The button
+    -- must be sized to the line height, never taller.
+    check('pair: buttons sized to exactly one text line (no vertical clip)',
+        (function()
+            local lh = ImGui.GetTextLineHeight()
+            local seen = 0
+            for _, c in ipairs(r.buttonSizes or {}) do
+                if c.label:find('dockBtn', 1, true) then
+                    seen = seen + 1
+                    -- EXPLICIT positive height, at most one line. h=0 (auto) would pass a
+                    -- naive <= check while actually measuring lineHeight+FramePadding.y*2
+                    -- at runtime — the exact shape of the bug that shipped.
+                    if not c.h or c.h <= 0 or c.h > lh then return false end
+                end
+            end
+            return seen == 2
+        end)(),
+        (function()
+            local out = {}
+            for _, c in ipairs(r.buttonSizes or {}) do
+                if c.label:find('dockBtn', 1, true) then
+                    out[#out + 1] = c.label .. '=' .. tostring(c.h)
+                end
+            end
+            return table.concat(out, ',') .. ' lineH=' .. tostring(ImGui.GetTextLineHeight())
+        end)())
 
     stub.click = { ['Loot All##dockBtnLootAll'] = true }
     stub.frame(function() dockTop.render(ctx) end)
