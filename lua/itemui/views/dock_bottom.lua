@@ -29,6 +29,9 @@ local dockTop = require('itemui.views.dock_top')
 local chatFeed = require('itemui.services.chat_feed')
 local chatConsole = require('itemui.services.chat_console')
 local registry = require('itemui.core.registry')
+-- Leaf module (mq only, registers nothing) — safe at the top, unlike view modules whose
+-- require-time registration order is launcher-button order.
+local keybinds = require('itemui.utils.keybinds')
 
 local M = {}
 
@@ -209,6 +212,21 @@ local function hubOpen(ctx)
     return (f and f()) == true
 end
 
+-- 23c: "Hub is the same list in vertical form WITH THE SHORTCUT FOR EACH". Drawn at a
+-- fixed column rather than a measured right-align on purpose — this menu is
+-- AlwaysAutoResize, so GetWindowWidth reports LAST frame's width and a width-derived
+-- offset oscillates as rows come and go. Every popover in dock_top uses fixed columns for
+-- the same reason. Only draws when the bind actually exists: advertising a key that does
+-- nothing is the dishonesty the bars already refuse elsewhere.
+local SHORTCUT_COL = 250
+
+local function shortcutHint(bindId)
+    local combo = keybinds.display(bindId)
+    if not combo then return end
+    ImGui.SameLine(SHORTCUT_COL)
+    if theme.TextFurniture then theme.TextFurniture(combo) else theme.TextMuted(combo) end
+end
+
 local function drawMenuEntries(ctx, menu, s)
     local drew = false
     for _, e in ipairs(menu.entries) do
@@ -234,6 +252,7 @@ local function drawMenuEntries(ctx, menu, s)
                 if pressed then
                     dockTop.queue(ctx, { kind = "window", id = e.id, toggle = true })
                 end
+                shortcutHint(e.id)
                 if open then ImGui.PopStyleColor() end
             end
 
@@ -247,6 +266,7 @@ local function drawMenuEntries(ctx, menu, s)
             if pressedHub then
                 dockTop.queue(ctx, { kind = "hub" })
             end
+            shortcutHint("inventory")
             if lit then ImGui.PopStyleColor() end
 
         elseif e.kind == "header" then
@@ -270,6 +290,7 @@ local function drawMenuEntries(ctx, menu, s)
                 if pressedPair then
                     togglePair(ctx)
                 end
+                shortcutHint("pair_idau")
                 if lit then ImGui.PopStyleColor() end
             end
 
@@ -328,13 +349,16 @@ local function drawMenuEntries(ctx, menu, s)
             if #names == 0 then
                 theme.TextMuted("No presets yet.")
             end
-            for _, name in ipairs(names) do
+            for presetIdx, name in ipairs(names) do
                 local lit = (name == active)
                 if lit then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Header)) end
                 local _, pressed = ImGui.Selectable(name .. "##dockpreset_" .. name, lit)
                 if pressed then
                     dockTop.queue(ctx, { kind = "preset", name = name })
                 end
+                -- Positional: the Nth preset carries the Nth F-key. Drawing it HERE, beside
+                -- the name, is what makes a delete-induced shift visible rather than silent.
+                if presetIdx <= 3 then shortcutHint("preset" .. presetIdx) end
                 if lit then ImGui.PopStyleColor() end
             end
             ImGui.Separator()

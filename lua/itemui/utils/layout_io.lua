@@ -21,6 +21,7 @@ local STRING_KEYS = {
     WindowAttach = true,    -- CSV: moduleId:target:edge:align tuples
     LayoutPreset = true,    -- active preset name
     UserPlaced = true,      -- CSV: module ids the user dragged; zones skip them until Re-tidy
+    Keybinds = true,        -- CSV: bindId:combo pairs (spec §10); empty combo = unbound
 }
 -- DockLaunchers / DockNative were written by phase 1 but never consumed by anything (the
 -- bottom-bar menus are registry-driven, and the native list is a phase-3 acceptance

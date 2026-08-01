@@ -171,6 +171,54 @@ function M.handleCommand(...)
                 print("\ar[ItemUI]\ax No preset named '" .. name .. "'. /itemui layout lists them.")
             end
         end
+    elseif cmd == "window" then
+        -- Keybind target (§10): toggle any registered companion by id. Enqueued, not
+        -- acted on inline, so a keypress and a bar click share one drain and cannot race.
+        local id = (({ ... })[2] or ""):match("^%s*(.-)%s*$")
+        local registry = require('itemui.core.registry')
+        if id == "" then
+            print("\ag[ItemUI]\ax /itemui window <id> toggles a companion. Ids: "
+                .. "bank, itemDisplay, augmentUtility, equipment, effects, reroll, mythicals, aa, scripttracker")
+        elseif not registry.isRegistered(id) then
+            print("\ar[ItemUI]\ax No window with id '" .. id .. "'. /itemui window lists them.")
+        elseif deps.uiState then
+            local q = deps.uiState.dockActionQueue
+            if not q then q = {}; deps.uiState.dockActionQueue = q end
+            q[#q + 1] = { kind = "window", id = id, toggle = true }
+        end
+
+    elseif cmd == "pair" then
+        -- The linked pair opens and closes as a unit (23c). Only one exists today.
+        local which = (({ ... })[2] or ""):lower():match("^%s*(.-)%s*$")
+        if which == "" then which = "idau" end
+        if which ~= "idau" then
+            print("\ar[ItemUI]\ax Unknown pair '" .. which .. "'. Only 'idau' (Item Display + Aug Utility).")
+        elseif deps.uiState then
+            local q = deps.uiState.dockActionQueue
+            if not q then q = {}; deps.uiState.dockActionQueue = q end
+            q[#q + 1] = { kind = "pair", id = "idau" }
+        end
+
+    elseif cmd == "preset" then
+        -- Layout presets BY POSITION, for the three F-key binds. Position, not name:
+        -- presets are user-named and the shipped five are not the design's
+        -- Looting/Bench/Merchant. Position drift is visible rather than silent — the Hub
+        -- list draws each preset's shortcut beside its name, so if you delete one you can
+        -- see the keys move.
+        local n = tonumber((({ ... })[2] or ""))
+        local names = (deps.uiState and deps.uiState.dockPresetNames) or {}
+        if not n then
+            print("\ag[ItemUI]\ax /itemui preset <n> applies the nth saved layout preset.")
+            for i, nm in ipairs(names) do print(string.format("  %d. %s", i, nm)) end
+            if #names == 0 then print("  (none yet - save one from the Layouts menu)") end
+        elseif not names[n] then
+            print(string.format("\ar[ItemUI]\ax No preset %d (you have %d). /itemui preset lists them.", n, #names))
+        elseif deps.uiState then
+            local q = deps.uiState.dockActionQueue
+            if not q then q = {}; deps.uiState.dockActionQueue = q end
+            q[#q + 1] = { kind = "preset", name = names[n] }
+        end
+
     elseif cmd == "retidy" then
         if deps.uiState then
             local q = deps.uiState.dockActionQueue

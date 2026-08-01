@@ -314,6 +314,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("NativeHoverTooltip=" .. (uiState.nativeHoverTooltip ~= false and "1" or "0") .. "\n")
         f:write("NativeItemDisplayReplace=" .. (uiState.nativeItemDisplayReplace ~= false and "1" or "0") .. "\n")
         f:write("PinnedWindows=" .. registry.getPinnedCSV() .. "\n")
+        -- One CSV for the whole §10 bind set, same shape and for the same reason as
+        -- PinnedWindows: eleven discrete string keys would be eleven chances to miss a
+        -- loader site and reintroduce the silent-revert bug layout_io warns about.
+        f:write("Keybinds=" .. require('itemui.utils.keybinds').getCSV() .. "\n")
         f:write("ItemDisplayWindowX=" .. tostring(layoutConfig.ItemDisplayWindowX or layoutDefaults.ItemDisplayWindowX) .. "\n")
         f:write("ItemDisplayWindowY=" .. tostring(layoutConfig.ItemDisplayWindowY or layoutDefaults.ItemDisplayWindowY) .. "\n")
         f:write("WidthItemDisplayPanel=" .. tostring(layoutConfig.WidthItemDisplayPanel or layoutDefaults.WidthItemDisplayPanel) .. "\n")
@@ -523,6 +527,8 @@ local function applyLayoutSection(parsed)
     uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
     uiState.nativeItemDisplayReplace = LayoutUtils.loadLayoutValue(layout, "NativeItemDisplayReplace", (layoutDefaults.NativeItemDisplayReplace or 1) == 1)
     registry.setPinnedFromCSV(LayoutUtils.loadLayoutValue(layout, "PinnedWindows", ""))
+    -- Absent key = every bind takes its audited default (setFromCSV seeds defaults first).
+    require('itemui.utils.keybinds').setFromCSV(LayoutUtils.loadLayoutValue(layout, "Keybinds", ""))
     layoutConfig.ItemDisplayWindowX = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowX", layoutDefaults.ItemDisplayWindowX)
     layoutConfig.ItemDisplayWindowY = LayoutUtils.loadLayoutValue(layout, "ItemDisplayWindowY", layoutDefaults.ItemDisplayWindowY)
     layoutConfig.WidthItemDisplayPanel = LayoutUtils.loadLayoutValue(layout, "WidthItemDisplayPanel", layoutDefaults.WidthItemDisplayPanel)

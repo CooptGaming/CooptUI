@@ -12,6 +12,7 @@ local events = require('itemui.core.events')
 local KEYBIND_DEBOUNCE_MS = 800
 local registry = require('itemui.core.registry')
 local skinSync = require('itemui.services.skin_sync')
+local keybinds = require('itemui.utils.keybinds')
 
 -- Cached "is the skin installed in the EQ client?" - file probes are not free,
 -- so recheck at most every 5s (and immediately after an install click).
@@ -710,6 +711,68 @@ function ConfigGeneral.render(ctx)
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Remove the keybind.")
+            ImGui.EndTooltip()
+        end
+
+        -- The §10 window/preset set. One row per bind, one shared debounce, and one
+        -- applyAll on settle — re-issuing eleven squelched commands is cheaper than
+        -- tracking which row changed, and it keeps what MQ has in sync with what the
+        -- table says even if a previous apply was interrupted.
+        ImGui.Spacing()
+        ImGui.Separator()
+        theme.TextMuted("Window and layout shortcuts")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("These defaults were audited against a live /bind eqlist dump:")
+            ImGui.Text("alt+letter and F1-F3 are all taken by EQ itself, ctrl+shift is free.")
+            ImGui.Text("Blank a row to unbind it. Same format as above: ctrl+shift+I")
+            ImGui.EndTooltip()
+        end
+        local kbChanged = false
+        for _, b in ipairs(keybinds.BINDS) do
+            ImGui.Text(b.label)
+            ImGui.SameLine(220)
+            ImGui.SetNextItemWidth(120)
+            local cur = keybinds.get(b.id)
+            local typed = ImGui.InputText("##kb_" .. b.id, cur)
+            if typed ~= cur then
+                keybinds.set(b.id, typed)
+                kbChanged = true
+            end
+            -- Preset rows name the arrangement they currently point at: the binds are
+            -- positional, so this is what makes a delete-induced shift visible instead
+            -- of silent.
+            local presetIdx = tonumber(b.id:match("^preset(%d)$"))
+            if presetIdx then
+                local names = (ctx.uiState and ctx.uiState.dockPresetNames) or {}
+                ImGui.SameLine(0, 8)
+                theme.TextMuted(names[presetIdx] and ("-> " .. names[presetIdx]) or "-> (no preset saved yet)")
+            end
+        end
+        for _, dupe in ipairs(keybinds.conflicts()) do
+            theme.TextError(string.format("%s is on %d shortcuts - the last one wins.",
+                dupe.combo, #dupe.ids))
+        end
+        if kbChanged then
+            scheduleLayoutSave()
+            filterState.keybindDebounceAt = mq.gettime()
+        end
+        if filterState.keybindDebounceAt and filterState.keybindsPendingApply
+            and (mq.gettime() - filterState.keybindDebounceAt) >= KEYBIND_DEBOUNCE_MS then
+            filterState.keybindsPendingApply = nil
+            keybinds.applyAll()
+            print("\ag[ItemUI]\ax Shortcuts applied.")
+        end
+        if kbChanged then filterState.keybindsPendingApply = true end
+        if ImGui.Button("Restore default shortcuts##kbReset", ImVec2(200, 0)) then
+            keybinds.resetAll()
+            keybinds.applyAll()
+            scheduleLayoutSave()
+            print("\ag[ItemUI]\ax Shortcuts restored to defaults.")
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Back to the audited ctrl+shift set.")
             ImGui.EndTooltip()
         end
     end

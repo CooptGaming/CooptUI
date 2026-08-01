@@ -1441,6 +1441,26 @@ local function phase0b_dockActionQueue(now)
             end
         end
 
+    elseif a.kind == "pair" and a.id == "idau" then
+        -- The Item Display + Aug Utility pair opens and closes as a UNIT (23c) — the bar
+        -- chip and the ctrl+shift+D bind both land here so the two can never disagree
+        -- about what "toggle the pair" means. Open if neither is up; otherwise close
+        -- whichever halves are.
+        local registry = require('itemui.core.registry')
+        local idOpen = registry.isOpen("itemDisplay")
+        local auOpen = registry.isOpen("augmentUtility")
+        if idOpen or auOpen then
+            if idOpen then registry.toggleWindow("itemDisplay") end
+            if auOpen then registry.toggleWindow("augmentUtility") end
+        else
+            for _, wid in ipairs({ "itemDisplay", "augmentUtility" }) do
+                if registry.isRegistered(wid) and not registry.isOpen(wid) then
+                    registry.toggleWindow(wid)
+                    if d.recordCompanionWindowOpened then d.recordCompanionWindowOpened(wid) end
+                end
+            end
+        end
+
     elseif a.kind == "script_stop" then
         -- Stop the script turn-in job (25c): drop the current slot and the whole queue.
         -- The FSM checks pendingScriptConsume each tick, so clearing here is a clean

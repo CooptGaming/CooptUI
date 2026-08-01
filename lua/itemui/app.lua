@@ -1585,6 +1585,9 @@ local function main()
         require('itemui.services.chat_console').prewarm((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
     end)
     layoutUtils.applyItemUIToggleBind()  -- Apply keybind on startup only (not on every /inv)
+    -- The §10 set. Startup only, same as the hub bind: /custombind add is idempotent but
+    -- there is no reason to re-issue eleven commands on every /inv.
+    pcall(function() require('itemui.utils.keybinds').applyAll() end)
     do
         local bindKey = layoutUtils.getItemUIToggleKeyDisplay and layoutUtils.getItemUIToggleKeyDisplay()
         if bindKey and bindKey ~= "" then

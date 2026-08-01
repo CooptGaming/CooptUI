@@ -372,6 +372,13 @@ local function layout_setup_resetLayoutToDefault()
     uiState.nativeHoverTooltip = ((layoutDefaults.NativeHoverTooltip or 1) == 1)
     uiState.nativeItemDisplayReplace = ((layoutDefaults.NativeItemDisplayReplace or 1) == 1)
     require('itemui.core.registry').setPinnedFromCSV("")  -- reset clears window Locks
+    -- Reset restores the audited defaults AND pushes them to MQ, so the keys the user
+    -- sees in Settings after a reset are the keys that actually fire.
+    do
+        local keybinds = require('itemui.utils.keybinds')
+        keybinds.resetAll()
+        keybinds.applyAll()
+    end
     if saveLayoutToFile then saveLayoutToFile() end
     if perfCache then perfCache.layoutNeedsReload = true end
 
