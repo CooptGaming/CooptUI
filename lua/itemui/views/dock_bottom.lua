@@ -37,16 +37,17 @@ local M = {}
 --
 -- Phase 11 (23c): the old Items/Character/Layouts menus fold into ONE "Hub" menu — the
 -- same launcher list vertically, grouped ITEMS / CHARACTER / LAYOUTS, "nothing in it is a
--- duplicate of a launcher, it is the same launcher in a form you can read". Pairs read as
--- one row that travels together: Inventory is the merged Bags+Bank hub (phase 10), and
--- Item Display + Aug Utility open and close as a unit. Shortcut labels wait on the
--- keybind proposal (§10 — audit first, nothing wired until approved).
+-- duplicate of a launcher, it is the same launcher in a form you can read". Item Display
+-- + Aug Utility are a real pair — one row, opens and closes as a unit. Bags and Bank are
+-- NOT: the merge was rolled back, so they are two rows here and a two-half chip on the
+-- bar, aligned by window_zones rather than welded together.
 local MENUS = {
     {
         id = "hub", label = "Hub",
         entries = {
             { kind = "header", label = "ITEMS" },
-            { kind = "hub",    label = "Inventory (bags + bank)" },
+            { kind = "hub",    label = "Bags" },
+            { kind = "module", id = "bank" },
             { kind = "pair",   ids = { "itemDisplay", "augmentUtility" } },
             { kind = "module", id = "mythicals" },
             { kind = "module", id = "reroll" },
@@ -201,11 +202,11 @@ local function togglePair(ctx)
     end
 end
 
---- Is the hub (the merged Inventory in bars) on screen? The whole Bags|Bank chip lights
---- on this OR a stray open bank companion (defensive — bank is classicOnly in bars).
+--- Is the hub (Bags) on screen? Bank is its OWN window again (the merge was rolled back),
+--- so an open Bank must not light the Bags half — each half lights for its own window.
 local function hubOpen(ctx)
     local f = ctx and ctx.getShouldDraw
-    return ((f and f()) or registry.isOpen("bank")) == true
+    return (f and f()) == true
 end
 
 local function drawMenuEntries(ctx, menu, s)
@@ -470,9 +471,14 @@ local function launcherEntries(ctx, layoutConfig)
     local out = {}
     for _, id in ipairs(ids) do
         if id == "bags" then
+            -- Two windows, one chip. Bags is the hub; Bank is its own window again (the
+            -- merge was rolled back), so each half lights for ITSELF -- the chip says
+            -- "these belong together", not "these are one thing".
             out[#out + 1] = { isPair = true, id = "bagsbank", halves = {
-                { label = "Bags", action = { kind = "hub" } },
-                { label = "Bank", action = { kind = "hub" } },
+                { label = "Bags", action = { kind = "hub" },
+                  lit = function(c) return hubOpen(c) end },
+                { label = "Bank", action = { kind = "window", id = "bank", toggle = true },
+                  lit = function() return registry.isOpen("bank") == true end },
             } }
         elseif id == "bank" and present["bags"] then
             -- Absorbed into the Bags|Bank pair above (saved CSVs still carry the id).
@@ -504,11 +510,14 @@ local function launcherEntries(ctx, layoutConfig)
     return out
 end
 
---- Whole-chip lit state for a pair entry (23c: the open pair lights the whole chip).
+--- Whole-chip lit state for a pair entry (23c: "the open pair lights the whole chip,
+--- because they travel together"). That holds for Item Display|Aug Utility, which really
+--- does open and close as a unit. Bags|Bank does NOT: they are two windows you open
+--- independently, so its halves carry their own `lit` predicate instead and this returns
+--- nil for it — "no whole-chip state, ask each half".
 local function pairEntryLit(ctx, e)
-    if e.id == "bagsbank" then return hubOpen(ctx) end
     if e.id == "idau" then return pairOpen() end
-    return false
+    return nil
 end
 
 --- Rough reserved width for the whole launcher row, so the chat strip ahead of it (buttons
@@ -546,16 +555,20 @@ local function drawLauncherButtons(ctx, layoutConfig)
         first = false
         if e.isPair then
             -- One chip, two halves split by a hairline (the 1px gap against the dark bar).
-            -- The whole chip lights when the pair is open — both halves get the lit fill.
-            local lit = pairEntryLit(ctx, e)
-            if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
+            -- A pair that travels together (Item Display|Aug Utility) lights whole; a pair
+            -- of independent windows (Bags|Bank) lights per half. The push/pop is per half
+            -- either way so the two paths cannot diverge on stack balance.
+            local whole = pairEntryLit(ctx, e)
             for hi, h in ipairs(e.halves) do
                 if hi > 1 then ImGui.SameLine(0, 1) end
+                local lit = whole
+                if lit == nil and h.lit then lit = h.lit(ctx) end
+                if lit then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end
                 if ImGui.SmallButton(h.label .. "##dockbtn_" .. e.id .. "_" .. hi) then
                     dockTop.queue(ctx, h.action)
                 end
+                if lit then ImGui.PopStyleColor() end
             end
-            if lit then ImGui.PopStyleColor() end
         else
             local open = (not e.isHub) and registry.isOpen(e.id) or false
             if open then ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Colors.Keep.Normal)) end

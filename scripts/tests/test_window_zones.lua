@@ -215,6 +215,21 @@ tick(d)
 local g = zones.GEOM.bank
 local placedX = d.layoutConfig[g.x]
 check('bank got placed on open', placedX ~= nil and placedX ~= 0, tostring(placedX))
+
+-- The merge rollback's ALIGNMENT contract: bank (zone R1) lands flush against the hub's
+-- right edge at the same Y, and placement records the hub attachment itself so the pair
+-- survives the first hub drag. Without the auto-attach the alignment is a one-shot the
+-- user has to re-earn through the magnet.
+do
+    local hx = d.uiState.itemUIPositionX + d.layoutConfig.WidthInventory + zones.GAP
+    check('bank aligns flush beside the hub, same Y',
+        d.layoutConfig[g.x] == hx and d.layoutConfig[g.y] == d.uiState.itemUIPositionY,
+        d.layoutConfig[g.x] .. ',' .. d.layoutConfig[g.y] .. ' want ' .. hx .. ',' .. d.uiState.itemUIPositionY)
+    check('placement records the hub attachment so the pair travels together',
+        (d.layoutConfig.WindowAttach or ''):find('bank:hub:right:top', 1, true) ~= nil,
+        d.layoutConfig.WindowAttach)
+end
+
 tick(d, 2)           -- burn the placement's force-apply frames
 
 -- Regression (review C3/C18): while force-apply frames are up, geometry writes are

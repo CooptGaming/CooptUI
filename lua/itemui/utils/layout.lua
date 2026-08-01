@@ -83,7 +83,6 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.HeightBank then layoutDefaults.HeightBank = tonumber(d.HeightBank) or layoutDefaults.HeightBank end
     if d.BankWindowX then layoutDefaults.BankWindowX = tonumber(d.BankWindowX) or layoutDefaults.BankWindowX end
     if d.BankWindowY then layoutDefaults.BankWindowY = tonumber(d.BankWindowY) or layoutDefaults.BankWindowY end
-    if d.InventoryBankSplitX then layoutDefaults.InventoryBankSplitX = tonumber(d.InventoryBankSplitX) or layoutDefaults.InventoryBankSplitX end
     if d.ScriptTrackerWindowX then layoutDefaults.ScriptTrackerWindowX = tonumber(d.ScriptTrackerWindowX) or layoutDefaults.ScriptTrackerWindowX end
     if d.ScriptTrackerWindowY then layoutDefaults.ScriptTrackerWindowY = tonumber(d.ScriptTrackerWindowY) or layoutDefaults.ScriptTrackerWindowY end
     if d.WidthScriptTrackerPanel then layoutDefaults.WidthScriptTrackerPanel = tonumber(d.WidthScriptTrackerPanel) or layoutDefaults.WidthScriptTrackerPanel end
@@ -289,7 +288,6 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("HeightBank=" .. tostring(layoutConfig.HeightBank or layoutDefaults.HeightBank) .. "\n")
         f:write("BankWindowX=" .. tostring(layoutConfig.BankWindowX or layoutDefaults.BankWindowX) .. "\n")
         f:write("BankWindowY=" .. tostring(layoutConfig.BankWindowY or layoutDefaults.BankWindowY) .. "\n")
-        f:write("InventoryBankSplitX=" .. tostring(layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0) .. "\n")
         f:write("ScriptTrackerWindowX=" .. tostring(layoutConfig.ScriptTrackerWindowX or layoutDefaults.ScriptTrackerWindowX or 0) .. "\n")
         f:write("ScriptTrackerWindowY=" .. tostring(layoutConfig.ScriptTrackerWindowY or layoutDefaults.ScriptTrackerWindowY or 0) .. "\n")
         f:write("WidthScriptTrackerPanel=" .. tostring(layoutConfig.WidthScriptTrackerPanel or layoutDefaults.WidthScriptTrackerPanel or 460) .. "\n")
@@ -499,7 +497,6 @@ local function applyLayoutSection(parsed)
     layoutConfig.HeightBank = LayoutUtils.loadLayoutValue(layout, "HeightBank", layoutDefaults.HeightBank)
     layoutConfig.BankWindowX = LayoutUtils.loadLayoutValue(layout, "BankWindowX", layoutDefaults.BankWindowX)
     layoutConfig.BankWindowY = LayoutUtils.loadLayoutValue(layout, "BankWindowY", layoutDefaults.BankWindowY)
-    layoutConfig.InventoryBankSplitX = LayoutUtils.loadLayoutValue(layout, "InventoryBankSplitX", layoutDefaults.InventoryBankSplitX)
     layoutConfig.ScriptTrackerWindowX = LayoutUtils.loadLayoutValue(layout, "ScriptTrackerWindowX", layoutDefaults.ScriptTrackerWindowX)
     layoutConfig.ScriptTrackerWindowY = LayoutUtils.loadLayoutValue(layout, "ScriptTrackerWindowY", layoutDefaults.ScriptTrackerWindowY)
     layoutConfig.WidthScriptTrackerPanel = LayoutUtils.loadLayoutValue(layout, "WidthScriptTrackerPanel", layoutDefaults.WidthScriptTrackerPanel)

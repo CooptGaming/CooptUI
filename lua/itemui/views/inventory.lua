@@ -4,9 +4,11 @@
     Part of ItemUI Phase 5: View Extraction
     Renders the main inventory view with bag, slot, weight, flags
 
-    Windows pass phase 10 (23a): render() is split into renderToolbar/renderTable so the
-    bars-mode hub can compose the merged two-pane Inventory (renderMergedContent) from the
-    same parts. Classic composes the identical pair — behavior there is unchanged.
+    render() is split into renderToolbar / renderTable. That split outlived the phase-10
+    two-pane merge it was cut for (rolled back — Bags and Bank are separate windows again,
+    aligned by services/window_zones): renderTable's body lives in a local so the pcall can
+    sit INSIDE BeginTable/EndTable, which is the invariant that actually matters — a throw
+    that skips EndTable is a C++ ImGuiException MQ2Lua answers by killing the script.
 --]]
 
 local mq = require('mq')
@@ -17,16 +19,6 @@ local constants = require('itemui.constants')
 local ItemDisplayView = require('itemui.views.item_display')
 
 local InventoryView = {}
-
--- The bank view is required LAZILY: bank.lua registers its module at require time, and a
--- top-level require here would move that registration from app.lua's slot (line order =
--- launcher button order in classic). By first render app.lua has loaded it anyway, so
--- this is a package.loaded lookup, not real work.
-local BankViewLazy
-local function bankView()
-    BankViewLazy = BankViewLazy or require('itemui.views.bank')
-    return BankViewLazy
-end
 
 -- Toolbar: search, newest-sort, refresh, and the status line (bank hint or items/value).
 function InventoryView.renderToolbar(ctx, bankOpen)
@@ -382,142 +374,6 @@ end
 function InventoryView.render(ctx, bankOpen)
     InventoryView.renderToolbar(ctx, bankOpen)
     InventoryView.renderTable(ctx, bankOpen)
-end
-
--- ---------------------------------------------------------------------------
--- Phase 10 (23a): the merged two-pane Inventory, hosted by the hub in bars mode.
--- One toolbar (its search filters BOTH panes — §9: Bags and Bank each had
--- search/refresh, the merge keeps one), a ResizeX splitter child for Bags, and
--- the Bank pane with its live/snapshot chip (20a — per-source state, visible first).
--- ---------------------------------------------------------------------------
-
-local MERGED_MIN_PANE_W = 220   -- below this a pane's table is unusable; clamp the splitter
-local MERGED_PANE_GAP = 4       -- GAP_INNER: inside-a-group spacing (§3.4)
-
--- Bank pane header stat ("242 items · 918,402p"), cached: summing 240 rows every frame is
--- exactly the per-frame recompute the perf pass removed elsewhere. Keyed on list length +
--- source + snapshot time; a same-length rescan with equal timestamp is indistinguishable
--- and acceptably stale for a header.
-local bankPaneStat = { key = nil, text = "" }
-
-local function bankPaneStatText(list, bankOpen, lastBankCacheTime)
-    local n = #(list or {})
-    local key = string.format("%d|%s|%s", n, bankOpen and "L" or "S", tostring(lastBankCacheTime or 0))
-    if bankPaneStat.key ~= key then
-        local total = 0
-        for _, it in ipairs(list or {}) do total = total + (it.totalValue or 0) end
-        bankPaneStat.key = key
-        bankPaneStat.text = string.format("%d items · %s", n, ItemUtils.formatValue(total))
-    end
-    return bankPaneStat.text
-end
-
--- "snapshot · 2d old" — age of the cached bank list, humanized (a raw timestamp is
--- furniture; the age is the fact you act on).
-local function bankSnapshotAgeText(ts)
-    ts = tonumber(ts) or 0
-    if ts <= 0 then return "no data yet" end
-    local d = os.time() - ts
-    if d < 0 then d = 0 end
-    if d < 3600 then return string.format("%dm old", math.max(1, math.floor(d / 60))) end
-    if d < 86400 then return string.format("%dh old", math.floor(d / 3600)) end
-    return string.format("%dd old", math.floor(d / 86400))
-end
-
-function InventoryView.renderMergedContent(ctx, bankOpen)
-    -- The pane is a standing fixture, gated by the same enable key that governed the
-    -- classic Bank window. Off -> the content is exactly the classic single-pane shape.
-    if (tonumber(ctx.layoutConfig.ShowBankWindow) or 1) == 0 then
-        InventoryView.renderToolbar(ctx, bankOpen)
-        InventoryView.renderTable(ctx, bankOpen)
-        return
-    end
-
-    local BankView = bankView()
-    local list = BankView.resolveList(ctx, bankOpen)
-
-    InventoryView.renderToolbar(ctx, bankOpen)
-    -- One search, both panes: the merged toolbar's box is the only search surface, so the
-    -- bank filter mirrors it. (Classic keeps the two independent fields untouched.)
-    ctx.uiState.searchFilterBank = ctx.uiState.searchFilterInv
-
-    local availW = ImGui.GetContentRegionAvail()  -- tuple: first return is width
-    availW = tonumber(availW) or 0
-    local stored = tonumber(ctx.layoutConfig.InventoryBankSplitX) or 0
-    local splitX = stored
-    if splitX <= 0 then splitX = math.floor(availW * 0.55) end  -- unset: bags get the wider half
-    if availW >= (MERGED_MIN_PANE_W * 2 + MERGED_PANE_GAP) then
-        if splitX < MERGED_MIN_PANE_W then splitX = MERGED_MIN_PANE_W end
-        if splitX > availW - MERGED_MIN_PANE_W then splitX = availW - MERGED_MIN_PANE_W end
-    else
-        -- Too narrow to honor both minimums; halve it rather than 0-width a pane.
-        splitX = math.floor(availW * 0.5)
-    end
-
-    -- 23a: carrying an item rings the pane that will take it. Bags is the drop target
-    -- (dropAtSlot exists for inv only — the bank asymmetry is behavior, not a bug), so
-    -- its border goes accent + 2px while the cursor is loaded.
-    local carrying = ctx.hasItemOnCursor()
-    if carrying then
-        ImGui.PushStyleColor(ImGuiCol.Border, ctx.theme.ToVec4(ctx.theme.Kit.OpenBlue))
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 2)
-    end
-    -- ResizeX MUST pair with NoSavedSettings: without it ImGui persists the child size to
-    -- its own ini and fights the layout INI on every load (spec §4.2 / WINDOWS_PASS plan).
-    ImGui.BeginChild("MergedBagsPane", splitX, 0,
-        bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeX),
-        ImGuiWindowFlags.NoSavedSettings)
-    -- pcall INSIDE the child: a content throw must never skip EndChild (overlay-pause rule).
-    pcall(InventoryView.renderTable, ctx, bankOpen)
-    local measuredW = ImGui.GetWindowSize()  -- tuple; width only
-    ImGui.EndChild()
-    if carrying then
-        ImGui.PopStyleVar(1)
-        ImGui.PopStyleColor(1)
-    end
-
-    -- Persist ONLY on an actual drag: measured differs from what we passed. Comparing to
-    -- the stored value instead would write the auto width on first paint, and calling
-    -- scheduleLayoutSave unconditionally per frame would starve the 600ms debounce.
-    measuredW = tonumber(measuredW) or splitX
-    if math.abs(measuredW - splitX) > 1 then
-        ctx.layoutConfig.InventoryBankSplitX = math.floor(measuredW)
-        ctx.scheduleLayoutSave()
-    end
-
-    ImGui.SameLine(0, MERGED_PANE_GAP)
-
-    ImGui.BeginChild("MergedBankPane", 0, 0, ImGuiChildFlags.Borders, ImGuiWindowFlags.NoSavedSettings)
-    -- 20a: live vs snapshot is the first thing you see, never a tooltip. The chip line
-    -- stays at full alpha; only the table dims in snapshot state.
-    ctx.theme.TextHeader("Bank")
-    ImGui.SameLine(0, 8)
-    if bankOpen then
-        ctx.theme.TextSuccess("live")
-        ImGui.SameLine(0, 8)
-        ctx.theme.TextMuted(bankPaneStatText(list, true, ctx.perfCache.lastBankCacheTime))
-    else
-        ctx.theme.TextWarning("snapshot · " .. bankSnapshotAgeText(ctx.perfCache.lastBankCacheTime))
-        ImGui.SameLine(0, 8)
-        ctx.theme.TextMuted(bankPaneStatText(list, false, ctx.perfCache.lastBankCacheTime))
-        ImGui.SameLine(0, 8)
-        if ctx.theme.TextFurniture then
-            ctx.theme.TextFurniture("read-only — open a bank to refresh")
-        else
-            ctx.theme.TextMuted("read-only — open a bank to refresh")
-        end
-    end
-    ImGui.Separator()
-    if not bankOpen then
-        -- Snapshot: same table, dimmed (20a). Push/pop OUTSIDE the pcall'd body so the
-        -- pair can never be skipped by a content throw.
-        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0.55)
-    end
-    pcall(BankView.renderTable, ctx, list, bankOpen)
-    if not bankOpen then
-        ImGui.PopStyleVar(1)
-    end
-    ImGui.EndChild()
 end
 
 return InventoryView

@@ -42,7 +42,6 @@ local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.LootWindowY = layoutConfig.LootWindowY or layoutDefaults.LootWindowY
     layoutDefaults.BankWindowX = layoutConfig.BankWindowX or layoutDefaults.BankWindowX
     layoutDefaults.BankWindowY = layoutConfig.BankWindowY or layoutDefaults.BankWindowY
-    layoutDefaults.InventoryBankSplitX = layoutConfig.InventoryBankSplitX or layoutDefaults.InventoryBankSplitX or 0
     layoutDefaults.ScriptTrackerWindowX = layoutConfig.ScriptTrackerWindowX or layoutDefaults.ScriptTrackerWindowX or 0
     layoutDefaults.ScriptTrackerWindowY = layoutConfig.ScriptTrackerWindowY or layoutDefaults.ScriptTrackerWindowY or 0
     layoutDefaults.WidthScriptTrackerPanel = layoutConfig.WidthScriptTrackerPanel or layoutDefaults.WidthScriptTrackerPanel
@@ -161,7 +160,6 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("HeightBank=" .. layoutDefaults.HeightBank .. "\n")
             f:write("BankWindowX=" .. layoutDefaults.BankWindowX .. "\n")
             f:write("BankWindowY=" .. layoutDefaults.BankWindowY .. "\n")
-            f:write("InventoryBankSplitX=" .. tostring(layoutDefaults.InventoryBankSplitX or 0) .. "\n")
             f:write("ScriptTrackerWindowX=" .. tostring(layoutDefaults.ScriptTrackerWindowX or 0) .. "\n")
             f:write("ScriptTrackerWindowY=" .. tostring(layoutDefaults.ScriptTrackerWindowY or 0) .. "\n")
             f:write("WidthScriptTrackerPanel=" .. tostring(layoutDefaults.WidthScriptTrackerPanel or 460) .. "\n")
@@ -281,7 +279,6 @@ local function layout_setup_resetLayoutToDefault()
     layoutConfig.HeightBank = layoutDefaults.HeightBank
     layoutConfig.BankWindowX = layoutDefaults.BankWindowX
     layoutConfig.BankWindowY = layoutDefaults.BankWindowY
-    layoutConfig.InventoryBankSplitX = layoutDefaults.InventoryBankSplitX or 0
     layoutConfig.ScriptTrackerWindowX = layoutDefaults.ScriptTrackerWindowX or 0
     layoutConfig.ScriptTrackerWindowY = layoutDefaults.ScriptTrackerWindowY or 0
     layoutConfig.WidthScriptTrackerPanel = layoutDefaults.WidthScriptTrackerPanel

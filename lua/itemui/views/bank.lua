@@ -4,11 +4,18 @@
     Part of ItemUI Phase 5: View Extraction
     Renders the bank window with online/offline modes
 
-    Windows pass phase 10 (23a): the table body and the list resolve are exported
-    (resolveList / renderTable) so the merged Inventory hub can host the bank as a pane.
-    The standalone window below is the `classic` surface only — the registration is
-    classicOnly, mirroring the Command Center (§0.3): registered always, never offered,
-    drawn or ticked while UIMode=bars, force-closed on a live mode flip.
+    Bank is its own window in BOTH modes. The phase-10 two-pane merge into the hub was
+    built, tried in the field, and rolled back: bags and bank are used together often but
+    you do not always want the bank on screen, and a merged window cannot express that.
+    What replaced it is ALIGNMENT — services/window_zones places this window flush against
+    the hub's right edge at the same Y (its registered zone is "R1"), and the first-open
+    seed in main_window matches its height to the hub's, so the two read as a pair without
+    being welded into one.
+
+    The merge did leave two things worth keeping: resolveList/renderTable are extracted
+    (so the table body can be pcall'd INSIDE BeginTable/EndTable — a throw that skips
+    EndTable is a C++ ImGuiException MQ2Lua answers by killing the script), and the 20a
+    live/snapshot chip, which now lives in this window's own header.
 --]]
 
 local mq = require('mq')
@@ -22,6 +29,63 @@ local registry = require('itemui.core.registry')
 local ItemDisplayView = require('itemui.views.item_display')
 
 local BankView = {}
+
+-- ---------------------------------------------------------------------------
+-- 20a: live vs snapshot stops being a tooltip on a checkbox and becomes the first thing
+-- you see. The window says which source it is showing, how old a snapshot is, and what
+-- the source holds — and the table itself dims when it is read-only.
+-- ---------------------------------------------------------------------------
+
+-- Header stat ("242 items · 918,402p"), cached: summing 240 rows every frame is exactly
+-- the per-frame recompute the perf pass removed elsewhere. Keyed on list length + source
+-- + snapshot time; a same-length rescan with an equal timestamp is indistinguishable and
+-- acceptably stale for a header line.
+local statCache = { key = nil, text = "" }
+
+local function bankStatText(list, bankOpen, lastBankCacheTime)
+    local n = #(list or {})
+    local key = string.format("%d|%s|%s", n, bankOpen and "L" or "S", tostring(lastBankCacheTime or 0))
+    if statCache.key ~= key then
+        local total = 0
+        for _, it in ipairs(list or {}) do total = total + (it.totalValue or 0) end
+        statCache.key = key
+        statCache.text = string.format("%d items · %s", n, ItemUtils.formatValue(total))
+    end
+    return statCache.text
+end
+
+--- "snapshot · 2d old" — the AGE of the cached list, humanized. A raw timestamp is
+--- furniture; the age is the fact you act on.
+local function bankSnapshotAgeText(ts)
+    ts = tonumber(ts) or 0
+    if ts <= 0 then return "no data yet" end
+    local age = os.time() - ts
+    if age < 0 then age = 0 end
+    if age < 3600 then return string.format("%dm old", math.max(1, math.floor(age / 60))) end
+    if age < 86400 then return string.format("%dh old", math.floor(age / 3600)) end
+    return string.format("%dd old", math.floor(age / 86400))
+end
+
+--- The chip line: source, age when stale, what it holds, and the input rule that applies.
+function BankView.renderSourceChip(ctx, list, bankOpen)
+    if bankOpen then
+        ctx.theme.TextSuccess("live")
+        ImGui.SameLine(0, 8)
+        ctx.theme.TextMuted(bankStatText(list, true, ctx.perfCache.lastBankCacheTime))
+        ImGui.SameLine(0, 8)
+        ctx.theme.TextInfo("shift + left-click moves an item to your bags")
+    else
+        ctx.theme.TextWarning("snapshot · " .. bankSnapshotAgeText(ctx.perfCache.lastBankCacheTime))
+        ImGui.SameLine(0, 8)
+        ctx.theme.TextMuted(bankStatText(list, false, ctx.perfCache.lastBankCacheTime))
+        ImGui.SameLine(0, 8)
+        if ctx.theme.TextFurniture then
+            ctx.theme.TextFurniture("read-only — open a bank to refresh")
+        else
+            ctx.theme.TextMuted("read-only — open a bank to refresh")
+        end
+    end
+end
 
 --- Resolve which list the bank surface shows (live items vs cached snapshot) and make
 --- sure the snapshot rows carry sell status before first paint. Shared by the classic
@@ -358,18 +422,10 @@ function BankView.render(ctx)
     ctx.renderRefreshButton(ctx, "Refresh##BankHeader", "Rescan bank", function() ctx.scanBank() end, { width = 80, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
     ImGui.Separator()
 
-    -- Bank status
-    if bankOpen then
-        ctx.theme.TextSuccess("Online")
-        ImGui.SameLine()
-        ctx.theme.TextInfo("— Shift+click item to move to inventory")
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window is open; hold Shift and left-click an item to move it to inventory"); ImGui.EndTooltip() end
-    else
-        ctx.theme.TextWarning("Offline")
-        ImGui.SameLine()
-        ctx.theme.TextMuted(ctx.perfCache.lastBankCacheTime > 0 and string.format("(last: %s)", os.date("%m/%d %H:%M", ctx.perfCache.lastBankCacheTime)) or "(no data)")
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Bank window closed; showing last saved snapshot"); ImGui.EndTooltip() end
-    end
+    -- 20a: the source chip replaces the old Online/Offline pair. It supersedes both — it
+    -- says the same thing plus the age, the holdings, and the input rule, in one line and
+    -- without a tooltip carrying the load.
+    BankView.renderSourceChip(ctx, list, bankOpen)
     ImGui.Separator()
 
     -- Search
@@ -381,13 +437,20 @@ function BankView.render(ctx)
     ImGui.SameLine()
     if ImGui.Button("X##BankSearchClear", ImVec2(22, 0)) then ctx.uiState.searchFilterBank = "" end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
-    if bankOpen then
-        ImGui.SameLine()
-        ctx.renderRefreshButton(ctx, "Refresh##Bank", "Rescan bank", function() ctx.scanBank() end, { width = 60, messageBefore = "Scanning bank...", messageAfter = "Bank refreshed" })
-    end
+    -- The second Refresh that used to sit here while the bank was open is gone: the header
+    -- already carries one, and two buttons doing the identical thing on one window is the
+    -- redundancy the §9 pass exists to delete.
     ImGui.Separator()
 
+    -- 20a: same table, dimmed, when it is a read-only snapshot. Push/pop OUTSIDE the
+    -- render call so a content throw can never strand the style var.
+    if not bankOpen then
+        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0.55)
+    end
     BankView.renderTable(ctx, list, bankOpen)
+    if not bankOpen then
+        ImGui.PopStyleVar(1)
+    end
 
     ImGui.End()
 end
@@ -401,10 +464,6 @@ registry.register({
     tooltip     = "View bank items; shift+click to move to inventory",
     layoutKeys  = { x = "BankWindowX", y = "BankWindowY" },
     enableKey   = "ShowBankWindow",
-    -- Phase 10 (23a): in bars mode the bank is a pane inside the merged Inventory hub,
-    -- so the standalone window is classic-only. A pinned classic Bank goes inert on a
-    -- live flip to bars (applyEnabledFromLayout force-closes it) — accepted by design.
-    classicOnly = true,
     render      = function(refs)
         local ctx = context.build()
         BankView.render(ctx)

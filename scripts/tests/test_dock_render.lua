@@ -570,7 +570,8 @@ do
     stub.hover = { dockmenubtn_hub = true }
     local r2 = stub.frame(function() dockBottom.render(ctx) end)
     check('bottom: hover opens the menu', #r2.windows == 2, table.concat(r2.windows, ','))
-    check('bottom: hub lists the merged Inventory', stub.drew(r2, 'Inventory (bags + bank)'),
+    check('bottom: hub lists Bags and Bank as separate rows (merge rolled back)',
+        stub.drew(r2, 'Bags##dockmenu_hub') and stub.drew(r2, 'Bank##dockmenu_bank'),
         table.concat(r2.buttons, '|'))
     check('bottom: hub lists the Item Display + Aug Utility pair',
         stub.drew(r2, 'Item Display + Augment Utility'), table.concat(r2.buttons, '|'))
@@ -578,7 +579,9 @@ do
         and stub.drew(r2, 'CHARACTER') and stub.drew(r2, 'LAYOUTS'), table.concat(r2.text, '|'))
     check('bottom: hub carries the layouts entries', stub.drew(r2, 'Re-tidy now'),
         table.concat(r2.buttons, '|'))
-    check('bottom: hub does NOT list bank as its own row', not stub.drew(r2, '##dockmenu_bank'),
+    check('bottom: the ID+AU pair is still ONE row (a real pair, unlike bags/bank)',
+        stub.drew(r2, '##dockmenu_pair_idau')
+        and not stub.drew(r2, '##dockmenu_itemDisplay') and not stub.drew(r2, '##dockmenu_augmentUtility'),
         table.concat(r2.buttons, '|'))
     check('bottom: balanced with the menu open', stub.balanced(r2), stub.imbalance(r2))
 
@@ -772,8 +775,9 @@ do
     local q = uiState.dockActionQueue
     check('buttons: the Bank half enqueues instead of acting inline', q and #q >= 1, q and #q)
     local a = q and q[#q]
-    check('buttons: the Bank half routes to the merged hub',
-        a and a.kind == 'hub', a and tostring(a.kind))
+    check('buttons: the Bank half toggles the Bank WINDOW (not the hub)',
+        a and a.kind == 'window' and a.id == 'bank' and a.toggle == true,
+        a and (tostring(a.kind) .. '/' .. tostring(a.id)))
 
     resetInput()
     stub.click = { dockbtn_bagsbank_1 = true }

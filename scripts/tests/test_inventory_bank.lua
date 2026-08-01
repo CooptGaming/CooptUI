@@ -1,16 +1,14 @@
--- Phase 10 (23a) merge suite: the split of inventory.lua into toolbar/table, the bank
--- table extraction, and the merged two-pane content the bars-mode hub hosts.
+-- Inventory + Bank suite. The phase-10 two-pane merge these views were split for was
+-- ROLLED BACK (bags and bank are separate windows again, aligned by window_zones), but
+-- the split and its invariants survived and are what this guards:
 --
--- Like the other render suites this proves balance and behaviour, not pixels:
---   1. Classic composition (render = toolbar + table) draws and ends balanced — the
---      acceptance bar is "classic renders exactly what it rendered before the split".
---   2. renderMergedContent builds both panes, passes ResizeX + NoSavedSettings on the
---      bags child (the load-bearing pairing: without NoSavedSettings ImGui persists the
---      child size to its own ini and fights the layout INI), and clamps the splitter.
---   3. The one-toolbar rule: the merged search filters BOTH panes.
---   4. The 20a chip: live vs snapshot-with-age is drawn, table dims only in snapshot,
---      and every push/pop pair survives an injected throw inside either pane's table.
---   5. ShowBankWindow=0 renders the classic single-pane shape (no bank child).
+--   1. Classic/bars composition: render = toolbar + table, drawing balanced.
+--   2. BankView.resolveList picks live vs snapshot per source.
+--   3. The 20a source chip - live vs snapshot-with-age, what the source holds, and the
+--      rule that applies - now in the standalone Bank window's own header.
+--   4. The pcall sits INSIDE BeginTable/EndTable in BOTH views: a throw that skips
+--      EndTable is a C++ ImGuiException MQ2Lua answers by killing the script.
+--   5. Bank carries no classicOnly flag, which is what re-arms zone placement for it.
 
 local repo = os.getenv('COOPT_REPO') or 'C:/Claude/CooptUI'
 package.path = repo .. '/lua/?.lua;' .. repo .. '/lua/?/init.lua;'
@@ -80,7 +78,7 @@ local function makeCtx(over)
             inv = {}, bank = {},
             invTotalSlots = 80, invTotalValue = 1234,
         },
-        layoutConfig = { UIMode = 'bars', ShowBankWindow = 1, InventoryBankSplitX = 0 },
+        layoutConfig = { UIMode = 'bars', ShowBankWindow = 1 },
         inventoryItems = makeItems('Inv', 4),
         bankItems = makeItems('BankLive', 3),
         bankCache = makeItems('BankSnap', 5),
@@ -129,22 +127,14 @@ local function makeCtx(over)
     return ctx
 end
 
-local function childArg(r, name)
-    for _, c in ipairs(r.childArgs) do
-        if c.name == name then return c end
-    end
-    return nil
-end
-
 -- ---------------------------------------------------------------- 1. classic shape
 do
-    local ctx = makeCtx({ layoutConfig = { UIMode = 'classic', ShowBankWindow = 1, InventoryBankSplitX = 0 } })
+    local ctx = makeCtx({ layoutConfig = { UIMode = 'classic', ShowBankWindow = 1 } })
     local r = stub.frame(function() InventoryView.render(ctx, false) end)
     check('classic: render draws without error', r.ok, r.err)
     check('classic: stacks balanced', stub.balanced(r))
     check('classic: table body ran (rows drawn)', stub.drew(r, 'Inv Item 1'))
     check('classic: items/value status line drawn', stub.drew(r, 'Items: 4 / 80'))
-    check('classic: no merged panes', childArg(r, 'MergedBagsPane') == nil and childArg(r, 'MergedBankPane') == nil)
 end
 
 -- ---------------------------------------------------------------- 2. bank table extraction
@@ -159,106 +149,68 @@ do
     check('bank: renderTable balanced', stub.balanced(r))
 end
 
--- ---------------------------------------------------------------- 3. merged content
+-- ---------------------------------------------------------------- 3. the 20a source chip
+-- Salvaged from the merge suite: the chip is the one part of phase 10 that survived the
+-- rollback, and it now lives in the standalone Bank window's own header.
 do
-    stub.contentAvail = { 1000, 600 }
-    stub.windowSize = { 550, 0 }  -- child reports the width we pass = no drag
     local ctx = makeCtx()
-    local r = stub.frame(function() InventoryView.renderMergedContent(ctx, false) end)
-    check('merged: draws without error', r.ok, r.err)
-    check('merged: stacks balanced', stub.balanced(r))
-    local bags = childArg(r, 'MergedBagsPane')
-    local bank = childArg(r, 'MergedBankPane')
-    check('merged: both panes exist', bags ~= nil and bank ~= nil)
-    if bags then
-        local wantChild = bit32.bor(ImGuiChildFlags.Borders, ImGuiChildFlags.ResizeX)
-        check('merged: bags child uses ResizeX child flags', bags.c == wantChild, tostring(bags.c))
-        check('merged: bags child pairs NoSavedSettings', bags.d == ImGuiWindowFlags.NoSavedSettings, tostring(bags.d))
-        check('merged: auto split = 55% of avail', bags.a == 550, tostring(bags.a))
-    end
-    check('merged: both tables drew rows', stub.drew(r, 'Inv Item 1') and stub.drew(r, 'BankSnap Item 1'))
-    check('merged: snapshot chip drawn with age', stub.drew(r, 'snapshot · 2d old'))
-    check('merged: snapshot stat line drawn', stub.drew(r, '5 items · 1500p'))
-    check('merged: read-only hint drawn', stub.drew(r, 'read-only — open a bank to refresh'))
-    check('merged: no drag -> no split persist', ctx._calls.scheduleLayoutSave == 0 and ctx.layoutConfig.InventoryBankSplitX == 0)
-    check('merged: one search, both panes', ctx.uiState.searchFilterBank == ctx.uiState.searchFilterInv)
+    local list = BankView.resolveList(ctx, false)
+    local r = stub.frame(function() BankView.renderSourceChip(ctx, list, false) end)
+    check('chip snapshot: says snapshot with a humanized age', r.ok and stub.drew(r, 'snapshot · 2d old'),
+        table.concat(r.text, '|'))
+    check('chip snapshot: states what the source holds', stub.drew(r, '5 items · 1500p'),
+        table.concat(r.text, '|'))
+    check('chip snapshot: says why it is read-only', stub.drew(r, 'read-only — open a bank to refresh'),
+        table.concat(r.text, '|'))
+    check('chip snapshot: balanced', stub.balanced(r))
 
-    -- live source: chip flips, no dim
     local ctxLive = makeCtx({ isBankWindowOpen = function() return true end })
-    local rLive = stub.frame(function() InventoryView.renderMergedContent(ctxLive, true) end)
-    check('merged live: chip says live', rLive.ok and stub.drew(rLive, 'live'), rLive.err)
-    check('merged live: live rows drawn', stub.drew(rLive, 'BankLive Item 1'))
-    check('merged live: balanced', stub.balanced(rLive))
+    local liveList = BankView.resolveList(ctxLive, true)
+    local rLive = stub.frame(function() BankView.renderSourceChip(ctxLive, liveList, true) end)
+    check('chip live: says live', rLive.ok and stub.drew(rLive, 'live'), table.concat(rLive.text, '|'))
+    check('chip live: states the input rule', stub.drew(rLive, 'shift + left-click moves an item to your bags'),
+        table.concat(rLive.text, '|'))
+    check('chip live: counts the LIVE list, not the snapshot', stub.drew(rLive, '3 items · 600p'),
+        table.concat(rLive.text, '|'))
+    check('chip live: balanced', stub.balanced(rLive))
+
+    -- The stat is cached on (length, source, snapshot time). Flipping source alone must
+    -- re-key it, or a live bank would report the snapshot's holdings forever.
+    local rBack = stub.frame(function() BankView.renderSourceChip(ctx, list, false) end)
+    check('chip: cache re-keys on source flip', stub.drew(rBack, '5 items · 1500p'),
+        table.concat(rBack.text, '|'))
 end
 
--- ---------------------------------------------------------------- 4. splitter behaviour
+-- ---------------------------------------------------------------- 4. throw containment
 do
-    -- stored width honored + clamped
-    stub.contentAvail = { 1000, 600 }
-    stub.windowSize = { 900, 0 }
-    local ctx = makeCtx()
-    ctx.layoutConfig.InventoryBankSplitX = 5000  -- absurd: must clamp to avail - min pane
-    local r = stub.frame(function() InventoryView.renderMergedContent(ctx, false) end)
-    local bags = childArg(r, 'MergedBagsPane')
-    check('splitter: clamped to avail - MIN', bags and bags.a == 780, bags and tostring(bags.a))
-
-    -- drag: measured (900) differs from passed (780) -> persisted once
-    check('splitter: drag persisted', ctx.layoutConfig.InventoryBankSplitX == 900
-        and ctx._calls.scheduleLayoutSave == 1, tostring(ctx.layoutConfig.InventoryBankSplitX))
-
-    -- narrow region: halve rather than 0-width a pane
-    stub.contentAvail = { 300, 600 }
-    stub.windowSize = { 150, 0 }
-    local ctx2 = makeCtx()
-    local r2 = stub.frame(function() InventoryView.renderMergedContent(ctx2, false) end)
-    local bags2 = childArg(r2, 'MergedBagsPane')
-    check('splitter: narrow region halves', bags2 and bags2.a == 150, bags2 and tostring(bags2.a))
-    check('splitter: narrow region balanced', stub.balanced(r2))
-end
-
--- ---------------------------------------------------------------- 5. gate + cursor ring
-do
-    stub.contentAvail = { 1000, 600 }
-    stub.windowSize = { 550, 0 }
-    local ctx = makeCtx()
-    ctx.layoutConfig.ShowBankWindow = 0
-    local r = stub.frame(function() InventoryView.renderMergedContent(ctx, false) end)
-    check('gate: ShowBankWindow=0 -> classic shape', r.ok and childArg(r, 'MergedBagsPane') == nil
-        and childArg(r, 'MergedBankPane') == nil, r.err)
-    check('gate: rows still drawn', stub.drew(r, 'Inv Item 1'))
-    check('gate: balanced', stub.balanced(r))
-
-    -- carrying an item rings the bags pane: border color + 2px pushed AND popped
-    local ctx2 = makeCtx({ hasItemOnCursor = function() return true end })
-    local r2 = stub.frame(function() InventoryView.renderMergedContent(ctx2, false) end)
-    check('ring: carrying draws and stays balanced', r2.ok and stub.balanced(r2), r2.err)
-end
-
--- ---------------------------------------------------------------- 6. throw containment
-do
-    stub.contentAvail = { 1000, 600 }
-    stub.windowSize = { 550, 0 }
-    -- A throw inside either pane's table must cost the frame's content, never the stacks:
-    -- EndChild is unconditional and the snapshot Alpha pair sits outside the pcall'd body.
+    -- The pcall lives INSIDE BeginTable/EndTable in both views: a throw that skips
+    -- EndTable is a C++ ImGuiException MQ2Lua answers by killing the script. This is the
+    -- invariant the merge left behind, and it is why the table bodies are split out.
     stub.throwOn = { TableSetupScrollFreeze = true }
     local ctx = makeCtx()
-    local r = stub.frame(function() InventoryView.renderMergedContent(ctx, false) end)
+    local r = stub.frame(function() InventoryView.render(ctx, false) end)
+    local ctxB = makeCtx()
+    local rB = stub.frame(function() BankView.renderTable(ctxB, BankView.resolveList(ctxB, false), false) end)
     stub.throwOn = {}
-    check('throw: content throw contained', r.ok, r.err)
-    check('throw: stacks balanced after pane throw', stub.balanced(r),
+    check('throw: inventory content throw contained', r.ok, r.err)
+    check('throw: inventory stacks balanced', stub.balanced(r),
         string.format('win=%d child=%d sv=%d sc=%d tbl=%d', r.depth.win, r.depth.child, r.depth.sv, r.depth.sc, r.depth.tbl))
+    check('throw: bank content throw contained', rB.ok, rB.err)
+    check('throw: bank stacks balanced', stub.balanced(rB),
+        string.format('win=%d child=%d sv=%d sc=%d tbl=%d', rB.depth.win, rB.depth.child, rB.depth.sv, rB.depth.sc, rB.depth.tbl))
 end
 
--- ---------------------------------------------------------------- 7. registry gate
+-- ---------------------------------------------------------------- 5. registry
 do
+    -- The merge made bank classicOnly. The rollback removes that: bank is a real window
+    -- in BOTH modes, which is what re-arms window_zones placement (it can only place a
+    -- module it can see open).
     registry.init({ layoutConfig = { UIMode = 'bars' } })
-    check('registry: bank hidden in bars (classicOnly)', registry.isEnabled('bank') == false)
+    check('registry: bank is offered in bars again (no classicOnly)', registry.isEnabled('bank') == true)
     registry.init({ layoutConfig = { UIMode = 'classic' } })
     check('registry: bank offered in classic', registry.isEnabled('bank') == true)
 end
 
 -- ---------------------------------------------------------------- report
-stub.windowSize = nil
-stub.contentAvail = nil
 print(string.format('\n%d passed, %d failed', pass, fail))
 if fail > 0 then os.exit(1) end

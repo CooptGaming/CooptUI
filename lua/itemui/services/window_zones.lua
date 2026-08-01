@@ -450,6 +450,17 @@ local function placeWindow(id, cascadeIndex)
     c[g.x], c[g.y] = x, y
     lastPlaced[id] = { x = x, y = y }
     lastSeen[id] = { x = x, y = y }
+    -- Landed FLUSH against the hub's right edge, same top? Then it is a pair, and a pair
+    -- should travel with the hub — record the attachment the magnet would have recorded
+    -- had the user dragged it there by hand, so hub-follow picks it up. Without this the
+    -- alignment is a one-time placement the first hub drag destroys, and the user has to
+    -- discover the magnet to get it back. Never overrides an existing attachment.
+    if hub and not attachments[id] then
+        if math.abs(x - (hub.x + hub.w + M.GAP)) < 1 and math.abs(y - hub.y) < 1 then
+            attachments[id] = { target = "hub", edge = "right", align = "top" }
+            persistAttachments()
+        end
+    end
     return true
 end
 
@@ -644,6 +655,16 @@ function M.tick(now)
                             attachments[id] = nil
                             persistAttachments()
                         end
+                    elseif attachments[id] then
+                        -- Alt held: no snap, AND release any attachment this window had.
+                        -- Alt is the "I am placing this myself" gesture, so a window the
+                        -- user alt-drags away must not come sliding back on the next hub
+                        -- move. Before placement could auto-attach (bank, flush beside the
+                        -- hub) this branch had nothing to do, so skipping the whole block
+                        -- was equivalent; now it is the difference between alt meaning
+                        -- "don't attach" and alt meaning "don't manage this at all".
+                        attachments[id] = nil
+                        persistAttachments()
                     end
                 end
                 if r then lastSeen[id] = { x = r.x, y = r.y } end

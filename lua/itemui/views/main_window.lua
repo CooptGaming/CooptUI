@@ -95,14 +95,7 @@ local function renderInventoryContent(refs)
     if merchOpen or simulateSellView then
         SellView.render(ctx, simulateSellView)
     else
-        -- Phase 10 (23a): in bars mode the hub IS the merged Inventory — Bags and Bank as
-        -- two panes behind one toolbar. Classic keeps the standalone shape byte-for-byte
-        -- (acceptance §14.1), and the standalone Bank window is classicOnly to match.
-        if tostring(ctx.layoutConfig.UIMode or "classic") == "bars" then
-            InventoryView.renderMergedContent(ctx, bankOpen)
-        else
-            InventoryView.render(ctx, bankOpen)
-        end
+        InventoryView.render(ctx, bankOpen)
     end
 end
 
@@ -515,6 +508,19 @@ function M.render(refs)
             if registry.shouldDraw("bank") and (layoutConfig.BankWindowX or 0) == 0 and (layoutConfig.BankWindowY or 0) == 0 then
                 layoutConfig.BankWindowX = hubX + hubW + defGap
                 layoutConfig.BankWindowY = hubY
+                -- Bags and Bank read as a PAIR without being one window (the phase-10
+                -- merge was rolled back): flush beside the hub, same Y, and the same
+                -- height. Height is matched only here, on the one-shot (0,0) seed, so a
+                -- hand-resize sticks forever after. layoutRevertedApplyFrames is the
+                -- existing lever that makes a fresh size actually apply — bank.lua sizes
+                -- with FirstUseEver otherwise, which ImGui ignores for a window it has
+                -- already seen. In bars, window_zones re-places on the open edge and
+                -- keeps the pair together from then on.
+                if hubH and hubH > 0 then
+                    layoutConfig.HeightBank = hubH
+                    uiState.layoutRevertedApplyFrames = math.max(
+                        tonumber(uiState.layoutRevertedApplyFrames) or 0, 3)
+                end
             end
             if registry.shouldDraw("scripttracker") and (layoutConfig.ScriptTrackerWindowX or 0) == 0 and (layoutConfig.ScriptTrackerWindowY or 0) == 0 then
                 layoutConfig.ScriptTrackerWindowX = hubX + hubW + defGap
