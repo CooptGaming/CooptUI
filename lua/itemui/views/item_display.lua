@@ -263,16 +263,16 @@ local function renderVerdictBox(ctx, cmp, equippedItem, hasWornSlot, isSelfView)
     if ImGui.BeginChild("##ItemDisplayVerdict", ImVec2(0, constants.UI.ITEM_DISPLAY_VERDICT_HEIGHT), true) then
         if cmp.verdict == "none" and isSelfView then
             ctx.theme.TextMuted("No comparison needed")
-            ImGui.TextWrapped("This is your equipped item — open a bag copy or another candidate to compare.")
+            ImGui.TextWrapped("This is your equipped item - open a bag copy or another candidate to compare.")
         elseif cmp.verdict == "none" then
             ctx.theme.TextMuted("No comparison available")
-            ImGui.TextWrapped("Nothing is equipped there right now, or the comparison data isn't fresh — equip something, or open Equipment once, to compare.")
+            ImGui.TextWrapped("Nothing is equipped there right now, or the comparison data isn't fresh - equip something, or open Equipment once, to compare.")
         else
             local eqName = (equippedItem and equippedItem.name and equippedItem.name ~= "") and equippedItem.name or "your current item"
             local headline
             if cmp.verdict == "upgrade" then headline = "Upgrade over " .. eqName
             elseif cmp.verdict == "downgrade" then headline = "Downgrade from " .. eqName
-            else headline = "Sidegrade — similar to " .. eqName end
+            else headline = "Sidegrade - similar to " .. eqName end
             ImGui.TextColored(color, headline)
             ctx.theme.TextMuted(cmp.summary ~= "" and cmp.summary or "No stat difference.")
         end
@@ -1038,7 +1038,7 @@ local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
                             local showItem = ctx.getItemStatsForTooltip({ bag = r.bag, slot = r.slot }, r.source)
                             if showItem and showItem.id and showItem.id ~= 0 then
                                 local label = (showItem.name and showItem.name ~= "" and showItem.name:sub(1, 35)) or "Item"
-                                if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+                                if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "..." end
                                 tabs[#tabs + 1] = { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label }
                                 state.itemDisplayActiveTabIndex = #tabs
                             end

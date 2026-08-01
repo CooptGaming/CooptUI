@@ -31,7 +31,7 @@ local SCREEN_TITLES = {
 -- Steps where user configures sizing/reshaping include "Click Next to save and proceed."
 local HEADER_PROMPTS = {
     [2]  = "Resize the window, reorder columns, and adjust column widths to your liking. When done, click Next to save and proceed.",
-    [4]  = "Resize the Sell window and adjust columns as you like. No merchant needed — this is a simulated view. When done, click Next to save and proceed.",
+    [4]  = "Resize the Sell window and adjust columns as you like. No merchant needed - this is a simulated view. When done, click Next to save and proceed.",
     [6]  = "Open and resize the Bank companion window to your preference. When done, click Next to save and proceed.",
     [8]  = "All companion windows are now open. Drag and resize each one to fit your screen. When done, click Next to save and proceed.",
     [9]  = "Review the three layers of protection (Sell, Loot, Epic). Additional settings are in the Settings window. Click Next to continue.",
@@ -109,7 +109,7 @@ local function renderWelcomeScreen(refs)
     local allowProceed = not hasFailure or uiState.welcomeEnvAcknowledged
     if refs.defaultLayoutAppliedThisRun and refs.defaultLayoutAppliedThisRun() then
         ImGui.Spacing()
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied — your windows are pre-arranged. Revert anytime from Settings.")
+        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "A default window layout has been applied - your windows are pre-arranged. Revert anytime from Settings.")
     end
     ImGui.Spacing()
 
@@ -397,8 +397,8 @@ local function renderProtectionOverviewOverlay(refs)
     ImGui.TextColored(theme.ToVec4(theme.Colors.Header), "Protecting Your Items")
     ImGui.Separator()
     ImGui.TextWrapped("Before you use automatic selling and looting, you'll set up three layers of protection:")
-    bulletWrapped("Sell Protection (next step): Flags that prevent certain item types from ever being sold — NoDrop, NoTrade, Lore, and more.")
-    bulletWrapped("Loot Rules (after that): Control what gets picked up automatically — quest items, collectibles, minimum value thresholds.")
+    bulletWrapped("Sell Protection (next step): Flags that prevent certain item types from ever being sold - NoDrop, NoTrade, Lore, and more.")
+    bulletWrapped("Loot Rules (after that): Control what gets picked up automatically - quest items, collectibles, minimum value thresholds.")
     bulletWrapped("Epic Protection (final config): Class-specific epic quest items that should never be sold and always be looted.")
     ImGui.Spacing()
     ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "The lists for all three can be maintained anytime in the Settings window. Additional options are available there.")

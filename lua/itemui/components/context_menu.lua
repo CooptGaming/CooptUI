@@ -71,7 +71,7 @@ local function whereString(item, env)
     if env.where and env.where ~= "" then return env.where end
     local ctxName = env.context
     if ctxName == "bank" then
-        return string.format("Bank %s · Slot %s", tostring(item.bag or "?"), tostring(item.slot or "?"))
+        return string.format("Bank %s . Slot %s", tostring(item.bag or "?"), tostring(item.slot or "?"))
     elseif ctxName == "equipped" then
         return "Equipped"
     elseif ctxName == "augInserted" then
@@ -81,7 +81,7 @@ local function whereString(item, env)
     elseif ctxName == "effect" then
         return tostring(item.kind or "effect")
     end
-    return string.format("Bag %s · Slot %s", tostring(item.bag or "?"), tostring(item.slot or "?"))
+    return string.format("Bag %s . Slot %s", tostring(item.bag or "?"), tostring(item.slot or "?"))
 end
 
 --- Run game Inspect on the item (TLO) based on its raw source. Menu-open-only TLO.
@@ -318,7 +318,7 @@ ROWS = {
         id = "useBook", group = "move", families = { book = true },
         contexts = { bags = true, bank = true },
         applies = function(_, item) return item.bag ~= nil and item.slot ~= nil end,
-        label = function() return "Use it — consumed on use" end,
+        label = function() return "Use it - consumed on use" end,
         action = function(ctx, item, env)
             local notifyLoc = (env.source == "bank") and "bank" or "pack"
             mq.cmdf('/itemnotify in %s%d %d rightmouseup', notifyLoc, item.bag, item.slot)
@@ -356,7 +356,7 @@ ROWS = {
         id = "scriptSome", group = "move", families = { script = true },
         contexts = { bags = true, bank = true },
         applies = function() return true end,
-        label = function() return "Add some to Alt Currency…" end,
+        label = function() return "Add some to Alt Currency..." end,
         action = function(ctx, item, env)
             local maxQty = (item.stackSize and item.stackSize > 0) and item.stackSize or 1
             ctx.uiState.pendingQuantityPickup = {
@@ -429,7 +429,7 @@ ROWS = {
         applies = function(ctx, _, env)
             return ctx.applySellListChange ~= nil and env.sellListSource
         end,
-        label = function() return "Keep it — never sold" end,
+        label = function() return "Keep it - never sold" end,
         checked = function(ctx, item) local k = select(1, sellListState(ctx, item)); return k end,
         action = function(ctx, item)
             local inKeep, inJunk = sellListState(ctx, item)
@@ -526,7 +526,7 @@ ROWS = {
             return other == true
         end,
         label = function(_, _, env)
-            return (env._rerollList == "mythical") and "Reroll it (Aug) — old routing" or "Reroll it (Mythical) — old routing"
+            return (env._rerollList == "mythical") and "Reroll it (Aug) - old routing" or "Reroll it (Mythical) - old routing"
         end,
         checked = function() return true end,
         action = function(ctx, item, env)
@@ -646,7 +646,7 @@ ROWS = {
         contexts = { augInserted = true },
         destructive = true, shiftGated = true,
         applies = function(_, _, env) return env.onRemoveAugment ~= nil end,
-        label = function() return "Remove it — uses a distiller" end,
+        label = function() return "Remove it - uses a distiller" end,
         action = function(_, _, env) env.onRemoveAugment() end,
     },
     {
@@ -669,7 +669,7 @@ ROWS = {
         end,
         label = function(_, item)
             local stack = (item.stackSize and item.stackSize > 1) and item.stackSize or nil
-            if stack then return string.format("Destroy it — the whole stack of %d", stack) end
+            if stack then return string.format("Destroy it - the whole stack of %d", stack) end
             return "Destroy it"
         end,
         blocked = function(ctx, item)
@@ -714,13 +714,13 @@ local function renderRow(row, ctx, item, env)
 
     if reason then
         -- Rule 3: stays in place, reason in the row, no tooltip.
-        ImGui.MenuItem(label .. " — " .. reason, nil, false, false)
+        ImGui.MenuItem(label .. " - " .. reason, nil, false, false)
         return
     end
 
     if row.shiftGated and not shiftHeld then
         -- Rule 6: the row itself says which modifier.
-        ImGui.MenuItem(label .. " — hold shift", nil, false, false)
+        ImGui.MenuItem(label .. " - hold shift", nil, false, false)
         return
     end
 

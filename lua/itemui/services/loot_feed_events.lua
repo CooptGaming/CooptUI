@@ -42,10 +42,10 @@ local function onLootItemLine(line)
     local LOOT_HISTORY_MAX = (deps and deps.LOOT_HISTORY_MAX) or 100
     if not uiState then return end
 
-    local statusText, willSell = "—", false
+    local statusText, willSell = "-", false
     if getSellStatusForItem then
         statusText, willSell = getSellStatusForItem({ name = name })
-        if statusText == "" then statusText = "—" end
+        if statusText == "" then statusText = "-" end
     end
 
     -- Current tab is populated only when macro completes (session read); events only update Loot History

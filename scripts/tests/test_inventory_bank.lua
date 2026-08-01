@@ -103,7 +103,7 @@ local function makeCtx(over)
         hasItemOnCursor = function() return false end,
         shouldHideRowForCursor = function() return false end,
         getSessionStartAcquiredSeq = function() return nil end,
-        resolveSellStatusDisplay = function() return '—', ImVec4(1, 1, 1, 1) end,
+        resolveSellStatusDisplay = function() return '-', ImVec4(1, 1, 1, 1) end,
         getSellStatusNameColor = function() return ImVec4(1, 1, 1, 1) end,
         renderItemContextMenu = function() end,
         renderRefreshButton = function() end,
@@ -156,11 +156,11 @@ do
     local ctx = makeCtx()
     local list = BankView.resolveList(ctx, false)
     local r = stub.frame(function() BankView.renderSourceChip(ctx, list, false) end)
-    check('chip snapshot: says snapshot with a humanized age', r.ok and stub.drew(r, 'snapshot · 2d old'),
+    check('chip snapshot: says snapshot with a humanized age', r.ok and stub.drew(r, 'snapshot . 2d old'),
         table.concat(r.text, '|'))
-    check('chip snapshot: states what the source holds', stub.drew(r, '5 items · 1500p'),
+    check('chip snapshot: states what the source holds', stub.drew(r, '5 items . 1500p'),
         table.concat(r.text, '|'))
-    check('chip snapshot: says why it is read-only', stub.drew(r, 'read-only — open a bank to refresh'),
+    check('chip snapshot: says why it is read-only', stub.drew(r, 'read-only - open a bank to refresh'),
         table.concat(r.text, '|'))
     check('chip snapshot: balanced', stub.balanced(r))
 
@@ -170,14 +170,14 @@ do
     check('chip live: says live', rLive.ok and stub.drew(rLive, 'live'), table.concat(rLive.text, '|'))
     check('chip live: states the input rule', stub.drew(rLive, 'shift + left-click moves an item to your bags'),
         table.concat(rLive.text, '|'))
-    check('chip live: counts the LIVE list, not the snapshot', stub.drew(rLive, '3 items · 600p'),
+    check('chip live: counts the LIVE list, not the snapshot', stub.drew(rLive, '3 items . 600p'),
         table.concat(rLive.text, '|'))
     check('chip live: balanced', stub.balanced(rLive))
 
     -- The stat is cached on (length, source, snapshot time). Flipping source alone must
     -- re-key it, or a live bank would report the snapshot's holdings forever.
     local rBack = stub.frame(function() BankView.renderSourceChip(ctx, list, false) end)
-    check('chip: cache re-keys on source flip', stub.drew(rBack, '5 items · 1500p'),
+    check('chip: cache re-keys on source flip', stub.drew(rBack, '5 items . 1500p'),
         table.concat(rBack.text, '|'))
 end
 

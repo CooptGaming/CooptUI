@@ -55,7 +55,7 @@ function InventoryView.renderToolbar(ctx, bankOpen)
     ImGui.Separator()
 
     if bankOpen then
-        ctx.theme.TextSuccess("Bank open — Shift+click item to move to bank")
+        ctx.theme.TextSuccess("Bank open - Shift+click item to move to bank")
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Hold Shift and left-click an item to move it to bank (or to inventory from the Bank Companion)"); ImGui.EndTooltip() end
     else
         -- Current items / total bag (container) spaces (cached; invalidated on scan/move)

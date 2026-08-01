@@ -83,7 +83,7 @@ function Columns.getCellDisplayText(item, colKey, view)
     elseif colKey == "InstrumentMod" then return tostring(item.instrumentMod or 0)
     elseif colKey == "Acquired" then
         local seq = item.acquiredSeq
-        if not seq or seq == 0 then return "—" end
+        if not seq or seq == 0 then return "-" end
         return "#" .. tostring(seq)
     elseif colKey == "Status" then return (view == "Sell" and (item.sellReason or "")) or (view == "Bank" and "") or ""
     elseif colKey == "NoDrop" then return item.nodrop and "Yes" or "No"

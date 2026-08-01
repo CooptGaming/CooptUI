@@ -283,7 +283,7 @@ local function loadLootHistoryFromFile()
             table.insert(uiState.lootHistory, {
                 name = parts[1] or "",
                 value = tonumber(parts[2]) or 0,
-                statusText = parts[3] or "—",
+                statusText = parts[3] or "-",
                 willSell = (parts[4] == "1")
             })
         end
@@ -298,7 +298,7 @@ local function saveLootHistoryToFile()
     local lines = { "[History]" }
     lines[#lines + 1] = "count=" .. #uiState.lootHistory
     for i, row in ipairs(uiState.lootHistory) do
-        local val = string.format("%s%s%d%s%s%s%s", row.name or "", LOOT_HISTORY_DELIM, row.value or 0, LOOT_HISTORY_DELIM, row.statusText or "—", LOOT_HISTORY_DELIM, row.willSell and "1" or "0")
+        local val = string.format("%s%s%d%s%s%s%s", row.name or "", LOOT_HISTORY_DELIM, row.value or 0, LOOT_HISTORY_DELIM, row.statusText or "-", LOOT_HISTORY_DELIM, row.willSell and "1" or "0")
         lines[#lines + 1] = string.format("%d=%s", i, val)
     end
     file_safe.safeWrite(path, table.concat(lines, "\n"))
@@ -739,14 +739,14 @@ columns.init({availableColumns=availableColumns, columnVisibility=columnVisibili
 -- getStatusForSort used for Inventory Status column alphabetical sort (must match displayed text, e.g. Epic -> EpicQuest)
 local function getStatusForSort(item)
     if item and item.sellReason ~= nil then
-        local st = (item.sellReason and item.sellReason ~= "") and item.sellReason or "—"
+        local st = (item.sellReason and item.sellReason ~= "") and item.sellReason or "-"
         if st == "Epic" then return "EpicQuest" end
         return st
     end
     if not getSellStatusForItem then return "" end
     local st, _ = getSellStatusForItem(item)
     if st == "Epic" then return "EpicQuest" end
-    return (st and st ~= "") and st or "—"
+    return (st and st ~= "") and st or "-"
 end
 sortUtils.init({getItemSpellId=getItemSpellId, getSpellName=getSpellName, getStatusForSort=getStatusForSort})
 
@@ -827,7 +827,7 @@ local function addItemDisplayTab(item, source)
     source = source or "inv"
     local showItem = getItemStatsForTooltipRef(item, source) or item
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
-    if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "…" end
+    if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "..." end
     local idState = ItemDisplayView.getState()
     -- If this item already has a tab, switch to it instead of adding a duplicate
     for idx, tab in ipairs(idState.itemDisplayTabs) do
@@ -1518,7 +1518,7 @@ local function main()
         mq.delay(1000)
         waitIter = waitIter + 1
         if waitIter >= 30 then
-            print("[CoOpt UI] Timed out waiting for character TLO after 30s — proceeding anyway.")
+            print("[CoOpt UI] Timed out waiting for character TLO after 30s - proceeding anyway.")
             break
         end
     end

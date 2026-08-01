@@ -47,7 +47,7 @@ function LootView.render(ctx)
     for _, it in ipairs(ctx.lootItems) do
         if it.willLoot then lootCount = lootCount + 1 else skipCount = skipCount + 1 end
     end
-    ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Success), string.format("Will Loot: %d  ·  Will Skip: %d", lootCount, skipCount))
+    ImGui.TextColored(ctx.theme.ToVec4(ctx.theme.Colors.Success), string.format("Will Loot: %d  .  Will Skip: %d", lootCount, skipCount))
     ImGui.Separator()
     
     if ImGui.BeginTable("ItemUI_Loot", 6, ctx.uiState.tableFlags) then

@@ -516,13 +516,13 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
                 local tribute = tonumber(tribStr) or 0
                 local entry = {
                     name = name, value = value, tribute = tribute,
-                    statusText = "—", willSell = false
+                    statusText = "-", willSell = false
                 }
                 table.insert(uiState.lootRunLootedList, name)
                 table.insert(uiState.lootRunLootedItems, entry)
                 local histEntry = nil
                 if uiState.enableLootHistory then
-                    histEntry = { name = name, value = value, statusText = "—", willSell = false }
+                    histEntry = { name = name, value = value, statusText = "-", willSell = false }
                     table.insert(uiState.lootHistory, histEntry)
                     local lhist = uiState.lootHistory
                     local lover = #lhist - LOOT_HISTORY_MAX

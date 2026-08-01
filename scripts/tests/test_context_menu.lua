@@ -149,7 +149,7 @@ do
     local spies = newSpies()
     local ctx = newCtx(spies)
     local r = render(ctx, plainItem(), { source = 'inv', bankOpen = false })
-    check('blocked: Bank it present with reason', stub.drew(r, 'Bank it — no banker nearby'))
+    check('blocked: Bank it present with reason', stub.drew(r, 'Bank it - no banker nearby'))
 
     stub.click = { ['Bank it'] = true }
     render(ctx, plainItem(), { source = 'inv', bankOpen = false })
@@ -164,7 +164,7 @@ do
         #spies.moves)
 
     local r2 = render(ctx, plainItem(), { source = 'bank', bankOpen = false })
-    check('blocked: Take it out present with reason in bank context', stub.drew(r2, 'Take it out — no banker nearby'))
+    check('blocked: Take it out present with reason in bank context', stub.drew(r2, 'Take it out - no banker nearby'))
 end
 
 -- ---------------------------------------------------------------- rule 4: ✓ toggles
@@ -204,7 +204,7 @@ do
     local ctx = newCtx(spies)
     stub.keys = {}
     local r = render(ctx, plainItem(), { source = 'inv' })
-    check('destroy: row says hold shift', stub.drew(r, 'Destroy it — hold shift'))
+    check('destroy: row says hold shift', stub.drew(r, 'Destroy it - hold shift'))
 
     stub.click = { ['Destroy it'] = true }
     render(ctx, plainItem(), { source = 'inv' })
@@ -230,7 +230,7 @@ do
     local r3 = render(ctx2, plainItem(), { source = 'inv' })
     stub.click = {}
     stub.keys = {}
-    check('destroy: Clicky-list protection blocks in-row', stub.drew(r3, 'Destroy it — on a Clicky list'))
+    check('destroy: Clicky-list protection blocks in-row', stub.drew(r3, 'Destroy it - on a Clicky list'))
     check('destroy: protected never destroys', #spies2.destroys == 0)
 end
 
@@ -356,7 +356,7 @@ do
     local spies2 = newSpies()
     local ctx2 = newCtx(spies2)
     local book = { name = 'Book of Mythical Reroll', id = 444, bag = 1, slot = 3 }
-    stub.click = { ['Use it — consumed on use'] = true }
+    stub.click = { ['Use it - consumed on use'] = true }
     local r2 = render(ctx2, book, { source = 'inv' })
     stub.click = {}
     check('book: use issues the right-click', (function()

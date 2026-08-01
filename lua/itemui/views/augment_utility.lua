@@ -31,8 +31,8 @@ local state = {
 }
 
 -- FontAwesome glyphs (merged into the default font): link f0c1, thumbtack f08d.
-local GLYPH_LINK = "ï"
-local GLYPH_PIN  = "ï"
+local GLYPH_LINK = "\xEF\x83\x81"
+local GLYPH_PIN  = "\xEF\x82\x8D"
 
 --- The live subject: Item Display's active tab (the one selection bus this pair needs —
 --- Aug Utility answers a different question about the same item, spec §8's "link" kind).
@@ -140,7 +140,7 @@ function AugmentUtilityView.render(ctx)
         windowHeader.render({
             id = "augmentUtility", title = "Aug Utility",
             stat = subjectName and (GLYPH_LINK .. " " .. subjectName)
-                or (GLYPH_LINK .. " no subject â open an item"),
+                or (GLYPH_LINK .. " no subject - open an item"),
             actions = {
                 {
                     label = GLYPH_PIN,
@@ -257,7 +257,7 @@ renderForSlotContent = function(ctx)
                 cell = r.prefix .. "empty"
             else
                 local typ = (ctx.getSlotType and itForSlot) and ctx.getSlotType(itForSlot, i) or 0
-                cell = (typ and typ > 0) and string.format("empty Â· type %d", typ) or "empty"
+                cell = (typ and typ > 0) and string.format("empty . type %d", typ) or "empty"
             end
             local active = (i == slotIdx)
             ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(active and ctx.theme.Kit.OpenBlue or ctx.theme.Colors.TextContent))
@@ -271,7 +271,7 @@ renderForSlotContent = function(ctx)
         if tip and tip.ornamentLine then
             local o = tip.ornamentLine
             local oname = (o.augName and o.augName ~= "empty" and o.augName ~= "") and o.augName
-                or "empty Â· type 20"
+                or "empty . type 20"
             ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Kit.Mythic))
             pcall(ImGui.Selectable, "ORNAMENT   " .. oname .. "##augmapOrn", false)
             ImGui.PopStyleColor(1)
@@ -591,7 +591,7 @@ renderForSlotContent = function(ctx)
                             if clickyStr and clickyStr ~= "" then
                                 ImGui.Text(clickyStr)
                             else
-                                ctx.theme.TextMuted("—")
+                                ctx.theme.TextMuted("-")
                             end
 
                             -- Insert button (themed)

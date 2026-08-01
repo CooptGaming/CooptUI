@@ -154,7 +154,7 @@ local function buildLootCallbacks()
         local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
         local grouped = mq.TLO and mq.TLO.Me and mq.TLO.Me.Grouped and mq.TLO.Me.Grouped()
         if grouped and (name ~= "" or link) then
-            if link then mq.cmdf('/g Taking %s — looting.', link) else mq.cmdf('/g Taking %s — looting.', name) end
+            if link then mq.cmdf('/g Taking %s - looting.', link) else mq.cmdf('/g Taking %s - looting.', name) end
         end
         cb.setMythicalDecision("loot")
         uiState.lootMythicalFeedback = { message = "You chose: Take", showUntil = mq.gettime() + 2000 }
@@ -174,7 +174,7 @@ local function buildLootCallbacks()
         local link = (alert.itemLink and alert.itemLink ~= "") and alert.itemLink or nil
         local grouped = mq.TLO and mq.TLO.Me and mq.TLO.Me.Grouped and mq.TLO.Me.Grouped()
         if grouped and (name ~= "" or link) then
-            if link then mq.cmdf('/g Passing on %s — someone else can loot.', link) else mq.cmdf('/g Passing on %s — someone else can loot.', name) end
+            if link then mq.cmdf('/g Passing on %s - someone else can loot.', link) else mq.cmdf('/g Passing on %s - someone else can loot.', name) end
         end
         cb.setMythicalDecision("skip")
         uiState.lootMythicalFeedback = { message = "Passed - left on corpse for group.", showUntil = mq.gettime() + 2000 }
@@ -933,7 +933,7 @@ function M.render(refs)
             if #failedList > constants.UI.FAILED_LIST_TRUNCATE_LEN then failedList = failedList:sub(1, constants.UI.FAILED_LIST_DISPLAY_MAX) .. "..." end
             refs.theme.TextWarning(failedList)
             ImGui.SameLine()
-            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "— Click Auto Sell (or /dosell) to retry.")
+            ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Muted), "- Click Auto Sell (or /dosell) to retry.")
         end
         if uiState.statusMessage ~= "" then
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Success), uiState.statusMessage)
@@ -950,7 +950,7 @@ function M.render(refs)
             ImGui.PopStyleColor(2)
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text(string.format("%d recent error(s) — click to open diagnostics", errCount))
+                ImGui.Text(string.format("%d recent error(s) - click to open diagnostics", errCount))
                 ImGui.EndTooltip()
             end
         end
@@ -961,13 +961,13 @@ function M.render(refs)
         if ImGui.BeginPopupModal("Diagnostics##ItemUI", nil, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.TextColored(refs.theme.ToVec4(refs.theme.Colors.Header), "Diagnostics")
             ImGui.Separator()
-            local configPath = (refs.config and refs.config.CONFIG_PATH) and refs.config.CONFIG_PATH or "—"
-            local charName = (refs.mq and refs.mq.TLO and refs.mq.TLO.Me and refs.mq.TLO.Me.Name) and refs.mq.TLO.Me.Name() or "—"
-            local version = (refs.C and refs.C.VERSION) and refs.C.VERSION or "—"
+            local configPath = (refs.config and refs.config.CONFIG_PATH) and refs.config.CONFIG_PATH or "-"
+            local charName = (refs.mq and refs.mq.TLO and refs.mq.TLO.Me and refs.mq.TLO.Me.Name) and refs.mq.TLO.Me.Name() or "-"
+            local version = (refs.C and refs.C.VERSION) and refs.C.VERSION or "-"
             ImGui.Text("Config path: " .. tostring(configPath))
             ImGui.Text("Character: " .. tostring(charName))
             ImGui.Text("Version: " .. tostring(version))
-            ImGui.Text("Last scan: —")
+            ImGui.Text("Last scan: -")
             ImGui.Spacing()
             ImGui.Text("Module status:")
             for _, mod in ipairs(registry.getEnabledModules() or {}) do

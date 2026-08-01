@@ -179,7 +179,7 @@ function ScriptTrackerView.renderBody(ctx, barsOn)
     if barsOn then
         windowHeader.render({
             id = "scripttracker", title = "Scripts",
-            stat = string.format("%d in bags · worth %d AA · last scan %s",
+            stat = string.format("%d in bags . worth %d AA . last scan %s",
                 counts.totalCount, counts.totalAA,
                 os.date("%H:%M:%S", (ctx.perfCache.lastScanTimeInv or 0) / 1000)),
             actions = {

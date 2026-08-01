@@ -187,7 +187,7 @@ function SellView.render(ctx, simulateSellView)
         end
         if it.isProtected then protectCount = protectCount + 1 end
     end
-    ctx.theme.TextInfo(string.format("Keeping: %d  ·  Selling: %d  ·  Protected: %d", keepCount, sellCount, protectCount))
+    ctx.theme.TextInfo(string.format("Keeping: %d  .  Selling: %d  .  Protected: %d", keepCount, sellCount, protectCount))
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Keeping = in keep list (never sell); Selling = marked to sell; Protected = blocked by flags"); ImGui.EndTooltip() end
     ImGui.SameLine()
     ctx.theme.TextWarning(string.format("Sell total: %s", ItemUtils.formatValue(sellTotal)))

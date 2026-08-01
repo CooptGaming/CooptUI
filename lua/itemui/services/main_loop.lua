@@ -382,7 +382,7 @@ local function phase5_lootMacro(now)
                     name = name,
                     value = row.value or 0,
                     tribute = row.tribute or 0,
-                    statusText = "—",
+                    statusText = "-",
                     willSell = false
                 }
                 table.insert(existing, entry)
@@ -390,7 +390,7 @@ local function phase5_lootMacro(now)
                 if uiState.enableLootHistory then
                     if not uiState.lootHistory then loadLootHistoryFromFile() end
                     if not uiState.lootHistory then uiState.lootHistory = {} end
-                    histEntry = { name = name, value = row.value or 0, statusText = "—", willSell = false }
+                    histEntry = { name = name, value = row.value or 0, statusText = "-", willSell = false }
                     table.insert(uiState.lootHistory, histEntry)
                 end
                 -- Queue sell-status lookup so it drains across ticks (avoids per-session burst)
@@ -1637,7 +1637,7 @@ local function phase0_cursorActionQueue(now)
             preClearIdx   = 1,
             phase = initialPhase, phaseEnteredAt = now
         }
-        if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "…") end
+        if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "...") end
     end
 end
 
@@ -2129,7 +2129,7 @@ local function phaseEquipAction(now)
                 -- Stay in settle_place; cursor will clear once the game processes the equip
                 return
             end
-            if setStatus then setStatus("Confirmation dialog open — check it (" .. (ea.name or "") .. ").") end
+            if setStatus then setStatus("Confirmation dialog open - check it (" .. (ea.name or "") .. ").") end
             uiState.pendingEquipAction = nil
             return
         end
@@ -2172,7 +2172,7 @@ local function phase5b_lootSellStatusDrain()
     for _ = 1, count do
         local job = table.remove(pending, 1)
         local st, ws = getSellStatus({ name = job.entry.name })
-        if st == "" then st = "—" end
+        if st == "" then st = "-" end
         job.entry.statusText = st
         job.entry.willSell = ws
         if job.histEntry then

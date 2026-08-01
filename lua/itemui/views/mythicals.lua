@@ -56,7 +56,7 @@ local function getEffectsLine(ctx, item)
     add("Proc", "Proc")
     add("Focus", "Focus")
     add("Spell", "Spell")
-    return #parts > 0 and table.concat(parts, "  ·  ") or ""
+    return #parts > 0 and table.concat(parts, "  .  ") or ""
 end
 
 function MythicalsView.render(ctx)
@@ -333,7 +333,7 @@ function MythicalsView.render(ctx)
                 if effectsStr ~= "" then
                     ImGui.TextWrapped(effectsStr)
                 else
-                    ctx.theme.TextMuted("—")
+                    ctx.theme.TextMuted("-")
                 end
 
                 -- Column: Value

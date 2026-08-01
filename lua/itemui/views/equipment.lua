@@ -312,7 +312,7 @@ registry.register({
     zone        = "L1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Equipment",
     buttonWidth = 75,
-    tooltip     = "View your worn items — click an item to swap or inspect",
+    tooltip     = "View your worn items - click an item to swap or inspect",
     layoutKeys  = { x = "EquipmentWindowX", y = "EquipmentWindowY" },
     enableKey   = "ShowEquipmentWindow",
     render      = function(refs)

@@ -54,7 +54,7 @@ local function getEffectsLine(ctx, item)
     add("Proc", "Proc")
     add("Focus", "Focus")
     add("Spell", "Spell")
-    return #parts > 0 and table.concat(parts, "  ·  ") or ""
+    return #parts > 0 and table.concat(parts, "  .  ") or ""
 end
 
 -- Module interface: render augments pop-out window (owns ImGui.Begin/End like BankView)
@@ -330,7 +330,7 @@ function AugmentsView.renderListContent(ctx)
                 if effectsStr ~= "" then
                     ImGui.TextWrapped(effectsStr)
                 else
-                    ctx.theme.TextMuted("—")
+                    ctx.theme.TextMuted("-")
                 end
 
                 -- Column: Value
@@ -362,7 +362,7 @@ function AugmentsView.renderListContent(ctx)
                         if onDestList then
                             ImGui.Text((destList == "mythical") and "Already on mythical reroll list." or "Already on augment reroll list.")
                         elseif destList == "mythical" then
-                            ImGui.Text("Add to mythical reroll list (!mythicaladd) — auto-routed by the Mythical name prefix.")
+                            ImGui.Text("Add to mythical reroll list (!mythicaladd) - auto-routed by the Mythical name prefix.")
                         else
                             ImGui.Text("Add to augment reroll list (!augadd).")
                         end

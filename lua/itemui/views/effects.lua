@@ -356,10 +356,10 @@ function EffectsView.render(ctx)
         local nb = #(cache.buffs or {})
         local stat
         if (cache.maxBuffs or 0) > 0 then
-            stat = string.format("Buffs %d/%d Â· Songs %d Â· Auras %d",
+            stat = string.format("Buffs %d/%d . Songs %d . Auras %d",
                 nb, cache.maxBuffs, #(cache.songs or {}), #(cache.auras or {}))
         else
-            stat = string.format("Buffs %d Â· Songs %d Â· Auras %d",
+            stat = string.format("Buffs %d . Songs %d . Auras %d",
                 nb, #(cache.songs or {}), #(cache.auras or {}))
         end
         windowHeader.render({

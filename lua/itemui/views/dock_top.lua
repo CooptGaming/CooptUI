@@ -538,18 +538,35 @@ local function sessionValue(ctx, text, color, action)
     end
 end
 
+--- Pin (or unpin) the session triage panel. Clicking the word "session" or its money
+--- value opens THE SESSION — the record itself — not the chat log. 26a routed money to
+--- "the session log in Chat", and in the field that reads as a non-sequitur: you clicked
+--- the thing named session and got a chat window. The panel IS the session, it is already
+--- what hover shows, and pinning it is what makes it stay while you work down the rows.
+local function toggleSessionPanel(ctx)
+    if not ctx.uiState then return end
+    -- Explicit if, never `cond and nil or x` — that idiom cannot yield nil.
+    if ctx.uiState.dockPinnedPopover == "session" then
+        ctx.uiState.dockPinnedPopover = nil
+    else
+        ctx.uiState.dockPinnedPopover = "session"
+    end
+end
+
 segments.session = function(ctx, s)
     -- 26a slot 2, fixed 470px: the session strip — four values, every non-zero one a
     -- door. The counting rule (§12): augs/mythics show what still NEEDS A CALL, amber
     -- while any do, white 0 once cleared (that 0 is the whole point of a tuned rule
-    -- set); scripts have no decision and stay white. The word "session" (and money —
-    -- money reports) opens the session log in Chat.
+    -- set). The word "session" and the money value open the session panel itself.
     theme.TextMuted("session")
     if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
-        M.queue(ctx, { kind = "window", id = "chat", toggle = true })
+        toggleSessionPanel(ctx)
     end
     ImGui.SameLine(0, 4)
-    sessionValue(ctx, plat(s.sessionPlat) .. "p", nil, { kind = "window", id = "chat", toggle = true })
+    ImGui.Text(plat(s.sessionPlat) .. "p")
+    if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+        toggleSessionPanel(ctx)
+    end
 
     ImGui.SameLine(0, 10)
     local augsCall, augsTotal = s.srAugsCall or 0, s.srAugsTotal or 0
@@ -939,6 +956,42 @@ local function sessionWhyLine(e)
     return line
 end
 
+--- The hover card for a triage row. A LIVE entry re-links to its inventory row and gets
+--- the real stats tooltip (the same one Bags and Bank draw). A departed one cannot -
+--- there is no item to read - so it says what it knows and says plainly that the item is
+--- gone, rather than rendering an empty card that looks like a failure.
+---
+--- The TLO reads inside the stats path are the accepted hover-gated exception, exactly as
+--- the loot decision name does it: reached only while this row is actually under the
+--- pointer, never per frame. Contained so a lookup error can never straddle
+--- BeginTooltip/EndTooltip.
+local function sessionRowTooltip(ctx, e)
+    local row = sessionMenuItem(ctx, e)
+    if row and ctx.getItemStatsForTooltip then
+        local ok, item, opts, w, h = pcall(function()
+            local showItem = ctx.getItemStatsForTooltip(row, "inv")
+            if not (showItem and showItem.name) then return nil end
+            local o = { source = "inv", bag = row.bag, slot = row.slot }
+            local effects, ww, hh = ItemTooltip.prepareTooltipContent(showItem, ctx, o)
+            o.effects = effects
+            return showItem, o, ww, hh
+        end)
+        if ok and item then
+            ItemTooltip.beginItemTooltip(w, h)
+            ItemTooltip.renderStatsTooltip(item, ctx, opts)
+            ImGui.EndTooltip()
+            return
+        end
+    end
+    ImGui.BeginTooltip()
+    safeText(tostring(e.name or "?"))
+    theme.TextMuted(sessionWhyLine(e))
+    if e.departed then
+        theme.TextMuted("no longer in your bags - stats unavailable")
+    end
+    ImGui.EndTooltip()
+end
+
 popovers.session = function(ctx, s)
     theme.TextHeaderAlt("This session")
     ImGui.SameLine(0, 8)
@@ -985,10 +1038,22 @@ popovers.session = function(ctx, s)
             local e = calls[i]
             ImGui.PushID("dockSessCall" .. i)
             safeText(tostring(e.name or "?"))
+            -- Capture hover ONCE, before anything else is submitted. Drawing the tooltip
+            -- below submits items of its own, so a second IsItemHovered() after it would
+            -- be asking about the wrong item — and the right-click handler that follows
+            -- would silently stop firing.
+            local rowHovered = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+            -- Hovering a row shows the item, same stats card every other item row in the
+            -- product gives you. You cannot decide Keep / Reroll / Junk from a name and a
+            -- price - the card IS the decision material, and without it the panel is
+            -- asking you to rule on something you cannot see.
+            if rowHovered then
+                sessionRowTooltip(ctx, e)
+            end
             -- Right-click the row = the same §7 menu, from here. Stashed and drawn by
             -- renderSessionMenu outside this window (see its header for why), and the
             -- panel pins itself so the list survives the menu.
-            if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+            if rowHovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
                 local item, src = sessionMenuItem(ctx, e)
                 if item then
                     sessionMenu.item, sessionMenu.source = item, src

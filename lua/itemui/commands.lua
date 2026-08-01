@@ -338,7 +338,7 @@ function M.handleCommand(...)
         print("  sell legacy = run sell.mac  |  sell lua = run Lua sell (see sell_flags.ini sellMode)")
         print("\ag[ItemUI]\ax /dosell = run sell (macro or Lua per sellMode)  |  /doloot = run loot.mac")
     else
-        print("\ar[ItemUI]\ax Unknown: " .. cmd .. " — use /itemui help")
+        print("\ar[ItemUI]\ax Unknown: " .. cmd .. " - use /itemui help")
     end
 end
 

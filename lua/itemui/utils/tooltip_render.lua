@@ -186,7 +186,7 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.SameLine()
     end
     ImGui.PushStyleColor(ImGuiCol.Text, nameColor)
-    ImGui.TextWrapped(item.name or "—")
+    ImGui.TextWrapped(item.name or "-")
     ImGui.PopStyleColor()
     if item.id and item.id ~= 0 then
         ImGui.TextColored(ImVec4(0.55, 0.55, 0.6, 1.0), "ID: " .. tostring(item.id))
@@ -201,7 +201,7 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
     ImGui.Spacing()
 
     -- Class, Race, Slot, Deity, Ornament, Container, Item info, All Stats, Augmentation slots
-    local cls, race, slotStr = "—", "—", ""
+    local cls, race, slotStr = "-", "-", ""
     if itValid then
         local ok, c, r, s = pcall(api.itemHelpers.getClassRaceSlotFromTLO, it)
         if ok then
@@ -217,14 +217,14 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
             if s and s ~= "" then slotStr = s end
         end
     end
-    if cls == "—" and (item.class and item.class ~= "") then cls = item.class end
-    if race == "—" and (item.race and item.race ~= "") then race = item.race end
-    if (slotStr == "" or slotStr == "—") and (item.wornSlots and item.wornSlots ~= "") then slotStr = item.wornSlots end
-    if cls and cls ~= "" and cls ~= "—" then ImGui.Text("Class: " .. tostring(cls):gsub("|", " ")) end
-    if race and race ~= "" and race ~= "—" then ImGui.Text("Race: " .. tostring(race):gsub("|", " ")) end
+    if cls == "-" and (item.class and item.class ~= "") then cls = item.class end
+    if race == "-" and (item.race and item.race ~= "") then race = item.race end
+    if (slotStr == "" or slotStr == "-") and (item.wornSlots and item.wornSlots ~= "") then slotStr = item.wornSlots end
+    if cls and cls ~= "" and cls ~= "-" then ImGui.Text("Class: " .. tostring(cls):gsub("|", " ")) end
+    if race and race ~= "" and race ~= "-" then ImGui.Text("Race: " .. tostring(race):gsub("|", " ")) end
     if item.deity and item.deity ~= "" then ImGui.Text("Deity: " .. tostring(item.deity):gsub("|", " ")) end
     slotStr = api.slotStringToDisplay(slotStr)
-    if slotStr and slotStr ~= "" and slotStr ~= "—" then ImGui.Text(slotStr) end
+    if slotStr and slotStr ~= "" and slotStr ~= "-" then ImGui.Text(slotStr) end
     -- Ornament first (match Item Display: IDW_Appearance_Socket_*). Same row layout: [24x24] + text. Name is a link when filled.
     if itValid then
         local ornament = api.getOrnamentFromIt(it)
@@ -645,7 +645,7 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
                 if e.key == key and e.spellId and e.spellName then
                     -- Windows pass §9: "Spell Info for Clicky effect: X" was six words of
                     -- prefix per line — the kind and the name say everything.
-                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], key .. " — " .. e.spellName)
+                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], key .. " - " .. e.spellName)
                     break
                 end
             end

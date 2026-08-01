@@ -340,13 +340,13 @@ function LootUIView.render(ctx)
                             ImGui.EndTooltip()
                         else
                             ImGui.BeginTooltip()
-                            ImGui.Text(alert.itemName or "—")
+                            ImGui.Text(alert.itemName or "-")
                             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Open the corpse to see full description.")
                             ImGui.EndTooltip()
                         end
                     else
                         ImGui.BeginTooltip()
-                        ImGui.Text(alert.itemName or "—")
+                        ImGui.Text(alert.itemName or "-")
                         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Open the corpse loot window to see full description.")
                         ImGui.EndTooltip()
                     end
@@ -454,7 +454,7 @@ function LootUIView.render(ctx)
             local totalVal = state.lootRunTotalValue or 0
             local summaryStr = string.format("%d items", n)
             if totalVal > 0 then
-                summaryStr = summaryStr .. "  ·  " .. (ItemUtils.formatValue and ItemUtils.formatValue(totalVal) or tostring(totalVal) .. "c")
+                summaryStr = summaryStr .. "  .  " .. (ItemUtils.formatValue and ItemUtils.formatValue(totalVal) or tostring(totalVal) .. "c")
             end
             ImGui.TextColored(theme.ToVec4(theme.Colors.Success), summaryStr)
             if state.lootRunBestItemName and state.lootRunBestItemName ~= "" then

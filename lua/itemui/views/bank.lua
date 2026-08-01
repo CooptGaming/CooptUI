@@ -49,7 +49,7 @@ local function bankStatText(list, bankOpen, lastBankCacheTime)
         local total = 0
         for _, it in ipairs(list or {}) do total = total + (it.totalValue or 0) end
         statCache.key = key
-        statCache.text = string.format("%d items · %s", n, ItemUtils.formatValue(total))
+        statCache.text = string.format("%d items . %s", n, ItemUtils.formatValue(total))
     end
     return statCache.text
 end
@@ -75,14 +75,14 @@ function BankView.renderSourceChip(ctx, list, bankOpen)
         ImGui.SameLine(0, 8)
         ctx.theme.TextInfo("shift + left-click moves an item to your bags")
     else
-        ctx.theme.TextWarning("snapshot · " .. bankSnapshotAgeText(ctx.perfCache.lastBankCacheTime))
+        ctx.theme.TextWarning("snapshot . " .. bankSnapshotAgeText(ctx.perfCache.lastBankCacheTime))
         ImGui.SameLine(0, 8)
         ctx.theme.TextMuted(bankStatText(list, false, ctx.perfCache.lastBankCacheTime))
         ImGui.SameLine(0, 8)
         if ctx.theme.TextFurniture then
-            ctx.theme.TextFurniture("read-only — open a bank to refresh")
+            ctx.theme.TextFurniture("read-only - open a bank to refresh")
         else
-            ctx.theme.TextMuted("read-only — open a bank to refresh")
+            ctx.theme.TextMuted("read-only - open a bank to refresh")
         end
     end
 end

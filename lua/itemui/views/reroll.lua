@@ -97,7 +97,7 @@ local function rollBlockedReason(ctx, tray, isMovingFromBank, pendingBankMoves, 
         -- Name the fix, not just the shortfall: an unopened bank is the common cause and
         -- the user cannot see it from the count alone.
         if not bankConnected then
-            return string.format("%d more needed — open your bank if the rest are in it", short)
+            return string.format("%d more needed - open your bank if the rest are in it", short)
         end
         return string.format("%d more needed", short)
     end
@@ -168,7 +168,7 @@ local function renderTabContent(ctx, track, rerollService)
         end
         ImGui.SameLine(0, 8)
         if countInBank > 0 then
-            theme.TextMuted(string.format("bags %d · bank %d", countInInv, countInBank))
+            theme.TextMuted(string.format("bags %d . bank %d", countInInv, countInBank))
         else
             theme.TextMuted(string.format("bags %d", countInInv))
         end
@@ -209,7 +209,7 @@ local function renderTabContent(ctx, track, rerollService)
             if slot and ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
                 ImGui.Text(tostring(slot.name or "?"))
-                ImGui.Text(string.format("id %s · %s", tostring(slot.id),
+                ImGui.Text(string.format("id %s . %s", tostring(slot.id),
                     (slot.where == "bank") and "in your bank (moved to bags for the roll)" or "in your bags"))
                 ImGui.EndTooltip()
             end
