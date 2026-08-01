@@ -1113,6 +1113,59 @@ do
     local c = sessionRecord.getCounts()
     check('session panel: amber cleared, sorted grew', c.augsCall == 0 and c.sorted == 2,
         c.augsCall .. '/' .. c.sorted)
+
+    -- 26b why-line: every row says why it deserves attention. The free, always-true half
+    -- is the augment's own accepted socket types, from an augType captured at record
+    -- time - so it still answers for an entry whose live row is gone.
+    resetInput()
+    sessionRecord._resetForTests()
+    srDeps.inventoryItems = {
+        { name = 'Typed Aug', id = 12, type = 'Augmentation', bag = 1, slot = 1,
+          value = 1000, totalValue = 1000, stackSize = 1, acquiredSeq = 600, augType = 5 },
+    }
+    srDeps.getSessionStartAcquiredSeq = function() return 600 end
+    sessionRecord.init(srDeps)
+    local mqTab2 = package.loaded['mq']
+    local savedTLO2 = mqTab2.TLO
+    mqTab2.TLO = { Me = { Name = function() return 'Testchar' end } }
+    sessionRecord.tick(1000)
+    mqTab2.TLO = savedTLO2
+    local ctxWhy = newCtx({ uiState = {} })
+    dockState.init(newDeps(ctxWhy))
+    warmState()
+    stub.hover = { dockseg_session = true }
+    local rWhy = stub.frame(function() dockTop.render(ctxWhy) end)
+    -- augType 5 -> types 1, 3 AND 5: the shared getAugTypeSlotIds deliberately treats the
+    -- value as EITHER a bitmask (101b = 1,3) OR a bare type id (5), because the field is
+    -- genuinely ambiguous and over-listing is safer than hiding a slot that fits. The
+    -- why-line inherits that, on purpose - it is the same helper the Item Display's
+    -- "fits in slot types" line uses, so the two can never disagree.
+    check('why-line: names the socket types the aug actually fits',
+        stub.drew(rWhy, 'types 1, 3, 5 augment'), table.concat(rWhy.text, '|'))
+    check('why-line: balanced', stub.balanced(rWhy), stub.imbalance(rWhy))
+
+    -- Right-click a row: the §7 menu opens from a host OUTSIDE the panel (a popup opened
+    -- inside it would kill the panel's hover grace and take itself down 250ms later), and
+    -- the panel pins so the list stays put behind the menu.
+    resetInput()
+    stub.hover = { dockseg_session = true, ['Typed Aug'] = true }
+    stub.mouse = { [ImGuiMouseButton.Right] = true }
+    local rMenu = stub.frame(function() dockTop.render(ctxWhy) end)
+    check('row menu: right-click pins the panel so it survives the menu',
+        ctxWhy.uiState.dockPinnedPopover == 'session',
+        tostring(ctxWhy.uiState.dockPinnedPopover))
+    check('row menu: frame stays balanced with the menu host up',
+        stub.balanced(rMenu), stub.imbalance(rMenu))
+    -- The host is its own window, drawn outside the popover.
+    check('row menu: the menu gets an independent host window',
+        (function()
+            for _, w in ipairs(rMenu.windows) do
+                if w:find('SessionMenuHost', 1, true) then return true end
+            end
+            return false
+        end)(), table.concat(rMenu.windows, ','))
+
+    resetInput()
     sessionRecord._resetForTests()
 end
 

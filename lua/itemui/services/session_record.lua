@@ -67,6 +67,13 @@ local function serializeEntry(e)
         tostring(e.itemId or 0), tostring(e.value or 0), tostring(e.stack or 1),
         tostring(e.state or "call"), tostring(e.choice or ""), tostring(e.reason or ""),
         tostring(e.at or 0),
+        -- augType is persisted so the panel's why-line still works for an entry whose
+        -- live row is gone. bag/slot/rowSeq deliberately are NOT: they are only
+        -- meaningful against the current session's inventory, and a reloaded entry is
+        -- always departed (the acquired-seq floor is re-stamped on snapshot load, so
+        -- yesterday's rows sit below it and can never re-link). This one field is what
+        -- lets a restored entry still say what it fits instead of saying nothing.
+        tostring(e.augType or 0),
     }, FIELD_SEP)
 end
 
@@ -96,6 +103,9 @@ local function deserializeEntry(line)
         state = (f[7] == "sorted") and "sorted" or "call",
         choice = (f[8] ~= "" and f[8]) or nil, reason = (f[9] ~= "" and f[9]) or nil,
         at = tonumber(f[10]) or 0,
+        -- Field 11 is absent in records written before the why-line landed; 0 reads the
+        -- same as "unknown", which is the honest answer for those.
+        augType = tonumber(f[11]) or 0,
         departed = true,   -- a loaded entry has no live row until the merge re-links it
     }
 end
@@ -219,8 +229,16 @@ function M.tick(now)
                     local cat = classify(row)
                     if cat then
                         local reason, choice = preemptReason(row, cat)
+                        -- Read the row's augType ONCE, here, while the row is live.
+                        -- It is a lazy field already resolved by buildAugmentIndex at
+                        -- scan time, so this is a table hit, not a TLO read — and
+                        -- capturing it now is what lets the panel answer "what does
+                        -- this fit" for the rest of the record's life.
+                        local augType = 0
+                        if cat == "aug" then augType = tonumber(row.augType) or 0 end
                         local entry = {
                             uid = newUid(), name = row.name or "?", cat = cat,
+                            augType = augType,
                             itemId = tonumber(row.id) or 0,
                             value = tonumber(row.totalValue or row.value) or 0,
                             stack = tonumber(row.stackSize) or 1,

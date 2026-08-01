@@ -96,7 +96,10 @@ M.availableColumns = {
     },
     Bank = {
         {key = "Name", label = "Name", numeric = false, default = true},
-        {key = "Status", label = "Status", numeric = false, default = false},
+        -- 20a: ON by default HERE (it stays off for Inventory). The bank is where
+        -- "on a reroll list" and "ornament" are the facts you came to check, and the
+        -- window's whole job is answering questions about items you are not carrying.
+        {key = "Status", label = "Status", numeric = false, default = true},
         {key = "Bag", label = "Bag", numeric = true, default = true},
         {key = "Slot", label = "Slot", numeric = true, default = true},
         {key = "Value", label = "Value", numeric = true, default = true},

@@ -774,6 +774,114 @@ local sessionRecord = require('itemui.services.session_record')
 local CALL_ROWS_MAX = 8      -- panel rows before "+N more" (the panel is a glance, not a table)
 local SORTED_ROWS_MAX = 10
 
+local augmentHelpers = require('itemui.utils.augment_helpers')
+
+-- ---------------------------------------------------------------------------
+-- 26b: "Right-click opens the same menu builder from §7 — a hover panel is just another
+-- place to open it."
+--
+-- It cannot be opened INSIDE the panel. The popover only exists while hover says so, and
+-- `hover.inPopover` is re-derived each frame from IsWindowHovered(ChildWindows) — but an
+-- ImGui popup is a separate TOP-LEVEL window, not a child, so the moment the mouse enters
+-- the menu the popover stops refreshing its grace timer, expires 250ms later, and takes
+-- the menu down with it. So the menu gets its own zero-footprint host drawn from
+-- M.render, outside renderPopover entirely — the pattern views/native_hover.lua already
+-- uses for exactly this reason. Right-clicking also pins the panel, so the list you were
+-- reading stays put behind the menu.
+-- ---------------------------------------------------------------------------
+local SESSION_MENU_POPUP = "##CooptSessionRowMenu"
+local sessionMenu = { item = nil, openRequested = false }
+
+--- Turn a session entry into something the §7 builder can render. A live entry re-links
+--- to its inventory row by acquiredSeq (identity, unlike bag/slot — another item can take
+--- the slot after this one moves) and gets the FULL menu. A departed entry cannot: after
+--- a UI restart every entry is departed by construction, so the honest answer is the
+--- name/id-keyed subset, with location verbs simply not applying rather than lying.
+local function sessionMenuItem(ctx, e)
+    if not e then return nil, nil end
+    if not e.departed and e.rowSeq then
+        for _, row in ipairs(ctx.inventoryItems or {}) do
+            if row.acquiredSeq == e.rowSeq then return row, "inv" end
+        end
+    end
+    -- Departed: a synthetic row carrying only what is genuinely known. `type` is set so
+    -- the aug-only rules still resolve; no bag/slot, so nothing location-shaped applies.
+    return {
+        name = e.name, id = e.itemId,
+        type = (e.cat == "aug") and "Augmentation" or nil,
+        stackSize = e.stack or 1,
+        augType = e.augType,
+    }, "inv"
+end
+
+--- Host + draw the pending session-row menu. Called from M.render AFTER the bar's End(),
+--- like the popover, but independent of it.
+local function renderSessionMenu(ctx)
+    if not sessionMenu.item then return end
+    ImGui.SetNextWindowPos(ImVec2(-2000, -2000))
+    ImGui.SetNextWindowSize(ImVec2(1, 1))
+    local flags = bit32.bor(ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoResize,
+        ImGuiWindowFlags.NoMove, ImGuiWindowFlags.NoBackground, ImGuiWindowFlags.NoSavedSettings,
+        ImGuiWindowFlags.NoFocusOnAppearing, ImGuiWindowFlags.NoBringToFrontOnFocus,
+        ImGuiWindowFlags.NoNav)
+    local okBegin = pcall(ImGui.Begin, "##CooptSessionMenuHost", true, flags)
+    if not okBegin then sessionMenu.item = nil; return end
+    if sessionMenu.openRequested then
+        sessionMenu.openRequested = false
+        ImGui.OpenPopup(SESSION_MENU_POPUP)
+    end
+    if ImGui.BeginPopup(SESSION_MENU_POPUP) then
+        -- pcall INSIDE the popup pair: a throw that skips EndPopup is the same
+        -- unbalanced-stack class that kills the script. ui_common is required lazily —
+        -- it pulls in the menu builder, and dock_top loads before the view layer.
+        pcall(function()
+            local uiCommon = require('itemui.components.ui_common')
+            uiCommon.renderItemContextMenuContents(ctx, sessionMenu.item, {
+                source = sessionMenu.source or "inv",
+                bankOpen = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false,
+                hasCursor = (ctx.hasItemOnCursor and ctx.hasItemOnCursor()) or false,
+            })
+        end)
+        ImGui.EndPopup()
+    else
+        -- The popup closing is how the host learns to stop existing.
+        sessionMenu.item = nil
+        sessionMenu.source = nil
+    end
+    ImGui.End()
+end
+
+--- 26b's per-row line: "why this deserves attention". The designed copy is "fits 3 of
+--- your slots" vs "fits nothing you own", which needs a socket-type census of all 23
+--- equipped items — roughly 115 TLO reads, and socket TYPES are cached nowhere (the
+--- tooltip cache keeps them only inside formatted strings, and only after a hover).
+--- That census belongs on a demand-driven dock_state walk, not here.
+---
+--- What ships instead is the half that is FREE and always true: the augment's own
+--- accepted socket types, from its augType — pure bitmask arithmetic over a value
+--- captured at record time. It never claims to know your slots, so it can never be
+--- wrong, and there is always something true to print. That last part is the point: the
+--- panel never shows a spinner and never shows a number it cannot defend.
+local function sessionWhyLine(e)
+    if e.cat == "mythic" then
+        return e.departed and "mythic . no longer in bags" or "mythic"
+    end
+    if e.cat == "script" then return "script" end
+    local slots = augmentHelpers.getAugTypeSlotIds(tonumber(e.augType) or 0)
+    local line
+    if #slots == 0 then
+        line = "augment"
+    elseif #slots == 1 then
+        line = string.format("type %d augment", slots[1])
+    else
+        local ids = {}
+        for i = 1, math.min(#slots, 4) do ids[#ids + 1] = tostring(slots[i]) end
+        line = "types " .. table.concat(ids, ", ") .. ((#slots > 4) and "..." or "") .. " augment"
+    end
+    if e.departed then line = line .. " . no longer in bags" end
+    return line
+end
+
 popovers.session = function(ctx, s)
     theme.TextHeaderAlt("This session")
     ImGui.SameLine(0, 8)
@@ -821,6 +929,17 @@ popovers.session = function(ctx, s)
             local e = calls[i]
             ImGui.PushID("dockSessCall" .. i)
             safeText(tostring(e.name or "?"))
+            -- Right-click the row = the same §7 menu, from here. Stashed and drawn by
+            -- renderSessionMenu outside this window (see its header for why), and the
+            -- panel pins itself so the list survives the menu.
+            if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                local item, src = sessionMenuItem(ctx, e)
+                if item then
+                    sessionMenu.item, sessionMenu.source = item, src
+                    sessionMenu.openRequested = true
+                    if ctx.uiState then ctx.uiState.dockPinnedPopover = "session" end
+                end
+            end
             ImGui.SameLine(280)
             ImGui.Text(plat(e.value) .. "p")
             ImGui.SameLine(0, 10)
@@ -837,14 +956,9 @@ popovers.session = function(ctx, s)
                 end
                 ImGui.SameLine(0, 4)
             end
-            -- Why it deserves attention: category + departed state (the fits-your-slots
-            -- line needs a compare walk that does not exist yet — deferred honestly,
-            -- same as Equipment's "N upgrades in bags").
-            theme.TextMuted(e.cat == "mythic" and "mythic" or "augment")
-            if e.departed then
-                ImGui.SameLine(0, 6)
-                theme.TextMuted(". no longer in bags")
-            end
+            -- 26b: "Every row says why it is worth your attention... without that line
+            -- you are just reading names."
+            theme.TextMuted(sessionWhyLine(e))
             ImGui.PopID()
         end
         if #calls > CALL_ROWS_MAX then
@@ -1485,6 +1599,9 @@ function M.render(ctx)
     -- Popover after the bar's End(), so it is a sibling window and can extend past the strip.
     renderDegradedStrip(ctx, s, edge)
     renderPopover(ctx, s, edge, x, y, w, h)
+    -- AFTER the popover, and deliberately not inside it: the session row menu outlives
+    -- the panel's hover grace only because its host is independent (see renderSessionMenu).
+    renderSessionMenu(ctx)
     renderHint(ctx, s, edge, x, y, w, h)
 end
 
