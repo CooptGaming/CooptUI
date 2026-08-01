@@ -498,12 +498,22 @@ local function launcherEntries(ctx, layoutConfig)
             -- Two windows, one chip. Bags is the hub; Bank is its own window again (the
             -- merge was rolled back), so each half lights for ITSELF -- the chip says
             -- "these belong together", not "these are one thing".
-            out[#out + 1] = { isPair = true, id = "bagsbank", halves = {
-                { label = "Bags", action = { kind = "hub" },
-                  lit = function(c) return hubOpen(c) end },
-                { label = "Bank", action = { kind = "window", id = "bank", toggle = true },
-                  lit = function() return registry.isOpen("bank") == true end },
-            } }
+            --
+            -- The Bank half is conditional: every OTHER launcher resolves through
+            -- moduleLabel, which returns nil for a module the user disabled in Settings,
+            -- so an unconditional half would make Bank the one chip that survives being
+            -- turned off — and clicking it would toggle a window that can never draw.
+            local bankLabel = present["bank"] and moduleLabel("bank") or nil
+            if bankLabel then
+                out[#out + 1] = { isPair = true, id = "bagsbank", halves = {
+                    { label = "Bags", action = { kind = "hub" },
+                      lit = function(c) return hubOpen(c) end },
+                    { label = bankLabel, action = { kind = "window", id = "bank", toggle = true },
+                      lit = function() return registry.isOpen("bank") == true end },
+                } }
+            else
+                out[#out + 1] = { id = "bags", label = "Bags", isHub = true }
+            end
         elseif id == "bank" and present["bags"] then
             -- Absorbed into the Bags|Bank pair above (saved CSVs still carry the id).
             local _ = id

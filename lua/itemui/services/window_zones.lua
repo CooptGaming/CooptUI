@@ -455,10 +455,23 @@ local function placeWindow(id, cascadeIndex)
     -- had the user dragged it there by hand, so hub-follow picks it up. Without this the
     -- alignment is a one-time placement the first hub drag destroys, and the user has to
     -- discover the magnet to get it back. Never overrides an existing attachment.
-    if hub and not attachments[id] then
+    -- `hub` is never nil — hubRect SYNTHESIZES a rect when the hub has no known position
+    -- (30%/10% of the work area), so `if hub` is vacuous. Gate on a REAL hub position,
+    -- the same test hub-follow uses: attaching to a made-up anchor would pair a window to
+    -- coordinates the hub never occupied, and the pairing would then persist.
+    local hubReal = d and d.uiState and tonumber(d.uiState.itemUIPositionX) ~= nil
+    if hubReal and not attachments[id] then
         if math.abs(x - (hub.x + hub.w + M.GAP)) < 1 and math.abs(y - hub.y) < 1 then
             attachments[id] = { target = "hub", edge = "right", align = "top" }
             persistAttachments()
+            -- Bags and Bank read as a pair only if they are the same HEIGHT, and this is
+            -- the moment placement actually happens in bars — the hub's own one-shot seed
+            -- in main_window runs before this and gets overwritten. hubRect mirrors the
+            -- hub's live size, so this is the height the user is looking at.
+            if id == "bank" and hub.h and hub.h > 0 then
+                c.HeightBank = hub.h
+                forceApply(3)
+            end
         end
     end
     return true

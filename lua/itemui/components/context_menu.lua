@@ -468,14 +468,23 @@ ROWS = {
             if not env._rerollList then return false end
             local itemId = item.id or item.ID
             env._onAug, env._onMyth = false, false
+            env._augStatus, env._mythStatus = nil, nil
             if itemId then
                 -- getListStatus is the service's O(1) generation-cached lookup. This runs
                 -- per row per frame; the two full linear scans it replaces were doing
                 -- #augList + #mythList comparisons every time a menu was even eligible.
+                --
+                -- Keep the STATUS STRING, not a boolean: it returns "listed" (confirmed
+                -- on the server) OR "pending" (added locally, not yet synced), and those
+                -- need DIFFERENT removals. Collapsing them made a pending item offer
+                -- /say !augremove for an id the server was never told about — which does
+                -- nothing on the server and leaves the pending entry sitting there.
                 local status = ctx.rerollService.getListStatus
                 if status then
-                    env._onAug = status("aug", itemId) ~= nil
-                    env._onMyth = status("mythical", itemId) ~= nil
+                    env._augStatus = status("aug", itemId)
+                    env._mythStatus = status("mythical", itemId)
+                    env._onAug = env._augStatus ~= nil
+                    env._onMyth = env._mythStatus ~= nil
                 end
             end
             return true
@@ -489,8 +498,14 @@ ROWS = {
         end,
         action = function(ctx, item, env)
             local itemId = item.id or item.ID
-            local on = (env._rerollList == "mythical") and env._onMyth or env._onAug
-            if on then
+            local st = (env._rerollList == "mythical") and env._mythStatus or env._augStatus
+            if st == "pending" then
+                -- Never synced, so there is nothing on the server to remove — drop the
+                -- local pending entry instead of firing a no-op /say at the server.
+                if itemId and ctx.rerollService and ctx.rerollService.removeFromPending then
+                    ctx.rerollService.removeFromPending(env._rerollList, itemId)
+                end
+            elseif st == "listed" then
                 if itemId and ctx.removeFromRerollList then ctx.removeFromRerollList(env._rerollList, itemId) end
             elseif ctx.requestAddToRerollList then
                 local payload = (env.source == "bank")

@@ -735,8 +735,14 @@ function ConfigGeneral.render(ctx)
             ImGui.SetNextItemWidth(120)
             local cur = keybinds.get(b.id)
             local typed = ImGui.InputText("##kb_" .. b.id, cur)
-            if typed ~= cur then
-                keybinds.set(b.id, typed)
+            -- Compare CANONICAL to CANONICAL. The binding's InputText takes the string by
+            -- value and hands back whatever ImGui's buffer holds, so feeding it the
+            -- normalized form and comparing against the raw return means "Ctrl Shift J"
+            -- never converges: every frame it re-normalizes, differs, and re-stamps the
+            -- debounce — which starves the save and re-issues /bind forever.
+            local norm = keybinds.normalize(typed)
+            if norm ~= cur then
+                keybinds.set(b.id, norm)
                 kbChanged = true
             end
             -- Preset rows name the arrangement they currently point at: the binds are
@@ -754,19 +760,39 @@ function ConfigGeneral.render(ctx)
                 dupe.combo, #dupe.ids))
         end
         if kbChanged then
+            -- Patch the CACHED parse, not just layoutConfig. scheduleLayoutSave only
+            -- marks the file dirty; for the whole 600ms debounce loadLayoutConfig still
+            -- serves the cached [Layout] table, and applyLayoutSection unconditionally
+            -- re-runs keybinds.setFromCSV from it — silently reverting the edit that is
+            -- still in flight. This is the same cache-patch the dock keys use, and the
+            -- same class of silent-revert bug this codebase keeps re-learning.
+            local pc = ctx.perfCache
+            if pc and pc.layoutCached and pc.layoutCached.layout then
+                pc.layoutCached.layout.Keybinds = keybinds.getCSV()
+            end
             scheduleLayoutSave()
-            filterState.keybindDebounceAt = mq.gettime()
+            -- Its OWN debounce token. The hub-bind block above shares nothing with this
+            -- one: its condition has no pending-apply guard, it runs FIRST every frame,
+            -- and it clears the token unconditionally — so a shared field made this
+            -- apply unreachable on every path, and shortcut edits only took effect after
+            -- a restart while chat reported the hub key changing instead.
+            filterState.kbSetDebounceAt = mq.gettime()
+            filterState.keybindsPendingApply = true
         end
-        if filterState.keybindDebounceAt and filterState.keybindsPendingApply
-            and (mq.gettime() - filterState.keybindDebounceAt) >= KEYBIND_DEBOUNCE_MS then
+        if filterState.kbSetDebounceAt and filterState.keybindsPendingApply
+            and (mq.gettime() - filterState.kbSetDebounceAt) >= KEYBIND_DEBOUNCE_MS then
+            filterState.kbSetDebounceAt = nil
             filterState.keybindsPendingApply = nil
             keybinds.applyAll()
             print("\ag[ItemUI]\ax Shortcuts applied.")
         end
-        if kbChanged then filterState.keybindsPendingApply = true end
         if ImGui.Button("Restore default shortcuts##kbReset", ImVec2(200, 0)) then
             keybinds.resetAll()
             keybinds.applyAll()
+            local pcR = ctx.perfCache
+            if pcR and pcR.layoutCached and pcR.layoutCached.layout then
+                pcR.layoutCached.layout.Keybinds = keybinds.getCSV()
+            end
             scheduleLayoutSave()
             print("\ag[ItemUI]\ax Shortcuts restored to defaults.")
         end

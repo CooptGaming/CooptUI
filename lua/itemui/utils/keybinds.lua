@@ -94,15 +94,22 @@ function M.normalize(input)
     local s = input:match("^%s*(.-)%s*$")
     if s == "" then return "" end
     local parts = {}
+    local hasKey = false
     for part in s:gmatch("[^%s+%-]+") do
         local lower = part:lower()
         if lower == "shift" or lower == "ctrl" or lower == "control" or lower == "alt" then
             parts[#parts + 1] = (lower == "control") and "ctrl" or lower
         else
             parts[#parts + 1] = part
+            hasKey = true
         end
     end
-    if #parts == 0 then return "" end
+    -- A combo with no actual KEY is not a combo. This matters because the split class
+    -- treats `-` as a separator (inherited from the hub bind's normalizer), so typing
+    -- "ctrl+shift+-" tokenizes to just the two modifiers — without this guard it would
+    -- return "ctrl+shift" and we would hand MQ a meaningless `/bind <name> ctrl+shift`.
+    -- Empty is the honest answer: it takes apply's explicit-clear branch instead.
+    if #parts == 0 or not hasKey then return "" end
     return table.concat(parts, "+")
 end
 

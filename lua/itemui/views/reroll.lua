@@ -43,12 +43,17 @@ local TRAY_NAME_MAX = 14
 ---
 --- Membership is a set built ONCE per call, then O(1) per item — not a list scan per
 --- item. This runs every frame the window is open, over the full bag and bank lists.
+--- Returns (tray, bankRows) where bankRows are the DISTINCT bank rows the tray drew from.
+--- Both are needed because they count different things: the tray counts UNITS (a stack of
+--- four augs is four of the ten), while a bank fetch moves ROWS (one /itemnotify brings
+--- the whole stack). The roll's pre-flight must size itself in rows or it asks for free
+--- bag slots it does not need and fetches items already accounted for.
 local function buildTray(rerollService, list, inventoryItems, bankList)
     local listed = {}
     for _, e in ipairs(list or {}) do
         if e.id then listed[e.id] = true end
     end
-    local out = {}
+    local out, bankRows = {}, {}
     local function take(items, where)
         for _, it in ipairs(items or {}) do
             if #out >= ITEMS_REQUIRED then return end
@@ -57,16 +62,21 @@ local function buildTray(rerollService, list, inventoryItems, bankList)
                 -- Stacks count per unit: the roll consumes items, not slots.
                 local n = tonumber(it.stackSize) or 1
                 if n < 1 then n = 1 end
+                local before = #out
                 for _ = 1, n do
-                    if #out >= ITEMS_REQUIRED then return end
+                    if #out >= ITEMS_REQUIRED then break end
                     out[#out + 1] = { name = it.name, id = id, where = where }
                 end
+                if where == "bank" and #out > before then
+                    bankRows[#bankRows + 1] = { bag = it.bag, slot = it.slot, id = id, name = it.name or "" }
+                end
+                if #out >= ITEMS_REQUIRED then return end
             end
         end
     end
     take(inventoryItems, "inv")
     take(bankList, "bank")
-    return out
+    return out, bankRows
 end
 
 --- Why Roll is off, in the user's words, or nil when it is on. 20b: "Roll says why it's
@@ -74,9 +84,13 @@ end
 --- control you have already decided not to press.
 local function rollBlockedReason(ctx, tray, isMovingFromBank, pendingBankMoves, bankConnected, countInBank)
     if isMovingFromBank then
-        local done = tostring(pendingBankMoves and pendingBankMoves.nextIndex or 0)
-        local total = tostring(#((pendingBankMoves and pendingBankMoves.items) or {}))
-        return string.format("fetching %s of %s from the bank", done, total)
+        -- nextIndex is the NEXT item to move, so after the last one it reads total+1.
+        -- Clamped: "fetching 6 of 5" is the kind of number that makes a user think the
+        -- tool has lost count of what it is doing.
+        local total = #((pendingBankMoves and pendingBankMoves.items) or {})
+        local done = math.min(tonumber(pendingBankMoves and pendingBankMoves.nextIndex) or 1,
+            math.max(total, 1))
+        return string.format("fetching %d of %d from the bank", done, total)
     end
     local short = ITEMS_REQUIRED - #tray
     if short > 0 then
@@ -140,7 +154,8 @@ local function renderTabContent(ctx, track, rerollService)
     -- optimistically trims the tail of its own list. So the tray is also the only place
     -- that can honestly say what a roll would consume.
     -- ---------------------------------------------------------------------
-    local tray = buildTray(rerollService, list, inventoryItems, bankConnected and bankList or nil)
+    local tray, trayBankRows = buildTray(rerollService, list, inventoryItems,
+        bankConnected and bankList or nil)
     do
         local filled = #tray
         local header = string.format("%d of %d ready", filled, ITEMS_REQUIRED)
@@ -166,7 +181,13 @@ local function renderTabContent(ctx, track, rerollService)
             if (i - 1) % TRAY_PER_ROW ~= 0 then ImGui.SameLine(0, 4) end
             local slot = tray[i]
             local okCell = pcall(function()
-                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, lineH + 6), true,
+                -- border = FALSE. The bool-border overload maps true to
+                -- ImGuiChildFlags_Borders, and a bordered child DOES apply WindowPadding
+                -- (8px top and bottom) — which would leave a lineH+6 cell with negative
+                -- room for its own text and clip every slot label. Same class as the
+                -- bar-button clipping this session already fixed: the container has to
+                -- pay for what it draws.
+                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, lineH + 6), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
                     if slot then
                         -- Location is the tint, same vocabulary the list table uses:
@@ -365,9 +386,15 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.SameLine()
         theme.PushKeepButton(false)
         if ImGui.Button("Confirm Roll##" .. track, ImVec2(100, 0)) then
-            local needToMove = math.max(0, ITEMS_REQUIRED - countInInv)
+            -- Sized from the TRAY, which is what the user was just looking at: exactly the
+            -- distinct bank ROWS its entries came from. The old arithmetic
+            -- (ITEMS_REQUIRED - countInInv) mixed units and rows — countInInventory counts
+            -- rows and ignores stackSize — so a stack of four listed augs in bags filled
+            -- four tray slots while the pre-flight still believed nine had to be fetched.
+            local bankItemsToMove = trayBankRows or {}
+            local needToMove = #bankItemsToMove
             if needToMove > 0 then
-                -- Pre-flight: need free bag space for bank items we'll move
+                -- Pre-flight: need free bag space for the bank ROWS we'll move
                 local freeSlots = (ctx.countFreeInvSlots and ctx.countFreeInvSlots()) or 0
                 if freeSlots < needToMove then
                     setStatusMessage(string.format("Need %d free bag slots to move items from bank; you have %d. Free %d more.", needToMove, freeSlots, needToMove - freeSlots))
@@ -375,19 +402,7 @@ local function renderTabContent(ctx, track, rerollService)
                 elseif not bankConnected then
                     setStatusMessage("Bank must be open to use bank items for roll.")
                 else
-                    -- Build list of bank items that are on the reroll list (by id); take exactly needToMove
-                    local listIds = {}
-                    for _, e in ipairs(list) do if e.id then listIds[e.id] = true end end
-                    local bankItemsToMove = {}
-                    for _, bn in ipairs(bankList) do
-                        local id = bn.id or bn.ID
-                        if id and listIds[id] and #bankItemsToMove < needToMove then
-                            bankItemsToMove[#bankItemsToMove + 1] = { bag = bn.bag, slot = bn.slot, id = id, name = bn.name or "" }
-                        end
-                    end
-                    if #bankItemsToMove < needToMove then
-                        setStatusMessage(string.format("Need %d items from bank but only found %d listed in bank.", needToMove, #bankItemsToMove))
-                    else
+                    do
                         -- Start bank-to-bag move sequence; main_loop will process one per tick then trigger roll
                         -- Pause location cache updates so each move doesn't trigger a rebuild
                         rerollService.pauseLocationCache()

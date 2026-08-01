@@ -1147,7 +1147,13 @@ do
     -- Right-click a row: the §7 menu opens from a host OUTSIDE the panel (a popup opened
     -- inside it would kill the panel's hover grace and take itself down 250ms later), and
     -- the panel pins so the list stays put behind the menu.
+    --
+    -- The menu is offered ONLY for a LIVE entry, re-linked to its real inventory row by
+    -- acquiredSeq. So the render ctx has to carry that row - which is the point: a
+    -- departed entry (every entry after a restart) gets no menu at all rather than one
+    -- full of verbs that would act on a location it no longer has.
     resetInput()
+    ctxWhy.inventoryItems = srDeps.inventoryItems
     stub.hover = { dockseg_session = true, ['Typed Aug'] = true }
     stub.mouse = { [ImGuiMouseButton.Right] = true }
     local rMenu = stub.frame(function() dockTop.render(ctxWhy) end)
@@ -1164,6 +1170,30 @@ do
             end
             return false
         end)(), table.concat(rMenu.windows, ','))
+
+    -- A DEPARTED entry gets no menu. The builder's rows key off bag/slot, and a stand-in
+    -- with neither still renders Open it / Inspect / Reroll as enabled - verbs that
+    -- quietly do nothing or fire at a location that does not exist. After a restart every
+    -- entry is departed, so this is the common case, not an edge.
+    resetInput()
+    ctxWhy.inventoryItems = {}   -- the live row is gone; the entry departs on the next tick
+    stub.advance(1000)
+    local mqTab3 = package.loaded['mq']
+    local savedTLO3 = mqTab3.TLO
+    mqTab3.TLO = { Me = { Name = function() return 'Testchar' end } }
+    sessionRecord.tick(stub.now)
+    mqTab3.TLO = savedTLO3
+    stub.hover = { dockseg_session = true, ['Typed Aug'] = true }
+    stub.mouse = { [ImGuiMouseButton.Right] = true }
+    local rGone = stub.frame(function() dockTop.render(ctxWhy) end)
+    check('row menu: a departed entry opens NO menu (no verbs it cannot honour)',
+        (function()
+            for _, w in ipairs(rGone.windows) do
+                if w:find('SessionMenuHost', 1, true) then return false end
+            end
+            return true
+        end)(), table.concat(rGone.windows, ','))
+    check('row menu: departed frame still balanced', stub.balanced(rGone), stub.imbalance(rGone))
 
     resetInput()
     sessionRecord._resetForTests()

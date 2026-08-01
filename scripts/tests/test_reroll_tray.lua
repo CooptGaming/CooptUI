@@ -92,6 +92,32 @@ do
         and trayFull[10].where == 'inv', #trayFull)
 end
 
+-- ---------------------------------------------------------------- 2b. rows vs units
+-- A review caught the tray and the roll's bank pre-flight counting DIFFERENT things: the
+-- tray counts units (a stack of four augs is four of the ten) while the pre-flight counted
+-- rows and ignored stackSize. With a stack in bags they disagreed about how many items had
+-- to be fetched from the bank. buildTray now returns the distinct bank ROWS its entries
+-- came from, so the pre-flight can size itself in the unit the fetch actually moves.
+do
+    local list = listOf(1, 2)
+    -- One bank row holding a stack of 3, plus one single: 4 units from 2 rows.
+    local bank = { item(1, 'Stacked bank', 3), item(2, 'Single bank') }
+    local tray, bankRows = buildTray(nil, list, {}, bank)
+    check('rows: the tray counts units', #tray == 4, #tray)
+    check('rows: bankRows counts ROWS, not units', #bankRows == 2, #bankRows)
+    check('rows: each bank row carries the coords a fetch needs',
+        bankRows[1] and bankRows[1].id == 1 and bankRows[1].name == 'Stacked bank',
+        bankRows[1] and bankRows[1].name)
+
+    -- Bags-only: nothing to fetch, so the pre-flight must ask for zero bag slots.
+    local _, noneFromBank = buildTray(nil, list, { item(1, 'In bags', 4) }, nil)
+    check('rows: an all-bags tray needs no bank fetch', #noneFromBank == 0, #noneFromBank)
+
+    -- A bank row only partly consumed by the cap still counts as one row to fetch.
+    local _, capped = buildTray(nil, listOf(9), { item(9, 'Bags', 8) }, { item(9, 'Bank', 50) })
+    check('rows: a partly-taken bank row is still one fetch', #capped == 1, #capped)
+end
+
 -- ---------------------------------------------------------------- 3. why Roll is off
 do
     local function trayOf(n)

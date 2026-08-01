@@ -229,6 +229,47 @@ do
     end
 end
 
+-- ---------------------------------------------------------------- 4b. review regressions
+-- Three bugs an adversarial review found in the first cut of this feature. Each is a
+-- silent one - nothing errors, the UI looks right, and the wrong thing happens.
+do
+    keybinds._resetForTests()
+
+    -- (1) normalize() splits on '-' as well as '+' and space (inherited from the hub
+    -- bind's normalizer). "ctrl+shift+-" therefore tokenizes to two MODIFIERS and no key.
+    -- Returning "ctrl+shift" would have handed MQ a meaningless bind; empty is honest and
+    -- routes to apply's explicit-clear branch.
+    check('normalize: a modifier-only combo is not a combo',
+        keybinds.normalize('ctrl+shift+-') == '', '[' .. keybinds.normalize('ctrl+shift+-') .. ']')
+    check('normalize: bare modifiers are rejected too',
+        keybinds.normalize('ctrl') == '' and keybinds.normalize('shift alt') == '')
+    check('normalize: a real combo still survives intact',
+        keybinds.normalize('Ctrl Shift F1') == 'ctrl+shift+F1', keybinds.normalize('Ctrl Shift F1'))
+    check('normalize: a bare key is a valid bind',
+        keybinds.normalize('F5') == 'F5', keybinds.normalize('F5'))
+
+    -- (2) normalize must be IDEMPOTENT. Settings compares the canonical form against the
+    -- stored value each frame; if re-normalizing changed anything, the row would never
+    -- converge - it would restamp the debounce and re-save every single frame.
+    for _, s in ipairs({ 'ctrl+shift+I', 'ctrl+shift+F1', 'F5', '' }) do
+        check('normalize: idempotent for "' .. s .. '"',
+            keybinds.normalize(keybinds.normalize(s)) == keybinds.normalize(s))
+    end
+    for _, b in ipairs(keybinds.BINDS) do
+        check('normalize: default "' .. b.default .. '" is already canonical',
+            keybinds.normalize(b.default) == b.default, keybinds.normalize(b.default))
+    end
+
+    -- (3) An unbound entry must survive a getCSV -> setFromCSV round trip as unbound
+    -- rather than snapping back to its default, or clearing a shortcut would silently
+    -- undo itself on the next layout load.
+    keybinds.set('reroll', '')
+    keybinds.setFromCSV(keybinds.getCSV())
+    check('csv: an intentionally cleared bind stays cleared', keybinds.get('reroll') == '',
+        keybinds.get('reroll'))
+    keybinds._resetForTests()
+end
+
 -- ---------------------------------------------------------------- 5. pair semantics
 -- The bar chip and ctrl+shift+D both queue { kind = "pair", id = "idau" }, so the drain
 -- is the single definition of what "toggle the pair" means. Exercised here through the

@@ -181,6 +181,11 @@ function M.handleCommand(...)
                 .. "bank, itemDisplay, augmentUtility, equipment, effects, reroll, mythicals, aa, scripttracker")
         elseif not registry.isRegistered(id) then
             print("\ar[ItemUI]\ax No window with id '" .. id .. "'. /itemui window lists them.")
+        elseif not registry.isEnabled(id) then
+            -- Turned off in Settings. The drain would toggle windowOpen on a module that
+            -- getDrawableModules filters out, so the key would look broken with no
+            -- explanation. Say which switch to flip instead.
+            print("\ar[ItemUI]\ax The " .. id .. " window is turned off in Settings > General > Companion windows.")
         elseif deps.uiState then
             local q = deps.uiState.dockActionQueue
             if not q then q = {}; deps.uiState.dockActionQueue = q end

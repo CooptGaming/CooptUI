@@ -792,32 +792,43 @@ local augmentHelpers = require('itemui.utils.augment_helpers')
 local SESSION_MENU_POPUP = "##CooptSessionRowMenu"
 local sessionMenu = { item = nil, openRequested = false }
 
---- Turn a session entry into something the §7 builder can render. A live entry re-links
---- to its inventory row by acquiredSeq (identity, unlike bag/slot — another item can take
---- the slot after this one moves) and gets the FULL menu. A departed entry cannot: after
---- a UI restart every entry is departed by construction, so the honest answer is the
---- name/id-keyed subset, with location verbs simply not applying rather than lying.
+--- Turn a session entry into something the §7 builder can render — or nil, which means
+--- "do not open a menu for this row".
+---
+--- ONLY a live entry gets a menu, and only by re-linking to its actual inventory row via
+--- acquiredSeq (identity; bag/slot is position — another item can occupy the slot after
+--- this one moves). A synthetic stand-in was tried and abandoned: the builder's rows key
+--- off bag/slot, and a row with neither still renders Open it / Inspect / Reroll as
+--- ENABLED, so the menu offers verbs that quietly do nothing or fire commands at a
+--- location that does not exist. Blocking them one at a time is six guards that have to
+--- stay in sync with a growing row table; not offering the menu is one rule that cannot
+--- rot.
+---
+--- This is not a small exclusion: after a UI restart EVERY entry is departed, because
+--- rowSeq is not persisted and the acquired-seq floor is re-stamped on snapshot load.
+--- Those rows keep the three chips (Keep / Reroll / Junk), which carry their own
+--- canDecide guards and are the decisions the panel exists for.
 local function sessionMenuItem(ctx, e)
-    if not e then return nil, nil end
-    if not e.departed and e.rowSeq then
-        for _, row in ipairs(ctx.inventoryItems or {}) do
-            if row.acquiredSeq == e.rowSeq then return row, "inv" end
-        end
+    if not e or e.departed or not e.rowSeq then return nil, nil end
+    for _, row in ipairs(ctx.inventoryItems or {}) do
+        if row.acquiredSeq == e.rowSeq then return row, "inv" end
     end
-    -- Departed: a synthetic row carrying only what is genuinely known. `type` is set so
-    -- the aug-only rules still resolve; no bag/slot, so nothing location-shaped applies.
-    return {
-        name = e.name, id = e.itemId,
-        type = (e.cat == "aug") and "Augmentation" or nil,
-        stackSize = e.stack or 1,
-        augType = e.augType,
-    }, "inv"
+    return nil, nil
 end
 
 --- Host + draw the pending session-row menu. Called from M.render AFTER the bar's End(),
 --- like the popover, but independent of it.
-local function renderSessionMenu(ctx)
+local function renderSessionMenu(ctx, s)
     if not sessionMenu.item then return end
+    -- The same veto renderPopover applies: nothing that eats clicks may sit over the game
+    -- at the exact moment the player is being asked to press Take or Pass. The popover
+    -- gets this for free by not drawing; this host is independent of it, so it has to
+    -- honour the rule itself or the menu would outlive the panel straight through a
+    -- mythical decision.
+    if s and s.lootState == "decision" then
+        sessionMenu.item, sessionMenu.source, sessionMenu.openRequested = nil, nil, false
+        return
+    end
     ImGui.SetNextWindowPos(ImVec2(-2000, -2000))
     ImGui.SetNextWindowSize(ImVec2(1, 1))
     local flags = bit32.bor(ImGuiWindowFlags.NoTitleBar, ImGuiWindowFlags.NoResize,
@@ -1601,7 +1612,7 @@ function M.render(ctx)
     renderPopover(ctx, s, edge, x, y, w, h)
     -- AFTER the popover, and deliberately not inside it: the session row menu outlives
     -- the panel's hover grace only because its host is independent (see renderSessionMenu).
-    renderSessionMenu(ctx)
+    renderSessionMenu(ctx, s)
     renderHint(ctx, s, edge, x, y, w, h)
 end
 
