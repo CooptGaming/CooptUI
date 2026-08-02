@@ -10,6 +10,10 @@ require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local ItemDisplayView = require('itemui.views.item_display')
+local windowHeader = require('itemui.components.window_header')
+local cursorSubject = require('itemui.services.cursor_subject')
+-- Pure service (mq + constants + debug), requires no view, so this closes no cycle.
+local sellBatch = require('itemui.services.sell_batch')
 
 local SellView = {}
 
@@ -92,7 +96,43 @@ function SellView.render(ctx, simulateSellView)
         ctx.theme.TextWarning("[Setup Mode: Simulated Sell View]")
         ImGui.SameLine()
     end
-    
+
+    -- The 26px band (windows pass). Sell shares the hub frame with Bags and swaps into it,
+    -- so it wears the same chrome or the frame visibly changes character mid-session.
+    --
+    -- STAT IS INTERIM. The design specifies "selling to Merchant Halden . buys at 40%",
+    -- and NEITHER half is available: nothing in this codebase reads a merchant name (the
+    -- only merchant data anywhere is the isMerchantWindowOpen boolean) and the vendor
+    -- markup is never read either. Rather than invent them, the band states the candidate
+    -- set, which this window already computes and which the bar does NOT show -- the bar
+    -- owns sell PROGRESS, this is what is waiting. Swap it once the TLO plumbing lands.
+    local barsOn = tostring((ctx.layoutConfig or {}).UIMode or "classic") == "bars"
+    if barsOn and not simulateSellView then
+        local waiting, waitingValue = 0, 0
+        for _, it in ipairs(ctx.sellItems) do
+            if it.willSell then
+                waiting = waiting + 1
+                waitingValue = waitingValue + (it.totalValue or 0)
+            end
+        end
+        local stat
+        if waiting > 0 then
+            stat = string.format("%d item%s waiting . %s", waiting, waiting == 1 and "" or "s",
+                ItemUtils.formatValue(waitingValue))
+        end
+        windowHeader.render({
+            id = "sell", title = "Sell", stat = stat,
+            actions = {
+                { label = windowHeader.GLYPHS.REFRESH,
+                  tooltip = "Rescan inventory, bank (if open), sell list, and loot",
+                  onClick = function()
+                      if ctx.setStatusMessage then ctx.setStatusMessage("Scanning...") end
+                      ctx.refreshAllScans()
+                  end },
+            },
+        })
+    end
+
     if ImGui.Button("Auto Sell", ImVec2(100, 0)) then
         if not simulateSellView then
             ctx.uiState.autoSellRequested = true
@@ -141,7 +181,10 @@ function SellView.render(ctx, simulateSellView)
             local smoothedFrac = sellMacState.smoothedFrac or 0
             if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                 if total > 0 then
-                    local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
+                    -- Denominator is the RUN, not every item matching a sell rule. Items
+                    -- held back are never touched, so counting them stalls the bar short
+                    -- of 100% and reads as a stuck job.
+                    local overlay = string.format("selling %d of %d  (%d to go)", current, total, remaining)
                     ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
                 else
                     ctx.theme.TextSuccess("Selling...")
@@ -160,7 +203,10 @@ function SellView.render(ctx, simulateSellView)
                 local smoothedFrac = prog.smoothedFrac or 0
                 if ImGui.BeginChild("##SellProgressBar", ImVec2(-1, 32), false, ImGuiWindowFlags.NoScrollbar) then
                     if total > 0 then
-                        local overlay = string.format("%3d / %3d sold  (%3d remaining)", current, total, remaining)
+                        -- Denominator is the RUN, not every item matching a sell rule. Items
+                    -- held back are never touched, so counting them stalls the bar short
+                    -- of 100% and reads as a stuck job.
+                    local overlay = string.format("selling %d of %d  (%d to go)", current, total, remaining)
                         ctx.theme.RenderProgressBar(smoothedFrac, ImVec2(-1, 24), overlay)
                     else
                         ctx.theme.TextSuccess("Sell macro running...")
@@ -219,11 +265,14 @@ function SellView.render(ctx, simulateSellView)
         local passFilter = true
         if ctx.uiState.showOnlySellable and not item.willSell then passFilter = false end
         if passFilter and searchLower ~= "" and not (item.name or ""):lower():find(searchLower, 1, true) then passFilter = false end
-        if passFilter and ctx.shouldHideRowForCursor(item, "inv") then passFilter = false end
+        -- Dimmed, not hidden -- same rule as Bags and Bank (windows pass item 10). The
+        -- design draws the cursor-held item in HELD BACK with its reason, which it cannot
+        -- do if the row vanishes; and a row disappearing from a list you are mid-way
+        -- through reading is worse than one that says "not here right now".
         if passFilter then table.insert(filteredSellItems, item) end
     end
     
-    local nCols = 6  -- Icon, Sell Keep Junk (left), Name, Status, Value, Type
+    local nCols = 7  -- Icon, Sell Keep Junk, Name, Status, Run, Value, Type
     if ImGui.BeginTable("ItemUI_InvSell", nCols, ctx.uiState.tableFlags) then
         -- Use autofit widths if available, otherwise defaults
         local sellActionWidth = ctx.columnAutofitWidths["Sell"]["Action"] or 200
@@ -232,14 +281,20 @@ function SellView.render(ctx, simulateSellView)
         local sellTypeWidth = ctx.columnAutofitWidths["Sell"]["Type"] or 100
         
         local sellSortCol = (ctx.sortState.sellColumn and type(ctx.sortState.sellColumn) == "string" and ctx.sortState.sellColumn) or "Name"
-        local sellColKeys = {"", "", "Name", "Status", "Value", "Type"}  -- col 0 = Icon, col 1 = Action
+        -- Run is inserted after Status and is NOT sortable: it is a position in a job, and
+        -- sorting by it would fight the bag order the run actually follows.
+        local sellColKeys = {"", "", "Name", "Status", "Run", "Value", "Type"}  -- col 0 = Icon, col 1 = Action
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)  -- Icon (first column)
         ImGui.TableSetupColumn("Sell Keep Junk", ImGuiTableColumnFlags.WidthFixed, sellActionWidth, 0)
-        for i = 1, 4 do
+        for i = 1, 5 do
             local key = sellColKeys[i + 2] or "Name"
             local flags = (key == "Name") and ImGuiTableColumnFlags.WidthStretch or ImGuiTableColumnFlags.WidthFixed
-            if key == sellSortCol then flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort) end
-            local w = (i == 1) and 0 or (i == 2 and sellStatusWidth or i == 3 and sellValueWidth or sellTypeWidth)
+            if key == "Run" then flags = ImGuiTableColumnFlags.WidthFixed
+            elseif key == sellSortCol then flags = bit32.bor(flags, ImGuiTableColumnFlags.DefaultSort) end
+            local w = (i == 1) and 0
+                or (i == 2 and sellStatusWidth)
+                or (i == 3 and 92)
+                or (i == 4 and sellValueWidth or sellTypeWidth)
             ImGui.TableSetupColumn(key, flags, w, i)
         end
         ImGui.TableSetupScrollFreeze(2, 1)  -- Freeze Icon + Action columns
@@ -250,10 +305,13 @@ function SellView.render(ctx, simulateSellView)
             local spec = sortSpecs:Specs(1)
             if spec then
                 local col = spec.ColumnIndex + 1  -- 0-based to 1-based
-                if col >= 3 and col <= 6 then     -- Skip Icon (1) and Action (2) columns
-                    -- Map column index to column key for sell view
-                    local colKeys = {"", "", "Name", "Status", "Value", "Type"}
-                    ctx.sortState.sellColumn = colKeys[col] or "Name"
+                -- Skip Icon (1), Action (2) and Run (5) — Run carries no sort flag, so it
+                -- should never appear here, but the guard keeps a stray spec from
+                -- persisting "Run" into sortState where nothing can consume it.
+                local colKeys = {"", "", "Name", "Status", "Run", "Value", "Type"}
+                local key = colKeys[col]
+                if key and key ~= "" and key ~= "Run" then
+                    ctx.sortState.sellColumn = key
                     ctx.sortState.sellDirection = spec.SortDirection
                     ctx.scheduleLayoutSave()
                     ctx.flushLayoutSave()  -- Persist immediately so sort survives Lua reload / game restart
@@ -319,13 +377,43 @@ function SellView.render(ctx, simulateSellView)
         }
         filteredSellItems = ctx.getSortedList(ctx.perfCache.sell, filteredSellItems, sellSortKey, sellSortDir, validity, "Sell", ctx.sortColumns)
 
-        local n = #filteredSellItems
+        -- HELD BACK (windows pass): the window's whole reason to exist. An item that
+        -- matches a sell rule but is protected used to sit in the same list as everything
+        -- else with its reason in a column, so "why is this not selling?" meant reading
+        -- rows one at a time. Split out and counted instead.
+        --
+        -- Partition AFTER the sort, so the user's sort still orders within each group --
+        -- this is a partition, not a second sort key. One flat display list with a marker
+        -- entry for the heading, so the clipper still walks a single array and nothing
+        -- about virtualisation changes.
+        local display = {}
+        local heldCount = 0
+        for _, it in ipairs(filteredSellItems) do
+            if it.willSell then display[#display + 1] = it else heldCount = heldCount + 1 end
+        end
+        if heldCount > 0 then
+            display[#display + 1] = { __heading = string.format("HELD BACK - %d", heldCount) }
+            for _, it in ipairs(filteredSellItems) do
+                if not it.willSell then display[#display + 1] = it end
+            end
+        end
+
+        local n = #display
         local clipper = ImGuiListClipper.new()
         clipper:Begin(n)
         while clipper:Step() do
             for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-                local item = filteredSellItems[i]
+                local item = display[i]
                 if not item then goto continue end  -- safety check
+                if item.__heading then
+                    -- Section heading. Furniture, its own row, no controls: it names a
+                    -- group, it is not a thing you can act on.
+                    ImGui.TableNextRow()
+                    ImGui.TableNextColumn()
+                    ImGui.TableNextColumn()
+                    ctx.theme.TextFurniture(item.__heading)
+                    goto continue
+                end
                 ImGui.TableNextRow()
                 local loc = ItemDisplayView.getState().itemDisplayLocateRequest
                 if loc and loc.source == "inv" and loc.bag == item.bag and loc.slot == item.slot then
@@ -333,6 +421,10 @@ function SellView.render(ctx, simulateSellView)
                 end
                 local rid = "sell_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                -- Alpha multiplies each colour's own alpha, so the sell-status name colour
+                -- (red will sell / green kept) dims without drifting toward grey.
+                local dimmed = cursorSubject.isSourceRow(item.bag, item.slot, "inv")
+                if dimmed then ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0.45) end
                 if rawget(item, "_statsPending") then
                     if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
                     ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
@@ -341,6 +433,8 @@ function SellView.render(ctx, simulateSellView)
                     ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
                     ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
                     ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    ImGui.TableNextColumn(); ctx.theme.TextMuted("...")
+                    if dimmed then ImGui.PopStyleVar(1) end
                     ImGui.PopID()
                     goto continue
                 end
@@ -449,8 +543,24 @@ function SellView.render(ctx, simulateSellView)
                     if ImGui.SmallButton("Close##sellwhyclose_" .. rid) then ImGui.CloseCurrentPopup() end
                     ImGui.EndPopup()
                 end
+                -- Run: where this row sits in the JOB, which Status cannot also carry --
+                -- Status answers "why is this row here" (a rule), Run answers "has it
+                -- happened yet". Held rows are not in the run at all, so they read "held":
+                -- an em-dash there would imply "not started" and invite a wait that never
+                -- ends. Blank when no run is live, because then there is no position.
+                ImGui.TableNextColumn()
+                if not item.willSell then
+                    ctx.theme.TextFurniture("held")
+                else
+                    local runState = sellBatch.runStateFor(item.bag, item.slot)
+                    if runState == "sold" then ctx.theme.TextFurniture("sold")
+                    elseif runState == "selling now" then ctx.theme.TextSuccess("selling now")
+                    elseif runState == "queued" then ctx.theme.TextContent("queued")
+                    else ctx.theme.TextFurniture("-") end
+                end
                 ImGui.TableNextColumn() ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
                 ImGui.TableNextColumn() ImGui.Text(item.type or "")
+                if dimmed then ImGui.PopStyleVar(1) end
                 ImGui.PopID()
                 ::continue::
             end

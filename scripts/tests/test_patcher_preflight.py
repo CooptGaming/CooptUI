@@ -23,10 +23,27 @@ locked = installer.find_locked_files(tmp)
 assert locked == ["MacroQuest.exe"], f"expected MacroQuest.exe locked, got {locked}"
 print("PASS: unwritable binary detected ->", locked)
 
-# 4. preflight surfaces it as a user-facing reason
-msg = installer.preflight_blockers(tmp)
-assert msg and "MacroQuest.exe" in msg, msg
-print("PASS: preflight_blockers message ->", msg)
+# 4. preflight surfaces it as a user-facing reason.
+#
+# is_macroquest_running() is stubbed FALSE for this assertion. preflight_blockers checks
+# the running process first and returns a different message, so with MacroQuest actually
+# open on the developer's machine this test asserted the wrong branch and failed - a gate
+# whose result depended on whether the game happened to be running. Stubbing isolates the
+# thing under test (locked-file reporting); the running-process branch is checked below.
+_real_running = installer.is_macroquest_running
+installer.is_macroquest_running = lambda: False
+try:
+    msg = installer.preflight_blockers(tmp)
+    assert msg and "MacroQuest.exe" in msg, msg
+    print("PASS: preflight_blockers message ->", msg)
+
+    # 4b. the running-process branch wins over locked files, and says something different.
+    installer.is_macroquest_running = lambda: True
+    running_msg = installer.preflight_blockers(tmp)
+    assert running_msg and "MacroQuest.exe" not in running_msg, running_msg
+    print("PASS: a running MacroQuest pre-empts the locked-file message ->", running_msg)
+finally:
+    installer.is_macroquest_running = _real_running
 
 # 5. cleared once writable again
 os.chmod(exe, stat.S_IWRITE)

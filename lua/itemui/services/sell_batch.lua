@@ -87,6 +87,41 @@ function M.isRunning()
     return batchState ~= nil
 end
 
+--- Per-item run position, for the Sell window's Run column (windows pass).
+--- Returns "sold" | "selling now" | "queued", or nil when this item is not in the run.
+---
+--- Run state is NOT a sell reason. Status answers "why is this row here" (RerollList,
+--- ClickyList, a keep rule); Run answers "where is it in the job". One column cannot
+--- carry both, which is why this exists rather than being folded into formatSellStatus.
+---
+--- Address-keyed, not id-keyed: a stack sells from a bag/slot, and two stacks of the same
+--- item id are different rows. Position beats identity here.
+function M.runStateFor(bag, slot)
+    if not batchState or bag == nil or slot == nil then return nil end
+    local cur = batchState.current
+    if cur and cur.item and cur.item.bag == bag and cur.item.slot == slot then
+        return "selling now"
+    end
+    for i = 1, batchState.totalToSell do
+        local e = batchState.queue[i]
+        if e and e.bag == bag and e.slot == slot then
+            -- Everything before the cursor has been processed. `queueIndex` is the entry
+            -- being worked, so strictly-less-than is "already dealt with".
+            return (i < batchState.queueIndex) and "sold" or "queued"
+        end
+    end
+    return nil
+end
+
+--- The run's denominator and progress, for the window's own line. The run is what
+--- startBatch actually queued -- NOT every item matching a sell rule. Counting rows the
+--- run will never touch is how a progress bar stalls at 91% and looks broken.
+--- Returns sold, total, or nil when nothing is running.
+function M.runProgress()
+    if not batchState then return nil end
+    return batchState.soldCount, batchState.totalToSell
+end
+
 --- Start a batch sell. Call with list of items that have willSell == true (bag order).
 --- Does not write sell_cache.ini or start macro. Returns false if already running or merchant closed.
 function M.startBatch(itemsToSell)
