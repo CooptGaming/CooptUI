@@ -1060,6 +1060,7 @@ context.init({
     addToLootSkipList = addToLootSkipList, removeFromLootSkipList = removeFromLootSkipList,
     isInLootSkipList = isInLootSkipList,
     addToLootAlwaysList = addToLootAlwaysList, isInLootAlwaysList = isInLootAlwaysList,
+    removeFromLootAlwaysList = config_cache.removeFromLootAlwaysList,
     -- Sort/columns (Phase 3: shared sort+cache helper)
     sortColumns = sortColumnsAPI,
     getSortedList = function(cache, filtered, sortKey, sortDir, validity, viewName, sortCols)

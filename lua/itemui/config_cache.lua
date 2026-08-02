@@ -224,6 +224,24 @@ local function addToLootAlwaysList(itemName)
     return true
 end
 
+--- Mirror of removeFromLootSkipList. Added for the shared context menu (windows pass
+--- item 7): a RULES row states membership as a check, and a check you cannot untick is a
+--- lie — the Always list had an add with no remove.
+local function removeFromLootAlwaysList(itemName)
+    itemName = config.sanitizeItemName(itemName)
+    if not itemName then return false end
+    local list = config.parseList(config.readLootListValue("loot_always_exact.ini", "Items", "exact", ""))
+    local newList, found = {}, false
+    for _, s in ipairs(list) do if s ~= itemName then newList[#newList + 1] = s else found = true end end
+    if not found then return false end
+    config.writeLootListValue("loot_always_exact.ini", "Items", "exact", config.joinList(newList))
+    local lootLists = cache.loot.lists
+    if lootLists and lootLists.alwaysExact then lootLists.alwaysExact = newList end
+    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+    opts.setStatusMessage("Removed from Always loot list")
+    return true
+end
+
 local function createAugmentListAPI()
     local sellLists = cache.sell.lists
     local lootLists = cache.loot.lists
@@ -357,6 +375,7 @@ M.addToLootSkipList = addToLootSkipList
 M.removeFromLootSkipList = removeFromLootSkipList
 M.isInLootAlwaysList = isInLootAlwaysList
 M.addToLootAlwaysList = addToLootAlwaysList
+M.removeFromLootAlwaysList = removeFromLootAlwaysList
 M.createAugmentListAPI = createAugmentListAPI
 M.createConsumablesAPI = createConsumablesAPI
 

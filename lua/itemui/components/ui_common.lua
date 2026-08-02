@@ -147,6 +147,8 @@ local function menuEnv(opts)
         hasCursor = opts.hasCursor or false,
         rerollEntryId = opts.rerollEntryId,
         onRemoveFromRerollList = opts.onRemoveFromRerollList,
+        onOpenSubject = opts.onOpenSubject,
+        onFillSocket = opts.onFillSocket,
     }
 end
 

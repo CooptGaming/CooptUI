@@ -29,36 +29,15 @@ local function renderNameCellWithLootMenu(ctx, theme, name, nameColor)
     if name ~= "" and ImGui.IsItemHovered() and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
         ImGui.OpenPopup("LootRuleCtx")
     end
-    if ImGui.BeginPopup("LootRuleCtx") then
-        ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), name)
-        ImGui.Separator()
-        if ctx.addToLootAlwaysList and ImGui.MenuItem("Always loot this") then
-            ctx.addToLootAlwaysList(name)
-        end
-        if ctx.addToLootSkipList and ImGui.MenuItem("Never loot this") then
-            ctx.addToLootSkipList(name)
-        end
-        if ctx.isInLootSkipList and ctx.removeFromLootSkipList and ctx.isInLootSkipList(name) then
-            if ImGui.MenuItem("Remove from Never-loot list") then
-                ctx.removeFromLootSkipList(name)
-            end
-        end
-        -- Loot rows carry no id/type (macro_bridge.lua row shape) -- resolve mythical by
-        -- name prefix only (nil type), and require the item to already be in inventory
-        -- (looted) so requestAddToRerollList has an id to work with.
-        if ctx.resolveRerollList and ctx.requestAddToRerollList and ctx.inventoryItems then
-            local resolvedList = ctx.resolveRerollList(name, nil)
-            if resolvedList then
-                local row
-                for _, inv in ipairs(ctx.inventoryItems) do
-                    if inv.name == name and (inv.id or inv.ID) then row = inv; break end
-                end
-                if row and ImGui.MenuItem("Add to reroll list") then
-                    ctx.requestAddToRerollList(resolvedList, row)
-                end
-            end
-        end
-        ImGui.EndPopup()
+    -- The shared builder (windows pass item 7). This menu used to be hand-rolled, which
+    -- is why it drifted: it carried "Remove from Never-loot list" as a THIRD row
+    -- expressing the second row's state, where the builder renders one row with a check.
+    -- A corpse row is a name and nothing else, so the lootRow context is RULES plus the
+    -- id-needing rows rendered blocked - rule 3, they stay in place and say why.
+    if ctx.renderItemContextMenu then
+        ctx.renderItemContextMenu(ctx, { name = name }, {
+            source = "inv", context = "lootRow", popupId = "LootRuleCtx",
+        })
     end
 end
 

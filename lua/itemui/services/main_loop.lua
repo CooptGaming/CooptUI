@@ -1638,6 +1638,21 @@ local function phase0_cursorActionQueue(now)
             phase = initialPhase, phaseEnteredAt = now
         }
         if setStatusMessage then setStatusMessage("Equipping: " .. (next.name or "") .. "...") end
+    elseif next.type == "unequip" then
+        -- Take it off (handoff item 7). This is the equip FSM's PRE-CLEAR half and nothing
+        -- more: pick the slot up, /autoinventory it, poll until the cursor is confirmed
+        -- clear, abort honestly if bags are full. Reusing those phases rather than writing
+        -- a second unequip FSM means the cursor-race handling and the bags-full abort are
+        -- the ones already proven in the field. `unequipOnly` stops it before the pickup
+        -- phase, which is the only part that needs an item to equip.
+        uiState.pendingEquipAction = {
+            name = next.name,
+            preClearSlots = { next.targetSlot },
+            preClearIdx   = 1,
+            unequipOnly   = true,
+            phase = "pre_clear_pickup", phaseEnteredAt = now
+        }
+        if setStatusMessage then setStatusMessage("Taking off: " .. (next.name or "") .. "...") end
     end
 end
 
@@ -2065,6 +2080,12 @@ local function phaseEquipAction(now)
         local slots = ea.preClearSlots or {}
         if ea.preClearIdx <= #slots then
             ea.phase = "pre_clear_pickup"   -- more slots to clear
+        elseif ea.unequipOnly then
+            -- Take it off: the slot is clear and the item is in a bag, which was the whole
+            -- job. The pickup phase below needs an item to equip and there isn't one.
+            uiState.pendingEquipAction = nil
+            if setStatus then setStatus((ea.name or "Item") .. " is in your bags.") end
+            return
         else
             ea.phase = "pickup"             -- all clear, pick up the item to equip
         end

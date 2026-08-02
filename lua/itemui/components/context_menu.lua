@@ -4,9 +4,9 @@
     Right-click is where most work happens, and before this file each view built its own
     menu block; the same augment offered different verbs in Bags vs Bank vs the slot map.
     Now there is ONE definition. Each row declares which contexts it appears in and what
-    disables it; the seven contexts share one skeleton:
+    disables it; the eight contexts share one skeleton:
 
-        bags · bank · equipped · augInserted · ornament · augEmpty · effect
+        bags · bank · equipped · augInserted · ornament · augEmpty · effect · lootRow
 
     Anatomy — fixed, in this order (the eight rules of §7):
 
@@ -51,6 +51,10 @@ local M = {}
 M.CONTEXTS = {
     bags = true, bank = true, equipped = true,
     augInserted = true, ornament = true, augEmpty = true, effect = true,
+    -- A row on a corpse. Carries a NAME and nothing else (macro_bridge's row shape has no
+    -- bag, slot or id), so MOVE and destructive genuinely cannot address it — that
+    -- constraint is real and the rows that need an id render blocked rather than absent.
+    lootRow = true,
 }
 
 --- Legacy opts.source → context. "sell"/"augments" views show items that live in bags.
@@ -77,7 +81,11 @@ local function whereString(item, env)
     elseif ctxName == "augInserted" then
         return "In a socket"
     elseif ctxName == "ornament" then
-        return "Ornament slot"
+        return "Ornament slot - appearance only"
+    elseif ctxName == "augEmpty" then
+        return "Empty socket"
+    elseif ctxName == "lootRow" then
+        return "On this corpse"
     elseif ctxName == "effect" then
         return tostring(item.kind or "effect")
     end
@@ -245,24 +253,43 @@ local ROWS
 --- buff/song, not an item); everything else gets the full skeleton.
 local function subjectFamily(item, env)
     if env.context == "effect" then return "effect" end
+    if env.context == "augEmpty" then return "socket" end
     if isScriptItem(item) then return "script" end
     if isRerollBook(item) then return "book" end
     return "item"
+end
+
+--- Does this corpse row name something already in your bags? Loot rows carry no id, so
+--- every verb that needs one (Item info, Reroll) resolves through the inventory list by
+--- name and renders blocked until the item is actually yours.
+local function lootRowInvMatch(ctx, item)
+    for _, inv in ipairs(ctx.inventoryItems or {}) do
+        if inv.name == item.name and (inv.id or inv.ID) then return inv end
+    end
+    return nil
 end
 
 ROWS = {
     -- ============================================================== LOOK
     {
         id = "open", group = "look", families = { item = true, script = true, book = true },
-        contexts = { bags = true, bank = true, equipped = true, augInserted = true, ornament = true },
+        contexts = { bags = true, bank = true, equipped = true, augInserted = true,
+                     ornament = true, lootRow = true },
         applies = function(ctx, _, env) return ctx.addItemDisplayTab ~= nil or env.onOpenSubject ~= nil end,
         -- "Open it" read as a synonym of "Inspect it" in the smoke test — this row opens
         -- the CoOpt Item Display window, so it says which window it means.
         label = function() return "Item info" end,
+        blocked = function(ctx, item, env)
+            if env.context ~= "lootRow" then return nil end
+            env._lootInv = env._lootInv == nil and (lootRowInvMatch(ctx, item) or false) or env._lootInv
+            if not env._lootInv then return "not in your bags yet" end
+            return nil
+        end,
         action = function(ctx, item, env)
             -- Hosts whose subject needs live resolution first (a socketed augment: the row
             -- table is cache-shaped, the tab wants full stats) pass onOpenSubject instead.
             if env.onOpenSubject then env.onOpenSubject()
+            elseif env.context == "lootRow" then ctx.addItemDisplayTab(env._lootInv, "inv")
             else ctx.addItemDisplayTab(item, env.source) end
         end,
     },
@@ -422,6 +449,45 @@ ROWS = {
         end,
     },
 
+    {
+        -- The equipped context had NO move row at all: you could equip from bags but never
+        -- take anything off. Runs the equip FSM's pre-clear half through the same cursor
+        -- queue as every other move (rule 7 - one mechanism, not a second path).
+        id = "takeOff", group = "move", families = { item = true },
+        contexts = { equipped = true },
+        applies = function(ctx, item)
+            if item.slot == nil or not ctx.getEquipmentSlotNameForItemNotify then return false end
+            return true
+        end,
+        label = function() return "Take it off" end,
+        blocked = function(ctx, item, env)
+            if env._slotName == nil then
+                env._slotName = ctx.getEquipmentSlotNameForItemNotify(item.slot) or false
+            end
+            if not env._slotName then return "no slot to clear" end
+            -- countFreeInvSlots returns 0 (not nil) when the inventory TLO is unreadable,
+            -- so a degraded read blocks the row rather than starting a move that strands
+            -- the item on the cursor.
+            if ctx.countFreeInvSlots and ctx.countFreeInvSlots() <= 0 then return "bags are full" end
+            return nil
+        end,
+        action = function(ctx, item, env)
+            local q = ctx.uiState.cursorActionQueue or {}
+            q[#q + 1] = { type = "unequip", targetSlot = env._slotName, name = item.name }
+            ctx.uiState.cursorActionQueue = q
+        end,
+    },
+    {
+        -- augEmpty was declared in M.CONTEXTS and no row listed it, so right-clicking an
+        -- empty socket gave an identity line and nothing else. Its one verb is the same
+        -- one the left-click does - the menu just says so out loud.
+        id = "fillSocket", group = "move", families = { socket = true },
+        contexts = { augEmpty = true },
+        applies = function(_, _, env) return env.onFillSocket ~= nil end,
+        label = function() return "Fill it - open Augment Utility" end,
+        action = function(_, _, env) env.onFillSocket() end,
+    },
+
     -- ============================================================== RULES (rule 4: ✓ = state)
     {
         id = "keep", group = "rules", families = { item = true },
@@ -453,9 +519,18 @@ ROWS = {
     },
     {
         id = "reroll", group = "rules", families = { item = true },
-        contexts = { bags = true, bank = true },
+        contexts = { bags = true, bank = true, lootRow = true },
         applies = function(ctx, item, env)
             if not (ctx.rerollService and trim(item.name) ~= "") then return false end
+            -- A corpse row has no id, so resolve the bag copy by name; the row still
+            -- appears (rule 3) and states why it cannot act until the item is yours.
+            if env.context == "lootRow" then
+                env._lootInv = env._lootInv == nil and (lootRowInvMatch(ctx, item) or false) or env._lootInv
+                env._rerollList = ctx.resolveRerollList and ctx.resolveRerollList(item.name, nil) or nil
+                if not env._rerollList then return false end
+                if not env._lootInv then return true end
+                item = env._lootInv
+            end
             -- REDUNDANCY COLLAPSE (deferred from phase 9 to the 20b tray work): inside the
             -- Reroll window a listed row used to offer TWO removal verbs in the same RULES
             -- group — this instant toggle, which fires /say !augremove on the spot, and
@@ -492,11 +567,16 @@ ROWS = {
         label = function(_, _, env)
             return (env._rerollList == "mythical") and "Reroll it (Mythical)" or "Reroll it (Aug)"
         end,
+        blocked = function(_, _, env)
+            if env.context == "lootRow" and not env._lootInv then return "not in your bags yet" end
+            return nil
+        end,
         checked = function(_, _, env)
             if env._rerollList == "mythical" then return env._onMyth end
             return env._onAug
         end,
         action = function(ctx, item, env)
+            if env.context == "lootRow" and env._lootInv then item = env._lootInv end
             local itemId = item.id or item.ID
             local st = (env._rerollList == "mythical") and env._mythStatus or env._augStatus
             if st == "pending" then
@@ -561,7 +641,7 @@ ROWS = {
     },
     {
         id = "augAlwaysSell", group = "rules", families = { item = true },
-        contexts = { bags = true, bank = true, augInserted = true },
+        contexts = { bags = true, bank = true, augInserted = true, ornament = true },
         applies = function(ctx, item)
             return isAugment(item) and trim(item.name) ~= "" and ctx.augmentLists ~= nil
         end,
@@ -585,7 +665,7 @@ ROWS = {
     },
     {
         id = "augNeverLoot", group = "rules", families = { item = true },
-        contexts = { bags = true, bank = true, augInserted = true },
+        contexts = { bags = true, bank = true, augInserted = true, ornament = true },
         applies = function(ctx, item)
             return isAugment(item) and trim(item.name) ~= "" and ctx.augmentLists ~= nil
         end,
@@ -604,6 +684,37 @@ ROWS = {
                 if ctx.augmentLists.addToAugmentNeverLootList(nameKey) then
                     refreshSellStatusAfterAugListChange(ctx, item)
                 end
+            end
+        end,
+    },
+    {
+        -- The two loot-list rows (handoff item 7). Both are toggles showing membership as
+        -- a check, which is what collapsed the old menu's third row ("Remove from
+        -- Never-loot list") — a separate verb expressing the second row's state.
+        id = "lootAlways", group = "rules", families = { item = true },
+        contexts = { lootRow = true },
+        applies = function(ctx) return ctx.addToLootAlwaysList ~= nil and ctx.isInLootAlwaysList ~= nil end,
+        label = function() return "Always loot this" end,
+        checked = function(ctx, item) return ctx.isInLootAlwaysList(item.name) end,
+        action = function(ctx, item)
+            if ctx.isInLootAlwaysList(item.name) then
+                if ctx.removeFromLootAlwaysList then ctx.removeFromLootAlwaysList(item.name) end
+            else
+                ctx.addToLootAlwaysList(item.name)
+            end
+        end,
+    },
+    {
+        id = "lootNever", group = "rules", families = { item = true },
+        contexts = { lootRow = true },
+        applies = function(ctx) return ctx.addToLootSkipList ~= nil and ctx.isInLootSkipList ~= nil end,
+        label = function() return "Never loot this" end,
+        checked = function(ctx, item) return ctx.isInLootSkipList(item.name) end,
+        action = function(ctx, item)
+            if ctx.isInLootSkipList(item.name) then
+                if ctx.removeFromLootSkipList then ctx.removeFromLootSkipList(item.name) end
+            else
+                ctx.addToLootSkipList(item.name)
             end
         end,
     },
@@ -643,7 +754,7 @@ ROWS = {
         -- old right-click-the-icon path had NO confirmation at all — rule 6 makes it a
         -- shift-gated row that states its cost.
         id = "augRemove", group = "destroy", families = { item = true },
-        contexts = { augInserted = true },
+        contexts = { augInserted = true, ornament = true },
         destructive = true, shiftGated = true,
         applies = function(_, _, env) return env.onRemoveAugment ~= nil end,
         label = function() return "Remove it - uses a distiller" end,
@@ -756,7 +867,14 @@ function M.renderContents(ctx, item, env)
         pcall(function() ctx.drawItemIcon(item.icon, 18) end)
         ImGui.SameLine()
     end
-    ImGui.Text(tostring(item.name or "?"))
+    -- An ornament gets augInserted's whole row set (it IS an augment in a socket); the
+    -- one difference is here, so the menu says up front that this one is appearance only.
+    local mythicTint = (env.context == "ornament") and ctx.theme and ctx.theme.Kit and ctx.theme.Kit.Mythic
+    if mythicTint then
+        ImGui.TextColored(ctx.theme.ToVec4(mythicTint), tostring(item.name or "?"))
+    else
+        ImGui.Text(tostring(item.name or "?"))
+    end
     if ctx.theme and ctx.theme.TextFurniture then
         ctx.theme.TextFurniture(whereString(item, env))
     else

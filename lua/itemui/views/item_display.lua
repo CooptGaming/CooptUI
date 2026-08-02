@@ -819,7 +819,24 @@ local function augmentRowBody(ctx, entry, row, isOrnament)
             if full and ctx.addItemDisplayTab then ctx.addItemDisplayTab(full, entry.source) end
         end
     end
-    if not isEmpty then
+    if isEmpty then
+        -- augEmpty was a declared context no host ever opened, so an empty socket's menu
+        -- did not exist at all (item 7). Its one verb is what the left-click above does.
+        contextMenu.render(ctx, {
+            name = isOrnament and "Ornament slot" or ("Socket " .. tostring(row.slotIndex)),
+        }, {
+            popupId = "ItemContextAugEmpty_" .. tostring(row.slotIndex) .. "_"
+                .. tostring(entry.bag) .. "_" .. tostring(entry.slot),
+            context = "augEmpty",
+            source = entry.source,
+            where = "Empty socket in " .. tostring(entry.item and entry.item.name or "?"),
+            onFillSocket = function()
+                uiState.augmentUtilitySlotIndex = row.slotIndex
+                uiState.augmentUtilityWindowOpen = true
+                uiState.augmentUtilityWindowShouldDraw = true
+            end,
+        })
+    else
         contextMenu.render(ctx, {
             name = row.augName, icon = row.iconId,
             type = isOrnament and "Ornament" or "Augmentation",
@@ -827,10 +844,13 @@ local function augmentRowBody(ctx, entry, row, isOrnament)
         }, {
             popupId = "ItemContextAugSocket_" .. tostring(row.slotIndex) .. "_"
                 .. tostring(entry.bag) .. "_" .. tostring(entry.slot),
-            context = "augInserted",
+            -- An ornament now gets augInserted's full row set under its own context, so
+            -- the identity line carries the Mythic tint and the appearance-only wording.
+            context = isOrnament and "ornament" or "augInserted",
             source = entry.source,
-            where = isOrnament and "Ornament slot"
-                or ("Socket " .. tostring(row.slotIndex) .. " of " .. tostring(entry.item and entry.item.name or "?")),
+            where = (not isOrnament)
+                and ("Socket " .. tostring(row.slotIndex) .. " of " .. tostring(entry.item and entry.item.name or "?"))
+                or nil,
             onOpenSubject = function()
                 local full = resolveSocketItem(entry, row.slotIndex)
                 if full and ctx.addItemDisplayTab then ctx.addItemDisplayTab(full, entry.source) end

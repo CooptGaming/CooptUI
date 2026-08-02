@@ -575,6 +575,16 @@ renderForSlotContent = function(ctx)
                             -- Name + compact class/race/deity line
                             ImGui.TableNextColumn()
                             ImGui.Text(cand.name or "?")
+                            -- The shared menu (item 7). This was the one host with no
+                            -- right-click at all, so the same augment offered a full menu
+                            -- in Bags and nothing here. Pure wiring: candidates ARE real
+                            -- bag or bank items, so each passes its own source's context.
+                            if ctx.renderItemContextMenu then
+                                ctx.renderItemContextMenu(ctx, cand, {
+                                    source = cand.source or "inv",
+                                    popupId = "ItemContextAugUtil_" .. rid,
+                                })
+                            end
                             if ImGui.IsItemHovered() then
                                 ImGui.BeginTooltip()
                                 ImGui.Text(cand.name or "?")
