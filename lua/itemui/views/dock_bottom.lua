@@ -46,38 +46,29 @@ local M = {}
 -- + Aug Utility are a real pair — one row, opens and closes as a unit. Bags and Bank are
 -- NOT: the merge was rolled back, so they are two rows here and a two-half chip on the
 -- bar, aligned by window_zones rather than welded together.
--- FontAwesome dot-circle (U+F192), merged into MQ's default font. \xNN escape, never a
--- literal glyph — see components/window_header.lua for what a literal costs.
-local GLYPH_HUB = "\xEF\x86\x92"
-
--- Where each menu's button sits (19b and 23c's own bar render agree):
---   right  — Hub and Layouts, beside Settings. Hub is the launcher LIST; putting it at the
---            right edge is what makes the middle of the bar the launchers themselves.
---   left   — Actions and Game windows: commands, which is this bar's whole job (13d).
+-- TURN 27 — THIS BAR IS ONE KIND OF THING. Every chip between the chat cell and Native UI
+-- opens or closes a window. Nothing here starts a job and nothing reports one. That rule
+-- is holdable in your head and it decides where anything new goes without a discussion.
+-- It retired two menus:
+--
+--   * Hub — the top bar's CoOpt cell opens the same hub_list.ENTRIES index (26a), so a
+--     chip here was a launcher for the list of launchers sitting right next to it.
+--   * Actions — Loot All and Auto Sell live on the top bar beside the LANE THAT REPORTS
+--     THEM. A duplicate here would be a second way to start the same job with no feedback
+--     attached, which is what "no action lives on both bars" exists to forbid.
+--
+-- Both removals depend on the top bar being present, which is why it is mandatory now
+-- (dock_top.isEnabled). Loot and Command Center left with the Actions menu: Loot is in
+-- hub_list.ENTRIES, and Command Center is classicOnly in bars mode.
 local MENUS = {
     {
-        id = "hub", label = GLYPH_HUB .. " Hub", group = "right",
-        entries = hubList.ENTRIES,
-    },
-    {
         -- The SAME rows the Hub list's LAYOUTS section draws — one entry kind, two
-        -- surfaces, so the preset list can never drift between them (23c shows both:
-        -- Hub carries layouts "plus" a Layouts chip of its own).
+        -- surfaces, so the preset list can never drift between them.
         id = "layouts", label = "Layouts", group = "right",
         entries = { { kind = "layouts_dynamic" } },
     },
     {
-        id = "actions", label = "Actions", group = "left",
-        entries = {
-            { kind = "loot_all",  label = "Loot All" },
-            { kind = "loot_stop", label = "Stop" },
-            { kind = "auto_sell", label = "Auto Sell" },
-            { kind = "module",    id = "loot" },
-            { kind = "module",    id = "commandCenter" },
-        },
-    },
-    {
-        id = "game", label = "Game windows", group = "left",
+        id = "game", label = "Native UI", group = "right",
         entries = {
             { kind = "native", label = "Inventory", window = "InventoryWindow" },
             { kind = "native", label = "Merchant",  window = "MerchantWnd" },
@@ -785,10 +776,14 @@ function M.render(ctx)
         local leftW = menuRowWidth(leftMenus)
 
         -- 19b: "the launcher row folds itself into menus automatically instead of being a
-        -- setting you have to find". The row is dropped, not squeezed: the Hub menu in the
-        -- right group already holds every one of these launchers in a form that reads, so
-        -- folding costs nothing but the one-click shortcut, and squeezing would cost the
-        -- chat line -- which is the cell that cannot be recovered from a menu.
+        -- setting you have to find". The row is dropped, not squeezed, because squeezing
+        -- would cost the chat line -- the one cell that cannot be recovered from a menu.
+        --
+        -- WHAT CATCHES THE FOLD CHANGED IN TURN 27. It used to be this bar's own Hub menu;
+        -- that chip is retired, so the catch is now the TOP bar's CoOpt cell, which opens
+        -- the same hub_list.ENTRIES index. Sound because the top bar is mandatory -- and
+        -- the precise thing to revisit if a bottom-bar-only mode is ever supported, where
+        -- a folded row would leave no launcher surface anywhere.
         local launchers = nil
         local launchW = 0
         if style == "buttons" then

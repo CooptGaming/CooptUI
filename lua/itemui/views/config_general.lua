@@ -368,15 +368,22 @@ function ConfigGeneral.render(ctx)
         if nextBarsOn then
             ImGui.Indent()
 
-            local topOn = layoutConfig.DockTop ~= false
-            local nextTop = ImGui.Checkbox("Status bar##dockTop", topOn)
-            if nextTop ~= topOn then
-                setLayoutValue("DockTop", nextTop)
-            end
+            -- The status bar is MANDATORY in bars mode, so it is a statement, not a
+            -- checkbox -- the same treatment `buttons` and `lane` get in the cell list
+            -- below, for the same reason: a control that cannot be turned off must not
+            -- afford it. It is mandatory because the command bar leans on it: the CoOpt
+            -- cell owns the launcher index (which is why the command bar has no Hub chip
+            -- and why its launcher row can fold safely), and Loot All / Auto Sell live
+            -- beside the lane that reports them.
+            ImGui.Text("Status bar")
+            ImGui.SameLine()
+            theme.TextFurniture("- always on")
             if ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
                 ImGui.Text("Plugin state, bags, what a sale would fetch, live loot or sell progress,")
                 ImGui.Text("buffs, XP/AA and the session total. Read-only - hover a slot for detail.")
+                ImGui.Text("")
+                ImGui.Text("The command bar below depends on it, so it cannot be turned off.")
                 ImGui.EndTooltip()
             end
 

@@ -1560,9 +1560,14 @@ end
 
 --- True when the bars should draw at all. Also the gate main_loop uses to decide whether the
 --- loop needs the fast delay -- otherwise a visible bar would update at 10Hz with the hub closed.
+--- MANDATORY in bars mode as of 2026-08-02. `DockTop` is no longer consulted: the command
+--- bar depends on this one existing -- its launcher row folds away on the assumption the
+--- CoOpt cell's index catches it, it has no Hub chip because that index is here, and
+--- Loot All / Auto Sell sit beside the lane that reports them. An install with a stale
+--- `DockTop=0` gets the bar back, which is the intent.
 function M.isEnabled(layoutConfig)
     if not layoutConfig then return false end
-    return tostring(layoutConfig.UIMode or "classic") == "bars" and layoutConfig.DockTop ~= false
+    return tostring(layoutConfig.UIMode or "classic") == "bars"
 end
 
 --- Which edge the status bar takes. The bottom bar takes the other one when both are on.

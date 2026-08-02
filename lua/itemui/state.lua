@@ -159,12 +159,19 @@ do
     -- Bottom-bar style: hover menus (today's default, unchanged for existing installs) or a
     -- flat row of launcher buttons (mockup's second option). DockButtons is only consulted
     -- when DockBottomStyle is "buttons".
-    layoutDefaults.DockBottomStyle = "menus"
+    -- "buttons" is the default as of turn 27, which draws exactly THIS bar: launcher chips
+    -- between the chat cell and Native UI, no verbs. The old "menus" default kept the
+    -- launchers inside the Hub menu, and turn 27 retires that chip because the top bar's
+    -- CoOpt cell already opens the same index -- so leaving menus the default would have
+    -- left this bar with no launcher surface at all. The two changes are one change.
+    layoutDefaults.DockBottomStyle = "buttons"
     -- 23c order: the two pairs first (bags+bank collapse into the Bags|Bank chip;
     -- itemDisplay+augmentUtility into Item Display|Aug Utility), then the standalones.
     -- "augments" left out: that window folded into Aug Utility's All tab (phase 11) and
     -- the id is classicOnly-dead on the bar; saved CSVs that still carry it just skip it.
-    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,aa"
+    -- scripttracker joined the row in turn 27: 25c folded it into the suite, so it is a
+    -- registry window like every other launcher and its stock reads as a pill.
+    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,scripttracker,aa"
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""

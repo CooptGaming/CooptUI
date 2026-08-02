@@ -579,53 +579,56 @@ do
     warmState(900000)
 
     local r = stub.frame(function() dockBottom.render(ctx) end)
-    check('bottom: three menu buttons (23c: Items/Character/Layouts folded into Hub)',
-        stub.drew(r, 'Hub') and stub.drew(r, 'Actions') and stub.drew(r, 'Game windows')
-        and not stub.drew(r, '##dockmenubtn_items') and not stub.drew(r, '##dockmenubtn_character'),
+    -- TURN 27: two menus, both in the right group. Hub is retired (the top bar's CoOpt
+    -- cell opens the same index) and Actions is retired (no verb lives on both bars), so
+    -- what is left opens windows and nothing else.
+    check('bottom: two menu buttons, and NO Hub or Actions',
+        stub.drew(r, 'Layouts') and stub.drew(r, 'Native UI')
+        and not stub.drew(r, '##dockmenubtn_hub') and not stub.drew(r, '##dockmenubtn_actions'),
+        table.concat(r.buttons, '|'))
+    check('bottom: no verb reaches this bar',
+        not stub.drew(r, 'Loot All') and not stub.drew(r, 'Auto Sell'),
         table.concat(r.buttons, '|'))
     check('bottom: Settings is present', stub.drew(r, 'Settings'), table.concat(r.buttons, '|'))
     check('bottom: balanced', stub.balanced(r), stub.imbalance(r))
     check('bottom: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     check('bottom: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
 
-    -- Hovering the Hub button opens the grouped launcher list as a second window.
-    stub.hover = { dockmenubtn_hub = true }
+    -- Hovering Layouts opens its list as a second window.
+    stub.hover = { dockmenubtn_layouts = true }
     local r2 = stub.frame(function() dockBottom.render(ctx) end)
     check('bottom: hover opens the menu', #r2.windows == 2, table.concat(r2.windows, ','))
-    check('bottom: hub lists Bags and Bank as separate rows (merge rolled back)',
-        stub.drew(r2, 'Bags##dockmenu_hub') and stub.drew(r2, 'Bank##dockmenu_bank'),
-        table.concat(r2.buttons, '|'))
-    check('bottom: hub lists the Item Display + Aug Utility pair',
-        stub.drew(r2, 'Item Display + Augment Utility'), table.concat(r2.buttons, '|'))
-    check('bottom: hub carries the group headers', stub.drew(r2, 'ITEMS')
-        and stub.drew(r2, 'CHARACTER') and stub.drew(r2, 'LAYOUTS'), table.concat(r2.text, '|'))
-    check('bottom: hub carries the layouts entries', stub.drew(r2, 'Re-tidy now'),
-        table.concat(r2.buttons, '|'))
-    check('bottom: the ID+AU pair is still ONE row (a real pair, unlike bags/bank)',
-        stub.drew(r2, '##dockmenu_pair_idau')
-        and not stub.drew(r2, '##dockmenu_itemDisplay') and not stub.drew(r2, '##dockmenu_augmentUtility'),
+    check('bottom: layouts carries the preset entries', stub.drew(r2, 'Re-tidy now'),
         table.concat(r2.buttons, '|'))
     check('bottom: balanced with the menu open', stub.balanced(r2), stub.imbalance(r2))
 
-    -- Clicking a menu entry enqueues rather than acting inline, and asks for a TOGGLE.
-    stub.hover = { dockmenubtn_hub = true }
+    -- The launcher LIST moved to the top bar's CoOpt cell with the Hub chip's retirement,
+    -- so its content assertions live with that popover ("CoOpt panel: ..." below). What
+    -- follows is the behaviour that had no other home: a menu row enqueues rather than
+    -- acting inline, and the ID+AU PAIR row moves both halves together. Both are
+    -- hub_list.drawEntries' doing, so they are exercised through the surface that draws
+    -- it now.
+    resetInput()
+    local topCtx = newCtx({ uiState = uiState, position = 'top' })
+    uiState.dockPinnedPopover = 'status'
     stub.click = { dockmenu_mythicals = true }
-    stub.frame(function() dockBottom.render(ctx) end)
+    uiState.dockActionQueue = nil
+    stub.frame(function() dockTop.render(topCtx) end)
     local q = uiState.dockActionQueue
-    check('bottom: a menu click enqueues instead of acting inline', q and #q >= 1, q and #q)
+    check('hub list: a row click enqueues instead of acting inline', q and #q >= 1, q and #q)
     local a = q and q[#q]
-    check('bottom: the action is a window toggle',
+    check('hub list: the action is a window toggle',
         a and a.kind == 'window' and a.id == 'mythicals' and a.toggle == true,
         a and (a.kind .. '/' .. tostring(a.id) .. '/toggle=' .. tostring(a.toggle)))
 
     -- Clicking the pair row opens BOTH halves (non-toggle idempotent opens).
     resetInput()
-    stub.hover = { dockmenubtn_hub = true }
+    uiState.dockPinnedPopover = 'status'
     stub.click = { dockmenu_pair_idau = true }
     uiState.dockActionQueue = nil
-    stub.frame(function() dockBottom.render(ctx) end)
+    stub.frame(function() dockTop.render(topCtx) end)
     q = uiState.dockActionQueue
-    check('bottom: pair row queues both halves', q and #q == 2
+    check('hub list: pair row queues both halves', q and #q == 2
         and q[1].kind == 'window' and q[1].id == 'itemDisplay' and not q[1].toggle
         and q[2].kind == 'window' and q[2].id == 'augmentUtility' and not q[2].toggle,
         q and #q)
@@ -634,16 +637,17 @@ do
     resetInput()
     if not registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
     if not registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
-    stub.hover = { dockmenubtn_hub = true }
+    uiState.dockPinnedPopover = 'status'
     stub.click = { dockmenu_pair_idau = true }
     uiState.dockActionQueue = nil
-    stub.frame(function() dockBottom.render(ctx) end)
+    stub.frame(function() dockTop.render(topCtx) end)
     q = uiState.dockActionQueue
-    check('bottom: open pair row queues both closes', q and #q == 2
+    check('hub list: open pair row queues both closes', q and #q == 2
         and q[1].id == 'itemDisplay' and q[1].toggle == true
         and q[2].id == 'augmentUtility' and q[2].toggle == true, q and #q)
     if registry.isOpen('itemDisplay') then registry.toggleWindow('itemDisplay') end
     if registry.isOpen('augmentUtility') then registry.toggleWindow('augmentUtility') end
+    uiState.dockPinnedPopover = nil
 
     -- A LIT entry (window already open) must NOT queue anything without a click. Selectable
     -- returns (selected, pressed) in this binding -- selected FIRST -- so a lit entry's first
@@ -727,8 +731,8 @@ do
     dockState.init(newDeps(ctx))
     warmState(1250000)
 
-    -- Hover the Hub button AND click it: still just open, same as hover alone would give.
-    stub.hover = { dockmenubtn_hub = true }
+    -- Hover a menu button AND click it: still just open, same as hover alone would give.
+    stub.hover = { dockmenubtn_layouts = true }
     stub.mouse = { [ImGuiMouseButton.Left] = true }
     local r1 = stub.frame(function() dockBottom.render(ctx) end)
     check('menu click: opens the menu (click behaves like hover)', #r1.windows == 2,
@@ -782,15 +786,15 @@ do
         and stub.drew(r, 'Reroll##dockbtn_reroll'), table.concat(r.buttons, '|'))
     check('buttons: the bank id is absorbed into the pair (no standalone chip)',
         not stub.drew(r, 'Bank##dockbtn_bank'), table.concat(r.buttons, '|'))
-    -- 19b: the command menus and the identity group are on the bar in BOTH styles now.
-    -- Actions is the only path to Stop once the launcher row is folded or off, and Hub is
-    -- where the launcher LIST lives, so neither may be style-conditional.
-    check('buttons: the command menus are present in this style too',
-        stub.drew(r, '##dockmenubtn_actions') and stub.drew(r, '##dockmenubtn_game'),
-        table.concat(r.buttons, '|'))
-    check('buttons: the identity group is Hub, Layouts, Settings',
-        stub.drew(r, '##dockmenubtn_hub') and stub.drew(r, '##dockmenubtn_layouts')
+    -- The right group is on the bar in BOTH styles: Layouts, Native UI, Settings. Turn 27
+    -- retired Hub (the top bar's CoOpt cell owns that index) and Actions (no verb lives on
+    -- both bars), so what remains opens windows and nothing else.
+    check('buttons: the right group is Layouts, Native UI, Settings',
+        stub.drew(r, '##dockmenubtn_layouts') and stub.drew(r, '##dockmenubtn_game')
         and stub.drew(r, 'Settings##dockSettings'), table.concat(r.buttons, '|'))
+    check('buttons: no Hub chip and no Actions menu',
+        not stub.drew(r, '##dockmenubtn_hub') and not stub.drew(r, '##dockmenubtn_actions'),
+        table.concat(r.buttons, '|'))
     check('buttons: balanced', stub.balanced(r), stub.imbalance(r))
     check('buttons: no TLO from the render path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
     check('buttons: no commands from the render path', #r.commands == 0, table.concat(r.commands, ','))
@@ -903,9 +907,8 @@ do
     dockState.init(newDeps(menusCtx))
     warmState(1280000)
     local rMenus = stub.frame(function() dockBottom.render(menusCtx) end)
-    check('menus (explicit): the three menu buttons still drawn', stub.drew(rMenus, 'Hub')
-        and stub.drew(rMenus, 'Actions')
-        and stub.drew(rMenus, 'Game windows'), table.concat(rMenus.buttons, '|'))
+    check('menus (explicit): the two menu buttons still drawn', stub.drew(rMenus, 'Layouts')
+        and stub.drew(rMenus, 'Native UI'), table.concat(rMenus.buttons, '|'))
     check('menus (explicit): no launcher buttons drawn', not stub.drew(rMenus, '##dockbtn_'),
         table.concat(rMenus.buttons, '|'))
     check('menus (explicit): balanced', stub.balanced(rMenus), stub.imbalance(rMenus))
@@ -1026,8 +1029,13 @@ do
     stub.viewportSize = nil
     check('fold: a narrow viewport folds the launcher row away',
         not stub.drew(rNarrow, '##dockbtn_reroll'), table.concat(rNarrow.buttons, '|'))
-    check('fold: ...but chat and the Hub list stay',
-        stub.drew(rNarrow, '##dockChatCycle') and stub.drew(rNarrow, '##dockmenubtn_hub'),
+    -- Chat survives the fold because it is the one cell a menu cannot replace. The
+    -- LAUNCHERS no longer have a fallback on this bar: turn 27 retired the Hub chip, so
+    -- what catches a folded row is the TOP bar's CoOpt cell -- which is exactly why that
+    -- bar is mandatory. Asserted so the day someone makes it optional, this fails loudly.
+    check('fold: ...but chat stays, and Hub is not what catches it any more',
+        stub.drew(rNarrow, '##dockChatCycle')
+        and not stub.drew(rNarrow, '##dockmenubtn_hub'),
         table.concat(rNarrow.buttons, '|'))
     check('fold: narrow frame balanced', stub.balanced(rNarrow), stub.imbalance(rNarrow))
 
