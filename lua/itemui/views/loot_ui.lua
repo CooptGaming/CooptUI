@@ -11,6 +11,7 @@ local item_name = require('itemui.utils.item_name')
 
 local constants = require('itemui.constants')
 local diagnostics = require('itemui.core.diagnostics')
+local windowHeader = require('itemui.components.window_header')
 local LootUIView = {}
 
 -- Per-frame render memos (invalidated by source-list identity/length changes)
@@ -137,8 +138,36 @@ function LootUIView.render(ctx)
             end
         end
 
-        theme.TextHeader("Loot")
-        ImGui.Separator()
+        -- The 26px band (windows pass). Stat is the one thing the bar does not carry: the
+        -- bar's lane shows a run WHILE it runs and decays six seconds after, so once it is
+        -- gone this is the only place the last run's shape survives. Corpse count, not item
+        -- count -- items are in the table right below, corpses are not anywhere else.
+        local lootBarsOn = tostring(layoutConfig.UIMode or "classic") == "bars"
+        if lootBarsOn then
+            -- No timestamp: nothing records when a run finished (lootRunFinished is a
+            -- bool), and inventing one would be the kind of number that reconciles with
+            -- nothing. Corpses and value are real and are not shown anywhere else once
+            -- the bar's lane decays six seconds after the run.
+            local corpses = state.lootRunTotalCorpses or 0
+            local items = state.lootRunLootedItems and #state.lootRunLootedItems or 0
+            local stat
+            if corpses > 0 or items > 0 then
+                local parts = {}
+                if corpses > 0 then
+                    parts[#parts + 1] = string.format("%d corpse%s", corpses, corpses == 1 and "" or "s")
+                end
+                parts[#parts + 1] = string.format("%d item%s", items, items == 1 and "" or "s")
+                local val = state.lootRunTotalValue or 0
+                if val > 0 then parts[#parts + 1] = ItemUtils.formatValue(val) end
+                stat = table.concat(parts, " . ")
+            end
+            -- NO lock action: loot is uiState-managed, not a registry module, so
+            -- registryLock would pin an id the registry does not know.
+            windowHeader.render({ id = "loot", title = "Loot", stat = stat })
+        else
+            theme.TextHeader("Loot")
+            ImGui.Separator()
+        end
 
         -- Tabs: Current (always) | Loot History (if enabled) | Skip History (if enabled)
         if not state.lootUITab then state.lootUITab = 0 end
