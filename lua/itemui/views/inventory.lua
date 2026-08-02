@@ -433,6 +433,12 @@ local function renderInvTableInner(ctx, bankOpen, visibleCols)
                     elseif colKey == "Status" then
                         local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
+                    elseif dimmed and (colKey == "Bag" or colKey == "Slot") then
+                        -- A dimmed row never names a slot the item is not in. The dim
+                        -- already says "this is on your cursor"; printing its old address
+                        -- beside that says the opposite in the same row. The home address
+                        -- comes back the moment it is put down.
+                        ctx.theme.TextFurniture("-")
                     else
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Inventory"))
                     end

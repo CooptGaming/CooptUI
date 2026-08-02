@@ -324,6 +324,10 @@ local function renderBankTableInner(ctx, list, bankOpen, visibleCols, filteredBa
                     elseif colKey == "Status" then
                         local statusText, statusColor = ctx.resolveSellStatusDisplay(ctx, item)
                         ImGui.TextColored(statusColor, statusText)
+                    elseif dimmed and (colKey == "Bag" or colKey == "Slot") then
+                        -- Same rule as Bags: a dimmed row never names a slot the item is
+                        -- not in. Bank shows both halves of the address, so both blank.
+                        ctx.theme.TextFurniture("-")
                     else
                         -- All other columns use dynamic display text
                         ImGui.Text(ctx.sortColumns.getCellDisplayText(item, colKey, "Bank"))
