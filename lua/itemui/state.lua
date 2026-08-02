@@ -90,8 +90,8 @@ do
     layoutDefaults.EffectsWindowY = 0
     layoutDefaults.ChatWindowX = 0
     layoutDefaults.ChatWindowY = 0
-    layoutDefaults.WidthChatPanel = 560
-    layoutDefaults.HeightChat = 380
+    -- WidthChatPanel/HeightChat now live in constants.VIEWS (handoff item 4), so the
+    -- loop above seeds them like every other companion.
     layoutDefaults.ShowChatWindow = 1
     -- Chat console renderer. 1 = MQ's Zep console (clickable item links, real scrollback);
     -- 0 = the built-in ring-buffer renderer.

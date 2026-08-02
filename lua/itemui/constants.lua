@@ -218,12 +218,19 @@ M.LIMITS = {
 -- VIEWS — Per-view default dimensions (layoutDefaults); keys match layout INI
 -- ---------------------------------------------------------------------------
 M.VIEWS = {
-    WidthInventory = 600,
-    Height = 450,
-    WidthSell = 780,
+    -- Inventory and Sell swap into the SAME frame and share the Height key, so their
+    -- widths must match too (handoff item 4).
+    WidthInventory = 800,
+    Height = 560,
+    WidthSell = 800,
+    -- WidthLoot is the MAIN WINDOW's live-loot view; WidthLootPanel below is the
+    -- companion loot panel. Two windows, not duplicates - do not unify them.
     WidthLoot = 560,
-    WidthBankPanel = 520,
-    HeightBank = 600,
+    -- Bank's height matches Inventory's Height because the flush-right auto-attach
+    -- copies the hub's live height onto Bank (window_zones.lua:471) - a default that
+    -- already agrees makes the first open seamless.
+    WidthBankPanel = 560,
+    HeightBank = 560,
     WidthAugmentsPanel = 560,
     HeightAugments = 500,
     WidthMythicalsPanel = 560,
@@ -233,20 +240,27 @@ M.VIEWS = {
     WidthEffectsPanel = 340,
     HeightEffects = 480,
     WidthItemDisplayPanel = 760,
-    HeightItemDisplay = 520,
-    WidthAugmentUtilityPanel = 520,
+    HeightItemDisplay = 620,
+    -- Wider because the All-augments row gained the Fits why-column (handoff item 9).
+    WidthAugmentUtilityPanel = 640,
     HeightAugmentUtility = 480,
-    WidthLootPanel = 420,
-    HeightLoot = 380,
+    WidthLootPanel = 480,
+    HeightLoot = 520,
     WidthAAPanel = 640,
     HeightAA = 520,
-    WidthConfig = 520,
+    WidthConfig = 620,
+    HeightConfig = 620,
     -- Reroll Companion (Augment / Mythical server reroll lists)
     WidthRerollPanel = 520,
     HeightReroll = 480,
     -- Script Tracker (25c, phase 15): the by-tier grid + turn-in verbs
     WidthScriptTrackerPanel = 460,
     HeightScriptTracker = 400,
+    -- Chat (19c). Sized here like every other companion so state.lua's VIEWS loop seeds
+    -- it and window_zones' GEOM keys resolve - it was the one window with no default,
+    -- which left the placer sizing it by the Command Center nominal.
+    WidthChatPanel = 560,
+    HeightChat = 400,
 }
 
 -- ---------------------------------------------------------------------------

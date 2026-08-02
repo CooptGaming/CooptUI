@@ -129,6 +129,8 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.LootUIFirstTipSeen then layoutDefaults.LootUIFirstTipSeen = tonumber(d.LootUIFirstTipSeen) or layoutDefaults.LootUIFirstTipSeen end
     if d.WidthAAPanel then layoutDefaults.WidthAAPanel = tonumber(d.WidthAAPanel) or layoutDefaults.WidthAAPanel end
     if d.HeightAA then layoutDefaults.HeightAA = tonumber(d.HeightAA) or layoutDefaults.HeightAA end
+    if d.WidthConfig then layoutDefaults.WidthConfig = tonumber(d.WidthConfig) or layoutDefaults.WidthConfig end
+    if d.HeightConfig then layoutDefaults.HeightConfig = tonumber(d.HeightConfig) or layoutDefaults.HeightConfig end
     if d.AAWindowX then layoutDefaults.AAWindowX = tonumber(d.AAWindowX) or layoutDefaults.AAWindowX end
     if d.AAWindowY then layoutDefaults.AAWindowY = tonumber(d.AAWindowY) or layoutDefaults.AAWindowY end
     if d.ShowAAWindow then layoutDefaults.ShowAAWindow = tonumber(d.ShowAAWindow) or layoutDefaults.ShowAAWindow end
