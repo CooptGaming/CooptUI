@@ -168,16 +168,30 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.WindowAttach ~= nil then layoutDefaults.WindowAttach = d.WindowAttach end
     if d.LayoutPreset ~= nil then layoutDefaults.LayoutPreset = d.LayoutPreset end
     if d.UserPlaced ~= nil then layoutDefaults.UserPlaced = d.UserPlaced end
-    local cvd = parsed.columnVisibilityDefaults or {}
-    for view, v in pairs(cvd) do
-        if columnVisibility[view] then
-            for colKey, _ in pairs(columnVisibility[view]) do columnVisibility[view][colKey] = false end
-            for colKey in (v or ""):gmatch("([^/]+)") do
-                colKey = colKey:match("^%s*(.-)%s*$")
-                if columnVisibility[view][colKey] ~= nil then columnVisibility[view][colKey] = true end
+    -- Column visibility, in two passes. Each is a WHITELIST: blank the view, then enable
+    -- exactly what the line names.
+    local function applyVisibility(section)
+        for view, v in pairs(section or {}) do
+            if columnVisibility[view] then
+                for colKey, _ in pairs(columnVisibility[view]) do columnVisibility[view][colKey] = false end
+                for colKey in (v or ""):gmatch("([^/]+)") do
+                    colKey = colKey:match("^%s*(.-)%s*$")
+                    if columnVisibility[view][colKey] ~= nil then columnVisibility[view][colKey] = true end
+                end
             end
         end
     end
+    -- [ColumnVisibilityDefaults] is the shipped set...
+    applyVisibility(parsed.columnVisibilityDefaults)
+    -- ...and [ColumnVisibility] is the USER'S, so it wins where present.
+    --
+    -- It was parsed (layout_io.lua:51) and written on every toggle (saveColumnVisibility
+    -- below) but never applied, so column choices did not survive a restart: every launch
+    -- silently reset to the shipped defaults, and a user who had turned a column on found
+    -- it off again with their own preference still sitting in the file. Only views the
+    -- user's section actually names are overridden, so a view they never touched keeps the
+    -- shipped default.
+    applyVisibility(parsed.columnVisibility)
 end
 
 -- Delegate column visibility and fixed-column logic to layout_columns (Phase D extraction 9)
