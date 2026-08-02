@@ -540,11 +540,30 @@ end
 --- One session value: white when it has something to say, amber while it needs a call,
 --- muted AND INERT at zero (26b: the strip never invites a dead click). Non-zero values
 --- are doors — click queues the toggle for the window that answers them.
+--- One session value. `action` makes it a door; when the window that door opens is already
+--- OPEN the value gets the kit's 2px OpenBlue underline -- the same accent the bar's
+--- launchers and chat's tab strip use for "this is open", so the treatment means one thing
+--- everywhere. Underline rather than the chip's full wash: these sit inside a dense strip
+--- of four values and a wash on one would read as a selection, which this UI does not have.
 local function sessionValue(ctx, text, color, action)
     if color then
         ImGui.TextColored(theme.ToVec4(color), text)
     else
         ImGui.Text(text)
+    end
+    local openId = action and action.kind == "window" and action.id or nil
+    if openId and registry.isOpen(openId) then
+        pcall(function()
+            local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+            if not dl or not dl.AddRectFilled then return end
+            local x1, y1 = dockLayout.itemRectMin()
+            local x2, y2 = dockLayout.itemRectMax()
+            if not (x1 and x2) then return end
+            local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue))
+                or 0xFFFA9642
+            dl:AddRectFilled(ImVec2(x1, y2 - 2), ImVec2(x2, y2), col)
+            local _ = y1
+        end)
     end
     if action and ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
         M.queue(ctx, action)
