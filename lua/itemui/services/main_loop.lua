@@ -265,9 +265,15 @@ local function readMythicalAlert(alertPath, forceOpen)
         -- the ACTION LANE the decision surface, and the lane cannot be disabled (it is
         -- not a DockSegments id), so bar-on is the whole test now. In classic mode the
         -- window always opens.
+        --
+        -- The DockTop half of this test outlived the rule it enforced: the status bar became
+        -- MANDATORY in bars mode (dock_top.isEnabled reads UIMode only), and an install
+        -- carrying a stale DockTop=0 deliberately gets the bar back. Keeping the test meant
+        -- exactly those installs force-opened the loot window for a decision the lane was
+        -- already showing.
         local lc = d.layoutConfig
         local decisionReachable = lc ~= nil
-            and tostring(lc.UIMode or "classic") == "bars" and lc.DockTop ~= false
+            and tostring(lc.UIMode or "classic") == "bars"
         if not (uiState.suppressWhenLootMac and decisionReachable) then
             uiState.lootUIOpen = true
             d.recordCompanionWindowOpened("loot")
@@ -1346,16 +1352,16 @@ local function phase0b_dockActionQueue(now)
         for _, line in ipairs(report) do print("  " .. tostring(line)) end
     elseif uiState.dockDebugRequested then
         -- The capture only happens inside dock_top.render; if the bars never render (classic
-        -- mode, DockTop off, or the render dying before the capture), the request would latch
-        -- silently forever. Answer with the config-side facts instead.
+        -- mode, or the render dying before the capture), the request would latch silently
+        -- forever. Answer with the config-side facts instead.
         uiState.dockDebugTicks = (uiState.dockDebugTicks or 0) + 1
         if uiState.dockDebugTicks > 30 then
             uiState.dockDebugRequested = nil
             uiState.dockDebugTicks = nil
             local lc = d.layoutConfig or {}
             print(string.format(
-                "\ar[CoOpt UI]\ax dock debug: the top bar never rendered a frame. UIMode=%s DockTop=%s DockBottom=%s (bars draw only when UIMode=bars and DockTop is on).",
-                tostring(lc.UIMode), tostring(lc.DockTop), tostring(lc.DockBottom)))
+                "\ar[CoOpt UI]\ax dock debug: the top bar never rendered a frame. UIMode=%s DockBottom=%s (the status bar draws whenever UIMode=bars; DockTop is no longer consulted).",
+                tostring(lc.UIMode), tostring(lc.DockBottom)))
         end
     end
     local q = uiState.dockActionQueue
