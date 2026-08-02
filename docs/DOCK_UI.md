@@ -21,7 +21,7 @@ The split is deliberate and it never blurs:
 |---|---|
 | **Top bar — reports** | Things you read without clicking. Plugin state, bags, what a sale would fetch, live loot or sell progress, buffs, XP/AA, the session total. |
 | **Bottom bar — commands** | Things you click on purpose. Every CoOpt window, the game's own windows, Settings, and chat. |
-| **The middle — the work** | Anything with a table, a grid, or a paper doll stays a window: Inventory, Bank, Equipment, Item Display, Augments, Aug Utility, AA, Reroll, Mythics, Settings. |
+| **The middle — the work** | Anything with a table, a grid, or a paper doll stays a window: Inventory, Bank, Equipment, Item Display, Aug Utility, Effects, Clickies, AA, Reroll, Mythics, Scripts, Loot, Chat, Settings. |
 
 **Nothing lives in both places.** If it's on a bar it isn't also a button inside a window —
 one home per control, so there's never a "which one do I press".
@@ -30,37 +30,54 @@ one home per control, so there's never a "which one do I press".
 
 ## The top bar
 
-Seven slots, left to right. Each one is a **fixed width** — it reserves room for the widest
-thing it could ever say, so content changing inside a slot never shoves its neighbours
-sideways. That single decision is what makes the strip feel like part of the game rather than
-something twitching on top of it.
+Eight cells, left to right, in a fixed order. Each one is a **fixed width** — it reserves
+room for the widest thing it could ever say, so content changing inside a cell never shoves
+its neighbours sideways. That single decision is what makes the strip feel like part of the
+game rather than something twitching on top of it. The one exception is the action lane,
+which takes whatever width is left.
 
-| Slot | Shows | Hover for |
+| Cell | Shows | Click / hover |
 |---|---|---|
-| **CoOpt** | Green normally. Amber without the plugin, red if something has errored. | What the difference is |
-| **bags** | Items / total slots. Amber past 90%. Weight too, while the game's Inventory window is open. | — |
-| **sell offer** | What your rules would sell right now, and for how much. Red if a keep-list item is somehow queued to sell. | The full breakdown |
-| **loot** | Idle, or live progress, or a decision, or the result, or a problem. | — |
+| **CoOpt** | A dot: green normally, amber without the plugin, red if something has errored. | Click opens the launcher list — every window, and where it is |
+| **session** | How long you've been at it, what you've made, and how many augs, mythics and scripts still need a call. | Each of those three is a door to the window that answers it |
+| **bags** | Items / total slots. Amber past 90%. Weight too, once the game has told us. | — |
+| **sell** | What your rules would sell right now, and for how much. Red if a keep-list item is somehow queued to sell. | Hover for the full breakdown; click opens the hub in Sell |
+| **Loot All / Auto Sell** | Two buttons that never move. Auto Sell greys out with a reason when there's no merchant. | Each green start becomes its own solid-red **Stop**, in place |
+| **action lane** | Whatever is running, and nothing when nothing is. The only cell that flexes. | The state's own buttons — **Take** / **Pass**, **Review**, **Bags** |
 | **buffs** | Buff / song / aura counts. Amber only when something is under five minutes. | What's expiring, with Recast |
 | **XP** | XP %, AA total, and the AA sitting in your bags as scripts. | — |
-| **session** | Everything this session has earned, looted and sold. | The split |
 
-Turn individual slots off — and **reorder them** with the ^ / v arrows — in Settings →
-General → Dock; the row order there is the bar's left-to-right order. A slot that's off
-costs nothing — the bar only gathers data something is actually displaying. (The same
-order lives in `itemui_layout.ini` as `DockSegments=` if you prefer editing a CSV.)
+Turn individual cells off in Settings → General → Dock. That list is **membership only** —
+the order above is the bar's and never changes, so there are no reorder arrows and nothing
+moves between states or between users. A cell that's off costs nothing (the bar only gathers
+data something is actually displaying) and its width goes to the action lane. The same
+membership lives in `itemui_layout.ini` as `DockSegments=` if you prefer editing a CSV.
 
-### The loot slot has five moods
+Two things are not cells and cannot be turned off: the **action lane** and the **Loot All /
+Auto Sell** pair. They are the bar's job surface, and the mythical decision rides the lane.
 
-It's one slot, one width, whichever of these it's in:
+**The status bar itself is mandatory in bars mode.** The command bar depends on it — its
+launcher row folds away assuming the CoOpt cell catches what it drops, and Loot All / Auto
+Sell sit beside the lane that reports them.
 
-1. **idle** — a single dormant word.
-2. **looting** — `corpse 4/9 · 7 taken`, with **Stop**.
+### The action lane
+
+One cell, one width, whichever of these it's in:
+
+1. **idle** — `nothing running`, and where jobs will report.
+2. **looting** — `corpse 4/9 · 7 taken`, with live progress.
 3. **decision** — a mythical needs a call. The item, a timer, **Take** and **Pass**. The Loot
    window doesn't need to be open.
-4. **finished** — `looted 9 corpses · 1,208p · 3 skipped`, with **Review**.
+4. **finished** — `looted 9 corpses · 1,208p · 3 skipped`, with **Review**. It fades after
+   a few seconds.
 5. **problem** — `stopped — bags full`, with **Bags** (and **Sell junk** if you're at a
    merchant). It stays alert until you deal with it.
+6. **selling** — a sell run's progress.
+7. **turning in scripts** — a script turn-in's progress, with its **Stop** (the one job with
+   no start button on the bar, so the lane carries its stop).
+
+**Stop lives with the button that started it**, never in the lane — Loot All becomes the
+Stop for looting, Auto Sell for selling. Script turn-in is the single exception above.
 
 ### Hover popovers
 
@@ -87,21 +104,38 @@ the exact moment you're being asked to press Take would be the worst possible ti
 
 ## The bottom bar
 
-Four menus, chat, and Settings. Hover a menu to open it, click to pin it, Esc to close.
+**Launchers only.** Chat on the left edge, a row of window buttons, then Native UI, Layouts
+and Settings on the right. Every chip here opens or closes a window — **nothing on this bar
+starts a job**. The verbs live on the status bar, beside the lane that reports them.
 
-| Menu | What's in it |
+| Group | What's in it |
 |---|---|
-| **Items** | Bags (the hub), Bank, Item Display, Augments, Aug Utility, Mythics, Reroll |
-| **Character** | Equipment, Effects, Clickies, AA, ScriptTracker |
-| **Actions** | Loot All, Stop (only while something runs), Auto Sell (greyed with a reason when there's no merchant), Loot window, Command Center |
-| **Game windows** | Inventory, Merchant, Actions, AA window, Bank, and the native panel — the game's own windows, opened through MQ |
+| **chat** (left edge) | A `chat` button with an unread count, or one line of the newest message with per-channel unread dots |
+| **launchers** | One button per window, left to right: **Bags \| Bank** and **Item Display \| Augment Utility** as split pairs, then Equipment, Effects, Mythics, Reroll, Scripts, AA, Clickies, Loot. Reroll carries a pending count |
+| **Native UI** | Inventory, Merchant, Actions, AA window, Bank, and the native panel — the game's own windows, opened through MQ |
 | **Layouts** | Your layout presets (the active one is lit), **Re-tidy now**, and **Save current as…** |
+| **Settings** | A toggle, not a menu — lit while the Settings window is open |
 
 An entry that's already open is **lit**; clicking it again closes it. A companion you've
-disabled in Settings simply isn't listed.
+disabled in Settings simply isn't listed. Choose which launchers appear, and their order,
+in Settings → General → Dock.
 
-**The Command Center window is retired.** Everything it did is here, so you can close it for
-good. `/itemui center` now just makes sure this bar is on screen.
+**Two menus were retired**, because each had a better home:
+
+- **Hub** — the status bar's CoOpt cell already opens the same launcher list, and one home
+  per control means it doesn't also live here.
+- **Actions** — Loot All and Auto Sell belong beside the lane that reports their progress,
+  not one bar away from it.
+
+**The Command Center window is retired too.** Everything it did is here, so you can close it
+for good. `/itemui center` now just makes sure this bar is on screen.
+
+When the window gets narrow enough that chat would be squeezed under about 220px, the
+**launcher row folds away** rather than shrinking — the CoOpt cell's list holds every one of
+those launchers, and a squeezed chat line isn't recoverable from anywhere.
+
+If you prefer the older shape, Settings → General → Dock switches this bar back to **hover
+menus** instead of a launcher row.
 
 ### Chat
 
@@ -180,8 +214,10 @@ After that, five **hints** appear once each, at their own first real moment — 
 first loot run, first mythical decision, first full bag, first rule edit. **Got it** dismisses
 one forever; `/itemui hints` replays all five.
 
-New installs start in bars mode. Upgrades keep whatever mode they had — and re-running setup
-won't flip your answer unless you change it.
+The config itself ships in classic mode, so nothing changes under an existing install until
+someone opts in — the first run's screen-use question is what turns the bars on. Upgrades
+keep whatever mode they had, and re-running setup won't flip your answer unless you change
+it.
 
 ---
 
@@ -242,7 +278,8 @@ Every command you already use still works exactly as before.
 
 `UIMode` is a runtime switch, not a one-way door. **Settings → General → Dock → uncheck "Use
 the bars UI"**, or `/itemui dock off`, and you're back to today's UI immediately — no reinstall,
-no config edit, nothing lost. Turning both strips off inside bars mode does the same thing.
+no config edit, nothing lost. That switch is the way out: inside bars mode the status bar is
+mandatory, so there is no turning both strips off to get the same effect.
 
 The setting lives in `Macros\sell_config\itemui_layout.ini` as `UIMode=classic|bars`, next to
 the `Dock*` keys for the edge, the chat height and which slots you kept.
