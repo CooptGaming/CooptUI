@@ -553,47 +553,108 @@ local function toggleSessionPanel(ctx)
     end
 end
 
+-- The session label's age suffix: cached, recomputed at most once a second (os.time has
+-- 1s resolution, so a same-second hit is a pure table read) and never a date format per
+-- frame. The tooltip is the ONE place persistence is explained. A nil startedAt, or a
+-- negative/future delta, degrades to the bare label - no age, no error.
+local sessionAge = { at = 0, started = nil, label = "session", tip = nil }
+local function sessionLabelAndTip(startedAt)
+    local now = os.time()
+    if sessionAge.at == now and sessionAge.started == startedAt then
+        return sessionAge.label, sessionAge.tip
+    end
+    sessionAge.at, sessionAge.started = now, startedAt
+    sessionAge.label, sessionAge.tip = "session", nil
+    local d = startedAt and (now - startedAt)
+    if d and d >= 0 then
+        if d < 60 then
+            sessionAge.label = "session just started"
+        elseif d < 3600 then
+            sessionAge.label = string.format("session %dm", math.floor(d / 60))
+        elseif d < 86400 then
+            sessionAge.label = string.format("session %dh %dm",
+                math.floor(d / 3600), math.floor((d % 3600) / 60))
+        elseif d < 604800 then
+            sessionAge.label = string.format("session %dd %dh",
+                math.floor(d / 86400), math.floor((d % 86400) / 3600))
+        else
+            sessionAge.label = string.format("session %dd", math.floor(d / 86400))
+        end
+        sessionAge.tip = os.date("Started %H:%M:%S. Survives logout - Clear starts a new one.", startedAt)
+    end
+    return sessionAge.label, sessionAge.tip
+end
+
 segments.session = function(ctx, s)
     -- 26a slot 2, fixed 470px: the session strip — four values, every non-zero one a
     -- door. The counting rule (§12): augs/mythics show what still NEEDS A CALL, amber
     -- while any do, white 0 once cleared (that 0 is the whole point of a tuned rule
     -- set). The word "session" and the money value open the session panel itself.
-    theme.TextMuted("session")
-    if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
-        toggleSessionPanel(ctx)
+    -- The label carries the session's age; when the five pieces would overflow the
+    -- cell the age drops WHOLE - "session 2h..." would defeat the point of showing it.
+    local label, tip = sessionLabelAndTip(s.srStartedAt)
+    local moneyText = plat(s.sessionPlat) .. "p"
+    local augsCall, augsTotal = s.srAugsCall or 0, s.srAugsTotal or 0
+    local mythCall, mythTotal = s.srMythicsCall or 0, s.srMythicsTotal or 0
+    local scripts = s.srScripts or 0
+    local augsText = (augsTotal <= 0) and "0 augs"
+        or string.format("%d aug%s", augsCall, augsCall == 1 and "" or "s")
+    local mythsText = (mythTotal <= 0) and "0 mythics"
+        or string.format("%d mythic%s", mythCall, mythCall == 1 and "" or "s")
+    local scriptsText = (scripts <= 0) and "0 scripts"
+        or string.format("%d script%s", scripts, scripts == 1 and "" or "s")
+    if label ~= "session" then
+        -- Two floats in this binding (older paths a table) - same guard as chat_window.
+        local availW = ImGui.GetContentRegionAvail()
+        if type(availW) == "table" then availW = availW.x end
+        if type(availW) == "number" then
+            local need = dockLayout.textWidth(label) + 4 + dockLayout.textWidth(moneyText)
+                + 10 + dockLayout.textWidth(augsText)
+                + 10 + dockLayout.textWidth(mythsText)
+                + 10 + dockLayout.textWidth(scriptsText)
+            if need > availW then label = "session" end
+        end
+    end
+    theme.TextFurniture(label)
+    if ImGui.IsItemHovered() then
+        if tip then
+            ImGui.BeginTooltip()
+            ImGui.Text(tip)
+            ImGui.EndTooltip()
+        end
+        if ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+            toggleSessionPanel(ctx)
+        end
     end
     ImGui.SameLine(0, 4)
-    ImGui.Text(plat(s.sessionPlat) .. "p")
+    ImGui.Text(moneyText)
     if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
         toggleSessionPanel(ctx)
     end
 
     ImGui.SameLine(0, 10)
-    local augsCall, augsTotal = s.srAugsCall or 0, s.srAugsTotal or 0
     if augsTotal <= 0 then
-        theme.TextMuted("0 augs")
+        theme.TextMuted(augsText)
     else
-        sessionValue(ctx, string.format("%d aug%s", augsCall, augsCall == 1 and "" or "s"),
+        sessionValue(ctx, augsText,
             (augsCall > 0) and theme.Colors.Warning or nil,
             { kind = "window", id = "augmentUtility", toggle = true })
     end
 
     ImGui.SameLine(0, 10)
-    local mythCall, mythTotal = s.srMythicsCall or 0, s.srMythicsTotal or 0
     if mythTotal <= 0 then
-        theme.TextMuted("0 mythics")
+        theme.TextMuted(mythsText)
     else
-        sessionValue(ctx, string.format("%d mythic%s", mythCall, mythCall == 1 and "" or "s"),
+        sessionValue(ctx, mythsText,
             (mythCall > 0) and theme.Colors.Warning or nil,
             { kind = "window", id = "mythicals", toggle = true })
     end
 
     ImGui.SameLine(0, 10)
-    local scripts = s.srScripts or 0
     if scripts <= 0 then
-        theme.TextMuted("0 scripts")
+        theme.TextMuted(scriptsText)
     else
-        sessionValue(ctx, string.format("%d script%s", scripts, scripts == 1 and "" or "s"),
+        sessionValue(ctx, scriptsText,
             nil, { kind = "window", id = "scripttracker", toggle = true })
     end
 end
