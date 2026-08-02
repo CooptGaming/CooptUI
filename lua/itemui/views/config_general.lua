@@ -418,6 +418,21 @@ function ConfigGeneral.render(ctx)
             end
 
             ImGui.Spacing()
+            -- Opening a merchant pops the hub into Sell view. Worth having when the window
+            -- is the only place a sell run is visible; noise once the top bar carries the
+            -- sell cell and the lane's progress. Off, the sell cell opens the hub.
+            local autoSell = (tonumber(layoutConfig.AutoOpenOnMerchant) or 1) ~= 0
+            local nextAutoSell = ImGui.Checkbox("Open the Sell window when you talk to a merchant##autoOpenSell", autoSell)
+            if nextAutoSell ~= autoSell then
+                setLayoutValue("AutoOpenOnMerchant", nextAutoSell and 1 or 0)
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Off: the status bar's sell cell opens it when you want it.")
+                ImGui.EndTooltip()
+            end
+
+            ImGui.Spacing()
             local zepOn = (tonumber(layoutConfig.ChatUseZep) or 0) ~= 0
             local nextZep = ImGui.Checkbox("Rich chat console (clickable item links)##chatUseZep", zepOn)
             if nextZep ~= zepOn then

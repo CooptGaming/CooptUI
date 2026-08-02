@@ -138,6 +138,9 @@ do
     layoutDefaults.EnableLootHistory = 0
     layoutDefaults.EnableSkipHistory = 0
     layoutDefaults.ConfirmBeforeDelete = 1
+    -- Opening a merchant pops the hub into Sell view. Default ON, which is the behaviour
+    -- that shipped; off, the bar's sell cell is how you get there.
+    layoutDefaults.AutoOpenOnMerchant = 1
     layoutDefaults.ActivationGuardEnabled = 1
     layoutDefaults.ItemUIToggleKey = "shift+q"  -- Key to toggle ItemUI (uses MQ2CustomBinds itemui_inv); empty = no bind
     -- Dock / bars mode. UIMode stays "classic" until the first-run rework ships: classic must

@@ -1108,7 +1108,13 @@ local function handleAutoShowHide(now, ws)
             if d.rerollService and d.rerollService.resumeLocationCache then d.rerollService.resumeLocationCache() end
         end
     end
-    if shouldAutoShowInv or bankJustOpened or (merchOpen and not lastMerchantState) then
+    -- Opening a merchant pops the hub into Sell view. That is useful when the window IS
+    -- the only place the run is visible, and noise once the top bar carries the sell cell
+    -- and the lane's progress -- so it is now a setting. Default 1 keeps today's
+    -- behaviour; off, the bar's sell cell is the door (dock_top's segments.sell).
+    local autoOpenSell = (tonumber((d.layoutConfig or {}).AutoOpenOnMerchant) or 1) ~= 0
+    local merchJustOpened = merchOpen and not lastMerchantState
+    if shouldAutoShowInv or bankJustOpened or (merchJustOpened and autoOpenSell) then
         if not shouldDraw and not uiState.userClosedViaKeybind then
             setShouldDraw(true)
             setOpen(true)

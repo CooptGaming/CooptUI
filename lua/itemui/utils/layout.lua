@@ -155,6 +155,7 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.EnableLootHistory ~= nil then layoutDefaults.EnableLootHistory = setBool(d.EnableLootHistory) and 1 or 0 end
     if d.EnableSkipHistory ~= nil then layoutDefaults.EnableSkipHistory = setBool(d.EnableSkipHistory) and 1 or 0 end
     if d.ConfirmBeforeDelete ~= nil then layoutDefaults.ConfirmBeforeDelete = setBool(d.ConfirmBeforeDelete) and 1 or 0 end
+    if d.AutoOpenOnMerchant ~= nil then layoutDefaults.AutoOpenOnMerchant = setBool(d.AutoOpenOnMerchant) and 1 or 0 end
     if d.ActivationGuardEnabled ~= nil then layoutDefaults.ActivationGuardEnabled = setBool(d.ActivationGuardEnabled) and 1 or 0 end
     if d.AlignToContext then layoutDefaults.AlignToContext = setBool(d.AlignToContext) and 1 or 0 end
     if d.UILocked then layoutDefaults.UILocked = setBool(d.UILocked) and 1 or 0 end

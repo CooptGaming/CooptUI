@@ -202,10 +202,20 @@ segments.sell = function(ctx, s)
     -- whether or not a run is going — the run itself lives in the lane, and this cell
     -- ticks down live as the pile clears (dock_state keeps sellCount current mid-run).
     -- The Auto Sell button moved to the fixed button pair (26a); zero reads `0 —`.
+    -- The cell is a DOOR to the hub (which shows Sell whenever a merchant is open). That
+    -- matters more since the hub's auto-open on merchant became optional: with it off,
+    -- this is how you get the Sell window, and the cell already names the thing it opens.
+    local function openHub()
+        if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
+            M.queue(ctx, { kind = "hub" })
+        end
+    end
     if (s.sellCount or 0) <= 0 then
         labelled("sell", "0")
+        openHub()
         ImGui.SameLine(0, 6)
         theme.TextMuted("-")
+        openHub()
         return
     end
     local txt = string.format("%d  %sp", s.sellCount, plat(s.sellTotal))
@@ -213,6 +223,7 @@ segments.sell = function(ctx, s)
     -- distrust, so it does not stay quiet.
     if s.keepInSellQueue > 0 then
         theme.TextMuted("sell")
+        openHub()
         ImGui.SameLine(0, 4)
         ImGui.TextColored(theme.ToVec4(theme.Colors.Error), txt)
         if ImGui.IsItemHovered() then
@@ -221,8 +232,10 @@ segments.sell = function(ctx, s)
                 s.keepInSellQueue, s.keepInSellQueue == 1 and "" or "s"))
             ImGui.EndTooltip()
         end
+        openHub()
     else
         labelled("sell", txt)
+        openHub()
     end
 end
 
@@ -538,20 +551,11 @@ local function sessionValue(ctx, text, color, action)
     end
 end
 
---- Pin (or unpin) the session triage panel. Clicking the word "session" or its money
---- value opens THE SESSION — the record itself — not the chat log. 26a routed money to
---- "the session log in Chat", and in the field that reads as a non-sequitur: you clicked
---- the thing named session and got a chat window. The panel IS the session, it is already
---- what hover shows, and pinning it is what makes it stay while you work down the rows.
-local function toggleSessionPanel(ctx)
-    if not ctx.uiState then return end
-    -- Explicit if, never `cond and nil or x` — that idiom cannot yield nil.
-    if ctx.uiState.dockPinnedPopover == "session" then
-        ctx.uiState.dockPinnedPopover = nil
-    else
-        ctx.uiState.dockPinnedPopover = "session"
-    end
-end
+-- (Removed) toggleSessionPanel. 26a had the word "session" and its money value pin the
+-- triage panel on left-click, which predates the universal middle-click pin every other
+-- cell's popover uses. Two gestures for one job, and only on this cell — so the session
+-- cell was the one place a left-click did something no other cell did. Hover still shows
+-- the panel and middle-click still pins it, both unchanged and both global.
 
 -- The session label's age suffix: cached, recomputed at most once a second (os.time has
 -- 1s resolution, so a same-second hit is a pure table read) and never a date format per
@@ -622,15 +626,15 @@ segments.session = function(ctx, s)
             ImGui.Text(tip)
             ImGui.EndTooltip()
         end
-        if ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
-            toggleSessionPanel(ctx)
-        end
     end
     ImGui.SameLine(0, 4)
     ImGui.Text(moneyText)
-    if ImGui.IsItemHovered() and ImGui.IsMouseClicked and ImGui.IsMouseClicked(0) then
-        toggleSessionPanel(ctx)
-    end
+    -- NEITHER the label nor the money pins the panel on left-click any more. Hovering
+    -- already shows it and MIDDLE-click already pins it -- and middle-click is the
+    -- universal gesture every other cell's popover uses, so a left-click that pinned only
+    -- here meant one cell disagreed with the other seven about what a click does. 26a's
+    -- "the word session and the money open the session panel" was written before the
+    -- middle-click pin existed; the pin is the better mechanism and it is already global.
 
     -- Every value is a door, INCLUDING a zero. The strip's job and the window's job are
     -- different: the hover panel is for quick calls on what this session turned up, and
