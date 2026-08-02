@@ -33,6 +33,9 @@ M.ENTRIES = {
             { kind = "module", id = "mythicals" },
             { kind = "module", id = "reroll" },
             { kind = "module", id = "favorites" },
+            -- drawEntries already carried a `loot` special case (uiState-managed, so it
+            -- needs its own label and open test) that no entry ever reached.
+            { kind = "module", id = "loot" },
             { kind = "header", label = "CHARACTER" },
             { kind = "module", id = "equipment" },
             { kind = "module", id = "effects" },
@@ -43,6 +46,15 @@ M.ENTRIES = {
             { kind = "module", id = "scripttracker" },
             { kind = "header", label = "LAYOUTS" },
             { kind = "layouts_dynamic" },
+            -- Chat and Settings are BUILT windows that this list did not carry, which only
+            -- showed with the bottom bar off: it owns chat's edge chip and the right
+            -- group's Settings, so with DockBottom=false this list is the only launcher
+            -- and neither window could be opened from the UI at all. Settings was the trap
+            -- -- the one window you need to turn the bottom bar back on. The design still
+            -- assumes both bars are up; this is the one-bar floor, not a second home.
+            { kind = "header", label = "MORE" },
+            { kind = "module", id = "chat" },
+            { kind = "module", id = "config" },
         }
 
 --- Label for a module entry, straight from the registry so it cannot drift from the hub's.

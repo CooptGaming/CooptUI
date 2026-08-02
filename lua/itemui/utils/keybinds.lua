@@ -49,7 +49,8 @@ M.BINDS = {
     -- ctrl+shift+I covered both ("Inventory (Bags·Bank pair once merged)"). The merge was
     -- rolled back, so Bank needs its own key or it is the one window with no shortcut.
     -- ctrl+shift+K is free in the same live dump the rest of the set was audited against
-    -- (only ctrl+shift+F and ctrl+shift+S were taken) — flag for sign-off.
+    -- (only ctrl+shift+F and ctrl+shift+S were taken). SIGNED OFF 2026-08-02 — it was an
+    -- addition beyond the audited ten, caused by the Bags+Bank merge rollback, and it stays.
     { id = "bank",      bind = "coopt_bank",      label = "Bank",
       cmd = "/itemui window bank",       default = "ctrl+shift+K" },
     { id = "pair_idau", bind = "coopt_pair_idau", label = "Item Display + Aug Utility",

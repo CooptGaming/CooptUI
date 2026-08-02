@@ -119,8 +119,12 @@ function ChatWindowView.render(ctx)
     end
 
     local layoutConfig = ctx.layoutConfig
-    -- Zep is opt-in and OFF by default: requiring it registers a usertype whose teardown
-    -- crashes the CLIENT on script stop (see chat_console.lua's zepAvailable comment).
+    -- Zep is ON by default (state.lua's ChatUseZep = 1). The client-crash-on-stop was
+    -- FIXED on 2026-07-31: it was never Zep itself but WHERE it got required — from a
+    -- render callback, which handed sol2's usertype storage the ImGui coroutine thread.
+    -- app.lua prewarms it on the main thread now, so this is a renderer switch and nothing
+    -- more. (This comment used to say the opposite long after the fix landed, and that
+    -- staleness cost a wrong call in the windows pass — see the note by the renderer line.)
     chatConsole.setZepEnabled((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
@@ -263,6 +267,12 @@ renderWindowBody = function(ctx, layoutConfig)
     -- says the library is present, and a user who never enabled Zep (the default install)
     -- is on the plain renderer unconditionally and lost nothing. TextFurniture, never
     -- Attention amber: this is a consequence of a choice the user just made, not a warning.
+    -- NOTE, and it is the whole reason this note exists: ChatTimestamps also defaults to 1,
+    -- and `ownRenderer = filterOn or timestamps` below — so on a DEFAULT install the plain
+    -- renderer is forced and Zep never draws, which means no clickable links out of the box
+    -- despite the crash being fixed. 19c chose times-on when Zep was off and crashy, so
+    -- times cost nothing then; they cost links now. That tradeoff wants a product call, not
+    -- a silent default flip, so the note tells the truth in the meantime.
     local zepOn = chatConsole.zepAvailable() and ((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
     local function rendererNote()
         theme.TextFurniture("plain text - links are not clickable")
