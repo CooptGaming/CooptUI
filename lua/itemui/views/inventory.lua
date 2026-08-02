@@ -17,10 +17,118 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local ItemDisplayView = require('itemui.views.item_display')
+local windowHeader = require('itemui.components.window_header')
 
 local InventoryView = {}
 
+-- The band's search row exists only while search is ON (windows pass item 8) — the same
+-- rule chat's filter follows. A filter you cannot see is a window that has quietly
+-- stopped showing you your items. Module-local: one Bags pane per session.
+local searchOpen = false
+
+--- Total bag/container slots, cached on perfCache (invalidated on scan/move). Bags' band
+--- does NOT print this — the bar's bags cell owns free slots and weight — but the classic
+--- toolbar still does, so the computation stays shared.
+local function invTotalSlots(ctx)
+    if ctx.perfCache.invTotalSlots == nil then
+        local n = 0
+        local Me = mq.TLO and mq.TLO.Me
+        if Me and Me.Inventory then
+            for i = 1, 10 do
+                local pack = Me.Inventory("pack" .. i)
+                if pack and pack.Container then n = n + (tonumber(pack.Container()) or 0) end
+            end
+        end
+        ctx.perfCache.invTotalSlots = (n > 0) and n or 80
+    end
+    return ctx.perfCache.invTotalSlots
+end
+
+local function invTotalValue(ctx)
+    if ctx.perfCache.invTotalValue == nil then
+        local v = 0
+        for _, it in ipairs(ctx.inventoryItems) do v = v + (it.totalValue or 0) end
+        ctx.perfCache.invTotalValue = v
+    end
+    return ctx.perfCache.invTotalValue
+end
+
+--- The band's stat: the one number the bar does NOT already show. Total inventory VALUE
+--- (strictly greater than the bar's sell-waiting figure, which counts only what the rules
+--- will actually sell) plus scan age. "last scan" is spelled out because "Last:" beside a
+--- Refresh button reads as "last refresh".
+--- Degrades: no scan yet -> "no scan yet"; no value -> drop the clause and its separator;
+--- neither -> nil, and the band renders its title alone (legal - Settings ships that way).
+local function bandStat(ctx)
+    local parts = {}
+    local value = invTotalValue(ctx)
+    if value ~= nil then
+        -- formatValue VERBATIM: the same formatter feeds Sell and Bank, so hand-trimming
+        -- the gold clause here would make two windows disagree about one number.
+        parts[#parts + 1] = ItemUtils.formatValue(value) .. " total"
+    end
+    local scanAt = tonumber(ctx.perfCache.lastScanTimeInv) or 0
+    if scanAt > 0 then
+        parts[#parts + 1] = "last scan " .. os.date("%H:%M:%S", scanAt / 1000)
+    elseif #parts > 0 then
+        parts[#parts + 1] = "no scan yet"
+    end
+    if #parts == 0 then return nil end
+    return table.concat(parts, " . ")
+end
+
+--- The 26px kit band (item 8). Replaces three stacked rows of chrome: the toolbar, the
+--- status row and two separators.
+---
+--- NO lock action, deliberately. The handoff specified windowHeader.registryLock, but Bags
+--- is not a registry module — its lock is the GLOBAL uiState.uiLocked checkbox that
+--- main_window's header row already draws, and which Sell shares. A second lock here
+--- would be two homes for one control, which is exactly what mockup 13d forbids.
+local function renderBand(ctx)
+    windowHeader.render({
+        id = "bags", title = "Bags", stat = bandStat(ctx),
+        actions = {
+            { label = windowHeader.GLYPHS.SEARCH,
+              tooltip = searchOpen and "Close search" or "Search your bags",
+              onClick = function()
+                  searchOpen = not searchOpen
+                  if not searchOpen then ctx.uiState.searchFilterInv = "" end
+              end },
+            { label = windowHeader.GLYPHS.REFRESH,
+              tooltip = "Rescan inventory, bank (if open), sell list, and loot",
+              onClick = function()
+                  if ctx.setStatusMessage then ctx.setStatusMessage("Scanning...") end
+                  ctx.refreshAllScans()
+              end },
+        },
+    })
+    if searchOpen then
+        ImGui.SetNextItemWidth(200)
+        -- Explicit if, never the `A and A(...) or B(...)` idiom: it truncates a
+        -- multi-value call to one value (SPEC_CORRECTIONS' standing trap).
+        local ft
+        if ImGui.InputTextWithHint then
+            ft = ImGui.InputTextWithHint("##InvSearch", "show only items containing...", ctx.uiState.searchFilterInv)
+        else
+            ft = ImGui.InputText("##InvSearch", ctx.uiState.searchFilterInv)
+        end
+        ctx.uiState.searchFilterInv = ft or ""
+        ImGui.SameLine(0, 6)
+        if ImGui.SmallButton("clear##InvSearchClear") then ctx.uiState.searchFilterInv = "" end
+    end
+end
+
+--- Footer strip: the bank hint (item 8). It lives BELOW the table on purpose — conditional
+--- chrome above a table shifts every row down the moment you walk up to a banker.
+local function renderFooter(ctx, bankOpen)
+    if not bankOpen then return end
+    ctx.theme.TextFurniture("Bank open - shift+click an item to move it")
+end
+
 -- Toolbar: search, newest-sort, refresh, and the status line (bank hint or items/value).
+-- CLASSIC ONLY since item 8 — in bars mode renderBand replaces this whole block. Kept
+-- unchanged rather than adapted: with the bars off, nothing else on screen shows totals
+-- or scan age, so the band's deliberate omissions would strand a windows-only user.
 function InventoryView.renderToolbar(ctx, bankOpen)
     -- Gameplay view: bag, slot, weight, flags; Shift+click to move when bank open
     ImGui.Text("Search:")
@@ -31,22 +139,10 @@ function InventoryView.renderToolbar(ctx, bankOpen)
     ImGui.SameLine()
     if ImGui.Button("X##InvSearchClear2", ImVec2(22, 0)) then ctx.uiState.searchFilterInv = "" end
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Clear search"); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("Newest##Inv", ImVec2(55, 0)) then
-        -- Toggle newest-first sort (hidden Acquired column); restore Name sort on second click.
-        if ctx.sortState.invColumn ~= "Acquired" then
-            ctx.sortState.invColumn = "Acquired"
-            ctx.sortState.invDirection = ImGuiSortDirection.Descending
-        else
-            ctx.sortState.invColumn = "Name"
-            ctx.sortState.invDirection = ImGuiSortDirection.Ascending
-        end
-        -- Persist exactly like a header sort-spec change (see sort handler below);
-        -- the sort cache revalidates via sortKey/sortDir in getSortedList.
-        ctx.scheduleLayoutSave()
-        ctx.flushLayoutSave()
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Sort by most recently looted; click again to restore Name"); ImGui.EndTooltip() end
+    -- "Newest" is gone (item 8). It was a BUTTON that set a SORT, and sorts belong to
+    -- column headers — its second click silently restored Name sort, which no label said.
+    -- `Acquired` is already a real hideable column (column_config.lua:26, default off), so
+    -- turning it on and clicking its header does the same job and says what it is doing.
     ImGui.SameLine()
     ctx.renderRefreshButton(ctx, "Refresh##Inv", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()
@@ -60,24 +156,8 @@ function InventoryView.renderToolbar(ctx, bankOpen)
     else
         -- Current items / total bag (container) spaces (cached; invalidated on scan/move)
         local used = #ctx.inventoryItems
-        if ctx.perfCache.invTotalSlots == nil then
-            local n = 0
-            local Me = mq.TLO and mq.TLO.Me
-            if Me and Me.Inventory then
-                for i = 1, 10 do
-                    local pack = Me.Inventory("pack" .. i)
-                    if pack and pack.Container then n = n + (tonumber(pack.Container()) or 0) end
-                end
-            end
-            ctx.perfCache.invTotalSlots = (n > 0) and n or 80
-        end
-        local totalSlots = ctx.perfCache.invTotalSlots
-        if ctx.perfCache.invTotalValue == nil then
-            local v = 0
-            for _, it in ipairs(ctx.inventoryItems) do v = v + (it.totalValue or 0) end
-            ctx.perfCache.invTotalValue = v
-        end
-        local totalValue = ctx.perfCache.invTotalValue
+        local totalSlots = invTotalSlots(ctx)
+        local totalValue = invTotalValue(ctx)
         ctx.theme.TextInfo(string.format("Items: %d / %d", used, totalSlots))
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Items in bags / total bag and container slots"); ImGui.EndTooltip() end
         if ImGui.IsItemHovered() and ctx.hasItemOnCursor() and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
@@ -369,11 +449,20 @@ function InventoryView.renderTable(ctx, bankOpen)
     end
 end
 
--- Module interface: render inventory view content (classic shape: toolbar + table)
--- Params: context table containing all necessary state and functions from init.lua
+-- Module interface: render inventory view content.
+-- Two branches only (item 8): bars on -> the 26px band, no toolbar; bars off -> today's
+-- toolbar, unchanged. The bank hint moves below the table in bars mode so arriving at a
+-- banker does not shove every row down.
 function InventoryView.render(ctx, bankOpen)
-    InventoryView.renderToolbar(ctx, bankOpen)
-    InventoryView.renderTable(ctx, bankOpen)
+    local barsOn = tostring((ctx.layoutConfig or {}).UIMode or "classic") == "bars"
+    if barsOn then
+        renderBand(ctx)
+        InventoryView.renderTable(ctx, bankOpen)
+        renderFooter(ctx, bankOpen)
+    else
+        InventoryView.renderToolbar(ctx, bankOpen)
+        InventoryView.renderTable(ctx, bankOpen)
+    end
 end
 
 return InventoryView
