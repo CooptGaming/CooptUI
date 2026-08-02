@@ -313,7 +313,11 @@ registry.register({
     label       = "Scripts",
     buttonWidth = 60,
     tooltip     = "AA scripts in bags by tier, and turn them in as an interruptible job",
-    layoutKeys  = { x = "ScriptTrackerWindowX", y = "ScriptTrackerWindowY" },
+    zone        = "R2",  -- window_zones placement column/slot (handoff item 5): a nil
+                         -- zone is never auto-placed, and this window was the one
+                         -- companion falling through that hole
+    layoutKeys  = { x = "ScriptTrackerWindowX", y = "ScriptTrackerWindowY",
+                    w = "WidthScriptTrackerPanel", h = "HeightScriptTracker" },
     render      = function(refs)
         local ctx = context.build()
         ScriptTrackerView.render(ctx)

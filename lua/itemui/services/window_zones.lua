@@ -59,9 +59,10 @@ local GEOM = {
 
 M.GEOM = GEOM              -- layout_presets captures/applies geometry through this map
 
--- Fallback zones for the ids the registry cannot answer for (loot is not registered) or
--- that predate the spec fields. A view's own `zone =` declaration wins over this table;
--- the ZoneAssign CSV wins over both.
+-- Loot's HOME, not a shim (handoff item 5 wanted this moved "into its spec" - loot has
+-- no registry entry to carry one, it is uiState-managed, so the fallback table IS where
+-- its zone lives). A view's own `zone =` declaration wins over this table; the
+-- ZoneAssign CSV wins over both.
 local ZONE_FALLBACK = { loot = "R2" }
 
 -- zone id -> column + preference rank. Unknown zone strings fall back to R1 rather than

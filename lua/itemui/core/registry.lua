@@ -299,7 +299,9 @@ end
 --- Zone a module prefers to open into ("L1", "R2", ...), from an optional `zone` field on its
 --- registration. Purely additive: register() already returns a table with __index into the
 --- spec, so an unknown field costs nothing and nothing here validates the spec shape.
---- Phase 4 (zone placement) is what consumes this; nothing sets it yet.
+--- window_zones.zoneOf consumes this; thirteen views set it (settings alone declares none,
+--- deliberately - it persists no position). `loot` is not registered at all, so its zone
+--- lives in window_zones' ZONE_FALLBACK instead.
 --- NOTE for whoever wires that up: the `displayOrder` / layoutConfig.CompanionButtonOrder in
 --- the comment on register() above are NOT implemented anywhere -- toggle/button order is
 --- purely registration order (the `order` table). Deterministic bar ordering has to be built.

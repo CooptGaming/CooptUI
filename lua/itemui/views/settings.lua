@@ -213,6 +213,9 @@ function ConfigView.render(ctx)
 end
 
 -- Registry: Config module (4.2 state ownership — window in registry, needsLoad/advancedMode in view)
+-- No `zone`, PERMANENTLY (handoff item 5): Settings persists no position and has no
+-- window_zones GEOM entry, so there is nothing for the placer to place against. A nil
+-- zone means "never auto-place", which is the intended behaviour - not a gap.
 registry.register({
     id        = "config",
     label     = "Settings",
