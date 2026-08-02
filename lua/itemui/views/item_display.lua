@@ -12,6 +12,7 @@ local mq = require('mq')
 require('ImGui')
 local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
+local itemHelpers = require('itemui.utils.item_helpers')
 local ItemCompare = require('itemui.utils.item_compare')
 local TooltipData = require('itemui.utils.tooltip_data')
 local TooltipRender = require('itemui.utils.tooltip_render')
@@ -287,10 +288,93 @@ end
 --- content line (type · value), a furniture flags line ("Magic · No Drop · … · you can
 --- use this"), and a furniture locator line (where · id · tribute). A failed usability
 --- check stays a loud red line — that one is load-bearing, not furniture.
+-- Classes/races line (handoff item 3): token -> three-letter code, accepting both the
+-- code itself and the full name the emu TLO returns. Universe order is canonical so an
+-- inverted list reads stably. 15 races matches getClassRaceStringsFromTLO's ">= 15 = All".
+local CLASS_UNIVERSE = { "WAR", "CLR", "PAL", "RNG", "SHD", "DRU", "MNK", "BRD",
+                         "ROG", "SHM", "NEC", "WIZ", "MAG", "ENC", "BST", "BER" }
+local CLASS_NAMES = { warrior = "WAR", cleric = "CLR", paladin = "PAL", ranger = "RNG",
+    ["shadow knight"] = "SHD", shadowknight = "SHD", druid = "DRU", monk = "MNK",
+    bard = "BRD", rogue = "ROG", shaman = "SHM", necromancer = "NEC", wizard = "WIZ",
+    magician = "MAG", enchanter = "ENC", beastlord = "BST", berserker = "BER" }
+local RACE_UNIVERSE = { "HUM", "BAR", "ERU", "ELF", "HIE", "DEF", "HEF", "DWF",
+                        "TRL", "OGR", "HFL", "GNM", "IKS", "VAH", "FRG" }
+local RACE_NAMES = { human = "HUM", barbarian = "BAR", erudite = "ERU",
+    ["wood elf"] = "ELF", ["high elf"] = "HIE", ["dark elf"] = "DEF",
+    ["half elf"] = "HEF", dwarf = "DWF", troll = "TRL", ogre = "OGR",
+    halfling = "HFL", gnome = "GNM", iksar = "IKS", ["vah shir"] = "VAH",
+    froglok = "FRG" }
+local function universeSet(universe)
+    local s = {}
+    for _, c in ipairs(universe) do s[c] = true end
+    return s
+end
+local CLASS_SET, RACE_SET = universeSet(CLASS_UNIVERSE), universeSet(RACE_UNIVERSE)
+
+--- Pipe-delimited TLO tokens -> ordered three-letter codes, or nil when any token is
+--- unrecognized (an emu vocabulary we do not know) - the caller then shows the raw list
+--- and skips the inversion rather than inventing an exclusion.
+local function toCodes(str, names, uniSet, universe)
+    local set = {}
+    for tok in str:gmatch("[^|]+") do
+        tok = tok:match("^%s*(.-)%s*$")
+        local code = names[tok:lower()] or (uniSet[tok:upper()] and tok:upper()) or nil
+        if not code then return nil end
+        set[code] = true
+    end
+    local out = {}
+    for _, c in ipairs(universe) do
+        if set[c] then out[#out + 1] = c end
+    end
+    return out
+end
+
+--- One side of the line. Returns clause text + whether it inverted ("above 8 of 16,
+--- state the exclusion" - with 16 classes and 15 races one side is always <= 8, which is
+--- what caps the whole line at one line by construction).
+local function sideClause(str, names, uniSet, universe, allWord)
+    if str == "All" then return allWord, false end
+    local codes = toCodes(str, names, uniSet, universe)
+    if not codes or #codes == 0 then return (str:gsub("|", ", ")), false end
+    if #codes > 8 then
+        local have = universeSet(codes)
+        local ex = {}
+        for _, c in ipairs(universe) do
+            if not have[c] then ex[#ex + 1] = c end
+        end
+        return table.concat(ex, ", "), true
+    end
+    return table.concat(codes, ", "), false
+end
+
+--- The whole line, or false to omit: both sides All, either side empty, or any TLO
+--- failure. Never "Usable by unknown", never a dash (the degrade rule).
+local function computeUsableLine(entry, source)
+    if not (itemHelpers.getItemTLO and itemHelpers.getClassRaceStringsFromTLO) then return false end
+    local okT, it = pcall(itemHelpers.getItemTLO, entry.bag, entry.slot, source)
+    if not okT or not (it and it.ID and it.ID() and it.ID() ~= 0) then return false end
+    local ok, clsStr, raceStr = pcall(itemHelpers.getClassRaceStringsFromTLO, it)
+    if not ok or (clsStr or "") == "" or (raceStr or "") == "" then return false end
+    if clsStr == "All" and raceStr == "All" then return false end
+    local cls, clsInv = sideClause(clsStr, CLASS_NAMES, CLASS_SET, CLASS_UNIVERSE, "all classes")
+    local race, raceInv = sideClause(raceStr, RACE_NAMES, RACE_SET, RACE_UNIVERSE, "all races")
+    -- One side everything, the other stating its exclusion: the line IS the exclusion.
+    if clsInv and raceStr == "All" then return { prefix = "Not usable by", content = cls } end
+    if raceInv and clsStr == "All" then return { prefix = "Not usable by", content = race } end
+    local clsPart = clsInv and ("all but " .. cls) or cls
+    local racePart = raceInv and ("all but " .. race) or race
+    return { prefix = "Usable by", content = clsPart .. " \xc2\xb7 " .. racePart }
+end
+
 local function renderHeader(ctx, entry)
     local item = entry.item
     local source = entry.source or "inv"
     local canUseInfo = ItemTooltip.getCanUseInfo(item, source)
+    -- Threaded to the verdict box (same frame, renderHeader runs first): canUse == false
+    -- suppresses the Upgrade verdict - there is nothing to compare for an item you
+    -- cannot equip, and a green Upgrade under the red banner asserts a swap the game
+    -- will refuse.
+    entry.canUse = canUseInfo.canUse
 
     if ctx.drawItemIcon and item.icon and item.icon > 0 then
         ctx.drawItemIcon(item.icon, 32)
@@ -346,6 +430,19 @@ local function renderHeader(ctx, entry)
     if item.id and item.id ~= 0 then loc[#loc + 1] = "id " .. tostring(item.id) end
     if (tonumber(item.tribute) or 0) > 0 then loc[#loc + 1] = "tribute " .. tostring(item.tribute) end
     ctx.theme.TextFurniture(table.concat(loc, " \xc2\xb7 "))
+
+    -- Classes/races: the identity card's bottom line (handoff item 3) - who can wear a
+    -- thing is identity, not a stat. Cached on the entry: a tab IS one item, so this
+    -- computes once per tab, never per frame. The red cannot-use banner above already
+    -- covers the negative case, so this line needs no red variant and no reordering.
+    if entry.usableByLine == nil then
+        entry.usableByLine = computeUsableLine(entry, source) or false
+    end
+    if entry.usableByLine then
+        ctx.theme.TextFurniture(entry.usableByLine.prefix)
+        ImGui.SameLine(0, 4)
+        ctx.theme.TextContent(entry.usableByLine.content)
+    end
 end
 
 --- Rules block: sell status line (all sources) + action buttons gated per-action rather than by
@@ -832,8 +929,11 @@ local function renderOneItemContent(ctx, entry)
     local cmp = ItemCompare.compare(item, equippedItem, {
         augStats = augStats, equippedAugStats = equippedAugStats, procName = procName,
     })
-    renderVerdictBox(ctx, cmp, equippedItem, wornSlotIndex ~= nil, isSelfView)
-    if wornSlotIndex ~= nil then ImGui.Spacing() end
+    -- entry.canUse is stashed by renderHeader above; ~= false so a nil (header failed
+    -- to run) errs on showing the box rather than silently hiding a real comparison.
+    local comparable = (entry.canUse ~= false) and (wornSlotIndex ~= nil)
+    renderVerdictBox(ctx, cmp, equippedItem, comparable, isSelfView)
+    if comparable then ImGui.Spacing() end
 
     renderCompareTileGrid(ctx, cmp.rows)
     if cmp.rows and #cmp.rows > 0 then ImGui.Spacing() end
