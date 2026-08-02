@@ -52,12 +52,10 @@ docs/*
 # Pre-release review reports: each pass hands off to the next reviewer through the repo.
 !docs/release-review/
 
-# TEMPORARY - not user-facing. Tracked so the Claude Design GitHub sync can read the
-# windows-pass decisions record; the code cites it as authoritative (window_header.lua:137,
-# equipment.lua:113) but design could not see it, and re-derived settled calls instead.
-# RE-IGNORE THIS BEFORE THE NEXT PUBLISHED RELEASE - delete the line below and
-# `git rm --cached docs/WINDOWS_PASS.md`.
-!docs/WINDOWS_PASS.md
+# docs/WINDOWS_PASS.md was tracked temporarily (2026-08-02) so the Claude Design GitHub
+# sync could read the windows-pass decisions record. Re-ignored once design had it and the
+# pass was built. It stays on disk and stays authoritative for anyone working in-tree; it
+# is simply not user-facing documentation, which is what this allowlist ships.
 
 # --- lua: itemui, scripttracker, coopui (version + theme), mq/ItemUtils.lua ---
 lua/*
