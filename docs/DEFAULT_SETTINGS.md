@@ -110,6 +110,18 @@ Always-loot lists (`loot_always_*.ini`) start empty except the shared valuable l
 
 ---
 
+## Layout / diagnostics defaults (`sell_config/itemui_layout.ini`)
+
+The same values ship in `lua/itemui/default_layout/itemui_layout.ini`, which the first run
+applies when there is no saved layout. **Keep the two files in step** — a value fixed in only
+one of them still reaches players through the other.
+
+| Key | Default | Why |
+|-----|---------|-----|
+| `[Debug] ItemOps` / `Scan` / `Loot` | **0 (off)** | Debug channels print to the MQ console *and* append to `logs/coopui_debug.log`. `Scan` and `ItemOps` sit in hot paths and `Loot` fires per looted item, so leaving them on costs every player console spam and log writes for output only a developer reads. `core/debug.lua` defaults an unset channel to `"0"` — the templates must not ship worse than the code fallback. Players turn channels on in **Settings → Advanced → Debug** when reporting a bug. |
+
+---
+
 ## What is intentionally NOT templated
 
 - `sell_cache.ini`, `loot_history.ini`, `loot_session.ini`, `loot_progress.ini`, `loot_skipped.ini`, `skip_history.ini`, `loot_mythical_alert.ini` — runtime state, created as needed.

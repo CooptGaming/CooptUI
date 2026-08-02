@@ -63,6 +63,35 @@ local function dirExists(dir, lfs)
     return false
 end
 
+--- Create dstDir, returning true when it exists afterwards.
+--- lfs is OPTIONAL in MQ2Lua and this module was the only place in the codebase
+--- that required it to create a directory: without lfs the first install could
+--- never make <EQ>\uifiles\coopt, every file write then failed, and the Settings
+--- button reported "check that MQ and EQ paths are available" - a cause that was
+--- never the real one. Falls back to the same one-shot os.execute mkdir the rest
+--- of the codebase uses (core/debug.lua, core/welcome_env_manifest.lua,
+--- services/backup_service.lua), then confirms with a marker write.
+local function makeDir(dir, lfs)
+    if lfs and lfs.mkdir then pcall(lfs.mkdir, dir) end
+    local marker = dir .. '\\.mkdir'
+    local probe = io.open(marker, 'w')
+    if probe then
+        probe:close()
+        pcall(os.remove, marker)
+        return true
+    end
+    if os and os.execute then
+        pcall(os.execute, 'mkdir "' .. dir:gsub('"', '\\"') .. '" 2>nul')
+    end
+    probe = io.open(marker, 'w')
+    if probe then
+        probe:close()
+        pcall(os.remove, marker)
+        return true
+    end
+    return false
+end
+
 -- Skin file names from the source folder (lfs when present, static list otherwise).
 local function listSkinFiles(srcDir, lfs)
     if lfs and lfs.dir then
@@ -89,7 +118,10 @@ end
 --- Default: maintenance only - a no-op unless <EQ>\uifiles\coopt already
 --- exists (the skin is opt-in). opts.force = true performs a first install
 --- (creates the folder). Returns { copied = {...}, removed = {...},
---- freshInstall = bool }, or nil when there was nothing to do.
+--- failed = {...}, freshInstall = bool }, or nil when there was nothing to do.
+--- A second return value carries a user-facing reason whenever some or all of
+--- the work could not be done, so callers can report the real cause instead of
+--- guessing at it.
 function M.sync(opts)
     local force = opts and opts.force or false
     local srcDir, dstDir = paths()
@@ -104,13 +136,16 @@ function M.sync(opts)
     local freshInstall = false
     if not installed then
         -- <EQ>\uifiles always exists (the default UI lives there); only
-        -- 'coopt' needs creating. Without lfs the io.open below fails closed
-        -- and the install is reported as a no-op rather than an error.
+        -- 'coopt' needs creating. If it cannot be created there is nothing to
+        -- copy into, so stop here and say so rather than failing silently on
+        -- every file write below.
         freshInstall = true
-        if lfs and lfs.mkdir then pcall(lfs.mkdir, dstDir) end
+        if not makeDir(dstDir, lfs) then
+            return nil, "Could not create " .. dstDir .. " - check folder permissions on your EverQuest directory."
+        end
     end
 
-    local copied, removed = {}, {}
+    local copied, removed, failed = {}, {}, {}
     for _, name in ipairs(listSkinFiles(srcDir, lfs)) do
         local srcData = readAll(srcDir .. '\\' .. name)
         if srcData then
@@ -125,15 +160,36 @@ function M.sync(opts)
                     local wok = pcall(function() f:write(srcData) end)
                     f:close()
                     if wok then
+                        -- Lua's os.rename cannot replace an existing file on Windows, so
+                        -- the destination has to go first. That opens a window where a
+                        -- failing rename would leave NO file at all and /loadskin coopt
+                        -- would silently drop that window's CoOpt controls, so recover by
+                        -- writing the payload straight to the destination.
                         os.remove(dstFile)
                         if os.rename(tmpFile, dstFile) then
                             copied[#copied + 1] = name
                         else
+                            local rf = io.open(dstFile, 'wb')
+                            if rf then
+                                local rok = pcall(function() rf:write(srcData) end)
+                                rf:close()
+                                if rok then
+                                    copied[#copied + 1] = name
+                                else
+                                    pcall(os.remove, dstFile)
+                                    failed[#failed + 1] = name
+                                end
+                            else
+                                failed[#failed + 1] = name
+                            end
                             pcall(os.remove, tmpFile)
                         end
                     else
                         pcall(os.remove, tmpFile)
+                        failed[#failed + 1] = name
                     end
+                else
+                    failed[#failed + 1] = name
                 end
             end
         end
@@ -141,8 +197,13 @@ function M.sync(opts)
     for _, name in ipairs(REMOVED_FILES) do
         if os.remove(dstDir .. '\\' .. name) then removed[#removed + 1] = name end
     end
+    if #failed > 0 then
+        return { copied = copied, removed = removed, failed = failed, freshInstall = freshInstall },
+            "Could not write " .. #failed .. " skin file(s) to " .. dstDir ..
+            " (" .. table.concat(failed, ", ") .. ") - check folder permissions."
+    end
     if #copied == 0 and #removed == 0 then return nil end
-    return { copied = copied, removed = removed, freshInstall = freshInstall }
+    return { copied = copied, removed = removed, failed = failed, freshInstall = freshInstall }
 end
 
 return M

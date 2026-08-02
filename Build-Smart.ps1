@@ -6,15 +6,32 @@
     Uses SHA256 hashing and GitHub API to detect changes and only rebuild what's needed.
 
     Usage:
+      .\Build-Smart.ps1 -CheckPrereqs                                      # Can this machine build?
       .\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy"                          # Full EMU bundle
       .\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Target CoOptOnly        # Lua/macros only
       .\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Force                   # Rebuild everything
       .\Build-Smart.ps1 -OutputDir "C:\MQ\Deploy" -Release                 # Build + release
       .\Build-Smart.ps1 -OutputDir dist -Target All -Force -CI             # CI mode
+
+    PREREQUISITES
+      Stage 0 checks them before anything expensive runs and prints what is missing,
+      why it is needed, and where to download it. Everything required is third-party
+      and separately licensed, so none of it can be shipped with CoOpt UI.
+
+      -CheckPrereqs      Report whether this machine can build the selected -Target,
+                         then exit (0 = ready, 1 = something is missing). Does not
+                         need -OutputDir. Checks only what the target actually uses:
+                         -Target CoOptOnly needs no external toolchain at all.
+      -SkipPrereqCheck   Run the checks but never stop on them. Escape hatch only.
+
+      Full list for -Target FullBundle: Git, CMake 3.x (NOT 4.x), Visual Studio 2022
+      with "Desktop development with C++" AND the pinned MSVC toolset 14.44.35207,
+      the .NET SDK, and Python 3. -Release additionally needs an authenticated gh CLI.
+      See docs/DEVELOPER.md for the same list with rationale.
 #>
 
 param(
-    [Parameter(Mandatory)]
+    # Not [Parameter(Mandatory)] so -CheckPrereqs can run standalone; enforced below.
     [string]$OutputDir,
 
     [ValidateSet('FullBundle', 'CoOptOnly', 'PluginOnly', 'All')]
@@ -27,11 +44,20 @@ param(
     [string]$CMakePath = '',
     [switch]$Release,
     [switch]$DryRun,
-    [switch]$CI
+    [switch]$CI,
+
+    # Report whether this machine can build the selected -Target, then exit.
+    [switch]$CheckPrereqs,
+    # Escape hatch: run the checks but never stop on them.
+    [switch]$SkipPrereqCheck
 )
 
 $ErrorActionPreference = 'Stop'
 $BuildStartTime = Get-Date
+
+if (-not $CheckPrereqs -and -not $OutputDir) {
+    Write-Error "-OutputDir is required. (Use -CheckPrereqs on its own to just test this machine's toolchain.)"
+}
 
 # CI implies Force (always clean build)
 if ($CI) { $Force = $true }
@@ -73,6 +99,280 @@ $script:ThirdPartyPlugins = @(
     @{ Name = 'MQ2LinkDB';    Repo = 'https://github.com/RedGuides/MQ2LinkDB.git';    Ref = '864f5d597237' }
     @{ Name = 'MQ2NetBots';   Repo = 'https://github.com/RedGuides/MQ2NetBots.git';   Ref = '25e145edc947' }
 )
+
+# ======================================================================
+# Region 1b: Prerequisite preflight
+#
+# Everything the from-source build needs is third-party and licensed by its
+# owner, so none of it can be vendored here - the most we can do is detect what
+# is missing and say exactly what to install and where from.
+#
+# This runs BEFORE Stage 1 on purpose. The checks it replaces were scattered
+# through the build: CMake was only validated after Stage 1 had already cloned
+# MacroQuest and the vcpkg submodule (hundreds of MB), and a missing pinned MSVC
+# toolset only produced a warning - the real symptom arriving much later as an
+# LNK1120 unresolved-externals link failure that reads like a code bug.
+#
+# It reports EVERY problem at once rather than stopping at the first, so a fresh
+# machine can be brought up in one pass instead of one install per run.
+# ======================================================================
+
+$script:PinnedToolsetVersion = '14.44.35207'
+
+function New-PrereqResult {
+    param(
+        [string]$Name,
+        [ValidateSet('ok', 'missing', 'wrong-version', 'unknown')] [string]$Status,
+        [string]$Detail = '',
+        [string]$Why = '',
+        [string[]]$HowToFix = @(),
+        [bool]$Blocking = $true
+    )
+    return [PSCustomObject]@{
+        Name = $Name; Status = $Status; Detail = $Detail
+        Why = $Why; HowToFix = $HowToFix; Blocking = $Blocking
+    }
+}
+
+function Get-VSInstance {
+    <#
+      Resolve a VS 2022 (17.x) instance with the native C++ workload, using the
+      same vswhere query the build itself uses so the preflight cannot disagree
+      with what the build later finds.
+    #>
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { return $null }
+    $inst = & $vswhere -version '[17.0,18.0)' `
+        -requires Microsoft.VisualStudio.Workload.NativeDesktop `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath -latest 2>$null | Select-Object -First 1
+    if (-not $inst) {
+        $inst = & $vswhere -version '[17.0,18.0)' -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath -latest 2>$null | Select-Object -First 1
+    }
+    return $inst
+}
+
+function Test-Prerequisites {
+    <#
+      Return one result object per prerequisite the SELECTED target actually
+      needs. -Target CoOptOnly only copies files and zips them, so it requires
+      nothing beyond PowerShell; the C++ toolchain is only demanded when a
+      plugin or full build is asked for.
+    #>
+    param(
+        [bool]$NeedsFullBuild,
+        [bool]$NeedsPlugin,
+        [bool]$NeedsRelease,
+        [string]$CMakeHint
+    )
+    $results = @()
+    $needsNative = $NeedsFullBuild -or $NeedsPlugin
+
+    # --- git: clones MacroQuest, MQ2Mono, MQ2Mono-Framework32, E3Next ---
+    if ($needsNative -or $NeedsRelease) {
+        $git = (Get-Command git -EA SilentlyContinue).Source
+        if ($git) {
+            $results += New-PrereqResult -Name 'Git' -Status 'ok' -Detail (& git --version 2>$null)
+        } else {
+            $results += New-PrereqResult -Name 'Git' -Status 'missing' `
+                -Why 'Stage 1 clones MacroQuest, MQ2Mono and E3Next from GitHub; the release stage also tags and pushes.' `
+                -HowToFix @('Install Git for Windows: https://git-scm.com/download/win',
+                            'Then reopen PowerShell so git is on PATH.')
+        }
+    }
+
+    # --- CMake: must be 3.x. vcpkg portfiles still use cmake_minimum_required < 3.5, which 4.x rejects outright. ---
+    if ($needsNative) {
+        $cmake = Find-CMake330 $CMakeHint
+        if ($cmake) {
+            $results += New-PrereqResult -Name 'CMake 3.x' -Status 'ok' `
+                -Detail "$((& $cmake --version 2>$null | Select-Object -First 1)) [$cmake]"
+        } else {
+            $anyCmake = (Get-Command cmake -EA SilentlyContinue).Source
+            $found = if ($anyCmake) { "found $((& $anyCmake --version 2>$null | Select-Object -First 1)) at $anyCmake" } else { 'not found on PATH' }
+            $results += New-PrereqResult -Name 'CMake 3.x' -Status $(if ($anyCmake) { 'wrong-version' } else { 'missing' }) `
+                -Detail $found `
+                -Why 'CMake 4.x REJECTS the cmake_minimum_required(<3.5) still used by several vcpkg portfiles, so MacroQuest''s dependencies cannot configure. 3.30 is the version this build is developed against.' `
+                -HowToFix @('Download CMake 3.30.x (Windows x64 ZIP or Installer) from:',
+                            '    https://cmake.org/download/  ->  scroll to "Older Releases", or',
+                            '    https://github.com/Kitware/CMake/releases/tag/v3.30.5',
+                            'The ZIP needs no install - extract it anywhere, then point the build at it:',
+                            '    .\Build-Smart.ps1 -OutputDir <dir> -CMakePath "C:\path\to\cmake-3.30\bin\cmake.exe"',
+                            'A 4.x CMake elsewhere on PATH is fine; -CMakePath takes priority.')
+        }
+    }
+
+    # --- Visual Studio 2022 + the PINNED MSVC toolset ---
+    if ($needsNative) {
+        $vs = Get-VSInstance
+        if (-not $vs) {
+            $results += New-PrereqResult -Name 'Visual Studio 2022 (C++)' -Status 'missing' `
+                -Why 'MacroQuest, the MQ2CoOptUI plugin and all vcpkg dependencies are built with the MSVC C++ toolchain.' `
+                -HowToFix @('Install Visual Studio 2022 (the free Community edition is enough):',
+                            '    https://visualstudio.microsoft.com/vs/community/',
+                            'In the installer select the workload:  Desktop development with C++',
+                            'VS 2026 / VS 18 alone is NOT sufficient - this build pins a VS 2022 toolset (see below).')
+        } else {
+            $results += New-PrereqResult -Name 'Visual Studio 2022 (C++)' -Status 'ok' -Detail $vs
+
+            # The toolset pin is what keeps vcpkg's port builds and our final link step on ONE
+            # STL. A newer toolset (e.g. 14.50 from VS 18) resolves symbols that are absent from
+            # the older libcpmt.lib and the build dies at link time with LNK1120.
+            $toolsetDir = Join-Path $vs "VC\Tools\MSVC\$script:PinnedToolsetVersion"
+            $vcvarsall  = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
+            if ((Test-Path $toolsetDir) -and (Test-Path $vcvarsall)) {
+                $results += New-PrereqResult -Name "MSVC toolset $script:PinnedToolsetVersion" -Status 'ok' -Detail $toolsetDir
+            } else {
+                $present = @()
+                $toolsRoot = Join-Path $vs 'VC\Tools\MSVC'
+                if (Test-Path $toolsRoot) {
+                    $present = Get-ChildItem $toolsRoot -Directory -EA SilentlyContinue | Select-Object -ExpandProperty Name
+                }
+                $results += New-PrereqResult -Name "MSVC toolset $script:PinnedToolsetVersion" -Status 'missing' `
+                    -Detail $(if ($present) { "installed toolsets: $($present -join ', ')" } else { 'no MSVC toolsets found' }) `
+                    -Why "The build pins this exact toolset so vcpkg's dependency builds and the final link use the SAME STL. Without it a newer toolset is used and the link fails with LNK1120 unresolved externals - long after this point, and looking like a source bug." `
+                    -HowToFix @('Open "Visual Studio Installer" -> Modify -> Individual components,',
+                                'tick:  MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44)',
+                                'then Modify to install. Existing toolsets are kept - this adds one alongside them.',
+                                'Direct link to the installer if you need it:',
+                                '    https://visualstudio.microsoft.com/downloads/')
+            }
+        }
+    }
+
+    # --- Symlink capability: Stage 1 links our plugin into the MQ clone's plugins/ dir ---
+    if ($NeedsPlugin) {
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+                   ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        $devMode = $false
+        try {
+            $devMode = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+                        -Name AllowDevelopmentWithoutDevLicense -EA Stop).AllowDevelopmentWithoutDevLicense -eq 1
+        } catch { $devMode = $false }
+        if ($isAdmin -or $devMode) {
+            $results += New-PrereqResult -Name 'Symlink capability' -Status 'ok' `
+                -Detail $(if ($devMode) { 'Developer Mode enabled' } else { 'running elevated' })
+        } else {
+            $results += New-PrereqResult -Name 'Symlink capability' -Status 'missing' `
+                -Detail 'Developer Mode off and not running as administrator' `
+                -Why 'Stage 1 creates a directory symlink for plugin\MQ2CoOptUI inside the MacroQuest clone. Windows needs Developer Mode or elevation to create one.' `
+                -HowToFix @('Settings -> System -> For developers -> turn ON "Developer Mode"  (recommended, one-time)',
+                            'or run this build from an elevated PowerShell.') `
+                -Blocking $false   # the build falls back to a junction, which usually works
+        }
+    }
+
+    # --- .NET SDK: E3Next and MQ2Mono are .NET projects ---
+    if ($NeedsFullBuild) {
+        $dotnet = (Get-Command dotnet -EA SilentlyContinue).Source
+        if ($dotnet) {
+            $results += New-PrereqResult -Name '.NET SDK' -Status 'ok' -Detail "$(& dotnet --version 2>$null) [$dotnet]"
+        } else {
+            $results += New-PrereqResult -Name '.NET SDK' -Status 'missing' `
+                -Why 'E3Next and MQ2Mono are .NET projects built during Stage 2b.' `
+                -HowToFix @('Install the .NET SDK: https://dotnet.microsoft.com/download',
+                            'Installing the "Desktop development with C++" workload does NOT include this.')
+        }
+        # E3NextSysTray needs the .NET Framework 4.8 Developer Pack. Its failure is tolerated by
+        # design (E3.dll still builds), so this is advisory only - it exists to stop the MSB3103
+        # error in the log looking like a real problem.
+        $results += New-PrereqResult -Name '.NET Framework 4.8 Dev Pack' -Status 'unknown' `
+            -Detail 'optional - only E3NextSysTray needs it' `
+            -Why 'Without it E3NextSysTray fails with MSB3103 (a resx error). This is EXPECTED and tolerated: E3.dll still builds and packages correctly.' `
+            -HowToFix @('Only if you want a clean log: https://dotnet.microsoft.com/download/dotnet-framework/net48') `
+            -Blocking $false
+    }
+
+    # --- Python: manifests (release) and the patcher exe ---
+    if ($NeedsRelease -or $NeedsFullBuild) {
+        $py = (Get-Command python -EA SilentlyContinue).Source
+        if ($py) {
+            $results += New-PrereqResult -Name 'Python 3' -Status 'ok' -Detail "$(& python --version 2>&1) [$py]"
+        } else {
+            $results += New-PrereqResult -Name 'Python 3' -Status 'missing' `
+                -Why 'Release manifests are generated by patcher/generate_manifest.py, and the standalone patcher exe is built with PyInstaller.' `
+                -HowToFix @('Install Python 3: https://www.python.org/downloads/windows/',
+                            'Tick "Add python.exe to PATH" in the installer.') `
+                -Blocking $NeedsRelease   # only fatal for a release; a plain build just skips the patcher
+        }
+    }
+
+    # --- GitHub CLI: only the release pipeline needs it ---
+    if ($NeedsRelease) {
+        $ghCmd = (Get-Command gh -EA SilentlyContinue).Source
+        if (-not $ghCmd) {
+            $results += New-PrereqResult -Name 'GitHub CLI (gh)' -Status 'missing' `
+                -Why '-Release creates the GitHub release and uploads the bundle, patcher and plugin assets.' `
+                -HowToFix @('Install: https://cli.github.com/', 'Then authenticate:  gh auth login')
+        } else {
+            & gh auth status 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $results += New-PrereqResult -Name 'GitHub CLI (gh)' -Status 'ok' -Detail 'installed and authenticated'
+            } else {
+                $results += New-PrereqResult -Name 'GitHub CLI (gh)' -Status 'missing' `
+                    -Detail 'installed but not authenticated' `
+                    -Why '-Release pushes a tag and creates a GitHub release.' `
+                    -HowToFix @('Run:  gh auth login')
+            }
+        }
+    }
+
+    return $results
+}
+
+function Write-PrereqReport {
+    <#
+      Print the preflight. Returns the number of BLOCKING problems so the caller
+      decides whether to stop - this function never throws.
+    #>
+    param([object[]]$Results, [bool]$Verbose = $false)
+
+    # A target that needs nothing (CoOptOnly) yields an empty set, which PowerShell unrolls to
+    # $null. Filtering $null still runs one iteration with $_ = $null, and $null.Status -ne 'ok'
+    # is TRUE - which printed a phantom "[NOTE] :" line. Drop empties first.
+    $Results = @($Results | Where-Object { $null -ne $_ })
+    if ($Results.Count -eq 0) {
+        Write-Ok 'No external toolchain required for this target.'
+        return 0
+    }
+
+    $problems = @($Results | Where-Object { $_.Status -ne 'ok' -and $_.Status -ne 'unknown' })
+    $blocking = @($problems | Where-Object { $_.Blocking })
+    $advisory = @($Results | Where-Object { ($_.Status -eq 'unknown') -or ($_.Status -ne 'ok' -and -not $_.Blocking) })
+
+    foreach ($r in $Results) {
+        if ($r.Status -eq 'ok') { Write-Ok "$($r.Name): $($r.Detail)" }
+    }
+    foreach ($r in $advisory) {
+        Write-Host "  [NOTE] $($r.Name): $($r.Detail)" -ForegroundColor DarkYellow
+        if ($Verbose -and $r.Why) { Write-Host "         $($r.Why)" -ForegroundColor DarkGray }
+    }
+    if ($blocking.Count -eq 0) {
+        if ($problems.Count -eq 0) { Write-Ok 'All prerequisites satisfied.' }
+        return 0
+    }
+
+    Write-Host ''
+    Write-Host "  MISSING PREREQUISITES ($($blocking.Count))" -ForegroundColor Red
+    Write-Host '  ---------------------------------------------------------------' -ForegroundColor Red
+    Write-Host '  These are third-party, separately-licensed tools, so they cannot' -ForegroundColor DarkGray
+    Write-Host '  be shipped with CoOpt UI. Install them from the official sources' -ForegroundColor DarkGray
+    Write-Host '  below - all are free.' -ForegroundColor DarkGray
+    foreach ($r in $blocking) {
+        Write-Host ''
+        Write-Host "  * $($r.Name)" -ForegroundColor Yellow
+        if ($r.Detail) { Write-Host "      Found:  $($r.Detail)" -ForegroundColor DarkGray }
+        if ($r.Why)    { Write-Host "      Needed for: $($r.Why)" -ForegroundColor DarkGray }
+        foreach ($line in $r.HowToFix) { Write-Host "      $line" }
+    }
+    Write-Host ''
+    Write-Host '  Re-run this check on its own at any time:' -ForegroundColor DarkGray
+    Write-Host '      .\Build-Smart.ps1 -CheckPrereqs' -ForegroundColor DarkGray
+    Write-Host ''
+    return $blocking.Count
+}
 
 function Get-RepoRoot {
     $dir = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
@@ -229,13 +529,22 @@ function Get-PluginSourceHash {
     )
 }
 
+# Hash of everything the CoOpt stage STAGES. If a shipped file is missing from this list a
+# change to it leaves the hash identical, Stage 4 reports "[SKIP] Output already exists", and
+# the PREVIOUS zip is what gets published - the fix is in git and in the patcher manifest, but
+# not in the bundle. Rule: if Copy-CoOptUIFiles copies it, it must be hashed here.
+# (uifiles\coopt, lua\coopt_launcher.lua and lua\itemui's non-.lua assets were all missing.)
 function Get-CoOptUISourceHash {
     param([string]$RepoRoot)
     return Get-MultiPathHash @(
-        @{ Path = (Join-Path $RepoRoot 'lua\itemui');        Include = @('*.lua'); Exclude = @('docs/*', 'upvalue_check.lua') }
+        # Include '*' not '*.lua': lua\itemui also ships default_layout\*.ini,
+        # layout_manifest.json and overlay_snippet.ini.
+        @{ Path = (Join-Path $RepoRoot 'lua\itemui');        Include = @('*'); Exclude = @('docs/*', 'upvalue_check.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\coopui');        Include = @('*.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\scripttracker'); Include = @('*.lua'); Exclude = @('scripttracker.ini') }
         @{ Path = (Join-Path $RepoRoot 'lua\mq\ItemUtils.lua') }
+        @{ Path = (Join-Path $RepoRoot 'lua\coopt_launcher.lua') }
+        @{ Path = (Join-Path $RepoRoot 'uifiles\coopt');     Include = @('*') }
         @{ Path = (Join-Path $RepoRoot 'Macros\sell.mac') }
         @{ Path = (Join-Path $RepoRoot 'Macros\loot.mac') }
         @{ Path = (Join-Path $RepoRoot 'Macros\shared_config'); Include = @('*.mac') }
@@ -1338,6 +1647,36 @@ if ($Release) { Write-Host "  Release:    yes" -ForegroundColor Yellow }
 if ($DryRun) { Write-Host "  DRY RUN:    yes" -ForegroundColor Yellow }
 Write-Host ''
 
+# ------------------------------------------------------------------
+# Stage 0: Prerequisites
+#
+# Runs before anything expensive. Stage 1 clones MacroQuest and its vcpkg
+# submodule (hundreds of MB) before the old CMake check ran, so a machine
+# without the toolchain paid for the clone first and learned nothing useful.
+# ------------------------------------------------------------------
+Write-Stage 'Stage 0: Prerequisites'
+$prereqs = Test-Prerequisites -NeedsFullBuild $needsFullBuild -NeedsPlugin $needsPlugin `
+                              -NeedsRelease ([bool]$Release) -CMakeHint $CMakePath
+$blockingCount = Write-PrereqReport -Results $prereqs -Verbose $CheckPrereqs
+
+if ($CheckPrereqs) {
+    Write-Host ''
+    if ($blockingCount -eq 0) {
+        Write-Host "This machine can build -Target $Target$(if ($Release) { ' -Release' })." -ForegroundColor Green
+    } else {
+        Write-Host "This machine is missing $blockingCount prerequisite(s) for -Target $Target$(if ($Release) { ' -Release' })." -ForegroundColor Red
+    }
+    exit ([int]($blockingCount -gt 0))
+}
+
+if ($blockingCount -gt 0) {
+    if ($SkipPrereqCheck) {
+        Write-Warning "Continuing anyway (-SkipPrereqCheck). Expect a failure later in the build."
+    } else {
+        Write-Error "Cannot build: $blockingCount prerequisite(s) missing (listed above). Install them, or re-run with -SkipPrereqCheck to try anyway."
+    }
+}
+
 # Load state
 $state = if ($Force) { Read-BuildState '__force_empty__' } else { Read-BuildState $OutputDir }
 
@@ -2117,6 +2456,15 @@ if ($Release) {
         # --- Generate manifests (so patcher can detect updates) ---
         # Pass the built plugin DLL path so patcher can also update the plugin
         $dllForManifest = if ($pluginDllPath -and (Test-Path $pluginDllPath)) { $pluginDllPath } else { '' }
+        # generate_manifest.py adds the plugins/MQ2CoOptUI.dll entry ONLY when --plugin-dll is
+        # supplied, and says nothing when it is not. A release cut with -Target CoOptOnly or
+        # -SkipPlugin therefore publishes a manifest with no plugin entry at all, and every
+        # patcher client silently stops updating MQ2CoOptUI.dll - drifting from the Lua that
+        # ships alongside it. That is legitimate for a deliberate Lua-only release, so this
+        # warns rather than fails, but it must never happen unnoticed.
+        if (-not $dllForManifest) {
+            Write-Warning "No MQ2CoOptUI.dll available: release_manifest.json will have NO plugin entry, so patcher clients will not update the plugin. This is correct only for a deliberate Lua-only release. Re-run with -Target FullBundle (and without -SkipPlugin) to include it."
+        }
         Generate-Manifests -RepoRoot $RepoRoot -PluginDllPath $dllForManifest -ReleaseTag "v$Version"
 
         # --- Git commit, tag, push ---

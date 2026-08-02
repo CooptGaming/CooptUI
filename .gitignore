@@ -49,6 +49,8 @@ docs/*
 !docs/ARCHITECTURE.md
 !docs/plugin/
 !docs/mono/
+# Pre-release review reports: each pass hands off to the next reviewer through the repo.
+!docs/release-review/
 
 # TEMPORARY - not user-facing. Tracked so the Claude Design GitHub sync can read the
 # windows-pass decisions record; the code cites it as authoritative (window_header.lua:137,

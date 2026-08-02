@@ -324,6 +324,26 @@ _CRITICAL_FILES = (
 )
 
 
+def _has_coopt_install(target_dir: str) -> bool:
+    """
+    True when target_dir already holds a CoOpt UI install worth protecting.
+
+    Used to decide whether the stock-E3 base bundle may be applied as a fallback: it is a
+    foreign MacroQuest family, so overlaying it onto an existing CoOpt install replaces that
+    install's binaries and disables the plugin. Deliberately generous — any one of these
+    markers means "there is something here to lose".
+    """
+    markers = (
+        "plugins/MQ2CoOptUI.dll",
+        "Macros/coopui_installed_version.txt",
+        "lua/itemui/init.lua",
+    )
+    for rel in markers:
+        if os.path.isfile(os.path.join(target_dir, rel.replace("/", os.sep))):
+            return True
+    return False
+
+
 def verify_install(target_dir: str) -> list:
     """Return critical CoOpt UI files that are missing or empty under target_dir (empty list = OK)."""
     missing = []
@@ -341,7 +361,12 @@ def is_macroquest_running() -> bool:
     """Best-effort check for a live MacroQuest / EverQuest process. Installing over a running
     client is the usual cause of a first launch stuck on 'loop or previous error': MQ2Lua's
     require cache gets poisoned by a load against files that are still being replaced, and that
-    poison persists for the whole session until a restart. Never raises."""
+    poison persists for the whole session until a restart. Never raises.
+
+    NOTE: this is a process-NAME check and therefore has a blind spot — MacroQuest's tray
+    relaunches itself as a randomly-named copy of MacroQuest.exe inside the install folder
+    (e.g. JlQjc7cB.exe), which this cannot see. Use preflight_blockers() for the install
+    paths; it adds a file-lock probe that catches the renamed tray."""
     try:
         for image in ("MacroQuest.exe", "eqgame.exe"):
             out = subprocess.run(
@@ -356,16 +381,79 @@ def is_macroquest_running() -> bool:
     return False
 
 
+# Binaries that a live MacroQuest (tray, injected client, or a renamed tray clone) holds
+# mapped. Windows refuses to open a mapped image for writing, so a failed r+b open is a
+# direct, name-independent test for "something is still using this install".
+_LOCK_PROBE_FILES = (
+    "MacroQuest.exe",
+    "MQ2Main.dll",
+    "eqlib.dll",
+    "imgui.dll",
+    "plugins/MQ2Lua.dll",
+    "plugins/MQ2CoOptUI.dll",
+)
+
+
+def find_locked_files(target_dir: str) -> list:
+    """
+    Return the names of install files that cannot currently be opened for writing.
+
+    Catches what is_macroquest_running() cannot: the MQ tray runs as a random-named copy of
+    MacroQuest.exe in the install root, so a process-name check reports a clean machine while
+    the tray still holds MQ2Main.dll / imgui.dll mapped. Overwriting those files then fails
+    part-way through the install and leaves a half-written instance — the user closes MQ,
+    retries, and it works, which is exactly how this bug reaches us as "it failed the first
+    time". Also catches read-only files. Never raises.
+    """
+    locked = []
+    for rel in _LOCK_PROBE_FILES:
+        path = os.path.join(target_dir, rel.replace("/", os.sep))
+        try:
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r+b"):
+                pass
+        except OSError:
+            locked.append(rel)
+        except Exception:
+            pass
+    return locked
+
+
+def preflight_blockers(target_dir: str) -> Optional[str]:
+    """
+    Return a user-facing reason the install/update must not start, or None when clear.
+
+    Every write path (update, full install/repair, fresh install) must call this first.
+    Starting a write over a live install is not recoverable mid-flight: os.replace fails on
+    the first locked binary and the install aborts having already written everything before
+    it.
+    """
+    if is_macroquest_running():
+        return "Close MacroQuest and EverQuest, then retry."
+    locked = find_locked_files(target_dir)
+    if locked:
+        return (
+            "These files are locked by another program (MacroQuest may still be running in "
+            "the system tray, possibly under a different name): "
+            + ", ".join(locked[:3])
+            + ". Exit MacroQuest completely, then retry."
+        )
+    return None
+
+
 def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb = None) -> tuple[bool, str]:
     """
     Full install / repair in two phases — the same layering every working install in
     the field has. progress_cb(message, fraction_0_to_1).
 
-      Phase 1  BASE environment: the stock E3NextAndMQNextBinary bundle (full
-               MacroQuest + Mono + E3 + the whole plugin ecosystem and its seed
-               configs). CoOpt's own EMU zip is only the FALLBACK when that
-               download fails — it carries just the from-source plugin subset,
-               which boots but lacks plugins E3 uses (MQ2AdvPath etc.).
+      Phase 1  BASE environment: CoOpt's own EMU zip (CoOptUI-EMU-*.zip) — the
+               complete, self-consistent MQ family (core, Mono, E3 and the whole
+               plugin ecosystem compiled in one solution), so MQ2CoOptUI is safe
+               and stays ENABLED. FALLBACK when that download fails: the stock
+               E3NextAndMQNextBinary main-branch zipball, a foreign MQ family on
+               which MQ2CoOptUI is force-disabled (see ensure_plugin_keys) and
+               CoOpt UI runs in Lua mode.
       Phase 2  CoOpt overlay via the release manifest — exactly what the update
                path installs (Lua, macros, skin, MQ2CoOptUI.dll from the release
                asset). Deliberately NO MacroQuest core binaries, so the base's MQ
@@ -404,6 +492,27 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
                     return False, "Not enough disk space."
                 zip_path = None
         if zip_path is None:
+            # The stock-E3 fallback is a DIFFERENT MacroQuest family. Overlaying it replaces
+            # every .exe/.dll in the target (they are in _CODE_EXTS) and force-disables
+            # MQ2CoOptUI, so applying it to a working CoOpt install silently downgrades that
+            # install and turns off the plugin — while reporting success. The trigger does not
+            # even need a failed download: get_latest_release_zip_url() returns an error on a
+            # GitHub API 403/429, which a shared/CGNAT address can hit on the unauthenticated
+            # 60/hr quota. Someone clicking "Full Install / Repair" to fix a UI glitch must not
+            # lose their MQ family to a rate limit.
+            #
+            # So: only fall back when there is no CoOpt install to lose. Otherwise stop and
+            # leave the target untouched — retrying later is free, undoing this is not.
+            if _has_coopt_install(target_dir):
+                return False, (
+                    "Could not download the CoOpt bundle"
+                    + (f" ({err})" if err else " (network error)")
+                    + ".\n\nYour existing install was left completely untouched. This is "
+                    "usually a temporary GitHub rate limit — wait a few minutes and try "
+                    "again.\n\nFalling back to the stock base bundle was skipped on purpose: "
+                    "it would have replaced your MacroQuest build with a different one and "
+                    "disabled the MQ2CoOptUI plugin."
+                )
             stock_base = True
             base_note = (
                 "\n\nNOTE: the CoOpt EMU bundle could not be downloaded, so the stock E3 "
@@ -420,6 +529,17 @@ def smart_install(target_dir: str, repo_base_url: str, progress_cb: ProgressCb =
     except (http.client.HTTPException, urllib.error.URLError, OSError) as e:
         if getattr(e, "errno", None) == errno.ENOSPC:
             return False, "Not enough disk space."
+        # A write failure part-way through the overlay leaves a partially-updated folder.
+        # Say so plainly and name the usual cause, rather than surfacing a bare WinError:
+        # re-running after closing MacroQuest completes the install (the overlay is
+        # idempotent), but the user has to be told that.
+        if isinstance(e, OSError) and getattr(e, "errno", None) in (errno.EACCES, errno.EPERM, errno.EBUSY):
+            return False, (
+                f"Install stopped part-way through — a file could not be replaced: {e}\n\n"
+                "This almost always means MacroQuest or EverQuest is still running (the "
+                "MacroQuest tray can run under a different name). Exit both completely and "
+                "run the install again — it will pick up where it left off."
+            )
         return False, f"Install failed: {e}"
     finally:
         if zip_path:

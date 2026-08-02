@@ -1293,6 +1293,10 @@ local function buildMainLoopDepsState()
         sellItems = sellItems,
         bankItems = bankItems,
         bankCache = bankCache,
+        -- main_loop's reroll sync uses this to tell "worn" from "not owned" before
+        -- deleting a pending entry. It was only ever wired into the UI context table
+        -- below, so the guard in phase8b_pendingRerollAdd read nil and never fired.
+        equipmentCache = equipmentCache,
         C = C,
         LOOT_HISTORY_MAX = constants.LIMITS.LOOT_HISTORY_MAX,
         STATS_TAB_PRIME_MS = constants.TIMING.STATS_TAB_PRIME_MS,
@@ -1325,6 +1329,7 @@ end
 local function buildMainLoopDeps()
     local d = buildMainLoopDepsState()
     d.clearLootItems = clearLootItems
+    d.refreshEquipmentCache = refreshEquipmentCache  -- reroll sync refreshes worn slots before it may delete
     d.setStatusMessage = setStatusMessage
     d.storage = storage
     d.computeAndAttachSellStatus = computeAndAttachSellStatus
@@ -1469,8 +1474,16 @@ local function main()
     -- copy - updates changed files, removes retired ones - and never installs
     -- uninvited (no-op when the folder is absent).
     do
-        local ok, res = pcall(skinSync.sync)
-        if ok and res then
+        local ok, res, syncErr = pcall(skinSync.sync)
+        if ok and syncErr then
+            -- A maintenance sync that cannot write leaves the EQ client running a STALE
+            -- skin - native controls silently keep old behaviour - so say so rather than
+            -- letting it pass as a no-op.
+            print("\ar[CoOpt UI]\ax CoOpt skin could not be updated: " .. tostring(syncErr))
+            local diag = require('itemui.core.diagnostics')
+            if diag and diag.recordError then diag.recordError("Skin sync", "Skin update failed", tostring(syncErr)) end
+        end
+        if ok and res and (#res.copied > 0 or #res.removed > 0) then
             local parts = {}
             if #res.copied > 0 then
                 parts[#parts + 1] = string.format("%d file%s %s", #res.copied, #res.copied == 1 and "" or "s",

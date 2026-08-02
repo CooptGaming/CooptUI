@@ -13,7 +13,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from config import load as load_config, save as save_config, add_recent_path
-from installer import is_macroquest_running, smart_install
+from installer import preflight_blockers, smart_install
 # NOTE: the itemui→coopui tree rename is postponed — the patcher must NOT auto-migrate.
 # migrate_itemui_to_coopui.migrate_itemui_to_coopui stays available for manual use only.
 from migrate_itemui_to_coopui import ensure_env_after_patch
@@ -410,8 +410,9 @@ class MainView(ctk.CTkFrame):
     def _on_patch(self):
         if self._patch_in_progress or (not self.files_to_update and not self.files_to_install_defaults):
             return
-        if is_macroquest_running():
-            self.app.set_status("Close MacroQuest and EverQuest, then retry.", error=True)
+        blocker = preflight_blockers(self.mq_root)
+        if blocker:
+            self.app.set_status(blocker, error=True)
             return
         self._patch_in_progress = True
         self.app.in_progress = True
@@ -528,8 +529,9 @@ class MainView(ctk.CTkFrame):
         instance — and repairs/refreshes an existing one."""
         if self._patch_in_progress:
             return
-        if is_macroquest_running():
-            self.app.set_status("Close MacroQuest and EverQuest, then retry.", error=True)
+        blocker = preflight_blockers(self.mq_root)
+        if blocker:
+            self.app.set_status(blocker, error=True)
             return
         self._patch_in_progress = True
         self.app.in_progress = True
@@ -758,6 +760,14 @@ class PatcherApp(ctk.CTk):
 
     def show_fresh_install(self, target_dir: str):
         """Run the fresh install flow, then transition to Main view."""
+        # Fresh Install accepts any folder the user picks, and picking an EXISTING install to
+        # "reinstall" is common. Without this it was the one write path with no live-install
+        # guard: the overlay would abort on the first locked binary, part-written.
+        blocker = preflight_blockers(target_dir)
+        if blocker:
+            self.set_status(blocker, error=True)
+            return
+
         self._clear_body()
         self.set_status("")
 
@@ -797,11 +807,11 @@ class PatcherApp(ctk.CTk):
                 ))
 
             # Fresh install uses the same preserve-aware overlay as Full Install / Repair:
-            # smart_install downloads the stock E3NextAndMQNextBinary base bundle (full
-            # MacroQuest + Mono + E3 + the whole plugin ecosystem), then applies CoOpt on
-            # top via the release manifest — building a new instance from scratch in an
-            # empty folder, or safely overlaying onto an existing MacroQuest while keeping
-            # the user's config.
+            # smart_install downloads CoOpt's EMU bundle (MacroQuest + Mono + E3 + the whole
+            # plugin ecosystem, falling back to the stock E3NextAndMQNextBinary zipball), then
+            # applies CoOpt on top via the release manifest — building a new instance from
+            # scratch in an empty folder, or safely overlaying onto an existing MacroQuest
+            # while keeping the user's config.
             try:
                 success, message = smart_install(target_dir, REPO_BASE_URL, progress_cb)
             except Exception as e:
