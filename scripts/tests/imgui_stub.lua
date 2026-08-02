@@ -44,6 +44,7 @@ local function newRec()
         commands = {},      -- any mq.cmd/cmdf issued during the frame
         draws = {},         -- every ImDrawList primitive, in order (see M.drawList)
         styleColors = {},   -- { idx, col } per PushStyleColor, in order
+        styleVars = {},     -- { var, value } per PushStyleVar, in order
         errors = {},
     }
 end
@@ -152,7 +153,13 @@ function ImGuiStub.BeginTooltip() rec.depth.win = rec.depth.win + 1 end
 function ImGuiStub.EndTooltip() rec.depth.win = rec.depth.win - 1 end
 
 -- stacks --------------------------------------------------------------------
-function ImGuiStub.PushStyleVar() rec.depth.sv = rec.depth.sv + 1 end
+-- Records WHICH var and value, not just that one was pushed. "every rounding var is 0" is
+-- kit §1's whole visual identity and was not previously expressible -- the product shipped
+-- an entire pass with no window style at all and no test could have said so.
+function ImGuiStub.PushStyleVar(var, value)
+    rec.depth.sv = rec.depth.sv + 1
+    rec.styleVars[#rec.styleVars + 1] = { var = var, value = value }
+end
 function ImGuiStub.PopStyleVar(n) rec.depth.sv = rec.depth.sv - (n or 1) end
 -- Records WHICH colour, not just that one was pushed: "the open chip is filled with the
 -- open-blue wash, not the go-green" is a real assertion, and it was not previously
@@ -529,11 +536,26 @@ function M.install()
         'NoScrollWithMouse', 'NoCollapse', 'AlwaysAutoResize', 'NoSavedSettings',
         'NoFocusOnAppearing', 'NoBringToFrontOnFocus', 'NoNav', 'NoDocking', 'NoBackground',
         'AlwaysVerticalScrollbar', 'MenuBar' })
-    _G.ImGuiCol = enum({ 'Text', 'Button', 'ButtonHovered', 'ButtonActive', 'ChildBg',
-        'Border', 'PlotHistogram', 'Header', 'HeaderHovered', 'HeaderActive' })
+    -- The full slot sets the real binding exposes. They were a 10-name subset, which let
+    -- theme.PushWindowStyle silently push a fraction of what it pushes in game -- the
+    -- balance assertions stayed green while barely exercising it. Same class as the
+    -- GetWindowDrawList-returns-nil gap: a stub that under-models hides bugs rather than
+    -- finding them.
+    _G.ImGuiCol = enum({ 'Text', 'TextDisabled', 'Button', 'ButtonHovered', 'ButtonActive',
+        'WindowBg', 'ChildBg', 'PopupBg', 'Border', 'PlotHistogram',
+        'FrameBg', 'FrameBgHovered', 'FrameBgActive',
+        'TitleBg', 'TitleBgActive', 'TitleBgCollapsed', 'MenuBarBg',
+        'Header', 'HeaderHovered', 'HeaderActive',
+        'Separator', 'SeparatorHovered', 'SeparatorActive',
+        'Tab', 'TabHovered', 'TabActive', 'TabUnfocused', 'TabUnfocusedActive',
+        'ScrollbarBg', 'ScrollbarGrab', 'ScrollbarGrabHovered', 'ScrollbarGrabActive',
+        'CheckMark', 'SliderGrab', 'SliderGrabActive',
+        'TableHeaderBg', 'TableBorderStrong', 'TableBorderLight',
+        'ResizeGrip', 'ResizeGripHovered', 'ResizeGripActive' })
     _G.ImGuiStyleVar = enum({ 'Alpha', 'WindowRounding', 'WindowBorderSize', 'WindowPadding',
         'ItemSpacing', 'ChildBorderSize', 'ChildRounding', 'FramePadding',
-        'FrameRounding', 'FrameBorderSize' })
+        'FrameRounding', 'FrameBorderSize', 'PopupRounding', 'ScrollbarRounding',
+        'GrabRounding', 'TabRounding' })
     _G.ImGuiKey = enum({ 'Escape', 'F1', 'F2', 'Tab', 'Enter' })
     _G.ImGuiMouseButton = { Left = 0, Right = 1, Middle = 2 }
     _G.ImGuiHoveredFlags = enum({ 'None', 'ChildWindows', 'AllowWhenBlockedByPopup' })

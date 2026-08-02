@@ -245,6 +245,44 @@ do
     end)())
 end
 
+-- ---------------------------------------------------------------- window style (kit §1)
+--
+-- The reason the product rendered in ImGui's default blue for the whole windows pass:
+-- theme styled individual WIDGETS and nothing styled a WINDOW, so every Begin, tab, input
+-- row, separator and unlit chip fell through to stock ImGui. These assert the pair exists,
+-- is balanced, and actually squares everything -- "everything is square" is kit §1, and it
+-- is the single rule most likely to be quietly lost to a future style tweak.
+do
+    check('window style: the pair is exported',
+        type(theme.PushWindowStyle) == 'function' and type(theme.PopWindowStyle) == 'function')
+
+    local r = stub.frame(function()
+        local nc, nv = theme.PushWindowStyle()
+        check('window style: pushes a real number of colors', (nc or 0) >= 20, tostring(nc))
+        check('window style: pushes the rounding vars', (nv or 0) >= 5, tostring(nv))
+        theme.PopWindowStyle(nc, nv)
+    end)
+    check('window style: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- Every rounding var it touches must go to ZERO. A non-zero here is the whole visual
+    -- identity slipping, and it would never show up as a test failure any other way.
+    local rounding = {}
+    for _, name in ipairs({ 'WindowRounding', 'ChildRounding', 'FrameRounding',
+                            'PopupRounding', 'ScrollbarRounding', 'GrabRounding', 'TabRounding' }) do
+        rounding[ImGuiStyleVar[name]] = name
+    end
+    local bad = {}
+    local r2 = stub.frame(function()
+        local nc, nv = theme.PushWindowStyle()
+        theme.PopWindowStyle(nc, nv)
+    end)
+    for _, v in ipairs(r2.styleVars or {}) do
+        if rounding[v.var] and v.value ~= 0 then bad[#bad + 1] = rounding[v.var] .. '=' .. tostring(v.value) end
+    end
+    check('window style: every rounding var is 0 (kit 1: everything is square)',
+        #bad == 0, table.concat(bad, ', '))
+end
+
 -- ---------------------------------------------------------------- summary
 local missing = {}
 for k, v in pairs(stub.missing) do missing[#missing + 1] = k .. 'x' .. v end

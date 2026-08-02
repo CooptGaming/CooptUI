@@ -1435,6 +1435,20 @@ local function main()
         -- once keeps the frame's view of state consistent).
         local okCtx, ctx = pcall(context.build)
         if not okCtx or not ctx then dockError("Frame context", okCtx and "context.build returned nil" or ctx); return end
+        -- THE KIT'S WINDOW CHROME, for every surface this callback draws (kit §1).
+        --
+        -- Until now nothing styled a WINDOW - only individual widgets through theme's
+        -- Push*Button helpers - so every Begin, tab, input row, separator and unlit chip
+        -- fell through to stock ImGui and the product rendered in ImGui's default blue no
+        -- matter how exact the palette was.
+        --
+        -- ONE pair for the whole frame, not one per window: a style pushed before any Begin
+        -- applies to every window opened while it is live, so twenty paired push/pops would
+        -- be twenty chances to leak for no gain. Safe here specifically because everything
+        -- below this line is pcall'd and there is no early return left - so the pop at the
+        -- bottom is unconditional. Scoped rather than written into ImGui.GetStyle() because
+        -- MQ shares one style with every other Lua script and its own windows.
+        local nStyleCol, nStyleVar = theme.PushWindowStyle()
         -- Bars BEFORE the hub, for two reasons that are easy to conflate:
         --   * MainWindow.render early-outs when the hub and every companion is closed, so a
         --     bar drawn from inside it would disappear exactly when it is most useful.
@@ -1468,6 +1482,10 @@ local function main()
         -- Contained, the same error costs one frame and prints what actually threw.
         local okHub, errHub = pcall(MainWindow.render, ctx)
         if not okHub then dockError("Item UI window", errHub) end
+        -- Unconditional: every call above is pcall'd, so this always runs. Popping the
+        -- exact counts Push returned means a binding missing an enum name cannot
+        -- desynchronise the stack.
+        theme.PopWindowStyle(nStyleCol, nStyleVar)
     end)
     -- Native skin maintenance: the skin is OPT-IN (installed via the Settings
     -- button or by hand). sync() only refreshes an EXISTING <EQ>\uifiles\coopt

@@ -321,6 +321,101 @@ local function PopKitButton()
     ImGui.PopStyleVar(2)
 end
 
+-- ---------------------------------------------------------------------------
+-- The window style (kit §1)
+--
+-- Everything above styles ONE WIDGET at a time. Nothing styled a WINDOW, so every Begin,
+-- tab, input row, separator and unlit button fell through to stock ImGui -- which is why
+-- the product rendered in ImGui's default blue no matter how right the palette was.
+--
+-- Scoped push/pop rather than mutating ImGui.GetStyle(): MQ shares one style across every
+-- Lua script and its own windows, so writing to it would restyle other people's UIs. The
+-- cost is that every window has to pair these, and an unbalanced pair is an uncatchable
+-- C++ exception that kills the script -- so callers wrap the body, never the pair.
+--
+-- Kit §1: everything is square. Rounding is 0 everywhere, without exception.
+-- ---------------------------------------------------------------------------
+
+local WINDOW_STYLE_COLORS = {
+    { "WindowBg",             "WindowBg" },
+    { "ChildBg",              "WindowBg" },
+    { "PopupBg",              "WindowBg" },
+    { "Border",               "WindowBorder" },
+    { "FrameBg",              "Inset" },       -- inputs, checkboxes, sliders
+    { "FrameBgHovered",       "Header" },
+    { "FrameBgActive",        "Header" },
+    { "TitleBg",              "WindowBg" },
+    { "TitleBgActive",        "Header" },
+    { "TitleBgCollapsed",     "WindowBg" },
+    { "MenuBarBg",            "Header" },
+    { "Button",               "Inset" },       -- an UNLIT chip: flat, not ImGui blue
+    { "ButtonHovered",        "Header" },      -- "#161b22 fill = hover", §3
+    { "ButtonActive",         "Divider" },
+    { "Header",               "Header" },      -- Selectable/MenuItem highlight = the hover row
+    { "HeaderHovered",        "Header" },
+    { "HeaderActive",         "Divider" },
+    { "Separator",            "Divider" },
+    { "SeparatorHovered",     "Divider" },
+    { "SeparatorActive",      "OpenBlue" },
+    { "Tab",                  "Inset" },
+    { "TabHovered",           "Header" },
+    { "TabActive",            "OpenWash" },
+    { "TabUnfocused",         "Inset" },
+    { "TabUnfocusedActive",   "OpenWash" },
+    { "ScrollbarBg",          "WindowBg" },
+    { "ScrollbarGrab",        "Divider" },
+    { "ScrollbarGrabHovered", "WindowBorder" },
+    { "ScrollbarGrabActive",  "OpenBlue" },
+    { "CheckMark",            "OpenBlue" },
+    { "SliderGrab",           "WindowBorder" },
+    { "SliderGrabActive",     "OpenBlue" },
+    { "TableHeaderBg",        "Header" },
+    { "TableBorderStrong",    "Divider" },
+    { "TableBorderLight",     "Divider" },
+    { "ResizeGrip",           "Inset" },
+    { "ResizeGripHovered",    "Divider" },
+    { "ResizeGripActive",     "OpenBlue" },
+}
+
+local ROUNDING_VARS = { "WindowRounding", "ChildRounding", "FrameRounding",
+                        "PopupRounding", "ScrollbarRounding", "GrabRounding", "TabRounding" }
+
+--- Push the kit's window chrome. Returns the counts to hand PopWindowStyle, so a binding
+--- missing an enum name can never desynchronise the stack.
+local function PushWindowStyle()
+    ensureImGui()
+    local nCol = 0
+    for _, pair in ipairs(WINDOW_STYLE_COLORS) do
+        local slot, token = ImGuiCol[pair[1]], Kit[pair[2]]
+        if slot ~= nil and token then
+            ImGui.PushStyleColor(slot, ToVec4(token))
+            nCol = nCol + 1
+        end
+    end
+    ImGui.PushStyleColor(ImGuiCol.Text, ToVec4(Colors.TextContent)); nCol = nCol + 1
+    ImGui.PushStyleColor(ImGuiCol.TextDisabled, ToVec4(Colors.TextFurniture)); nCol = nCol + 1
+
+    local nVar = 0
+    for _, name in ipairs(ROUNDING_VARS) do
+        local slot = ImGuiStyleVar[name]
+        if slot ~= nil then
+            ImGui.PushStyleVar(slot, 0)
+            nVar = nVar + 1
+        end
+    end
+    if ImGuiStyleVar.WindowBorderSize then
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1); nVar = nVar + 1
+    end
+    return nCol, nVar
+end
+
+--- Pop exactly what PushWindowStyle returned. Never guesses a count.
+local function PopWindowStyle(nCol, nVar)
+    ensureImGui()
+    if (nCol or 0) > 0 then ImGui.PopStyleColor(nCol) end
+    if (nVar or 0) > 0 then ImGui.PopStyleVar(nVar) end
+end
+
 --- Push style color for progress bar fill (e.g. sell/loot progress). Call PopProgressBarColors() after.
 local function PushProgressBarColors()
     ensureImGui()
@@ -388,6 +483,8 @@ return {
     PushKitDisabledButton = PushKitDisabledButton,
     PushIconButton = PushIconButton,
     PopKitButton = PopKitButton,
+    PushWindowStyle = PushWindowStyle,
+    PopWindowStyle = PopWindowStyle,
     PushProgressBarColors = PushProgressBarColors,
     PopProgressBarColors = PopProgressBarColors,
     RenderProgressBar = RenderProgressBar,
