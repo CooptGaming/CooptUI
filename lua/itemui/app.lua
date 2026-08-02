@@ -54,6 +54,7 @@ local aaTransferService = require('itemui.services.aa_transfer')
 local rerollService = require('itemui.services.reroll_service')
 local favoritesService = require('itemui.services.favorites_service')
 local sectionStateService = require('itemui.services.section_state')
+local cursorSubject = require('itemui.services.cursor_subject')
 local skinSync = require('itemui.services.skin_sync')
 local MainWindow = require('itemui.views.main_window')
 local ConfigFilters = require('itemui.views.config_filters')
@@ -388,6 +389,7 @@ sectionStateService.init({
     parseSectionsMatching = require('itemui.utils.layout_io').parseSectionsMatching,
     safeWrite = file_safe.safeWrite,
 })
+cursorSubject.init({ uiState = uiState, itemOps = itemOps })
 sellStatusService.init({ perfCache = perfCache, rules = rules, storage = storage, C = C, getRerollListProtection = function() return rerollService.getRerollListProtection() end, getFavoritesProtection = function() return favoritesService.getProtectedIdSet() end })
 local function loadSellConfigCache() sellStatusService.loadSellConfigCache() end
 
@@ -1419,6 +1421,11 @@ local function main()
             return eq and eq.GameState and eq.GameState()
         end)
         if okState and type(gameState) == "string" and gameState ~= "INGAME" then return end
+        -- Ring/dim state, resolved ONCE for the whole frame (item 10) so every window
+        -- answers "is this a target / is this the source" identically in the same frame.
+        -- Cheap when the cursor is empty; pcall'd because a throw here must not cost the
+        -- frame - the ring is an accelerant, never a dependency.
+        pcall(cursorSubject.beginFrame)
         -- One ctx for the whole frame (context.build() returns a cached proxy, but calling it
         -- once keeps the frame's view of state consistent).
         local okCtx, ctx = pcall(context.build)

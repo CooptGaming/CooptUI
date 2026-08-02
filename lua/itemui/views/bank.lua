@@ -27,6 +27,7 @@ local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local windowHeader = require('itemui.components.window_header')
+local cursorSubject = require('itemui.services.cursor_subject')
 local ItemDisplayView = require('itemui.views.item_display')
 
 local BankView = {}
@@ -244,12 +245,16 @@ local function renderBankTableInner(ctx, list, bankOpen, visibleCols, filteredBa
                 end
                 local rid = "bank_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                -- The dim (item 10) — see inventory.lua for why Alpha and not a colour.
+                local dimmed = cursorSubject.isSourceRow(item.bag, item.slot, "bank")
+                if dimmed then ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0.45) end
                 if rawget(item, "_statsPending") then
                     -- BANK bag numbers must not go into pendingStatRescanBags -
                     -- that feeds rescanInventoryBags (packs only), which can't
                     -- heal a bank row. Request a bank rescan instead.
                     if ctx.deferredScanNeeded then ctx.deferredScanNeeded.bank = true end
                     for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ctx.theme.TextMuted("...") end
+                    if dimmed then ImGui.PopStyleVar(1) end
                     ImGui.PopID()
                     goto bank_continue
                 end
@@ -327,6 +332,7 @@ local function renderBankTableInner(ctx, list, bankOpen, visibleCols, filteredBa
                 -- Once per row (not per column): the Name column opens this popup too,
                 -- and the Icon column is hidden by default.
                 ctx.renderItemContextMenu(ctx, item, { source = "bank", popupId = "ItemContextBankIcon_" .. rid, bankOpen = bankOpen, hasCursor = hasCursor })
+                if dimmed then ImGui.PopStyleVar(1) end
                 ImGui.PopID()
                 ::bank_continue::
             end
@@ -345,9 +351,8 @@ function BankView.renderTable(ctx, list, bankOpen)
     local searchBankLower = (ctx.uiState.searchFilterBank or ""):lower()
     for _, item in ipairs(list or {}) do
         if searchBankLower == "" or (item.name or ""):lower():find(searchBankLower, 1, true) then
-            if not ctx.shouldHideRowForCursor(item, "bank") then
-                table.insert(filteredBank, item)
-            end
+            -- Dimmed, not hidden (item 10) — same rule as Bags; see the Alpha push below.
+            table.insert(filteredBank, item)
         end
     end
 

@@ -18,6 +18,7 @@ local ItemTooltip = require('itemui.utils.item_tooltip')
 local constants = require('itemui.constants')
 local ItemDisplayView = require('itemui.views.item_display')
 local windowHeader = require('itemui.components.window_header')
+local cursorSubject = require('itemui.services.cursor_subject')
 
 local InventoryView = {}
 
@@ -278,9 +279,11 @@ local function renderInvTableInner(ctx, bankOpen, visibleCols)
         local filtered = {}
         for _, it in ipairs(ctx.inventoryItems) do
             if searchLower == "" or (it.name or ""):lower():find(searchLower, 1, true) then
-                if not ctx.shouldHideRowForCursor(it, "inv") then
-                    table.insert(filtered, it)
-                end
+                -- The source row is DIMMED, not hidden (item 10). Removing it made the
+                -- list jump and left no evidence of where the thing you are carrying came
+                -- from; the dim says "not in that slot right now" while the row holds its
+                -- place. See the Alpha push in the row loop below.
+                table.insert(filtered, it)
             end
         end
 
@@ -311,9 +314,17 @@ local function renderInvTableInner(ctx, bankOpen, visibleCols)
                 end
                 local rid = "inv_" .. item.bag .. "_" .. item.slot
                 ImGui.PushID(rid)
+                -- The dim (item 10). Alpha MULTIPLIES each colour's own alpha, so a mythic
+                -- row dims to faint mythic rather than toward grey — which is the whole
+                -- point, or the dim would double as a category change. It also leaves the
+                -- table's row background and stripe untouched, since those are drawn by
+                -- TableNextRow outside this push.
+                local dimmed = cursorSubject.isSourceRow(item.bag, item.slot, "inv")
+                if dimmed then ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0.45) end
                 if rawget(item, "_statsPending") then
                     if ctx.uiState then ctx.uiState.pendingStatRescanBags = ctx.uiState.pendingStatRescanBags or {}; ctx.uiState.pendingStatRescanBags[item.bag] = true end
                     for _ in ipairs(visibleCols) do ImGui.TableNextColumn(); ImGui.TextColored(ImVec4(0.7, 0.7, 0.5, 1), "...") end
+                    if dimmed then ImGui.PopStyleVar(1) end
                     ImGui.PopID()
                     goto continue
                 end
@@ -429,6 +440,7 @@ local function renderInvTableInner(ctx, bankOpen, visibleCols)
                 -- Once per row (not per column): the Name column opens this popup too,
                 -- and the Icon column is hidden by default.
                 ctx.renderItemContextMenu(ctx, item, { source = "inv", popupId = "ItemContextInv_" .. rid, bankOpen = bankOpen or (ctx.uiState and ctx.uiState.bankOpen) or false, hasCursor = hasCursor })
+                if dimmed then ImGui.PopStyleVar(1) end
                 ImGui.PopID()
             ::continue::
             end

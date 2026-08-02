@@ -105,14 +105,21 @@ check('ascii: no rendered string carries a non-ASCII byte', #offenders == 0,
 
 -- The two glyphs that were mangled: prove they are escapes now, not raw bytes. A raw
 -- literal here reads as three high bytes; an escape reads as the three the font wants.
+-- The LINK glyph moved to components/window_header's shared GLYPHS table (windows pass
+-- item 10) — one marker, one meaning, one definition — so the assertion follows it there
+-- rather than being dropped. PIN stays local to augment_utility, its only caller.
 do
-    local p = repo .. '/lua/itemui/views/augment_utility.lua'
-    local fh = io.open(p, 'rb')
-    local src = fh and fh:read('*a') or ''
-    if fh then fh:close() end
+    local function slurp(rel)
+        local fh = io.open(repo .. rel, 'rb')
+        local s = fh and fh:read('*a') or ''
+        if fh then fh:close() end
+        return s
+    end
+    local augUtil = slurp('/lua/itemui/views/augment_utility.lua')
+    local header  = slurp('/lua/itemui/components/window_header.lua')
     check('glyphs: FontAwesome literals are \\xNN escapes',
-        src:find('GLYPH_LINK = "\\xEF\\x83\\x81"', 1, true) ~= nil
-        and src:find('GLYPH_PIN  = "\\xEF\\x82\\x8D"', 1, true) ~= nil)
+        header:find('LINK    = "\\xEF\\x83\\x81"', 1, true) ~= nil
+        and augUtil:find('GLYPH_PIN  = "\\xEF\\x82\\x8D"', 1, true) ~= nil)
 end
 
 print(string.format('\n%d passed, %d failed', pass, fail))

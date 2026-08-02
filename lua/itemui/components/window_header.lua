@@ -51,6 +51,11 @@ M.GLYPHS = {
     FILTER  = "\xEF\x82\xB0",  -- U+F0B0 filter
     CLOCK   = "\xEF\x80\x97",  -- U+F017 clock
     FOLDER  = "\xEF\x81\xBB",  -- U+F07B folder
+    -- Promoted from augment_utility's local (item 10). Already ships and already renders
+    -- in that band, so this carries no new atlas risk: if it ever failed to rasterise it
+    -- would draw a box, the band would still read "[] Black Scythe", and the pin's
+    -- tooltip carries the words regardless.
+    LINK    = "\xEF\x83\x81",  -- U+F0C1 link
     LOCKED  = GLYPH_LOCKED,
     UNLOCK  = GLYPH_UNLOCKED,
 }
@@ -115,6 +120,30 @@ function M.chip(label, uid, lit, accentEdge, tint)
         end)
     end
     return clicked == true
+end
+
+--- The cursor-target ring (item 10): *this will take what is on your cursor.* One meaning,
+--- everywhere, forever — not selection, not focus, not validity in the abstract.
+---
+--- Drawn over the LAST item, so call it straight after the widget it rings. Four
+--- AddRectFilled edges rather than AddRect, for the reason chip records above: an outline
+--- is unproven in this binding and filled strips are what ships.
+---
+--- Slots, sockets and cells only. NEVER a table row — rows are a list of what you have,
+--- slots are destinations, and ringing a row promises a drop target that does not exist.
+function M.cursorRing()
+    pcall(function()
+        local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+        if not dl or not dl.AddRectFilled then return end
+        local x1, y1, x2, y2 = itemRect()
+        if not x1 then return end
+        local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.OpenBlue))
+            or 0xFFFA9642
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 2), col)          -- top
+        dl:AddRectFilled(ImVec2(x1, y2 - 2), ImVec2(x2, y2), col)          -- bottom
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 2, y2), col)          -- left
+        dl:AddRectFilled(ImVec2(x2 - 2, y1), ImVec2(x2, y2), col)          -- right
+    end)
 end
 
 --- A count that belongs to the chip beside it (19b: "counts sit in their own pill"). A

@@ -24,6 +24,7 @@ local fonts = require('itemui.utils.fonts')
 local dockLayout = require('itemui.utils.dock_layout')
 local windowHeader = require('itemui.components.window_header')
 local contextMenu = require('itemui.components.context_menu')
+local cursorSubject = require('itemui.services.cursor_subject')
 local sectionState = require('itemui.services.section_state')
 
 local ItemDisplayView = {}
@@ -808,6 +809,13 @@ local function augmentRowBody(ctx, entry, row, isOrnament)
     -- (pcall returns ok, selected, pressed — the click is the THIRD value here).
     local okSel, _sel, pressed = pcall(ImGui.Selectable, label .. "##augrow", false)
     ImGui.PopStyleColor(3)
+    -- The cursor ring (item 10): an empty socket that accepts what you are carrying is a
+    -- destination, so it rings. A FILLED socket never does - it would take the aug only
+    -- by displacing one, which is not what the ring promises. Drawn straight after the
+    -- Selectable so it rings that rect.
+    if isEmpty and okSel and cursorSubject.socketAccepts(row.socketType or 0) then
+        windowHeader.cursorRing()
+    end
     local rowPressed = okSel and pressed or false
     if rowPressed then
         if isEmpty then

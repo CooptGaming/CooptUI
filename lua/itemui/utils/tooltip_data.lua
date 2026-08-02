@@ -153,7 +153,11 @@ local function getAugmentSlotLinesFromIt(it, augSlots)
         if typ ~= 20 then
             local typeNameForPrefix = (typ > 0) and (AUG_TYPE_NAMES[typ] or ("Type " .. tostring(typ))) or "empty"
             local prefix = string.format("Slot %d, type %d (%s): ", i, typ, typeNameForPrefix)
-            lines[#lines + 1] = { iconId = iconId, text = line, prefix = prefix, augName = augName, slotIndex = i }
+            -- socketType is carried (windows pass item 10) so the cursor ring can decide
+            -- whether an empty socket accepts what you are holding WITHOUT re-reading the
+            -- TLO per row per frame. It was already computed above and then discarded.
+            lines[#lines + 1] = { iconId = iconId, text = line, prefix = prefix,
+                                  augName = augName, slotIndex = i, socketType = typ }
         end
     end
     return lines

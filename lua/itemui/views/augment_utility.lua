@@ -30,8 +30,8 @@ local state = {
     pinnedTarget = nil,
 }
 
--- FontAwesome glyphs (merged into the default font): link f0c1, thumbtack f08d.
-local GLYPH_LINK = "\xEF\x83\x81"
+-- FontAwesome glyph (merged into the default font): thumbtack f08d. The link glyph moved
+-- to windowHeader.GLYPHS.LINK (item 10) - one marker, one meaning, one definition.
 local GLYPH_PIN  = "\xEF\x82\x8D"
 
 --- The live subject: Item Display's active tab (the one selection bus this pair needs —
@@ -137,13 +137,13 @@ function AugmentUtilityView.render(ctx)
     local subject = resolveTarget()
     local subjectName = subject and subject.item and subject.item.name or nil
     if tostring(layoutConfig.UIMode or "classic") == "bars" then
-        -- 23b: the band states the link — GLYPH_LINK + the subject — and the pin action
+        -- 23b: the band states the link — windowHeader.GLYPHS.LINK + the subject — and the pin action
         -- freezes it. Restating the target's identity beyond the chip is §9 redundancy;
         -- Item Display is beside this window and owns the full card.
         windowHeader.render({
             id = "augmentUtility", title = "Aug Utility",
-            stat = subjectName and (GLYPH_LINK .. " " .. subjectName)
-                or (GLYPH_LINK .. " no subject - open an item"),
+            stat = subjectName and (windowHeader.GLYPHS.LINK .. " " .. subjectName)
+                or (windowHeader.GLYPHS.LINK .. " no subject - open an item"),
             actions = {
                 {
                     label = GLYPH_PIN,
