@@ -67,6 +67,11 @@ for _, m in ipairs({
     { id = 'effects',        label = 'Effects' },
     { id = 'favorites',      label = 'Clickies' },
     { id = 'aa',             label = 'AA' },
+    -- Registered for real at script_tracker.lua (phase 15 made it a registry module rather
+    -- than a /lua run sidecar) and shipped in the DockButtons default, but missing from this
+    -- fixture -- so anything asserting on it passed against a chip that was never drawn.
+    -- The drawn-chip sweep in 10c-bis is what surfaced it.
+    { id = 'scripttracker',  label = 'Scripts' },
     { id = 'commandCenter',  label = 'Cmd' },
     { id = 'config',         label = 'Settings' },
     { id = 'chat',           label = 'Chat' },
@@ -912,6 +917,77 @@ do
     check('menus (explicit): no launcher buttons drawn', not stub.drew(rMenus, '##dockbtn_'),
         table.concat(rMenus.buttons, '|'))
     check('menus (explicit): balanced', stub.balanced(rMenus), stub.imbalance(rMenus))
+end
+
+-- =================================================================
+-- 10c-bis. Every id the shipped default names must actually draw a chip, and the two
+--          uiState-managed / late-added ones in particular.
+--
+--          This is the invariant that was violated: DockButtons (state.lua), the Settings
+--          editor's ALL_BUTTONS (config_general.lua) and hub_list.ENTRIES are three lists
+--          that must agree, and all three had drifted apart -- itemDisplay and
+--          scripttracker shipped on the bar with no way to edit them, augments was
+--          editable but classicOnly, and favorites/loot were reachable from neither.
+--          A drawn-chip sweep over the real default catches the next drift on its own.
+-- =================================================================
+do
+    resetInput()
+    local defaults = require('itemui.state').layoutDefaults
+    local shipped = tostring(defaults.DockButtons or '')
+    check('default: DockButtons actually ships a value (it is not nil)', shipped ~= '', shipped)
+
+    local uiState = {}
+    local ctx = newCtx({ uiState = uiState })
+    ctx.layoutConfig.DockBottomStyle = 'buttons'
+    ctx.layoutConfig.DockButtons = shipped
+    dockState.init(newDeps(ctx))
+    warmState(1262000)
+    local r = stub.frame(function() dockBottom.render(ctx) end)
+
+    -- bank and augmentUtility are deliberately absorbed into their pair chips, so they are
+    -- covered by the pair drawing rather than by a chip of their own.
+    local ABSORBED = { bank = true, augmentUtility = true }
+    local missing = {}
+    for id in shipped:gmatch('([^,]+)') do
+        id = id:match('^%s*(.-)%s*$')
+        if id ~= '' and not ABSORBED[id] then
+            local drewOwn = stub.drew(r, '##dockbtn_' .. id)
+            local drewInPair = (id == 'bags' and stub.drew(r, '##dockbtn_bagsbank_1'))
+                or (id == 'itemDisplay' and stub.drew(r, '##dockbtn_idau_1'))
+            if not (drewOwn or drewInPair) then missing[#missing + 1] = id end
+        end
+    end
+    check('default: every id in the shipped DockButtons draws a chip',
+        #missing == 0, 'missing: ' .. table.concat(missing, ','))
+    check('default: shipped row is balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- Loot is uiState-managed, so moduleLabel returns nil for it: an unguarded id draws
+    -- NOTHING and the omission is silent -- no error, just a chip that never appears.
+    check('default: the Loot chip is drawn despite having no registry entry',
+        stub.drew(r, 'Loot##dockbtn_loot'), table.concat(r.buttons, '|'))
+    check('default: Clickies takes its registry label, not its id',
+        stub.drew(r, 'Clickies##dockbtn_favorites') and not stub.drew(r, 'favorites##dockbtn_favorites'),
+        table.concat(r.buttons, '|'))
+
+    -- ...and for the same reason registry.isOpen('loot') is false however open the window
+    -- is, so the chip needs its own lit predicate off uiState.
+    resetInput()
+    uiState.lootUIOpen = true
+    local rLit = stub.frame(function() dockBottom.render(ctx) end)
+    check('default: the Loot chip lights from uiState.lootUIOpen',
+        stub.drewColor and stub.drewColor(rLit, 'Loot##dockbtn_loot') ~= nil
+        or stub.drew(rLit, 'Loot##dockbtn_loot'), table.concat(rLit.buttons, '|'))
+    check('default: lit Loot frame balanced', stub.balanced(rLit), stub.imbalance(rLit))
+
+    resetInput()
+    uiState.lootUIOpen = nil
+    uiState.dockActionQueue = nil
+    stub.click = { dockbtn_loot = true }
+    stub.frame(function() dockBottom.render(ctx) end)
+    local q = uiState.dockActionQueue
+    check('default: the Loot chip enqueues a toggling window action for its own id',
+        q and #q >= 1 and q[#q].kind == 'window' and q[#q].id == 'loot' and q[#q].toggle == true,
+        q and q[#q] and (tostring(q[#q].kind) .. '/' .. tostring(q[#q].id)) or 'nil')
 end
 
 -- =================================================================

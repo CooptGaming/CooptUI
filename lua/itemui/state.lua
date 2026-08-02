@@ -171,7 +171,11 @@ do
     -- the id is classicOnly-dead on the bar; saved CSVs that still carry it just skip it.
     -- scripttracker joined the row in turn 27: 25c folded it into the suite, so it is a
     -- registry window like every other launcher and its stock reads as a pill.
-    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,scripttracker,aa"
+    -- favorites and loot joined 2026-08-02: they were in hub_list.ENTRIES and in NEITHER
+    -- this default nor the Settings editor, so the row could not reach them by any route.
+    -- loot is uiState-managed rather than registry-registered, which dock_bottom's launcher
+    -- entry special-cases for label and lit state the way hub_list already did.
+    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,scripttracker,aa,favorites,loot"
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""

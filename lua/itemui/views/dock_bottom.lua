@@ -337,14 +337,24 @@ local function launcherEntries(ctx, layoutConfig)
                 } }
             end
         else
-            local label = moduleLabel(id)
+            -- The Loot window is uiState-managed rather than registry-registered, so
+            -- moduleLabel returns nil for it and an unguarded id would silently draw no
+            -- chip at all. Same special case hub_list.drawEntries carries, and the queue's
+            -- window action already knows the id (main_loop.lua). It needs its own `lit`
+            -- for the same reason -- registry.isOpen("loot") is false however open it is.
+            local isLoot = (id == "loot")
+            local label = isLoot and "Loot" or moduleLabel(id)
             if label then
                 local pill = nil
                 if id == "reroll" then
                     local n = rerollPendingCount(ctx)
                     if n > 0 then pill = n end
                 end
-                out[#out + 1] = { id = id, label = label, pill = pill, isHub = false }
+                local lit = nil
+                if isLoot then
+                    lit = function(c) return (c and c.uiState and c.uiState.lootUIOpen) == true end
+                end
+                out[#out + 1] = { id = id, label = label, pill = pill, isHub = false, lit = lit }
             end
         end
     end
@@ -431,7 +441,15 @@ local function drawLauncherButtons(ctx, entries, edge)
                 if hit then dockTop.queue(ctx, h.action) end
             end
         else
-            local open = (not e.isHub) and registry.isOpen(e.id) or false
+            -- `lit` beats the registry: Loot is uiState-managed, so registry.isOpen is
+            -- false for it no matter what the window is doing. Same escape hatch the pair
+            -- halves above already use.
+            local open
+            if e.lit then
+                open = e.lit(ctx) == true
+            else
+                open = (not e.isHub) and registry.isOpen(e.id) or false
+            end
             local uid = "dockbtn_" .. e.id
             local hit = chipButton(e.label, uid, open, edge)
             if e.pill and pillButton(e.pill, uid .. "_pill") then hit = true end
