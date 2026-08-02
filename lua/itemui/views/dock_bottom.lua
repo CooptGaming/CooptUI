@@ -232,9 +232,15 @@ local function renderMenu(ctx, s, edge)
     end
 
     ImGui.SetNextWindowPos(ImVec2(px, py), ImGuiCond.Always, ImVec2(pivotX, pivotY))
-    ImGui.SetNextWindowSizeConstraints(ImVec2(190, 0), ImVec2(MENU_MAX_W, 420))
+    -- Bounded by the room actually left, not a fixed 420 -- same reason as the top bar's
+    -- popover: the Hub menu draws the same growing ENTRIES list, so a constant cap clips
+    -- its tail. 24px keeps it off the screen edge.
+    local room = (edge == "bottom") and (py - y - 24) or ((y + h) - py - 24)
+    local menuMaxH = math.max(200, math.min(720, room))
+    ImGui.SetNextWindowSizeConstraints(ImVec2(190, 0), ImVec2(MENU_MAX_W, menuMaxH))
 
-    local flags = bit32.bor(dockTop.barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
+    -- Scrollable for the same reason: hitting the cap must scroll, never clip.
+    local flags = bit32.bor(dockTop.popoverFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(8, 6))
     -- Style var precedes Begin, so Begin failing has to unwind it -- the same invariant
     -- M.render enforces on its own Begin below.

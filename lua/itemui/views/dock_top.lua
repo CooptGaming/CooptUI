@@ -729,17 +729,36 @@ end
 -- the call inside renderPopover would resolve to a nil GLOBAL and blow up the first time a
 -- popover opened (and trip luacheck 113, which this repo enforces for exactly that reason).
 local BAR_FLAGS = nil
-local function barFlags()
-    if BAR_FLAGS then return BAR_FLAGS end
+local POPOVER_FLAGS = nil
+local BASE_FLAG_NAMES = { "NoTitleBar", "NoResize", "NoMove",
+                          "NoSavedSettings", "NoFocusOnAppearing", "NoNav", "NoCollapse",
+                          "NoBringToFrontOnFocus", "NoDocking" }
+
+local function orFlags(names)
     local f = 0
     local W = ImGuiWindowFlags
-    for _, name in ipairs({ "NoTitleBar", "NoResize", "NoMove", "NoScrollbar", "NoScrollWithMouse",
-                            "NoSavedSettings", "NoFocusOnAppearing", "NoNav", "NoCollapse",
-                            "NoBringToFrontOnFocus", "NoDocking" }) do
+    for _, name in ipairs(names) do
         if W[name] then f = bit32.bor(f, W[name]) end
     end
-    BAR_FLAGS = f
     return f
+end
+
+local function barFlags()
+    if BAR_FLAGS then return BAR_FLAGS end
+    -- The bar is ONE LINE: it must never scroll, or a stray wheel over it shifts the strip.
+    BAR_FLAGS = bit32.bor(orFlags(BASE_FLAG_NAMES), orFlags({ "NoScrollbar", "NoScrollWithMouse" }))
+    return BAR_FLAGS
+end
+
+--- Same chrome as the bar, but SCROLLABLE. A popover is a list, and its content grows with
+--- the product -- the Hub list gained Loot, Chat and Settings -- so hitting the height cap
+--- has to scroll rather than clip rows away with no way to reach them. Built from the
+--- shared base rather than by clearing bits out of barFlags: MQ's `bit32` is a host shim
+--- and nothing in this codebase has ever relied on it having `bnot`.
+function M.popoverFlags()
+    if POPOVER_FLAGS then return POPOVER_FLAGS end
+    POPOVER_FLAGS = orFlags(BASE_FLAG_NAMES)
+    return POPOVER_FLAGS
 end
 M.barFlags = barFlags
 
@@ -1276,9 +1295,17 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     else
         ImGui.SetNextWindowPos(ImVec2(px, py))
     end
-    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, 420))
+    -- Max height is what is actually left between the bar and the far screen edge, not a
+    -- fixed 420. The Hub list grows with the product -- it gained Loot, Chat and Settings
+    -- when the one-bar mode turned out to strand them -- and a constant that was generous
+    -- in 26a silently CLIPPED the tail, which is worse than the reachability gap those
+    -- entries were added to close. 24px keeps it off the very edge.
+    local _, vpY, _, vpH = dockLayout.viewport()
+    local room = (edge == "bottom") and (py - vpY - 24) or ((vpY + vpH) - py - 24)
+    local maxH = math.max(200, math.min(720, room))
+    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, maxH))
 
-    local flags = bit32.bor(barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
+    local flags = bit32.bor(M.popoverFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
     -- Same discipline as the bar's own Begin: the style var above must be unwound if Begin
     -- itself throws, or it leaks one entry per frame while the popover is due.
