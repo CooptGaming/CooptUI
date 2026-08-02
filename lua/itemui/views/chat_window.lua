@@ -126,6 +126,7 @@ function ChatWindowView.render(ctx)
     -- more. (This comment used to say the opposite long after the fix landed, and that
     -- staleness cost a wrong call in the windows pass — see the note by the renderer line.)
     chatConsole.setZepEnabled((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
+    chatConsole.setTimestamps((tonumber(layoutConfig.ChatTimestamps) or 1) ~= 0)
     local forceApply = ctx.uiState.layoutRevertedApplyFrames and ctx.uiState.layoutRevertedApplyFrames > 0
     local condPos = forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver
     local ax = layoutConfig.ChatWindowX or 0
@@ -267,18 +268,17 @@ renderWindowBody = function(ctx, layoutConfig)
     -- says the library is present, and a user who never enabled Zep (the default install)
     -- is on the plain renderer unconditionally and lost nothing. TextFurniture, never
     -- Attention amber: this is a consequence of a choice the user just made, not a warning.
-    -- NOTE, and it is the whole reason this note exists: ChatTimestamps also defaults to 1,
-    -- and `ownRenderer = filterOn or timestamps` below — so on a DEFAULT install the plain
-    -- renderer is forced and Zep never draws, which means no clickable links out of the box
-    -- despite the crash being fixed. 19c chose times-on when Zep was off and crashy, so
-    -- times cost nothing then; they cost links now. That tradeoff wants a product call, not
-    -- a silent default flip, so the note tells the truth in the meantime.
+    -- Only the FILTER costs links now (times are baked into Zep's text), so the note fires
+    -- only while filtering — a state the user just chose and can undo in one click, which
+    -- is what the handoff meant by "a consequence, not a warning". TextFurniture, never
+    -- Attention amber. Gated on the user's Zep setting AND the library actually loading:
+    -- someone with Zep off is on the plain renderer unconditionally and lost nothing.
     local zepOn = chatConsole.zepAvailable() and ((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
     local function rendererNote()
         theme.TextFurniture("plain text - links are not clickable")
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
-            ImGui.Text("Clear the filter and turn off times to get links back.")
+            ImGui.Text("Clear the filter to get links back.")
             ImGui.EndTooltip()
         end
     end
@@ -304,23 +304,18 @@ renderWindowBody = function(ctx, layoutConfig)
             ImGui.SameLine(0, 10)
             rendererNote()
         end
-    elseif zepOn and timestamps then
-        -- Timestamps alone force the plain renderer with no filter row to carry the note,
-        -- so it gets the filter row's own rule: a line that exists only while the cause is
-        -- active. Only Zep users ever see it, so the default install pays no chrome.
-        rendererNote()
     end
 
     local availW, availH = ImGui.GetContentRegionAvail()
     local inputRowH = ((ImGui.GetFrameHeightWithSpacing and ImGui.GetFrameHeightWithSpacing()) or 24)
         + ((ImGui.GetTextLineHeightWithSpacing and ImGui.GetTextLineHeightWithSpacing()) or 16)
 
-    -- The filter and the time column are ours, not Zep's -- Zep owns its own buffer and
-    -- renders it whole. So either of those forces the plain renderer, which is a real
-    -- tradeoff (no clickable links while filtering) and is stated by the renderer note
-    -- above (on the filter row, or its own row when timestamps alone force it) rather
-    -- than left for the user to discover.
-    local ownRenderer = filterOn or timestamps
+    -- ONLY the filter forces the plain renderer now. It genuinely has to: Zep owns its
+    -- buffer and renders it whole, so we cannot show a subset of it. The time column used
+    -- to force it too, and since times AND Zep both default to on, that meant every
+    -- default install silently lost clickable links -- the one thing Zep is for. Times are
+    -- baked into the text Zep receives instead (chat_console.zepText), so the two coexist.
+    local ownRenderer = filterOn
     local lines = fallbackLines()
     local consoleH = math.max((availH or 0) - inputRowH, 1)
     local wasAtBottom = atBottom

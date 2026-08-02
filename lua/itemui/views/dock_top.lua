@@ -632,31 +632,25 @@ segments.session = function(ctx, s)
         toggleSessionPanel(ctx)
     end
 
+    -- Every value is a door, INCLUDING a zero. The strip's job and the window's job are
+    -- different: the hover panel is for quick calls on what this session turned up, and
+    -- clicking opens the full window so you can decide about everything you own. "0 augs
+    -- needed a call this session" is no reason to lock you out of Aug Utility. A zero
+    -- still renders muted — it is not asking for attention — it is simply not inert.
     ImGui.SameLine(0, 10)
-    if augsTotal <= 0 then
-        theme.TextMuted(augsText)
-    else
-        sessionValue(ctx, augsText,
-            (augsCall > 0) and theme.Colors.Warning or nil,
-            { kind = "window", id = "augmentUtility", toggle = true })
-    end
+    sessionValue(ctx, augsText,
+        (augsCall > 0) and theme.Colors.Warning or ((augsTotal <= 0) and theme.Colors.Muted or nil),
+        { kind = "window", id = "augmentUtility", toggle = true })
 
     ImGui.SameLine(0, 10)
-    if mythTotal <= 0 then
-        theme.TextMuted(mythsText)
-    else
-        sessionValue(ctx, mythsText,
-            (mythCall > 0) and theme.Colors.Warning or nil,
-            { kind = "window", id = "mythicals", toggle = true })
-    end
+    sessionValue(ctx, mythsText,
+        (mythCall > 0) and theme.Colors.Warning or ((mythTotal <= 0) and theme.Colors.Muted or nil),
+        { kind = "window", id = "mythicals", toggle = true })
 
     ImGui.SameLine(0, 10)
-    if scripts <= 0 then
-        theme.TextMuted(scriptsText)
-    else
-        sessionValue(ctx, scriptsText,
-            nil, { kind = "window", id = "scripttracker", toggle = true })
-    end
+    sessionValue(ctx, scriptsText,
+        (scripts <= 0) and theme.Colors.Muted or nil,
+        { kind = "window", id = "scripttracker", toggle = true })
 end
 
 -- Which dock_state walks each cell needs, so an unused cell costs no TLO reads.

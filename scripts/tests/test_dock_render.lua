@@ -293,6 +293,27 @@ do
         not (ctx.uiState.dockErrors and #ctx.uiState.dockErrors > 0),
         ctx.uiState.dockErrors and table.concat(ctx.uiState.dockErrors, ' / '))
     check('full bar: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- A ZERO count is still a door. The strip reports what THIS SESSION turned up, so
+    -- "0 augs" is a fact about the session, not a statement that Aug Utility has nothing
+    -- in it -- the window lists everything you own. These read as inert (muted) and used
+    -- to BE inert, which locked you out of three windows on a quiet session.
+    for _, want in ipairs({
+        { needle = '0 augs',    id = 'augmentUtility' },
+        { needle = '0 mythics', id = 'mythicals' },
+        { needle = '0 scripts', id = 'scripttracker' },
+    }) do
+        resetInput()
+        ctx.uiState.dockActionQueue = {}
+        stub.hover = { [want.needle] = true }
+        stub.mouse = { [0] = true }
+        stub.frame(function() dockTop.render(ctx) end)
+        local q = ctx.uiState.dockActionQueue or {}
+        check('session: "' .. want.needle .. '" still opens ' .. want.id,
+            q[1] and q[1].kind == 'window' and q[1].id == want.id and q[1].toggle == true,
+            q[1] and (tostring(q[1].kind) .. '/' .. tostring(q[1].id)) or 'nothing queued')
+    end
+    resetInput()
 end
 
 -- =================================================================

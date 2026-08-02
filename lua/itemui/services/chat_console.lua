@@ -102,6 +102,30 @@ end
 function M.setZepEnabled(v)
     zepEnabled = (v and true or false) and zepPrewarmed and zepOk or false
 end
+
+-- The time column used to be OURS, which meant turning it on forced the plain renderer and
+-- silently cost you clickable links -- and since both default to on, that was every
+-- install. Baked into the text handed to AppendText instead: Zep parses the \x12 EQ tags
+-- into hyperlinks itself and does not care what precedes them, so times and links now
+-- coexist and neither is a mode. The fallback renderer still draws its own time column
+-- (it owns its layout), so both paths show times and only this one needs the prefix.
+local timestampsOn = false
+--- Mirrors layoutConfig.ChatTimestamps, pushed each frame like setZepEnabled.
+--- Toggling mid-session applies to NEW lines only: Zep owns its buffer and rebuilding it
+--- would mean destroying and recreating console instances, which is precisely the object
+--- lifetime that used to take the client down. A rare cosmetic seam beats that risk.
+function M.setTimestamps(v)
+    timestampsOn = (v and true or false)
+end
+
+--- The exact string Zep receives. Kept in one place so the seed path and the live-append
+--- path cannot drift into two formats.
+local function zepText(entry)
+    if timestampsOn and entry.time and entry.time ~= "" then
+        return entry.time .. "  " .. entry.text
+    end
+    return entry.text
+end
 M.zepAvailable = zepAvailable
 
 --- Channel -> theme color table (0-1 RGBA), moved from dock_bottom's chatLineColor so both
@@ -178,7 +202,7 @@ function M.ensureConsole(tab, onCreate)
                 local e = seed[i]
                 if e and type(e.text) == "string" and e.text ~= "" then
                     local col = channelColor(e.channel)
-                    appendOne(inst, col and theme.ToVec4(col) or nil, e.text)
+                    appendOne(inst, col and theme.ToVec4(col) or nil, zepText(e))
                 end
             end
         end
@@ -194,10 +218,11 @@ function M.append(entry)
     if not zepAvailable() then return end
     local col = channelColor(entry.channel)
     local vec = col and theme.ToVec4(col) or nil
-    appendOne(consoles["all"], vec, entry.text)
+    local text = zepText(entry)
+    appendOne(consoles["all"], vec, text)
     local tab = entry.tab
     if tab and tab ~= "all" and consoles[tab] then
-        appendOne(consoles[tab], vec, entry.text)
+        appendOne(consoles[tab], vec, text)
     end
 end
 
