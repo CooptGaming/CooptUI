@@ -79,8 +79,73 @@ function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
     return true
 end
 
--- Augment compatibility index (Task 3.5): built at scan time; each entry { itemRow, augType, augRestrictions, wornSlotIndices }.
+-- Augment compatibility index (Task 3.5): built at scan time; each entry
+-- { itemRow, augType, augRestrictions, wornSlotIndices }. Declared here rather than
+-- below because the census helpers that follow close over it.
 local augmentIndex = {}
+
+--- augType -> index entry, so a view holding only an item row can recover the augType the
+--- scan already resolved instead of re-reading the TLO per row per frame.
+function M.getIndexedAugType(row)
+    if not row then return nil end
+    for _, e in ipairs(augmentIndex) do
+        local r = e.itemRow
+        if r == row then return e.augType end
+        if r and r.name == row.name and (r.id or 0) == (row.id or row.ID or 0) then return e.augType end
+    end
+    return nil
+end
+
+--- How many of the sockets you are WEARING this augment could go into. Pure arithmetic
+--- over dock_state's published census — no TLO reads on the render path (windows pass
+--- item 9). Returns nil when the census has not landed yet, which is what the caller
+--- degrades on; 0 is a real answer meaning "nothing you wear takes this".
+function M.countFittingWornSockets(augType, wornSockets)
+    if not (wornSockets and wornSockets.byType) then return nil end
+    if not augType or augType <= 0 then return 0 end
+    local n = 0
+    for socketType, count in pairs(wornSockets.byType) do
+        if M.augmentFitsSocket(augType, socketType) then n = n + count end
+    end
+    return n
+end
+
+--- The line itself, one definition so every surface words it identically.
+---   census landed, n > 0  ->  "fits 3 of your slots"   (singular stays parallel: a row
+---                             that changes shape at n=1 is harder to scan down a column)
+---   census landed, n == 0 ->  "fits nothing you wear"  (a conclusion, not "fits 0 of
+---                             your slots", which invites a recount)
+---   no census yet         ->  today's "types 1, 3" exactly. No spinner, no "counting...",
+---                             no dash: each row upgrades in place the frame the census
+---                             lands, and a user who never notices the swap lost nothing.
+function M.fitsWornLine(augType, wornSockets)
+    local n = M.countFittingWornSockets(augType, wornSockets)
+    if n == nil then
+        local slots = M.getAugTypeSlotIds(tonumber(augType) or 0)
+        if #slots == 0 then return "" end
+        if #slots == 1 then return string.format("type %d", slots[1]) end
+        local ids = {}
+        for i = 1, math.min(#slots, 4) do ids[#ids + 1] = tostring(slots[i]) end
+        return "types " .. table.concat(ids, ", ") .. ((#slots > 4) and "..." or "")
+    end
+    if n == 0 then return "fits nothing you wear" end
+    return string.format("fits %d of your slots", n)
+end
+
+--- Worn slot names accepting this augment, for the hover. Only once the census has run —
+--- there is no tooltip before that, rather than an empty one.
+function M.fittingWornSlotNames(augType, wornSockets)
+    if not (wornSockets and wornSockets.places) then return nil end
+    local seen, out = {}, {}
+    for _, p in ipairs(wornSockets.places) do
+        if M.augmentFitsSocket(augType, p.type) and not seen[p.slot] then
+            seen[p.slot] = true
+            out[#out + 1] = p.slot
+        end
+    end
+    if #out == 0 then return nil end
+    return table.concat(out, ", ")
+end
 
 --- Build augment index from inventory + bank for O(N) getCompatibleAugments with no per-augment TLO calls.
 --- Call after scanInventory or scanBank so index stays current.

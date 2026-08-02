@@ -77,9 +77,9 @@ local snap = {
 }
 
 -- Per-walk clocks, so each expensive aggregation keeps its own cadence.
-local lastAt = { bags = 0, buffs = 0, stats = 0, sell = 0, clicky = 0 }
-local demand = { bags = false, buffs = false, stats = false, sell = false, clicky = false }
-local demandNext = { bags = false, buffs = false, stats = false, sell = false, clicky = false }
+local lastAt = { bags = 0, buffs = 0, stats = 0, sell = 0, clicky = 0, sockets = 0 }
+local demand = { bags = false, buffs = false, stats = false, sell = false, clicky = false, sockets = false }
+local demandNext = { bags = false, buffs = false, stats = false, sell = false, clicky = false, sockets = false }
 
 -- Session totals survive individual runs. uiState.lootRunTotalValue is PER-RUN and is
 -- zeroed at run start (main_loop phase 5 and macro_bridge's IPC loot_start), so sampling
@@ -112,6 +112,9 @@ function M.requestStats() request("stats") end
 function M.requestSell()  request("sell")  end
 --- Only the open buffs popover needs this, and only while it is open.
 function M.requestClickyMap() request("clicky") end
+--- Only Aug Utility's All-augments tab needs the worn-socket census, and only while it is
+--- open — ~115 TLO reads is affordable on a slow interval and not affordable per frame.
+function M.requestWornSockets() request("sockets") end
 
 -- ---------------------------------------------------------------------------
 -- Effects (buffs / songs / auras)
@@ -256,6 +259,48 @@ end
 -- touches TLOs -- after that this is table reads. Still on its own slow clock, and only
 -- while a buffs popover is actually open.
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Worn-socket census (windows pass item 9)
+--
+-- Aug Utility's why-line used to state a property of the AUGMENT ("types 1, 3"), which
+-- makes the user hold their own socket map in their head. To say "fits 3 of your slots"
+-- instead, someone has to know what sockets you wear — and socket TYPES are cached
+-- nowhere (the tooltip cache holds them only inside formatted strings, and only after a
+-- hover). So: walk the 23 worn slots once on a slow interval, publish the socket types,
+-- and the render path becomes pure arithmetic via augment_helpers.augmentFitsSocket.
+--
+-- Cost: 23 slots x (1 ID read + up to 6 AugSlotN reads) ~= 115 reads, on the same
+-- staggered one-walk-per-tick due list as everything else, and ONLY while something is
+-- asking. walkEffects already does 40-70 reads every 500ms in shipping code.
+local WORN_SLOT_COUNT = 23
+
+local function walkWornSockets()
+    local Me = mq.TLO and mq.TLO.Me
+    if not (Me and Me.Inventory) then return end
+    -- { socketType -> count of worn sockets of that type }, plus a flat list of
+    -- { slotName, type } so a hover can name them.
+    local byType, places, total = {}, {}, 0
+    for slotIndex = 0, WORN_SLOT_COUNT - 1 do
+        local slotName = itemHelpers.getEquipmentSlotNameForItemNotify(slotIndex)
+        if slotName then
+            local ok, it = pcall(function() return Me.Inventory(slotName) end)
+            if ok and it and it.ID and it.ID() and it.ID() ~= 0 then
+                for si = 1, 6 do
+                    local okT, t = pcall(itemHelpers.getSlotType, it, si)
+                    local socketType = (okT and tonumber(t)) or 0
+                    if socketType > 0 then
+                        byType[socketType] = (byType[socketType] or 0) + 1
+                        places[#places + 1] = { slot = slotName, type = socketType }
+                        total = total + 1
+                    end
+                end
+            end
+        end
+    end
+    -- Publish as one table so a consumer never sees a half-updated census.
+    snap.wornSockets = { byType = byType, places = places, total = total }
+end
 
 local function walkClickyMap()
     local items = d and d.inventoryItems or {}
@@ -667,6 +712,9 @@ function M.tick(now)
     end
     if demand.clicky and (now - lastAt.clicky) >= T.DOCK_SLOW_CLICKY_MS then
         due[#due + 1] = { k = "clicky", over = now - lastAt.clicky, fn = walkClickyMap }
+    end
+    if demand.sockets and (now - lastAt.sockets) >= T.DOCK_SLOW_SOCKETS_MS then
+        due[#due + 1] = { k = "sockets", over = now - lastAt.sockets, fn = walkWornSockets }
     end
     if demand.stats and (now - lastAt.stats) >= T.DOCK_SLOW_STATS_MS then
         due[#due + 1] = { k = "stats", over = now - lastAt.stats, fn = function()

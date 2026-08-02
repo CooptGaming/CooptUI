@@ -13,6 +13,8 @@ local ItemUtils = require('mq.ItemUtils')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local augmentHelpers = require('itemui.utils.augment_helpers')
+local dockState = require('itemui.services.dock_state')
 
 local AugmentsView = {}
 
@@ -171,17 +173,32 @@ function AugmentsView.renderListContent(ctx)
         return
     end
 
-    -- Compact table: Icon (stats on hover) | Name | Effects | Value | [Reroll when Reroll enabled]
+    -- The why-column (windows pass item 9). "types 1, 3" states a property of the AUGMENT
+    -- and makes you hold your own socket map in your head; "fits 3 of your slots" answers
+    -- the question that was actually asked. Demand-driven: asking here is what makes
+    -- dock_state run the ~115-read worn-socket walk, and only while this list is drawn.
+    dockState.requestWornSockets()
+    local wornSockets = (dockState.get() or {}).wornSockets
+    for _, it in ipairs(filtered) do
+        it._augType = it._augType or augmentHelpers.getIndexedAugType(it) or 0
+        it._fitCount = augmentHelpers.countFittingWornSockets(it._augType, wornSockets)
+    end
+
+    -- Compact table: Icon (stats on hover) | Name | Effects | Value | Fits | [Reroll]
+    -- Fits is appended rather than inserted after Name on purpose: the sort handler keys
+    -- off positional ColumnIndex and persists it, so inserting mid-table would silently
+    -- repoint every saved sort.
     local showRerollColumns = registry.isEnabled("reroll")
-    local nCols = showRerollColumns and 5 or 4
+    local nCols = showRerollColumns and 6 or 5
     local tableFlagsAug = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("ItemUI_Augments", nCols, tableFlagsAug) then
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28, 0)   -- Icon (not sortable)
         ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 1)
         ImGui.TableSetupColumn("Effects", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
         ImGui.TableSetupColumn("Value", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 3)
+        ImGui.TableSetupColumn("Fits", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 140, 4)
         if showRerollColumns then
-            ImGui.TableSetupColumn("Reroll", ImGuiTableColumnFlags.WidthFixed, 100, 4)
+            ImGui.TableSetupColumn("Reroll", ImGuiTableColumnFlags.WidthFixed, 100, 5)
         end
         ImGui.TableSetupScrollFreeze(1, 1)
         ImGui.TableHeadersRow()
@@ -197,12 +214,15 @@ function AugmentsView.renderListContent(ctx)
             sortSpecs.SpecsDirty = false
         end
         local sortCol = (state.augmentsSortColumn ~= nil) and state.augmentsSortColumn or 1
-        if not showRerollColumns and sortCol > 3 then sortCol = 1 end
+        if sortCol > 4 then sortCol = 1 end   -- Reroll is not sortable; a stale index falls back to Name
         local sortDir = state.augmentsSortDirection or ImGuiSortDirection.Ascending
         local asc = (sortDir == ImGuiSortDirection.Ascending)
         local rows = filtered
-        if sortCol >= 1 and sortCol <= 3 then
-            local sortKey = string.format("%d|%s|%s", sortCol, tostring(sortDir), filterKey)
+        if sortCol >= 1 and sortCol <= 4 then
+            -- The census landing changes fit counts, so it has to key the sort cache too,
+            -- or a Fits sort would freeze at whatever it computed before the walk ran.
+            local sortKey = string.format("%d|%s|%s|%s", sortCol, tostring(sortDir), filterKey,
+                tostring(wornSockets and wornSockets.total or "none"))
             if sortCache.key ~= sortKey then
                 local sorted = {}
                 for i = 1, #filtered do sorted[i] = filtered[i] end
@@ -220,6 +240,16 @@ function AugmentsView.renderListContent(ctx)
                     elseif sortCol == 2 then
                         av, bv = a._sortEffects or "", b._sortEffects or ""
                         if asc then return av < bv else return av > bv end
+                    elseif sortCol == 4 then
+                        -- Zero-fit rows sort LAST in either direction: they stay listed
+                        -- (you may still bank or sell them) but they are never the answer
+                        -- to "what fits me", so they do not lead the ascending sort.
+                        local an, bn = a._fitCount, b._fitCount
+                        if an == nil then an = -1 end
+                        if bn == nil then bn = -1 end
+                        if (an == 0) ~= (bn == 0) then return bn == 0 end
+                        if an == bn then return (a.name or "") < (b.name or "") end
+                        if asc then return an < bn else return an > bn end
                     else
                         av = tonumber(a.totalValue) or 0
                         bv = tonumber(b.totalValue) or 0
@@ -336,6 +366,28 @@ function AugmentsView.renderListContent(ctx)
                 -- Column: Value
                 ImGui.TableNextColumn()
                 ImGui.Text(ItemUtils.formatValue(item.totalValue or 0))
+
+                -- Column: Fits (item 9). Zero-fit rows render at TextFurniture and stay
+                -- listed; a row that fits nothing is still an item you own.
+                ImGui.TableNextColumn()
+                local fitsText = augmentHelpers.fitsWornLine(item._augType, wornSockets)
+                if fitsText == "" then
+                    ctx.theme.TextFurniture("-")
+                elseif item._fitCount == 0 then
+                    ctx.theme.TextFurniture(fitsText)
+                else
+                    ImGui.Text(fitsText)
+                end
+                if ImGui.IsItemHovered() then
+                    -- Names the slots, but only once the census has run: no tooltip
+                    -- before that rather than an empty one.
+                    local where = augmentHelpers.fittingWornSlotNames(item._augType, wornSockets)
+                    if where then
+                        ImGui.BeginTooltip()
+                        ImGui.Text(where)
+                        ImGui.EndTooltip()
+                    end
+                end
 
                 if showRerollColumns then
                     -- Column: Reroll (single add button; destination auto-resolved:

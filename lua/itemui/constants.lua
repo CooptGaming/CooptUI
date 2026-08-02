@@ -61,6 +61,10 @@ M.TIMING = {
     DOCK_SLOW_BUFFS_MS = 500,    -- ~40-70 TLO reads (buffs + songs + auras)
     DOCK_SLOW_STATS_MS = 1000,   -- XP / AA / script totals
     DOCK_SLOW_CLICKY_MS = 1000,  -- spell id -> clicky item map, only while a buffs popover is open
+    -- Worn-socket census: 23 slots x up to 6 AugSlotN reads (~115), only while Aug
+    -- Utility's All tab is open. Your equipped sockets change when you swap gear, which
+    -- is not something you do twice a second - 2s is generous and still feels live.
+    DOCK_SLOW_SOCKETS_MS = 2000,
     DOCK_POPOVER_GRACE_MS = 250, -- mouse-out grace so the pointer can travel segment -> popover
     DOCK_HEALTH_MS = 30000,      -- degraded-state probes (file exists, list emptiness, bank age)
 
