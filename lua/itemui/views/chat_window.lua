@@ -254,6 +254,22 @@ renderWindowBody = function(ctx, layoutConfig)
         ImGui.Separator()
     end
 
+    -- The renderer note (handoff item 2): the filter and the time column force the plain
+    -- renderer, and that tradeoff must be stated where it happens, not discovered. Gated on
+    -- the USER'S Zep setting AND the library actually loading - zepAvailable() alone only
+    -- says the library is present, and a user who never enabled Zep (the default install)
+    -- is on the plain renderer unconditionally and lost nothing. TextFurniture, never
+    -- Attention amber: this is a consequence of a choice the user just made, not a warning.
+    local zepOn = chatConsole.zepAvailable() and ((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0)
+    local function rendererNote()
+        theme.TextFurniture("plain text - links are not clickable")
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text("Clear the filter and turn off times to get links back.")
+            ImGui.EndTooltip()
+        end
+    end
+
     -- The filter is a row, not a mode you cannot see: it only exists while it is on, and
     -- turning it off from the band clears it. A hidden active filter is a chat window that
     -- has quietly stopped showing you your chat.
@@ -271,6 +287,15 @@ renderWindowBody = function(ctx, layoutConfig)
         filterText = ft or ""
         ImGui.SameLine(0, 6)
         if ImGui.SmallButton("clear##chatFilterClear") then filterText = "" end
+        if zepOn then
+            ImGui.SameLine(0, 10)
+            rendererNote()
+        end
+    elseif zepOn and timestamps then
+        -- Timestamps alone force the plain renderer with no filter row to carry the note,
+        -- so it gets the filter row's own rule: a line that exists only while the cause is
+        -- active. Only Zep users ever see it, so the default install pays no chrome.
+        rendererNote()
     end
 
     local availW, availH = ImGui.GetContentRegionAvail()
@@ -279,8 +304,9 @@ renderWindowBody = function(ctx, layoutConfig)
 
     -- The filter and the time column are ours, not Zep's -- Zep owns its own buffer and
     -- renders it whole. So either of those forces the plain renderer, which is a real
-    -- tradeoff (no clickable links while filtering) and is stated in the pill line below
-    -- rather than left for the user to discover.
+    -- tradeoff (no clickable links while filtering) and is stated by the renderer note
+    -- above (on the filter row, or its own row when timestamps alone force it) rather
+    -- than left for the user to discover.
     local ownRenderer = filterOn or timestamps
     local lines = fallbackLines()
     local consoleH = math.max((availH or 0) - inputRowH, 1)
