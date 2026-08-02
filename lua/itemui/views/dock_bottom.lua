@@ -61,12 +61,9 @@ local M = {}
 -- (dock_top.isEnabled). Loot and Command Center left with the Actions menu: Loot is in
 -- hub_list.ENTRIES, and Command Center is classicOnly in bars mode.
 local MENUS = {
-    {
-        -- The SAME rows the Hub list's LAYOUTS section draws — one entry kind, two
-        -- surfaces, so the preset list can never drift between them.
-        id = "layouts", label = "Layouts", group = "right",
-        entries = { { kind = "layouts_dynamic" } },
-    },
+    -- Order is Native UI, Layouts, Settings, left to right. Taken off 29a's rendered
+    -- frame, not from the caption -- I had them the other way round from reading the
+    -- prose, which lists them on separate lines.
     {
         id = "game", label = "Native UI", group = "right",
         entries = {
@@ -79,6 +76,12 @@ local MENUS = {
             -- is lost when it is closed for good -- that is a phase 3 acceptance criterion.
             { kind = "native", label = "Native panel", window = "TipWindow" },
         },
+    },
+    {
+        -- The SAME rows the Hub list's LAYOUTS section draws — one entry kind, two
+        -- surfaces, so the preset list can never drift between them.
+        id = "layouts", label = "Layouts", group = "right",
+        entries = { { kind = "layouts_dynamic" } },
     },
 }
 
