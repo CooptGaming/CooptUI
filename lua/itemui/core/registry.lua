@@ -302,9 +302,14 @@ end
 --- window_zones.zoneOf consumes this; thirteen views set it (settings alone declares none,
 --- deliberately - it persists no position). `loot` is not registered at all, so its zone
 --- lives in window_zones' ZONE_FALLBACK instead.
---- NOTE for whoever wires that up: the `displayOrder` / layoutConfig.CompanionButtonOrder in
---- the comment on register() above are NOT implemented anywhere -- toggle/button order is
---- purely registration order (the `order` table). Deterministic bar ordering has to be built.
+--- Launcher ORDER is registration order (the `order` table), deliberately. `displayOrder`
+--- and layoutConfig.CompanionButtonOrder in register()'s comment above were never
+--- implemented, and the persisted `DockLaunchers` / `DockNative` keys that were meant to
+--- drive them consumed nothing (layout_io.lua:27). Decision 2026-08-02: DELETE rather than
+--- implement -- a stored setting that changes nothing is worse than no setting, because it
+--- reads as supported. The bundled [Layout] block no longer ships either key. If ordering
+--- is ever wanted, `hub_list.ENTRIES` (ITEMS / CHARACTER / LAYOUTS) is the intended order
+--- and the launcher row should be made to match it -- but that is a feature, not a fix.
 function M.getZone(id)
     local m = modules[id]
     local z = m and m.spec and m.spec.zone
