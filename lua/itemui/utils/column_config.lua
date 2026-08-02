@@ -23,7 +23,12 @@ M.availableColumns = {
         {key = "Type", label = "Type", numeric = false, default = true},
         {key = "Bag", label = "Bag", numeric = true, default = true},
         {key = "Slot", label = "Slot", numeric = true, default = false},
-        {key = "Acquired", label = "Acquired", numeric = true, default = false},
+        -- On by default since the windows pass: it REPLACES the deleted Newest button.
+        -- That button set a sort from a control that did not say so, and its second click
+        -- silently restored Name order; a real column header does the same job and states
+        -- what it is doing. Off by default it would have removed the capability instead of
+        -- relocating it.
+        {key = "Acquired", label = "Acquired", numeric = true, default = true},
         {key = "Stack", label = "Stack", numeric = true, default = false},
         {key = "StackSizeMax", label = "Stack Max", numeric = true, default = false},
         {key = "Clicky", label = "Clicky", numeric = false, default = true},

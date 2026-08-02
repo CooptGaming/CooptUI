@@ -442,6 +442,44 @@ function ConfigGeneral.render(ctx)
             -- "Buttons are not segments") and cannot be turned off — they are the bar's
             -- job surface and the mythical decision strip rides the lane.
             ImGui.Spacing()
+            -- Below 1920 the top bar cannot fit every cell, and it deliberately does NOT
+            -- fold: it is STATE, so every cell is the only place its number appears and
+            -- folding deletes information rather than rerouting it -- silently, since you
+            -- cannot tell "0 augs need a call" from "the augs cell went away". So Settings
+            -- says it instead, here, where the choice of WHICH cells to lose is the user's.
+            -- 1840px of fixed cells + an 80px lane floor is where it stops fitting.
+            -- Requires only constants (a pure table) and dock_layout (ImGui/mq only), NOT
+            -- dock_top -- Settings is reachable from the bar, and requiring the bar back
+            -- would close a cycle. The cell order is restated rather than imported for the
+            -- same reason; it is a fixed design constant, asserted by test_dock_render.
+            do
+                local dockLayout = require('itemui.utils.dock_layout')
+                local constants = require('itemui.constants')
+                local CW = constants.UI.DOCK_CELL_W or {}
+                local ORDER = { "status", "session", "bags", "sell", "buttons", "buffs", "xp" }
+                local _, _, vpW = dockLayout.viewport()
+                local avail = (vpW or 0) - (constants.UI.DOCK_LANE_MIN_W or 80)
+                -- Cells + the lane floor only, deliberately excluding inter-slot gaps and
+                -- padding. That makes the check UNDER-warn (1840+80 = exactly 1920, so a
+                -- 1920 screen reads as fitting when the gaps mean it barely does not).
+                -- A false "your screen does not fit" on a screen that does is worse than a
+                -- missing warning on the exact boundary.
+                local fits, total = 0, 1   -- the lane counts as a cell and always fits
+                for _, seg in ipairs(ORDER) do
+                    local w = CW[seg]
+                    if w then
+                        total = total + 1
+                        if avail - w >= 0 then avail = avail - w; fits = fits + 1 end
+                    end
+                end
+                fits = fits + 1            -- ... so count it on both sides
+                if fits < total then
+                    local drop = total - fits
+                    ImGui.TextColored(theme.ToVec4(theme.Colors.Warning), string.format(
+                        "Your screen fits %d of %d cells. Turn %s off, or use top bar only.",
+                        fits, total, (drop == 1) and "one" or tostring(drop)))
+                end
+            end
             ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Status bar cells (order is fixed; unchecked width goes to the action lane):")
             local ALL_SEGMENTS = {
                 { id = "status",  label = "CoOpt identity & status" },
