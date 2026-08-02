@@ -393,6 +393,9 @@ function BankView.render(ctx)
     local w = ctx.layoutConfig.WidthBankPanel or constants.VIEWS.WidthBankPanel
     local h = ctx.layoutConfig.HeightBank or constants.VIEWS.HeightBank
     if w > 0 and h > 0 then
+        -- Size floor (handoff item 6): band + table header + three rows - below this the
+        -- 26px band stat is the first casualty.
+        ImGui.SetNextWindowSizeConstraints(ImVec2(380, 220), ImVec2(16384, 16384))
         ImGui.SetNextWindowSize(ImVec2(w, h), forceApply and ImGuiCond.Always or ImGuiCond.FirstUseEver)
     end
 

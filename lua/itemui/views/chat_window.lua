@@ -156,6 +156,9 @@ function ChatWindowView.render(ctx)
     local w = layoutConfig.WidthChatPanel or CHAT_WINDOW_WIDTH
     local h = layoutConfig.HeightChat or CHAT_WINDOW_HEIGHT
     if w > 0 and h > 0 then
+        -- Size floor (handoff item 6): band + table header + three rows - below this the
+        -- 26px band stat is the first casualty.
+        ImGui.SetNextWindowSizeConstraints(ImVec2(360, 200), ImVec2(16384, 16384))
         ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 

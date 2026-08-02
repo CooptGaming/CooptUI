@@ -745,6 +745,9 @@ function RerollView.render(ctx)
         ImGui.SetNextWindowPos(ImVec2(rx, ry), condPos)
     end
     if w > 0 and h > 0 then
+        -- Size floor (handoff item 6): band + table header + three rows - below this the
+        -- 26px band stat is the first casualty.
+        ImGui.SetNextWindowSizeConstraints(ImVec2(420, 240), ImVec2(16384, 16384))
         ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 

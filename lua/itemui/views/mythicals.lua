@@ -79,6 +79,9 @@ function MythicalsView.render(ctx)
     local w = layoutConfig.WidthMythicalsPanel or MYTHICALS_WINDOW_WIDTH
     local h = layoutConfig.HeightMythicals or MYTHICALS_WINDOW_HEIGHT
     if w > 0 and h > 0 then
+        -- Size floor (handoff item 6): band + table header + three rows - below this the
+        -- 26px band stat is the first casualty.
+        ImGui.SetNextWindowSizeConstraints(ImVec2(400, 240), ImVec2(16384, 16384))
         ImGui.SetNextWindowSize(ImVec2(w, h), condPos)
     end
 

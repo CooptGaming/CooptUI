@@ -357,6 +357,10 @@ function M.render(refs)
 
     if shouldDraw then
         if not uiState.setupMode then
+            -- Size floor (handoff item 6): band + table header + three rows - below this
+            -- the toolbar clips. One site covers Inventory AND Sell: they swap into this
+            -- same frame.
+            ImGui.SetNextWindowSizeConstraints(ImVec2(520, 260), ImVec2(16384, 16384))
             local w, h = nil, nil
             if curView == "Inventory" then w, h = layoutConfig.WidthInventory, layoutConfig.Height
             elseif curView == "Sell" then w, h = layoutConfig.WidthSell, layoutConfig.Height
