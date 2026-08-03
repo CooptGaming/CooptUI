@@ -43,7 +43,7 @@ which takes whatever width is left.
 | **bags** | Items / total slots. Amber past 90%. Weight too, once the game has told us. | — |
 | **sell** | What your rules would sell right now, and for how much. Red if a keep-list item is somehow queued to sell. | Hover for the full breakdown; click opens the hub in Sell |
 | **Loot All / Auto Sell** | Two buttons that never move. Auto Sell greys out with a reason when there's no merchant. | Each green start becomes its own solid-red **Stop**, in place |
-| **action lane** | Whatever is running, and nothing when nothing is. The only cell that flexes. | The state's own buttons — **Take** / **Pass**, **Review**, **Bags** |
+| **action lane** | Whatever is running, and nothing when nothing is. The only cell that flexes. | The state's own buttons, where the state has any — **Take** / **Pass** on a mythical, **Bags** when a run stops full |
 | **buffs** | Buff / song / aura counts. Amber only when something is under five minutes. | What's expiring, with Recast |
 | **XP** | XP %, AA total, and the AA sitting in your bags as scripts. | — |
 
@@ -68,8 +68,9 @@ One cell, one width, whichever of these it's in:
 2. **looting** — `corpse 4/9 · 7 taken`, with live progress.
 3. **decision** — a mythical needs a call. The item, a timer, **Take** and **Pass**. The Loot
    window doesn't need to be open.
-4. **finished** — `looted 9 corpses · 1,208p · 3 skipped`, with **Review**. It fades after
-   a few seconds.
+4. **finished** — `looted 9 corpses · 1,208p`, and `3 skipped - see chat` when the run passed
+   on anything. It holds for six seconds and then the lane returns to idle, so it reports the
+   result without becoming something you have to dismiss.
 5. **problem** — `stopped — bags full`, with **Bags** (and **Sell junk** if you're at a
    merchant). It stays alert until you deal with it.
 6. **selling** — a sell run's progress.
