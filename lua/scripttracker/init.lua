@@ -144,7 +144,14 @@ local function renderUI()
     if pinned then
         windowFlags = bit32.bor(windowFlags, ImGuiWindowFlags.NoMove)
     end
-    local windowOpen, windowVisible = ImGui.Begin("CoOpt UI Script Tracker##ScriptTracker", isOpen, windowFlags)
+    -- Titled "AA Script Tracker" -- what its own heading below has always called it -- and
+    -- NOT "CoOpt UI Script Tracker", which was one word away from the registry module's
+    -- "CoOpt UI Scripts". Two windows do this job: this standalone sidecar, and the registry
+    -- module (views/script_tracker.lua) that phase 15 added so the bars could light and
+    -- toggle it. With near-identical titles the bar's Scripts chip read as dead -- unlit,
+    -- because the OTHER window was the one on screen. The ## id is unchanged, so saved
+    -- window geometry survives the rename.
+    local windowOpen, windowVisible = ImGui.Begin("AA Script Tracker##ScriptTracker", isOpen, windowFlags)
     -- When pinned, prevent closing (ignore X button and keep open for next frame)
     if pinned then
         isOpen = true
