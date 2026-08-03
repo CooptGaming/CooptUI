@@ -301,6 +301,9 @@ local function renderInvTableInner(ctx, bankOpen, visibleCols)
         filtered = ctx.getSortedList(ctx.perfCache.inv, filtered, sortKey, sortDir, validity, "Inventory", ctx.sortColumns)
 
         local nInv = #filtered
+        -- Recorded so renderTable can tell "your filter hid everything" from "you have
+        -- nothing", which are different sentences and were previously neither.
+        ctx.uiState.invVisibleCount = nInv
         local clipperInv = ImGuiListClipper.new()
         clipperInv:Begin(nInv)
         while clipperInv:Step() do
@@ -464,6 +467,25 @@ function InventoryView.renderTable(ctx, bankOpen)
         -- pcall INSIDE the pair: EndTable is unconditional (see renderInvTableInner).
         pcall(renderInvTableInner, ctx, bankOpen, visibleCols)
         ImGui.EndTable()
+    end
+
+    -- Bags had NO empty state at all. On a fresh install, before the first scan lands, this
+    -- window was column headers over nothing and a "Total value: 0p" -- and it is the window a
+    -- newcomer is most likely to open first, because the bars put it in front of them.
+    --
+    -- Two different nothings, kept apart (the rule augment_utility and mythicals already
+    -- follow): an empty list is not the same as a filter that hid everything, and a user who
+    -- cannot tell them apart concludes the scan is broken.
+    if #(ctx.inventoryItems or {}) == 0 then
+        ImGui.Spacing()
+        ctx.theme.TextMuted("Nothing here yet. Bags are scanned when CoOpt starts and when you loot; the refresh button in the title bar rescans now.")
+    elseif tostring(ctx.uiState.searchFilterInv or "") ~= "" then
+        -- Only reachable when the filter matched nothing, since the branch above owns the
+        -- genuinely-empty case. The count is recorded by renderInvTableInner.
+        if ctx.uiState.invVisibleCount == 0 then
+            ImGui.Spacing()
+            ctx.theme.TextMuted("No items match your search. Clear it with the X beside the box.")
+        end
     end
 end
 

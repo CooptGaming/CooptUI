@@ -274,7 +274,12 @@ local function renderSection(ctx, title, list, iconMode)
     ctx.theme.TextMuted(title)
     ImGui.Separator()
     if #list == 0 then
-        ctx.theme.TextMuted("  none")
+        -- Terse on purpose: this is a SECTION state under a header that already names what is
+        -- missing, and there is no path to offer -- you get buffs by being buffed. What went
+        -- is the two-leading-space indent hack, which was doing alignment with spaces.
+        ImGui.Indent(8)
+        ctx.theme.TextMuted("none")
+        ImGui.Unindent(8)
     elseif iconMode then
         renderIconGrid(ctx, list)
     else

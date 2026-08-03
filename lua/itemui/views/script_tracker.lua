@@ -247,7 +247,9 @@ function ScriptTrackerView.renderBody(ctx, barsOn)
         ctx.theme.TextMuted("turn-in running - the bar's lane has the progress and the Stop")
     elseif counts.totalCount == 0 then
         ImGui.SameLine(0, 8)
-        ctx.theme.TextMuted("no scripts in bags")
+        -- Names the path, like mythicals and augments do, instead of stating the absence and
+        -- stopping. Same rule, same dialect.
+        ctx.theme.TextMuted("No scripts in bags. Loot some and refresh.")
     end
     ImGui.Spacing()
 

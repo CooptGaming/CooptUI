@@ -275,7 +275,10 @@ function M.drawEntries(entries, ctx, s, queue)
                 theme.TextMuted("layout: (none)")
             end
             if #names == 0 then
-                theme.TextMuted("No presets yet.")
+                -- Same words as Settings' version (config_general): one state, one string.
+                -- These had drifted into "No presets yet." here and an explaining sentence
+                -- there -- the same surface-drift D2 and D3 exist to prevent, in copy.
+                theme.TextMuted("No presets yet - the five bundled ones appear after the first bars session.")
             end
             for presetIdx, name in ipairs(names) do
                 local lit = (name == active)

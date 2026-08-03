@@ -142,7 +142,10 @@ end
 do
     local ctx = makeCtx({ inventoryItems = {} })
     local r = stub.frame(function() ScriptTrackerView.render(ctx) end)
-    check('empty: no scripts reads honestly', r.ok and stub.drew(r, 'no scripts in bags'), r.err)
+    -- Names the path now, matching mythicals and augments, rather than stating the absence
+    -- and stopping (FIRST_RUN.md W6 rule 2).
+    check('empty: no scripts states the absence AND the path',
+        r.ok and stub.drew(r, 'No scripts in bags. Loot some and refresh.'), r.err)
 
     local ctxClassic = makeCtx()
     ctxClassic.layoutConfig.UIMode = 'classic'

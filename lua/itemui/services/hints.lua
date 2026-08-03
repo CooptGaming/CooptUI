@@ -33,7 +33,13 @@ local HINTS_SECTION = "Hints"
 M.HINTS = {
     { id = "merchant", anchor = "sell",
       title = "This is what your rules would sell",
-      body = "Hover the sell slot any time to see the breakdown by reason. Nothing sells until you press Auto Sell at a merchant." },
+      -- The pin clause rides here rather than becoming a sixth hint. Pinning was taught
+      -- NOWHERE: middle-click is global across every bar cell (dock_top's universal pin) but
+      -- it is only mentioned inside a popover's own header, which you cannot read until you
+      -- have already discovered it. This card is the one that already has the user's
+      -- attention on a popover, so the clause lands where the gesture is useful -- and five
+      -- hints stays five.
+      body = "Hover the sell slot any time to see the breakdown by reason - middle-click pins it open, Esc closes it. Nothing sells until you press Auto Sell at a merchant." },
     { id = "loot_run", anchor = "lane",
       title = "A loot run, live",
       -- Was: "...and a Stop button live here while loot.mac runs. The Review button opens the
