@@ -37,7 +37,10 @@ local STACK = 99          -- the TLO always reports stock left; that is the poin
 
 package.loaded['mq'] = {
     gettime = function() return 0 end,
-    cmd = function() end,
+    -- BOTH recorded: the notifies go through cmdf and the bag keypresses through cmd, and a
+    -- stub that only captured one of them reported "no keypress issued" for a keypress that
+    -- had in fact been issued.
+    cmd = function(s) issued[#issued + 1] = s end,
     cmdf = function(fmt, ...) issued[#issued + 1] = string.format(fmt, ...) end,
     delay = function() end,
     event = function() end,
@@ -67,10 +70,13 @@ local T = require('itemui.constants').TIMING
 local statuses, decrements
 
 --- A deps table with only what handleScriptConsume reads.
+local INV_OPEN = true     -- pretend the native Inventory (and so the bags) is already up
+
 local function newDeps(uiState)
     statuses, decrements = {}, {}
     return {
         uiState = uiState,
+        getLastInventoryWindowState = function() return INV_OPEN end,
         setStatusMessage = function(m) statuses[#statuses + 1] = m end,
         itemOps = {
             reduceStackOrRemoveBySlot = function(b, s, n) decrements[#decrements + 1] = { b, s, n } end,
@@ -202,6 +208,55 @@ do
         tostring(uiState.pendingScriptConsume))
     check('depleted exit reports the CONFIRMED count',
         lastStatus() and lastStatus():find('Added 1 to Alt Currency', 1, true) ~= nil, lastStatus())
+end
+
+-- =================================================================
+-- 5. The bags precondition.
+--
+-- /itemnotify rightmouseup on a non-clicky item resolves through the item's pInvSlotWnd, which
+-- is null when the container is shut -- so the run cannot work at all without the bags open,
+-- and there is no command that avoids it (leftmouseup takes a data-level PickupItem path,
+-- which is why selling is fine; a clicky item gets redirected to /useitem, which scripts are
+-- not). So the FSM opens them first and puts them back.
+-- =================================================================
+do
+    issued = {}
+    INV_OPEN = false                          -- bags shut
+    local uiState = { pendingScriptConsume = newPlan(2) }
+    mainLoop.init(newDeps(uiState))
+
+    step(0)
+    check('bags shut: opens them before issuing anything',
+        issued[1] == '/keypress OPEN_INV_BAGS', table.concat(issued, '|'))
+    check('bags shut: does NOT fire a notify in the same step', #issued == 1,
+        table.concat(issued, '|'))
+
+    -- Confirm both, so the plan completes and the queue empties.
+    local t = T.SCRIPT_CONSUME_DELAY_MS + 1
+    for _ = 1, 2 do
+        step(t)
+        uiState.pendingScriptConsume.verifiedFromChat =
+            (uiState.pendingScriptConsume.verifiedFromChat or 0) + 1
+        t = t + 1
+        step(t)
+        t = t + T.SCRIPT_CONSUME_DELAY_MS + 1
+    end
+
+    check('bags shut: run completes', uiState.pendingScriptConsume == nil,
+        tostring(uiState.pendingScriptConsume))
+    check('bags shut: puts the bags back when it is done',
+        issued[#issued] == '/keypress CLOSE_INV_BAGS', table.concat(issued, '|'))
+
+    -- Already open: leave the user's screen exactly as it was.
+    issued = {}
+    INV_OPEN = true
+    local uiState2 = { pendingScriptConsume = newPlan(1) }
+    mainLoop.init(newDeps(uiState2))
+    step(0)
+    uiState2.pendingScriptConsume.verifiedFromChat = 1
+    step(1)
+    check('bags already open: never touches the keybinds',
+        not table.concat(issued, '|'):find('INV_BAGS', 1, true), table.concat(issued, '|'))
 end
 
 print(string.format('\n%d passed, %d failed', pass, fail))
