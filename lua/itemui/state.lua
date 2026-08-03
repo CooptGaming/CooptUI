@@ -7,6 +7,7 @@
 require('ImGui')  -- state.lua uses ImGuiSortDirection.*; explicit require avoids load-order dependency
 local CoopVersion = require('coopui.version')
 local constants = require('itemui.constants')
+local dockButtons = require('itemui.utils.dock_buttons')  -- pure data; the launcher row's one list
 
 local C = constants.buildC(CoopVersion.ITEMUI)
 
@@ -171,11 +172,10 @@ do
     -- the id is classicOnly-dead on the bar; saved CSVs that still carry it just skip it.
     -- scripttracker joined the row in turn 27: 25c folded it into the suite, so it is a
     -- registry window like every other launcher and its stock reads as a pill.
-    -- favorites and loot joined 2026-08-02: they were in hub_list.ENTRIES and in NEITHER
-    -- this default nor the Settings editor, so the row could not reach them by any route.
-    -- loot is uiState-managed rather than registry-registered, which dock_bottom's launcher
-    -- entry special-cases for label and lit state the way hub_list already did.
-    layoutDefaults.DockButtons = "bags,bank,itemDisplay,augmentUtility,equipment,effects,mythicals,reroll,scripttracker,aa,favorites,loot"
+    -- Built from utils/dock_buttons.lua, which is also what the Settings editor renders --
+    -- these were two hand-maintained lists and they had drifted three ways, all shipped.
+    -- Which ids ship on, and why loot does not, is documented there.
+    layoutDefaults.DockButtons = dockButtons.defaultCsv()
     layoutDefaults.ZoneAssign = ""
     layoutDefaults.WindowAttach = ""
     layoutDefaults.LayoutPreset = ""

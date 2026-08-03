@@ -13,6 +13,7 @@ local KEYBIND_DEBOUNCE_MS = 800
 local registry = require('itemui.core.registry')
 local skinSync = require('itemui.services.skin_sync')
 local keybinds = require('itemui.utils.keybinds')
+local dockButtons = require('itemui.utils.dock_buttons')
 
 -- Cached "is the skin installed in the EQ client?" - file probes are not free,
 -- so recheck at most every 5s (and immediately after an install click).
@@ -572,33 +573,12 @@ function ConfigGeneral.render(ctx)
                 -- modules below re-enable at the end (canonical-relative insert).
                 ImGui.Spacing()
                 ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), "Command bar buttons (left to right):")
-                -- Canonical order and membership must match the shipped DockButtons default
-                -- (state.lua) -- this list is the only way to see or edit the row, and the
-                -- render loop below skips any saved id it does not know. Three ways it had
-                -- drifted:
-                --   itemDisplay and scripttracker ship ON the bar and were absent here, so
-                --     they drew chips nobody could reorder or turn off;
-                --   augments was offered here but is classicOnly, so checking it added an
-                --     id that can never draw a chip in bars mode;
-                --   favorites and loot were in hub_list.ENTRIES and in neither this list
-                --     nor the default, so the row could not reach them by any route.
-                -- Labels are the registry's so Settings names what the bar shows -- except
-                -- loot, which is uiState-managed and has no registry label (hub_list
-                -- hardcodes the same string).
-                local ALL_BUTTONS = {
-                    { id = "bags",           label = "Bags" },
-                    { id = "bank",           label = "Bank" },
-                    { id = "itemDisplay",    label = "Item Display" },
-                    { id = "augmentUtility", label = "Augment Utility" },
-                    { id = "equipment",      label = "Equipment" },
-                    { id = "effects",        label = "Effects" },
-                    { id = "mythicals",      label = "Mythics" },
-                    { id = "reroll",         label = "Reroll" },
-                    { id = "scripttracker",  label = "Scripts" },
-                    { id = "aa",             label = "AA" },
-                    { id = "favorites",      label = "Clickies" },
-                    { id = "loot",           label = "Loot" },
-                }
+                -- The launcher row's one list, shared with the shipped DockButtons default
+                -- (state.lua builds its CSV from the same table). This used to be a second
+                -- hand-maintained copy and the two had drifted three ways, all shipped --
+                -- see utils/dock_buttons.lua. The render loop below skips any saved id this
+                -- list does not carry, which is what made the drift invisible.
+                local ALL_BUTTONS = dockButtons.BUTTONS
                 local benabled, border = {}, {}
                 for part in tostring(layoutConfig.DockButtons or ""):gmatch("[^,]+") do
                     local t = part:match("^%s*(.-)%s*$")

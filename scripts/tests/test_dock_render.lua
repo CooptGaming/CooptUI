@@ -961,33 +961,75 @@ do
         #missing == 0, 'missing: ' .. table.concat(missing, ','))
     check('default: shipped row is balanced', stub.balanced(r), stub.imbalance(r))
 
-    -- Loot is uiState-managed, so moduleLabel returns nil for it: an unguarded id draws
-    -- NOTHING and the omission is silent -- no error, just a chip that never appears.
-    check('default: the Loot chip is drawn despite having no registry entry',
-        stub.drew(r, 'Loot##dockbtn_loot'), table.concat(r.buttons, '|'))
     check('default: Clickies takes its registry label, not its id',
         stub.drew(r, 'Clickies##dockbtn_favorites') and not stub.drew(r, 'favorites##dockbtn_favorites'),
         table.concat(r.buttons, '|'))
 
-    -- ...and for the same reason registry.isOpen('loot') is false however open the window
-    -- is, so the chip needs its own lit predicate off uiState.
+    -- loot is deliberately NOT in the default: the Loot window opens itself whenever a run
+    -- starts (main_window.lua), so a launcher for it is a chip you press never. Asserted so
+    -- that putting it back is a conscious act rather than a drift, and so this test does not
+    -- quietly become a tautology if someone re-adds it.
+    check('default: loot is deliberately absent from the shipped row',
+        not shipped:find('loot', 1, true), shipped)
+
+    -- ...but it stays OFFERABLE in the Settings editor, so the code path is live and has to
+    -- keep working. It is the one id moduleLabel returns nil for, so an unguarded entry draws
+    -- NOTHING -- silently, no error, just a chip that never appears. Everything below drives
+    -- the opted-in row, not the default.
     resetInput()
-    uiState.lootUIOpen = true
-    local rLit = stub.frame(function() dockBottom.render(ctx) end)
-    check('default: the Loot chip lights from uiState.lootUIOpen',
+    local optIn = shipped .. ',loot'
+    local lootUi = {}
+    local lootCtx = newCtx({ uiState = lootUi })
+    lootCtx.layoutConfig.DockBottomStyle = 'buttons'
+    lootCtx.layoutConfig.DockButtons = optIn
+    dockState.init(newDeps(lootCtx))
+    warmState(1263000)
+    local rOpt = stub.frame(function() dockBottom.render(lootCtx) end)
+    check('opt-in: the Loot chip draws despite having no registry entry',
+        stub.drew(rOpt, 'Loot##dockbtn_loot'), table.concat(rOpt.buttons, '|'))
+    check('opt-in: balanced', stub.balanced(rOpt), stub.imbalance(rOpt))
+
+    -- registry.isOpen('loot') is false however open the window is, so the chip needs its own
+    -- lit predicate off uiState -- otherwise it is the one launcher that never lights.
+    resetInput()
+    lootUi.lootUIOpen = true
+    local rLit = stub.frame(function() dockBottom.render(lootCtx) end)
+    check('opt-in: the Loot chip lights from uiState.lootUIOpen',
         stub.drewColor and stub.drewColor(rLit, 'Loot##dockbtn_loot') ~= nil
         or stub.drew(rLit, 'Loot##dockbtn_loot'), table.concat(rLit.buttons, '|'))
-    check('default: lit Loot frame balanced', stub.balanced(rLit), stub.imbalance(rLit))
+    check('opt-in: lit Loot frame balanced', stub.balanced(rLit), stub.imbalance(rLit))
 
     resetInput()
-    uiState.lootUIOpen = nil
-    uiState.dockActionQueue = nil
+    lootUi.lootUIOpen = nil
+    lootUi.dockActionQueue = nil
     stub.click = { dockbtn_loot = true }
-    stub.frame(function() dockBottom.render(ctx) end)
-    local q = uiState.dockActionQueue
-    check('default: the Loot chip enqueues a toggling window action for its own id',
+    stub.frame(function() dockBottom.render(lootCtx) end)
+    local q = lootUi.dockActionQueue
+    check('opt-in: the Loot chip enqueues a toggling window action for its own id',
         q and #q >= 1 and q[#q].kind == 'window' and q[#q].id == 'loot' and q[#q].toggle == true,
         q and q[#q] and (tostring(q[#q].kind) .. '/' .. tostring(q[#q].id)) or 'nil')
+
+    -- The Settings editor is the half that was actually broken -- a live code path nothing
+    -- can reach is exactly the bug. Both surfaces now read utils/dock_buttons.lua, so this
+    -- asserts the shared list rather than a second copy of it.
+    local dockButtons = require('itemui.utils.dock_buttons')
+    local editable = {}
+    for _, b in ipairs(dockButtons.BUTTONS) do editable[b.id] = true end
+    check('offerable: loot and favorites are both editable in Settings',
+        editable.loot and editable.favorites,
+        'loot=' .. tostring(editable.loot) .. ' favorites=' .. tostring(editable.favorites))
+    check('offerable: augments is gone entirely (classicOnly, could never draw)',
+        not editable.augments, 'augments is still offerable')
+
+    -- The invariant the drift broke: the shipped CSV and the editor cannot disagree, because
+    -- one is built from the other. A hand-edit that reintroduces a second list fails here.
+    check('offerable: the shipped default is a subset of what Settings can edit',
+        (function()
+            for id in shipped:gmatch('([^,]+)') do
+                if not editable[id:match('^%s*(.-)%s*$')] then return false end
+            end
+            return true
+        end)(), shipped)
 end
 
 -- =================================================================
