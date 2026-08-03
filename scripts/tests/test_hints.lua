@@ -144,6 +144,36 @@ for _, h in ipairs(hints.HINTS or {}) do
 end
 check('every hint anchors to a segment that still exists', #orphaned == 0,
     table.concat(orphaned, ', '))
+-- 11. No hint may promise a control that does not exist.
+--
+-- A "Review button" has now been invented twice for the lane's finished state -- once in
+-- docs/DOCK_UI.md and once here, in the copy a new player is taught at their first loot run.
+-- It has never existed in dock_top or dock_state. The lane's finished mood draws the result
+-- and holds it six seconds; the only lane buttons are Take/Pass on a mythical and Bags when a
+-- run stops full. Teaching a control that is not there is worse than teaching nothing, and
+-- copy is the one surface no render test covers.
+local PHANTOM = { 'Review' }
+local promises = {}
+for _, h in ipairs(hints.HINTS or {}) do
+    for _, word in ipairs(PHANTOM) do
+        if tostring(h.body or ''):find(word, 1, true) then
+            promises[#promises + 1] = tostring(h.id) .. ' promises ' .. word
+        end
+    end
+end
+check('no hint promises a control that does not exist', #promises == 0,
+    table.concat(promises, ', '))
+
+-- Stop is never in the lane -- it is Loot All transforming in place. A hint that says
+-- otherwise sends someone hunting the wrong end of the bar mid-run.
+check('no hint puts Stop in the lane',
+    not tostring((function()
+        for _, h in ipairs(hints.HINTS or {}) do
+            if h.id == 'loot_run' then return h.body end
+        end
+        return ''
+    end)()):find('Stop button', 1, true))
+
 check('the two lane hints point at the lane, not the retired loot slot',
     (function()
         for _, h in ipairs(hints.HINTS or {}) do

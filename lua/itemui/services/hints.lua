@@ -36,7 +36,12 @@ M.HINTS = {
       body = "Hover the sell slot any time to see the breakdown by reason. Nothing sells until you press Auto Sell at a merchant." },
     { id = "loot_run", anchor = "lane",
       title = "A loot run, live",
-      body = "Corpse progress, items taken and a Stop button live here while loot.mac runs. The Review button opens the full recap." },
+      -- Was: "...and a Stop button live here while loot.mac runs. The Review button opens the
+      -- full recap." Both halves were false about the cell the card points at. Stop is never
+      -- in the lane -- Loot All becomes its own Stop in place (dock_top.lua's buttons segment,
+      -- and the rule stated beside the lane) -- and no Review button exists anywhere on the
+      -- bar. The finished mood draws the result and holds it six seconds.
+      body = "Corpse progress and items taken appear here while a run goes. Loot All becomes Stop while it runs, and the result holds here for a few seconds after." },
     { id = "mythical", anchor = "lane",
       title = "A mythical needs a decision",
       body = "Take or Pass right from the bar. The Loot window shows the item's stats if you want a closer look first." },
