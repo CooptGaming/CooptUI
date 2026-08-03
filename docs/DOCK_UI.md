@@ -111,7 +111,7 @@ starts a job**. The verbs live on the status bar, beside the lane that reports t
 | Group | What's in it |
 |---|---|
 | **chat** (left edge) | A `chat` button with an unread count, or one line of the newest message with per-channel unread dots |
-| **launchers** | One button per window, left to right: **Bags \| Bank** and **Item Display \| Augment Utility** as split pairs, then Equipment, Effects, Mythics, Reroll, Scripts, AA, Clickies, Loot. Reroll carries a pending count |
+| **launchers** | One button per window, left to right: **Bags \| Bank** and **Item Display \| Augment Utility** as split pairs, then Equipment, Effects, Mythics, Reroll, Scripts, AA, Clickies. Reroll carries a pending count |
 | **Native UI** | Inventory, Merchant, Actions, AA window, Bank, and the native panel — the game's own windows, opened through MQ |
 | **Layouts** | Your layout presets (the active one is lit), **Re-tidy now**, and **Save current as…** |
 | **Settings** | A toggle, not a menu — lit while the Settings window is open |
@@ -129,6 +129,16 @@ in Settings → General → Dock.
 
 **The Command Center window is retired too.** Everything it did is here, so you can close it
 for good. `/itemui center` now just makes sure this bar is on screen.
+
+The Loot window isn't on the row by default, because it opens itself the moment a run starts
+and the lane reports the run without it. Add it in Settings if you want it anyway.
+
+**One home per control applies to the bars, not to the native panel.** With the plugin
+loaded, the game's own Command Center panel (Native UI → Native panel) still carries its
+launchers *and* its run buttons. That is deliberate: it's the surface for someone who lives
+in EverQuest's own windows and doesn't want an overlay, and nothing the retired Command
+Center offered was allowed to disappear with it. Between the two *bars*, though, the rule
+holds absolutely — no verb is on both.
 
 When the window gets narrow enough that chat would be squeezed under about 220px, the
 **launcher row folds away** rather than shrinking — the CoOpt cell's list holds every one of
