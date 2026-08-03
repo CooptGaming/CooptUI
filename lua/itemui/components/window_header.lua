@@ -150,13 +150,27 @@ end
 --- number welded into a label reads as part of the NAME; a pill reads as a quantity. It
 --- stays clickable and does the chip's own action, so it is never a dead zone inside a
 --- live control.
-function M.pill(count, uid)
+--- `tooltip` is not decoration. A pill is a bare number with no unit beside a label that
+--- names a WINDOW, not the thing being counted -- so it is the one control here whose label
+--- explains nothing, and the two that ship count different kinds of thing (items waiting to
+--- join a list; empty sockets on a shown item). Without a tooltip the only way to learn what
+--- a pill means is to open the window and compare numbers, and the window shows three others.
+function M.pill(count, uid, tooltip)
     ImGui.SameLine(0, 1)
     ImGui.PushStyleColor(ImGuiCol.Button, theme.ToVec4(theme.Kit.Divider))
     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.TextContent))
     local ok, clicked = pcall(ImGui.SmallButton, tostring(count) .. "##" .. uid)
     ImGui.PopStyleColor(2)
     if not ok then error(clicked, 0) end
+    -- BeginItemTooltip is NOT bound on this pin, so this is IsItemHovered plus the explicit
+    -- pair -- and the draw is pcall'd INSIDE the pair, because an unbalanced BeginTooltip is
+    -- a C++ exception Lua cannot catch.
+    if tooltip and tooltip ~= "" and ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        local drew, err = pcall(ImGui.Text, tostring(tooltip))
+        ImGui.EndTooltip()
+        if not drew then error(err, 0) end
+    end
     return clicked == true
 end
 

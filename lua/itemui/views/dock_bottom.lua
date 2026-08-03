@@ -172,6 +172,12 @@ local moduleLabel = hubList.moduleLabel
 local pairModules = hubList.pairModules
 local pairOpen = hubList.pairOpen
 local pairPillCount = hubList.pairPillCount
+
+--- "1 item waiting" / "3 items waiting" -- a pill tooltip that says "1 items" undermines the
+--- exact thing it exists to do, which is read as a sentence rather than a number.
+local function pillWord(n, one, many)
+    return string.format("%d %s", n or 0, (n == 1) and one or many)
+end
 local hubOpen = hubList.hubOpen
 
 
@@ -333,6 +339,9 @@ local function launcherEntries(ctx, layoutConfig)
                     -- sockets on whatever Item Display is showing. It rides beside the
                     -- label, not inside it.
                     { label = auLabel, pill = pairPillCount(),
+                      pillTooltip = pillWord(pairPillCount(),
+                          "empty augment socket on the item shown",
+                          "empty augment sockets on the item shown"),
                       action = { kind = "window", id = "augmentUtility", toggle = true } },
                 } }
             end
@@ -345,16 +354,24 @@ local function launcherEntries(ctx, layoutConfig)
             local isLoot = (id == "loot")
             local label = isLoot and "Loot" or moduleLabel(id)
             if label then
-                local pill = nil
+                local pill, pillTip = nil, nil
                 if id == "reroll" then
                     local n = rerollPendingCount(ctx)
-                    if n > 0 then pill = n end
+                    if n > 0 then
+                        pill = n
+                        -- Names what it counts, because the window shows three OTHER numbers
+                        -- for itself (the two server-list sizes in its band, and "N of 10
+                        -- ready" in its body) and a bare pill matches none of them.
+                        pillTip = pillWord(n, "item waiting to go on the reroll list",
+                                              "items waiting to go on the reroll list")
+                    end
                 end
                 local lit = nil
                 if isLoot then
                     lit = function(c) return (c and c.uiState and c.uiState.lootUIOpen) == true end
                 end
-                out[#out + 1] = { id = id, label = label, pill = pill, isHub = false, lit = lit }
+                out[#out + 1] = { id = id, label = label, pill = pill, pillTooltip = pillTip,
+                                  isHub = false, lit = lit }
             end
         end
     end
@@ -437,7 +454,7 @@ local function drawLauncherButtons(ctx, entries, edge)
                 if lit == nil and h.lit then lit = h.lit(ctx) end
                 local uid = "dockbtn_" .. e.id .. "_" .. hi
                 local hit = chipButton(h.label, uid, lit, edge)
-                if h.pill and pillButton(h.pill, uid .. "_pill") then hit = true end
+                if h.pill and pillButton(h.pill, uid .. "_pill", h.pillTooltip) then hit = true end
                 if hit then dockTop.queue(ctx, h.action) end
             end
         else
@@ -452,7 +469,7 @@ local function drawLauncherButtons(ctx, entries, edge)
             end
             local uid = "dockbtn_" .. e.id
             local hit = chipButton(e.label, uid, open, edge)
-            if e.pill and pillButton(e.pill, uid .. "_pill") then hit = true end
+            if e.pill and pillButton(e.pill, uid .. "_pill", e.pillTooltip) then hit = true end
             if hit then
                 if e.isHub then
                     dockTop.queue(ctx, { kind = "hub" })

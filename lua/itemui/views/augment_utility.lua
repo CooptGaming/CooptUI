@@ -204,7 +204,27 @@ renderForSlotContent = function(ctx)
 
     if not tab or not tab.item then
         ctx.theme.TextWarning("No item selected.")
-        ImGui.TextWrapped("Open an item in CoOpt UI Item Display (right-click an item -> Item info), then use this utility to add or remove augments.")
+        -- This used to be a two-clause paragraph, and the first clause ("open an item in Item
+        -- Display") was the THIRD time the window said so -- the band above already reads
+        -- "no subject - open an item". What is genuinely stated nowhere else is HOW an item
+        -- gets there, and the hints system does not teach it either: its five hints are
+        -- merchant, loot_run, mythical, full_bag and rule_edit (services/hints.lua). So the
+        -- teaching stays and only the repetition goes.
+        ImGui.TextWrapped("Right-click any item and choose Item info to send it here.")
+        -- ...and then the window can just DO it. These two are a declared pair that opens and
+        -- closes together, so this window already knows exactly which one you need -- describing
+        -- the trip when you could take it is the part that read as a manual.
+        --
+        -- Queued, never a direct registry write from a render callback (the rule hub_list
+        -- states); phase0b drains this in both UI modes, so it works in classic too.
+        if ImGui.SmallButton("Open Item Display##AugUtilEmptyOpenID") then
+            local uiState = ctx.uiState
+            if uiState then
+                local q = uiState.dockActionQueue
+                if not q then q = {}; uiState.dockActionQueue = q end
+                q[#q + 1] = { kind = "window", id = "itemDisplay" }
+            end
+        end
         return
     end
 

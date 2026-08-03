@@ -886,6 +886,21 @@ do
         and not stub.drew(rBadge, 'Reroll 3##dockbtn_reroll'), table.concat(rBadge.buttons, '|'))
     check('buttons: badge frame balanced', stub.balanced(rBadge), stub.imbalance(rBadge))
 
+    -- A pill is a bare number beside a label that names a WINDOW, so it has to be able to
+    -- say what it counts -- Reroll's pill counts a fourth thing the window never shows (its
+    -- band has the two server-list sizes, its body has "N of 10 ready"). The balance check
+    -- under hover is the load-bearing half: BeginTooltip/EndTooltip is a pair, and an
+    -- unbalanced one is a C++ exception pcall cannot catch.
+    resetInput()
+    stub.hover = { ['3##dockbtn_reroll_pill'] = true }
+    local rTip = stub.frame(function() dockBottom.render(badgeCtx) end)
+    stub.hover = {}
+    check('buttons: the pill names what it counts on hover',
+        stub.drew(rTip, '3 items waiting to go on the reroll list'),
+        table.concat(rTip.texts or {}, '|'))
+    check('buttons: hovered pill frame is balanced (tooltip pair closed)',
+        stub.balanced(rTip), stub.imbalance(rTip))
+
     -- The pill is part of the control, not a dead decoration beside it.
     resetInput()
     badgeCtx.uiState.dockActionQueue = nil
