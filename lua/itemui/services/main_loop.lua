@@ -1571,6 +1571,20 @@ local function phase0b_dockActionQueue(now)
             if setStatusMessage then setStatusMessage("Sell stopped.") end
         end
 
+    elseif a.kind == "sell_preview" then
+        -- The bar's "Full preview". Mirrors what the native merchant strip's Preview button
+        -- already does (native_bridge): show the hub, freshen the sell list, then set the
+        -- flag the sell view consumes to open its modal. It cannot be opened from here
+        -- directly -- the popup belongs to SellView's own frame, and main_window only renders
+        -- that view at a merchant, which is why the bar hides the button otherwise.
+        if d.getShouldDraw and not d.getShouldDraw() then
+            if d.setShouldDraw then d.setShouldDraw(true) end
+            uiState.userClosedViaKeybind = false
+        end
+        if d.setOpen then d.setOpen(true) end
+        if d.maybeScanSellItems then pcall(d.maybeScanSellItems, true) end
+        uiState.nativePreviewRequested = true
+
     elseif a.kind == "lesson_seen" and a.id then
         -- A one-time teaching strip was dismissed. Writes an INI, so it drains here rather
         -- than in the frame -- same reason the hint cards' Got it does.

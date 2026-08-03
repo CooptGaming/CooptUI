@@ -539,6 +539,7 @@ do
     check('popover: drew the expiring header', stub.drew(r2, 'Expiring soon'),
         table.concat(r2.text, '|'))
 
+
     -- Bug: the popover showed NOTHING below "Expiring soon" when nothing was under five
     -- minutes, even though snap.buffs was fully populated. The stub never stubs
     -- DrawTextureAnimation/FindTextureAnimation, so the icon grid is unreachable here and the
@@ -1699,6 +1700,57 @@ do
 end
 
 -- ---------------------------------------------------------------- summary
+-- =================================================================
+-- The SELL popover's "Full preview", both branches.
+--
+-- It used to queue a bare hub open, on a comment claiming the hub's Sell view IS the full
+-- preview and that no separate window exists. One does -- sell.lua's "Sell Preview##ItemUI"
+-- modal, which the native merchant strip's own Preview button opens -- and the hub only
+-- switches to Sell at a merchant, so with none this button silently opened the INVENTORY.
+-- Field-reported exactly that way, and untested because the sell popover had no coverage.
+--
+-- Last in the file deliberately: it re-inits dockState with its own deps, which detaches any
+-- snapshot reference an earlier block is still holding.
+-- =================================================================
+do
+    resetInput()
+    stub.advance(T.DOCK_POPOVER_GRACE_MS * 4)
+    local sellCtx = newCtx({ segments = 'sell' })
+    dockState.init(newDeps(sellCtx, { merchantOpen = true, sellItems = { {}, {} } }))
+    warmState(560000)
+    stub.hover = { dockseg_sell = true }
+    local rs = stub.frame(function() dockTop.render(sellCtx) end)
+    check('sell popover: at a merchant it offers Full preview',
+        stub.drew(rs, 'Full preview##dockSellPreview'), table.concat(rs.buttons, '|'))
+    check('sell popover: balanced', stub.balanced(rs), stub.imbalance(rs))
+
+    sellCtx.uiState.dockActionQueue = nil
+    stub.click = { ['Full preview##dockSellPreview'] = true }
+    stub.frame(function() dockTop.render(sellCtx) end)
+    stub.click = {}
+    local qs = sellCtx.uiState.dockActionQueue
+    check('sell popover: Full preview asks for the PREVIEW, not a bare hub open',
+        qs and #qs >= 1 and qs[#qs].kind == 'sell_preview',
+        qs and qs[#qs] and tostring(qs[#qs].kind) or 'nil')
+
+    -- No merchant: the modal renders inside the sell view and main_window only draws that at
+    -- a merchant, so there is nothing to preview. It must SAY so rather than offer a button
+    -- that lands somewhere else - the same replacement the Sell button above already makes.
+    resetInput()
+    stub.advance(T.DOCK_POPOVER_GRACE_MS * 4)
+    local noMerch = newCtx({ segments = 'sell' })
+    dockState.init(newDeps(noMerch, { merchantOpen = false, sellItems = { {}, {} } }))
+    warmState(570000)
+    stub.hover = { dockseg_sell = true }
+    local rn = stub.frame(function() dockTop.render(noMerch) end)
+    check('sell popover: with no merchant the preview button is GONE, not misleading',
+        not stub.drew(rn, 'Full preview##dockSellPreview'), table.concat(rn.buttons, '|'))
+    check('sell popover: and it says why', stub.drew(rn, 'Preview needs an open merchant'),
+        table.concat(rn.text, '|'))
+    check('sell popover: no-merchant frame balanced', stub.balanced(rn), stub.imbalance(rn))
+    stub.hover = {}
+end
+
 local missing = {}
 for k, v in pairs(stub.missing) do missing[#missing + 1] = k .. 'x' .. v end
 if #missing > 0 then print('\nunstubbed ImGui calls seen: ' .. table.concat(missing, ', ')) end

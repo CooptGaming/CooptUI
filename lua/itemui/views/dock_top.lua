@@ -1328,9 +1328,25 @@ popovers.sell = function(ctx, s)
     else
         theme.TextMuted("Auto Sell needs an open merchant.")
     end
-    -- "Full preview" is the hub: it switches itself to the Sell view whenever a merchant is
-    -- open, which IS the full preview. There is no separate preview window to open.
-    if ImGui.Button("Full preview##dockSellPreview") then M.queue(ctx, { kind = "hub" }) end
+    -- "Full preview" opens the SELL PREVIEW MODAL -- the dry run listing exactly what Auto
+    -- Sell would sell, with a Why column. The comment here used to claim there was no such
+    -- window and that the hub's Sell view "IS the full preview"; there is one
+    -- (sell.lua's "Sell Preview##ItemUI"), it is what the merchant strip's own Preview button
+    -- opens, and it is what a button called Full preview should show.
+    --
+    -- Worse, the old action was a bare hub open, and the hub only switches to Sell when a
+    -- merchant is open -- so with no merchant this button silently opened the INVENTORY.
+    -- Field-reported exactly that way.
+    if s.merchantOpen then
+        if ImGui.Button("Full preview##dockSellPreview") then
+            M.queue(ctx, { kind = "sell_preview" })
+        end
+    else
+        -- The modal renders INSIDE the sell view, and main_window only renders that view at a
+        -- merchant, so there is genuinely nothing to show. Say so, exactly as the Sell button
+        -- above already does -- a replacement line, not a greyed control.
+        theme.TextMuted("Preview needs an open merchant.")
+    end
     ImGui.SameLine()
     if ImGui.Button("Rules##dockSellRules") then M.queue(ctx, { kind = "window", id = "config" }) end
 end
