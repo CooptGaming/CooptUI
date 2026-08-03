@@ -24,15 +24,20 @@ local d                     -- main-loop deps (init)
 local HINTS_INI = "coopui_onboarding.ini"
 local HINTS_SECTION = "Hints"
 
--- Order here is the replay order. anchor = the dock_top slot the popover points at.
+-- Order here is the replay order. anchor = the dock_top slot the popover points at, and it
+-- MUST be a live id in dock_top's CELL_ORDER: renderHint does `M.slots[anchor] or {}` and
+-- then `slot.x or barX`, so an unknown anchor silently anchors to the bar's left edge instead
+-- of failing. Both loot hints said "loot" -- the segment the phase-13 lane replaced -- so the
+-- two moments that matter most pointed at the CoOpt cell while describing the lane.
+-- test_hints.lua now fails on any anchor that is not a real segment.
 M.HINTS = {
     { id = "merchant", anchor = "sell",
       title = "This is what your rules would sell",
       body = "Hover the sell slot any time to see the breakdown by reason. Nothing sells until you press Auto Sell at a merchant." },
-    { id = "loot_run", anchor = "loot",
+    { id = "loot_run", anchor = "lane",
       title = "A loot run, live",
       body = "Corpse progress, items taken and a Stop button live here while loot.mac runs. The Review button opens the full recap." },
-    { id = "mythical", anchor = "loot",
+    { id = "mythical", anchor = "lane",
       title = "A mythical needs a decision",
       body = "Take or Pass right from the bar. The Loot window shows the item's stats if you want a closer look first." },
     { id = "full_bag", anchor = "bags",

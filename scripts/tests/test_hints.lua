@@ -125,5 +125,32 @@ check('replay ends clean', hints.getActive() == nil)
 check('replayed hints are re-marked seen as dismissed',
     ini[iniKey('coopui_onboarding.ini', 'Hints', 'hint_rule_edit')] == 'TRUE')
 
+-- 10. Every anchor must be a LIVE dock_top segment.
+--
+-- renderHint does `M.slots[hint.anchor or ""] or {}` and then `slot.x or barX`, so an anchor
+-- that no longer exists does not fail -- it silently pins the popover to the bar's left edge.
+-- Both loot hints anchored to "loot", the segment the phase-13 lane replaced, so the two
+-- teaching moments that matter most pointed at the CoOpt cell while describing the lane. A
+-- retirement that misses a consumer is the recurring shape here (the retired `loot` id, the
+-- mandatory status bar's stale DockTop tests), and a silent positional fallback is the worst
+-- place for it because nothing looks broken.
+local SEGMENTS = { status = true, session = true, bags = true, sell = true,
+                   buttons = true, lane = true, buffs = true, xp = true }
+local orphaned = {}
+for _, h in ipairs(hints.HINTS or {}) do
+    if not SEGMENTS[tostring(h.anchor or '')] then
+        orphaned[#orphaned + 1] = tostring(h.id) .. '->' .. tostring(h.anchor)
+    end
+end
+check('every hint anchors to a segment that still exists', #orphaned == 0,
+    table.concat(orphaned, ', '))
+check('the two lane hints point at the lane, not the retired loot slot',
+    (function()
+        for _, h in ipairs(hints.HINTS or {}) do
+            if (h.id == 'loot_run' or h.id == 'mythical') and h.anchor ~= 'lane' then return false end
+        end
+        return true
+    end)())
+
 print(string.format('\n%d passed, %d failed', pass, fail))
 os.exit(fail == 0 and 0 or 1)
