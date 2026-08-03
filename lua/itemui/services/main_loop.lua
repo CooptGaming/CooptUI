@@ -308,6 +308,15 @@ local function phase5_lootMacro(now)
         dbgLoot.log("Loot macro finished - scheduling inventory scan and session read")
         lootMacState.pendingScan = true
         lootMacState.finishedAt = now
+        -- A run that ENDED is finished, whether or not it also produced a session summary.
+        -- This used to be set only inside the `if session then` block below, so a run that
+        -- ABORTED -- loot.mac printing "Your Inventory is full!!" and stopping -- never set
+        -- it, and dock_state's bags-full check (which needs `running or lootRunFinished` to
+        -- decide a full bag is a LOOT problem) saw false on both. Field-confirmed by
+        -- /itemui dock debug: bagFree=0 lootRunFinished=false lootRunning=false problem=nil,
+        -- with the console showing the macro's own full-inventory message. The one state
+        -- built to "stay alert until dealt with" was the one you could only see mid-run.
+        uiState.lootRunFinished = true
         d.scanState.inventoryBagsDirty = true
         lootLoopRefs.pendingSession = true
         lootLoopRefs.pendingSessionAt = now

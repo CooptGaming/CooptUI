@@ -972,7 +972,15 @@ popovers.buffs = function(ctx, s)
             spellIconAnim = mq.FindTextureAnimation("A_SpellIcons")
         end
         if spellIconAnim then
-            local perRow = math.max(1, math.floor((ImGui.GetWindowWidth() - 16) / (BUFF_ICON_SIZE + 4)))
+            -- Wrap on the CONTENT width, not the window width minus a guessed padding. This
+            -- was GetWindowWidth() - 16 while the popover pushes WindowPadding (10, 8) -- 20
+            -- horizontally -- so it reserved 4px too little and the last icon of a row was
+            -- clipped by the window edge. Field-reported as an icon cut off; visible in the
+            -- capture. GetContentRegionAvail already accounts for whatever padding is
+            -- actually in force, so it cannot drift from the push again.
+            local availW = ImGui.GetContentRegionAvail()
+            if type(availW) ~= "number" or availW <= 0 then availW = ImGui.GetWindowWidth() - 20 end
+            local perRow = math.max(1, math.floor(availW / (BUFF_ICON_SIZE + 4)))
             for i, b in ipairs(buffs) do
                 if (i - 1) % perRow ~= 0 then ImGui.SameLine(0, 4) end
                 ImGui.PushID("dockbuff" .. i)
@@ -1397,10 +1405,18 @@ local function renderPopover(ctx, s, edge, barX, barY, barW, barH)
     -- when the one-bar mode turned out to strand them -- and a constant that was generous
     -- in 26a silently CLIPPED the tail, which is worse than the reachability gap those
     -- entries were added to close. 24px keeps it off the very edge.
-    local _, vpY, _, vpH = dockLayout.viewport()
+    local _, vpY, vpW, vpH = dockLayout.viewport()
     local room = (edge == "bottom") and (py - vpY - 24) or ((vpY + vpH) - py - 24)
     local maxH = math.max(200, math.min(720, room))
-    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, maxH))
+    -- Width derives from the viewport the same way the height above already does. It was a
+    -- flat 560, which is narrow on any modern screen and is what forced the buffs grid to
+    -- wrap into two cramped rows while 2000px of bar sat unused beside it. AlwaysAutoResize
+    -- means raising the cap only widens a popover whose CONTENT wants the room -- the sell
+    -- and session popovers size themselves and are unaffected -- so this buys the icon grid
+    -- its row back without making anything else sprawl. Ceiling keeps it a popover rather
+    -- than a panel; the floor keeps it usable on a small viewport.
+    local maxW = math.max(360, math.min(1000, math.floor((vpW or 1920) * 0.45)))
+    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(maxW, maxH))
 
     local flags = bit32.bor(M.popoverFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
     ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
