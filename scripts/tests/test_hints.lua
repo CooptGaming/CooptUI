@@ -181,6 +181,26 @@ check('no hint puts Stop in the lane',
         return ''
     end)()):find('Stop button', 1, true))
 
+-- 12. A hint that lists controls must list ALL of them.
+--
+-- The mythical card said "Take or Pass" while the lane draws Take, Pass AND Reroll -- the same
+-- copy-does-not-match-controls class as the Review button, except by omission rather than by
+-- residue, and invisible from source because the copy reads perfectly well. It took a field
+-- capture of the decision mood to see it. Reroll is also the one that most needs naming: it
+-- shares Take's exact button style (both PushKeepButton), so nothing on screen tells them
+-- apart either. test_dock_render's decision block is what proves these are the three the lane
+-- actually draws.
+local mythBody = ''
+for _, h in ipairs(hints.HINTS or {}) do
+    if h.id == 'mythical' then mythBody = tostring(h.body or '') end
+end
+local unnamed = {}
+for _, verb in ipairs({ 'Take', 'Pass', 'Reroll' }) do
+    if not mythBody:find(verb, 1, true) then unnamed[#unnamed + 1] = verb end
+end
+check('the mythical hint names every button the lane offers', #unnamed == 0,
+    'missing: ' .. table.concat(unnamed, ','))
+
 check('the two lane hints point at the lane, not the retired loot slot',
     (function()
         for _, h in ipairs(hints.HINTS or {}) do

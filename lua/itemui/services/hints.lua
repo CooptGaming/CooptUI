@@ -50,7 +50,13 @@ M.HINTS = {
       body = "Corpse progress and items taken appear here while a run goes. Loot All becomes Stop while it runs, and the result holds here for a few seconds after." },
     { id = "mythical", anchor = "lane",
       title = "A mythical needs a decision",
-      body = "Take or Pass right from the bar. The Loot window shows the item's stats if you want a closer look first." },
+      -- Named all THREE only after a field capture of the decision mood: the lane draws Take,
+      -- Pass and Reroll, and this card taught two of them. Reroll is the one that needs
+      -- saying, because Take and Pass are self-evident and Reroll is not (it takes the item
+      -- AND queues it) -- and because it shares Take's exact button style, so nothing on
+      -- screen distinguishes them either. The stats line points at the hover, which is on the
+      -- bar where the card is, rather than at the Loot window.
+      body = "Take, Pass or Reroll right from the bar - hover the item's name for its full stats first. Reroll takes it and queues it for the reroll list." },
     { id = "full_bag", anchor = "bags",
       title = "Bags are full",
       body = "The bags slot goes amber past 90%. Auto Sell at a merchant clears the junk your rules already agreed to." },
