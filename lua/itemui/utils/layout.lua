@@ -15,6 +15,9 @@ local layout_setup = require('itemui.utils.layout_setup')
 local registry = require('itemui.core.registry')
 local diagnostics = require('itemui.core.diagnostics')
 local debugModule = require('itemui.core.debug')
+local layoutSchema = require('itemui.utils.layout_schema')
+local dockButtons = require('itemui.utils.dock_buttons')
+local columnConfig = require('itemui.utils.column_config')
 local dbg = debugModule.channel('Layout')
 
 local LayoutUtils = {}
@@ -402,6 +405,10 @@ function LayoutUtils.saveLayoutToFileImmediate()
         -- key per module (ZoneAssign_bank=…): [Layout] is fully regenerated from this f:write
         -- list, so a per-module key would be erased on the next save. Same reason
         -- PinnedWindows above is one comma-joined string.
+        -- Written every save so a migrated file stops re-migrating. An older build reading a
+        -- newer file just ignores this key; a newer build reading an older file sees 0 and
+        -- migrates, which is the whole point.
+        f:write(layoutSchema.KEY .. "=" .. tostring(layoutConfig[layoutSchema.KEY] or layoutSchema.CURRENT) .. "\n")
         f:write("UIMode=" .. tostring(layoutConfig.UIMode or layoutDefaults.UIMode or "classic") .. "\n")
         f:write("DockTop=" .. (layoutConfig.DockTop ~= false and "1" or "0") .. "\n")
         f:write("DockBottom=" .. (layoutConfig.DockBottom ~= false and "1" or "0") .. "\n")
@@ -668,6 +675,34 @@ local function applyLayoutSection(parsed)
     -- entry loadLayoutValue's numeric fallthrough would hand back the default forever.
     layoutConfig.ChatSendTo = LayoutUtils.loadLayoutValue(layout, "ChatSendTo", layoutDefaults.ChatSendTo or "say")
     LayoutUtils.applyColumnVisibilityFromParsed(parsed)
+
+    -- Schema migration, LAST because it revises what everything above just loaded.
+    --
+    -- The three whitelists are "these are on" lists rewritten in full on every change, so
+    -- before this a shipped default that gained a member never reached an existing install --
+    -- four times, most recently Clickies. layout_schema adds only entries NEWER than the
+    -- schema the file was saved at, so an id the user turned off (it existed at their schema
+    -- level) is never resurrected, while one they have never seen is added.
+    --
+    -- The stamp goes to layoutConfig only; the next ordinary save persists it. That is
+    -- deliberate -- saving from inside the loader would re-enter through layoutNeedsReload --
+    -- and it is safe because re-running the migration is idempotent: the same additions land
+    -- in the same places. The one path that could resurrect a deliberate off is the user
+    -- turning the new entry back off, and that goes through setLayoutValue, which saves,
+    -- which stamps.
+    local savedSchema = layoutSchema.saved(LayoutUtils.loadLayoutValue(layout, layoutSchema.KEY, 0))
+    if savedSchema < layoutSchema.CURRENT then
+        local migrated, changed = layoutSchema.migrateCsv(
+            layoutConfig.DockButtons, dockButtons.BUTTONS, savedSchema)
+        if changed then layoutConfig.DockButtons = migrated end
+        layoutSchema.migrateVisibility(columnConfig.columnVisibility,
+            columnConfig.availableColumns, savedSchema)
+        -- DockSegments is covered by the same mechanism but NOT wired: it has no canonical
+        -- table to carry `since` (its ids live in dock_top's CELL_OPTIONAL and its default in
+        -- state.lua), and its shipped default already enables all six optional cells, so there
+        -- is nothing to migrate today. Give it a table before adding a seventh.
+    end
+    layoutConfig[layoutSchema.KEY] = layoutSchema.CURRENT
 end
 
 function LayoutUtils.loadLayoutConfig()

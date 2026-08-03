@@ -31,19 +31,24 @@ local M = {}
 --- `augments` is absent entirely, which is different from shipping off: it folded into Aug
 --- Utility's All tab and its id is classicOnly, so a chip for it could never draw in bars
 --- mode. Offering it in Settings was offering a control that does nothing.
+--- `since` is the layout schema at which the entry first shipped; utils/layout_schema.lua
+--- uses it to add new entries to an existing install without resurrecting ones the user
+--- turned off. Everything present before the marker existed is `since = 0`.
 M.BUTTONS = {
-    { id = "bags",           label = "Bags",            default = true },
-    { id = "bank",           label = "Bank",            default = true },
-    { id = "itemDisplay",    label = "Item Display",    default = true },
-    { id = "augmentUtility", label = "Augment Utility", default = true },
-    { id = "equipment",      label = "Equipment",       default = true },
-    { id = "effects",        label = "Effects",         default = true },
-    { id = "mythicals",      label = "Mythics",         default = true },
-    { id = "reroll",         label = "Reroll",          default = true },
-    { id = "scripttracker",  label = "Scripts",         default = true },
-    { id = "aa",             label = "AA",              default = true },
-    { id = "favorites",      label = "Clickies",        default = true },
-    { id = "loot",           label = "Loot",            default = false },
+    { id = "bags",           label = "Bags",            default = true,  since = 0 },
+    { id = "bank",           label = "Bank",            default = true,  since = 0 },
+    { id = "itemDisplay",    label = "Item Display",    default = true,  since = 0 },
+    { id = "augmentUtility", label = "Augment Utility", default = true,  since = 0 },
+    { id = "equipment",      label = "Equipment",       default = true,  since = 0 },
+    { id = "effects",        label = "Effects",         default = true,  since = 0 },
+    { id = "mythicals",      label = "Mythics",         default = true,  since = 0 },
+    { id = "reroll",         label = "Reroll",          default = true,  since = 0 },
+    { id = "scripttracker",  label = "Scripts",         default = true,  since = 0 },
+    { id = "aa",             label = "AA",              default = true,  since = 0 },
+    { id = "favorites",      label = "Clickies",        default = true,  since = 1 },
+    -- Ships off, so it is never migrated in -- `since` only records when it became
+    -- offerable.
+    { id = "loot",           label = "Loot",            default = false, since = 1 },
 }
 
 --- The shipped `DockButtons` value, built from the table above so the two cannot disagree.
