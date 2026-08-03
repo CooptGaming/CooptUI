@@ -428,7 +428,18 @@ end
 local function invalidateSortCache(view, sortOnly)
     local c = view == "inv" and perfCache.inv or view == "sell" and perfCache.sell or view == "bank" and perfCache.bank or view == "loot" and perfCache.loot
     if c then c._invalid = true end
-    if view == "inv" and not sortOnly then perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true end
+    if view == "inv" and not sortOnly then
+        perfCache.invTotalSlots = nil; perfCache.invTotalValue = nil; scanState.inventoryBagsDirty = true
+        -- A generation counter for CONTENT changes, bumped at the one choke point every
+        -- inventory mutation already passes through.
+        --
+        -- Downstream caches keyed on "#items + last scan time" cannot see a stack shrink:
+        -- reduceStackOrRemoveBySlot only removes a ROW when the stack empties, so consuming
+        -- 11 of a stack of 12 changes neither the length nor the scan time. The Scripts
+        -- window's count served a stale figure for a whole turn-in run because of exactly
+        -- that -- reported from the field as the count not moving until a manual refresh.
+        perfCache.invMutationGen = (perfCache.invMutationGen or 0) + 1
+    end
 end
 
 -- Window state queries (delegated to utils/window_state.lua)

@@ -36,7 +36,13 @@ local countCache = { key = nil, byKey = {}, totalAA = 0, totalCount = 0, slots =
 
 local function rebuildCounts(ctx)
     local items = ctx.inventoryItems or {}
-    local key = string.format("%d|%s", #items, tostring(ctx.perfCache and ctx.perfCache.lastScanTimeInv or 0))
+    -- The mutation generation is the third term for a reason: length and scan time BOTH miss
+    -- a stack shrinking, because a row only disappears when its stack empties. Consuming 11
+    -- of 12 changed neither, so this cache answered with the pre-run count until something
+    -- else forced a rescan.
+    local pc = ctx.perfCache
+    local key = string.format("%d|%s|%s", #items,
+        tostring(pc and pc.lastScanTimeInv or 0), tostring(pc and pc.invMutationGen or 0))
     if countCache.key == key then return countCache end
     local byKey, slots = {}, {}
     local totalAA, totalCount = 0, 0

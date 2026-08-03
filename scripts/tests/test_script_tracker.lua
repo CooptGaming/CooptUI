@@ -89,6 +89,25 @@ do
         table.concat(r.text, '|'))
     check('render: turn-in verbs offered', stub.drew(r, 'Turn in all 7')
         and stub.drew(r, 'Turn in Legendary only'), table.concat(r.buttons, '|'))
+
+    -- A STACK SHRINKING must move the count. The count cache was keyed on list length plus
+    -- last scan time, and a consumed script decrements stackSize without removing the row --
+    -- so neither term changed and the window served the pre-run figure until something forced
+    -- a rescan. Reported from the field during a 12-script turn-in.
+    ctx.inventoryItems[1].stackSize = 1              -- 4 -> 1, row stays
+    ctx.perfCache.invMutationGen = (ctx.perfCache.invMutationGen or 0) + 1
+    local r2 = stub.frame(function() ScriptTrackerView.render(ctx) end)
+    check('render: a stack shrink updates the count without a rescan',
+        stub.drew(r2, 'across 4 scripts'), table.concat(r2.text, '|'))
+    check('render: and the AA total follows it', stub.drew(r2, '14 AA waiting'),
+        table.concat(r2.text, '|'))
+
+    -- ...and without the generation bump it would NOT, which is the bug. Same list length,
+    -- same scan time, different stack.
+    ctx.inventoryItems[1].stackSize = 4
+    local r3 = stub.frame(function() ScriptTrackerView.render(ctx) end)
+    check('render: the generation is what makes it visible (stale without a bump)',
+        stub.drew(r3, 'across 4 scripts'), table.concat(r3.text, '|'))
 end
 
 -- ---------------------------------------------------------------- 3. turn-in enqueue
