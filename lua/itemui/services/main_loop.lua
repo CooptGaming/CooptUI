@@ -1562,6 +1562,14 @@ local function phase0b_dockActionQueue(now)
             if setStatusMessage then setStatusMessage("Sell stopped.") end
         end
 
+    elseif a.kind == "lesson_seen" and a.id then
+        -- A one-time teaching strip was dismissed. Writes an INI, so it drains here rather
+        -- than in the frame -- same reason the hint cards' Got it does.
+        local okL, hintsSvc = pcall(require, 'itemui.services.hints')
+        if okL and hintsSvc and hintsSvc.markLessonSeen then
+            pcall(hintsSvc.markLessonSeen, a.id)
+        end
+
     elseif a.kind == "retidy" then
         -- Zones re-tidy (mockup 10a). Placement writes layoutConfig + force-apply frames;
         -- doing it here rather than in the frame keeps file writes out of the render path.

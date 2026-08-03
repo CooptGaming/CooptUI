@@ -342,7 +342,40 @@ segments.lane = function(ctx, s)
         -- Plain ASCII: nothing else in this codebase uses a \u{} escape, and MQ's Lua version
         -- is not pinned anywhere here (it ships a bit32 shim), so don't be the first to rely
         -- on 5.3+ escape syntax in a file that has to load for the UI to come up at all.
-        if #name > 28 then name = name:sub(1, 25) .. "..." end
+        --
+        -- Budgeted from the lane's ACTUAL width rather than a flat 28 characters: under a
+        -- decision the item's identity is the whole question, and this is the one cell that
+        -- flexes. The fixed-width discipline everywhere else in this bar exists so numbers
+        -- never shove their neighbours; the lane is exempt by design, and the buttons keep
+        -- their room because the reserve is measured from their real labels, not guessed.
+        -- Anything that still will not fit keeps the hover, which shows the full name (and
+        -- the real item tooltip when the slot resolves) -- so growing is a bonus, never the
+        -- only way to read it.
+        local budget = nil
+        if ImGui.GetContentRegionAvail and ImGui.CalcTextSize then
+            local availW = ImGui.GetContentRegionAvail()
+            if type(availW) == "number" and availW > 0 then
+                local reserve = 0
+                for _, lbl in ipairs({ "5m 00s", "Take", "Pass", "Take + reroll" }) do
+                    local tw = ImGui.CalcTextSize(lbl)
+                    reserve = reserve + (tonumber(tw) or 0) + 18   -- frame padding + the gap after
+                end
+                budget = availW - reserve
+            end
+        end
+        if budget and budget > 60 then
+            local tw = ImGui.CalcTextSize(name)
+            if (tonumber(tw) or 0) > budget then
+                -- Step by 2: a per-character walk on a 60-char name is 60 CalcTextSize calls
+                -- a frame, and this only has to land within a character of right.
+                while #name > 6 and (tonumber(ImGui.CalcTextSize(name)) or 0) > budget do
+                    name = name:sub(1, #name - 2)
+                end
+                name = name .. "..."
+            end
+        elseif #name > 28 then
+            name = name:sub(1, 25) .. "..."
+        end
         safeText(name)
         if ImGui.IsItemHovered() then
             local shownReal = false
@@ -1432,6 +1465,26 @@ local STRIPS = {
         note = "everything still works",
         tip = "The MQ2CoOptUI plugin reads items natively. Without it CoOpt falls back to slower TLO scans - every feature still functions.",
     },
+    -- LESSONS. Same strip, same contract -- say what, say the cost, offer a fix that exists --
+    -- but teaching rather than degradation, and dismissed FOREVER rather than for the session
+    -- (dock_state ranks them below every real condition, so one only ever appears on a
+    -- healthy install). They live here because the two things they teach have no bar cell to
+    -- anchor a hint to, and inventing an anchor is the 480fe52 bug as a decision.
+    lesson_retidy = {
+        color = "Success",
+        msg = "moved windows stay where you put them",
+        note = "Re-tidy puts every open window back in its zone",
+        btn = { label = "Re-tidy now", action = { kind = "retidy" } },
+        tip = "Dragging a window opts it out of automatic placement until you re-tidy. Magnet edges still snap it to its neighbours; hold Alt while dragging to ignore them.",
+    },
+    lesson_hublist = {
+        color = "Success",
+        msg = "the CoOpt cell opens every window, and shows where each one is",
+        note = "top left of this bar",
+        -- No button on purpose: the thing it points at is two inches away, and a button
+        -- would teach the button instead of the cell.
+        tip = "Click CoOpt for the full list - items, character windows, layouts and their shortcuts. It is the one surface that answers \"what else is there\".",
+    },
 }
 
 local function renderDegradedStrip(ctx, s, edge, index)
@@ -1480,9 +1533,19 @@ local function renderDegradedStrip(ctx, s, edge, index)
                 end
             end
             ImGui.SameLine(0, 10)
-            if ImGui.SmallButton("Hide for this session##dockStripHide") and uiState then
+            -- A degraded condition can come back, so its dismissal is session-scoped and the
+            -- button says so. A lesson cannot -- you only learn it once -- so it says "Got
+            -- it", matching the hint cards, and writes through to the onboarding INI.
+            local isLesson = deg.lesson ~= nil
+            local hideLabel = isLesson and "Got it##dockStripHide" or "Hide for this session##dockStripHide"
+            if ImGui.SmallButton(hideLabel) and uiState then
                 uiState.dockStripDismissed = uiState.dockStripDismissed or {}
                 uiState.dockStripDismissed[deg.id] = true
+                if isLesson then
+                    -- Queued, not written inline: this touches an INI and the render path
+                    -- does not do file IO (the same rule the hint cards' Got it follows).
+                    M.queue(ctx, { kind = "lesson_seen", id = deg.lesson })
+                end
             end
             ImGui.SameLine(0, 12)
             theme.TextMuted(spec.note or "")

@@ -157,8 +157,51 @@ function M.tick(now)
 end
 
 --- Tests only.
+-- ---------------------------------------------------------------------------
+-- LESSONS: one-time teaching that has no bar cell to point at.
+--
+-- A hint is positioned by M.slots[anchor], so it can only ever teach the eight segments
+-- (test_hints enforces the anchor is a live one). Two things a newcomer must know have their
+-- first moment somewhere else entirely -- dragging a window, and never having opened the hub
+-- list -- so no hint can carry them, and giving them fake anchors would be the 480fe52 bug
+-- as a decision.
+--
+-- They ride the degraded strip instead, which already solves position, dismissal and
+-- session scoping, and already has a non-alarming member (stale_bank is Success). All this
+-- module owns is whether one has been shown, in the same INI as the hints because it is the
+-- same kind of state.
+-- ---------------------------------------------------------------------------
+
+local lessonSeen = nil
+
+local function loadLessons()
+    if lessonSeen then return end
+    lessonSeen = {}
+end
+
+--- Has this lesson already been shown and dismissed? Reads through to the INI once per id.
+function M.lessonSeen(id)
+    if not id then return true end
+    loadLessons()
+    if lessonSeen[id] == nil then
+        lessonSeen[id] = config.readINIValue(HINTS_INI, HINTS_SECTION, "lesson_" .. id, "FALSE") == "TRUE"
+    end
+    return lessonSeen[id] == true
+end
+
+--- Mark it shown. Called from the strip's dismiss path, so a lesson costs exactly one
+--- dismissal ever -- unlike the degraded strips, whose dismissal is session-scoped because
+--- their condition can come back.
+function M.markLessonSeen(id)
+    if not id then return end
+    loadLessons()
+    lessonSeen[id] = true
+    config.writeINIValue(HINTS_INI, HINTS_SECTION, "lesson_" .. id, "TRUE")
+end
+
 function M._reset()
     seen, active, replayQueue, ruleEditSeen, prev = nil, nil, nil, false, {}
+    lessonSeen = nil
 end
 
 return M

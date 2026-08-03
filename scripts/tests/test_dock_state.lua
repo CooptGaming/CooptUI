@@ -443,6 +443,78 @@ do
     s = dockState.get()
     check('degraded: any rule entry clears no-rules', s.degraded and s.degraded.id == 'stale_bank',
         s.degraded and s.degraded.id)
+
+    -- ---------------------------------------------------------------------------
+    -- LESSONS: the two must-know items no hint can reach, riding the same strip.
+    --
+    -- The property that matters is the ORDERING. Teaching must never displace a real
+    -- condition -- a strip that explains the hub list while sell.mac is missing has spent the
+    -- one surface that was going to tell you something is broken. So lessons sit below every
+    -- degradation, and are only ever seen on a healthy install.
+    -- ---------------------------------------------------------------------------
+    local hintsSvc = require('itemui.services.hints')
+    hintsSvc._reset()
+
+    -- The whole suite runs pluginless, and no_plugin outranks every lesson -- which is the
+    -- ordering working, but it also means the lesson branch is unreachable from the default
+    -- fixture. dock_state captured this stub TABLE at load, so mutating the field reaches the
+    -- upvalue where a late package.loaded swap would not.
+    local pluginStub = package.loaded['itemui.utils.coopui_plugin']
+    local realGetPlugin = pluginStub.getPlugin
+    pluginStub.getPlugin = function() return {} end
+
+    -- Healthy install, nothing user-placed: the hub-list lesson is what is left.
+    testCache.sell.lists.keepContains[1] = 'Legendary'
+    deps.perfCache.lastBankCacheTime = realOsTime()   -- fresh bank, clears stale_bank
+    deps.layoutConfig.UIMode = 'bars'
+    deps.layoutConfig.UserPlaced = ''
+    healthTick()
+    s = dockState.get()
+    check('lesson: a healthy bars install teaches the hub list',
+        s.degraded and s.degraded.id == 'lesson_hublist', s.degraded and s.degraded.id)
+    check('lesson: it carries its lesson id for the one-time dismissal',
+        s.degraded and s.degraded.lesson == 'hublist', s.degraded and s.degraded.lesson)
+
+    -- Drag a window: re-tidy outranks the hub list, because it has a real fix attached and
+    -- the user has just met the behaviour it explains.
+    deps.layoutConfig.UserPlaced = 'bank'
+    healthTick()
+    s = dockState.get()
+    check('lesson: a user-placed window teaches re-tidy first',
+        s.degraded and s.degraded.id == 'lesson_retidy', s.degraded and s.degraded.id)
+
+    -- THE ORDERING RULE. Break the install and the lesson must yield immediately. Using
+    -- no_rules because it is the condition this block can actually drive -- sellMacPresent is
+    -- a module-local set by a disk probe inside walkHealth, not a dep.
+    testCache.sell.lists.keepContains[1] = nil
+    healthTick()
+    s = dockState.get()
+    check('lesson: a real problem outranks any teaching',
+        s.degraded and s.degraded.id == 'no_rules', s.degraded and s.degraded.id)
+    testCache.sell.lists.keepContains[1] = 'Legendary'
+
+    -- No classic-mode assertion here: in classic the aggregation does not run at all, so the
+    -- snapshot keeps whatever it last held rather than clearing (the suite's classic-inertness
+    -- block covers that). lessonStrip's own bars check is belt-and-braces for the same reason.
+
+    -- The welcome screen owns the first moments; a strip under it would be a second teaching
+    -- surface on one frame.
+    deps.uiState.setupMode = true
+    healthTick()
+    s = dockState.get()
+    check('lesson: suppressed while the setup wizard is up', s.degraded == nil,
+        s.degraded and s.degraded.id)
+    deps.uiState.setupMode = false
+
+    -- Dismissed forever, not for the session: once marked, it never returns.
+    hintsSvc.markLessonSeen('retidy')
+    hintsSvc.markLessonSeen('hublist')
+    healthTick()
+    s = dockState.get()
+    check('lesson: a dismissed lesson does not come back', s.degraded == nil,
+        s.degraded and s.degraded.id)
+    hintsSvc._reset()
+    pluginStub.getPlugin = realGetPlugin
 end
 
 os.time = realOsTime  -- luacheck: ignore

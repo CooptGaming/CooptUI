@@ -1,7 +1,15 @@
 --[[
-    Onboarding tutorial: 14-screen welcome and setup wizard.
-    Screens 0 (Welcome), 1-13 (wizard steps). Description overlays for
-    overview screens; config steps show the live view with header prompt only.
+    Onboarding: the welcome screen's two questions, and a four-step sizing wizard.
+
+    Screen 0 is the Welcome screen and does the load-bearing work -- how careful to be with
+    your stuff, and how much screen to use -- with a live dry-run strip showing what the
+    current rules would sell right now.
+
+    The wizard is SEQUENCE (below): four steps whose only job is shaping windows and columns
+    with the live window in front of you. It used to be thirteen; what the other nine did is
+    now done better elsewhere or was teaching prose that went stale. Screen numbers 1-13 are
+    kept as ids rather than renumbered, so the step bodies and their tables did not all have
+    to move to change which of them the walk visits.
 ]]
 
 require('ImGui')
@@ -43,6 +51,36 @@ local HEADER_PROMPTS = {
 
 local function isDescriptionScreen(step)
     return step == 1 or step == 3 or step == 5 or step == 7 or step == 9 or step == 13
+end
+
+--- THE WIZARD'S LIVE SEQUENCE.
+---
+--- Four steps, not thirteen. The wizard's one irreplaceable job is setting per-view window
+--- size and column widths with the live window in front of you: nothing else in the product
+--- does that -- Settings has no width editor and the only alternative is Revert to Default
+--- Layout. Steps 2, 4 and 6 call saveLayoutForView for Inventory, Sell and Bank; step 8 opens
+--- every companion at once for the same purpose.
+---
+--- What went, and why:
+---   - the overview screens (1, 3, 5, 7, 9, 13) taught what the windows now teach themselves,
+---     and prose about windows rots faster than windows do -- step 7 was caught describing two
+---     windows that cannot be opened in bars mode and omitting two that can;
+---   - the protection steps (10, 11, 12) are the Settings screens with a Next button, and
+---     Settings keeps them editable forever rather than once.
+---
+--- Their NAV is deleted. The overlay bodies remain, because renderDescriptionOverlay still
+--- dispatches on step for anything that sets setupStep directly, and because deleting the
+--- prose is a separate decision from deleting the walk through it.
+---
+--- Its purpose, in one sentence: shape the tables and windows you are going to live in, once
+--- you have decided you are staying.
+local SEQUENCE = { 2, 4, 6, 8 }
+
+local function seqIndex(step)
+    for i, s in ipairs(SEQUENCE) do
+        if s == step then return i end
+    end
+    return nil
 end
 
 --- Screen 0: Welcome (env checklist, two buttons, bullet points). Shown when showWelcomePanel or when setupMode and setupStep==0.
@@ -484,11 +522,20 @@ local function renderSetupBar(refs)
 
     if step < 1 or step > 13 then return end
 
+    -- Sequence-driven: position in SEQUENCE decides the count, the Back target and whether
+    -- this is the last step. A step outside the sequence still renders its own body (they are
+    -- reachable by setting setupStep directly) but gets no nav, because there is nowhere in
+    -- the walk for it to go.
+    local idx = seqIndex(step)
+    if not idx then return end
+    local isLast = (idx == #SEQUENCE)
+
     local prompt = HEADER_PROMPTS[step]
     local title = SCREEN_TITLES[step] or ("Step " .. step)
-    local headerText = "Step " .. step .. " of 13: " .. (prompt and prompt ~= "" and prompt or title .. ".")
+    local headerText = string.format("Step %d of %d: %s", idx, #SEQUENCE,
+        (prompt and prompt ~= "" and prompt or (title .. ".")))
     local winW = ImGui.GetWindowWidth()
-    local buttonReserve = (step == 13) and 180 or 130
+    local buttonReserve = isLast and 180 or 130
     ImGui.PushTextWrapPos(winW - buttonReserve - 16)
     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Warning))
     ImGui.TextWrapped(headerText)
@@ -496,108 +543,37 @@ local function renderSetupBar(refs)
     ImGui.PopTextWrapPos()
     ImGui.SameLine(winW - buttonReserve)
 
-    if step == 1 then
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            uiState.setupStep = 2
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to configure the Inventory window"); ImGui.EndTooltip() end
-    elseif step == 2 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 1 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            local w, h = ImGui.GetWindowSize()
-            if w and h and w > 0 and h > 0 then saveLayoutForView("Inventory", w, h, nil) end
-            uiState.setupStep = 3
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Save layout and continue to Sell overview"); ImGui.EndTooltip() end
-    elseif step == 3 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 2 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 4 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to configure the Sell window"); ImGui.EndTooltip() end
-    elseif step == 4 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 3 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            local w, h = ImGui.GetWindowSize()
-            if w and h and w > 0 and h > 0 then saveLayoutForView("Sell", w, h, nil) end
-            uiState.setupStep = 5
-            registry.setWindowState("bank", true, true)
-            if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened("bank") end
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Save Sell layout and open Bank companion"); ImGui.EndTooltip() end
-    elseif step == 5 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 4 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 6 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to configure the Bank window"); ImGui.EndTooltip() end
-    elseif step == 6 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 5 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 7 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Remaining companions overview"); ImGui.EndTooltip() end
-    elseif step == 7 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 6 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 8 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open all companion windows and continue"); ImGui.EndTooltip() end
-    elseif step == 8 then
-        -- Leaving step 8 (either direction) clears the opened-once flag so re-entering
-        -- step 8 re-opens all companion windows instead of showing a stale "now open" prompt.
+    if idx > 1 then
         if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then
-            uiState.setupCompanionsOpenedAtStep8 = false
-            uiState.setupStep = 7
+            uiState.setupStep = SEQUENCE[idx - 1]
         end
         ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            uiState.setupCompanionsOpenedAtStep8 = false
-            uiState.setupStep = 9
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Protection overview"); ImGui.EndTooltip() end
-    elseif step == 9 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 8 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 10 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Sell protection"); ImGui.EndTooltip() end
-    elseif step == 10 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 9 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 11 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Loot rules"); ImGui.EndTooltip() end
-    elseif step == 11 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 10 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then uiState.setupStep = 12 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Epic protection"); ImGui.EndTooltip() end
-    elseif step == 12 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 11 end
-        ImGui.SameLine()
-        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            local nSelected = 0
-            for _, cls in ipairs(refs.EPIC_CLASSES or {}) do
-                if (refs.configEpicClasses or {})[cls] == true then nSelected = nSelected + 1 end
-            end
-            if nSelected > 0 and refs.config and refs.config.writeINIValue and refs.config.writeLootINIValue then
-                refs.config.writeINIValue("sell_flags.ini", "Settings", "protectEpic", "TRUE")
-                refs.config.writeLootINIValue("loot_flags.ini", "Settings", "alwaysLootEpic", "TRUE")
-                if refs.configSellFlags then refs.configSellFlags.protectEpic = true end
-                if refs.configLootFlags then refs.configLootFlags.alwaysLootEpic = true end
-                if refs.invalidateSellConfigCache then refs.invalidateSellConfigCache() end
-                if refs.invalidateLootConfigCache then refs.invalidateLootConfigCache() end
-            end
-            uiState.setupStep = 13
-        end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Continue to Settings overview"); ImGui.EndTooltip() end
-    elseif step == 13 then
-        if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then uiState.setupStep = 12 end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Back to Epic protection"); ImGui.EndTooltip() end
-        ImGui.SameLine()
+    end
+    if isLast then
+        -- Each sizing step saves its own view on the way out; this saves the last one and
+        -- closes. The protection layers are NOT here any more -- they live in Settings, where
+        -- they stay editable instead of being a thing you got one pass at.
         if ImGui.Button("Save & Finish##TutorialBar", ImVec2(110, 0)) then
+            saveLayoutForView("Inventory")
             if refs.setOnboardingComplete then refs.setOnboardingComplete() end
             uiState.setupMode = false
             uiState.setupStep = 0
         end
-        if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Complete setup and close the wizard"); ImGui.EndTooltip() end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip(); ImGui.Text("Save these sizes and close the wizard"); ImGui.EndTooltip()
+        end
+    else
+        if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
+            local nextStep = SEQUENCE[idx + 1]
+            -- Steps 2/4/6 each save the view they were shaping before moving on.
+            if step == 2 then saveLayoutForView("Inventory")
+            elseif step == 4 then saveLayoutForView("Sell")
+            elseif step == 6 then saveLayoutForView("Bank") end
+            uiState.setupStep = nextStep
+        end
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip(); ImGui.Text("Save this window's size and continue"); ImGui.EndTooltip()
+        end
     end
     ImGui.Separator()
 end

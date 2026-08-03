@@ -648,6 +648,32 @@ local function walkHealth(now)
         if age > BANK_STALE_SECS then bankStaleDays = math.floor(age / 86400) end
     end
 
+    -- The two must-know items no hint can reach, because their first moment is not a bar
+    -- cell. Both fire once ever and are suppressed while the welcome screen or a hint card is
+    -- up, so first-run never stacks two teaching surfaces on one frame.
+    local function lessonStrip()
+        local uiState = d.uiState
+        local lc = d.layoutConfig
+        if not lc or tostring(lc.UIMode or "classic") ~= "bars" then return nil end
+        if uiState and uiState.setupMode then return nil end
+        local okH, hintsSvc = pcall(require, 'itemui.services.hints')
+        if not okH or not hintsSvc then return nil end
+        if hintsSvc.getActive and hintsSvc.getActive() then return nil end
+
+        -- Re-tidy: fires the first time a window becomes user-placed, which is the moment
+        -- auto-placement starts looking like the app fighting you. It has a real fix
+        -- attached, which is the strip's whole contract.
+        if tostring(lc.UserPlaced or "") ~= "" and not hintsSvc.lessonSeen("retidy") then
+            return { id = "lesson_retidy", lesson = "retidy" }
+        end
+        -- The hub list: nothing points at the CoOpt cell, and it is the only surface that
+        -- answers "what else is there". No button -- the cell is two inches away.
+        if not hintsSvc.lessonSeen("hublist") then
+            return { id = "lesson_hublist", lesson = "hublist" }
+        end
+        return nil
+    end
+
     -- Priority per the mockup: the red condition first, then the ones that change what a
     -- click does, then the informational one. One strip at a time, always.
     if sellMacPresent == false then
@@ -659,7 +685,10 @@ local function walkHealth(now)
     elseif not snap.pluginPresent then
         snap.degraded = { id = "no_plugin" }
     else
-        snap.degraded = nil
+        -- LESSONS last, so a real problem always outranks teaching and the strip never
+        -- explains something while something is wrong. That ordering is also what keeps the
+        -- strip's meaning intact: you only ever see a lesson on a healthy install.
+        snap.degraded = lessonStrip()
     end
 end
 

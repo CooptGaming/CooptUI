@@ -244,9 +244,10 @@ function M.handleCommand(...)
         if sub == "--full" or sub == "full" then
             deps.uiState.setupMode = not deps.uiState.setupMode
             if deps.uiState.setupMode then
-                -- The wizard renders steps 1-13 only; step 0 with setupMode on
-                -- draws nothing (the Welcome screen requires setupMode OFF).
-                deps.uiState.setupStep = 1
+                -- Enter at the first step of tutorial.lua's SEQUENCE. Step 1 was the old
+                -- entry and is an overview screen that is no longer in the walk -- entering
+                -- there now renders a body with no navigation under it.
+                deps.uiState.setupStep = 2
                 if deps.loadConfigCache then deps.loadConfigCache() end
                 if deps.loadLayoutConfig then deps.loadLayoutConfig() end
             else
