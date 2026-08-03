@@ -211,20 +211,13 @@ renderForSlotContent = function(ctx)
         -- merchant, loot_run, mythical, full_bag and rule_edit (services/hints.lua). So the
         -- teaching stays and only the repetition goes.
         ImGui.TextWrapped("Right-click any item and choose Item info to send it here.")
-        -- ...and then the window can just DO it. These two are a declared pair that opens and
-        -- closes together, so this window already knows exactly which one you need -- describing
-        -- the trip when you could take it is the part that read as a manual.
-        --
-        -- Queued, never a direct registry write from a render callback (the rule hub_list
-        -- states); phase0b drains this in both UI modes, so it works in classic too.
-        if ImGui.SmallButton("Open Item Display##AugUtilEmptyOpenID") then
-            local uiState = ctx.uiState
-            if uiState then
-                local q = uiState.dockActionQueue
-                if not q then q = {}; uiState.dockActionQueue = q end
-                q[#q + 1] = { kind = "window", id = "itemDisplay" }
-            end
-        end
+        -- An "Open Item Display" button was here for exactly one build, on the reasoning that
+        -- a pair which travels together should ACT rather than describe. Field test killed it:
+        -- with no item selected it opens an EMPTY Item Display, so it moved the empty state one
+        -- window sideways and called that progress. The rule it cost to learn -- a control only
+        -- beats a sentence when the thing it does IS progress; otherwise it is a sentence that
+        -- wastes a click. The item has to come from the right-click, so the sentence is the
+        -- honest answer here.
         return
     end
 
