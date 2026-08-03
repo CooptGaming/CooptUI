@@ -886,7 +886,25 @@ local function mutedNameList(prefix, list)
     local names = {}
     for i, e in ipairs(list) do names[i] = tostring(e.name or "?") end
     ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Colors.Muted))
-    safeText(prefix .. table.concat(names, ", "))
+    -- WRAPPED, not plain text. This was safeText, which does not wrap, so the line simply ran
+    -- past the popover's right edge and was clipped -- field-reported as
+    -- "songs: Scales of Draton`ra, Gem of Cleave, Double Attack Gem, Gem of Dodging, Myr"
+    -- with the fifth name cut mid-word. The popover is capped at 560 wide
+    -- (SetNextWindowSizeConstraints below), so any list long enough to exceed that lost its
+    -- tail silently -- and a list of buff names is exactly the content whose length is set by
+    -- how the character is buffed rather than by anything the UI controls.
+    --
+    -- Wrap position is the live content width, so it tracks whatever width the popover
+    -- actually settled at rather than assuming the cap.
+    local availW = ImGui.GetContentRegionAvail()
+    if type(availW) == "number" and availW > 40 then
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + availW)
+        local ok, err = pcall(ImGui.TextWrapped, prefix .. table.concat(names, ", "))
+        ImGui.PopTextWrapPos()
+        if not ok then error(err, 0) end
+    else
+        safeText(prefix .. table.concat(names, ", "))
+    end
     ImGui.PopStyleColor(1)
 end
 
@@ -1827,6 +1845,15 @@ function M.render(ctx)
         dbg[#dbg + 1] = string.format("snap loot=%s corpse=%d/%d taken=%d bags=%d/%d sell=%d buffs=%d",
             tostring(s.lootState), s.lootCorpse or -1, s.lootTotalCorpses or -1, s.lootTaken or -1,
             s.bagItems or -1, s.bagSlots or -1, s.sellCount or -1, s.buffCount or -1)
+        -- The three inputs to the `problem` state, which the line above cannot show. bags=N/M
+        -- is bagItems/bagSlots and bagSlots is only recomputed when bagFree reads non-nil, so
+        -- a full-looking N/N does NOT prove bagFree is currently 0 -- and lootRunFinished is
+        -- the guard that decides whether a full bag is a LOOT problem at all. A field report
+        -- of "inventory full, console says so, bar says nothing running" could not be settled
+        -- from the old dump because neither value was in it.
+        dbg[#dbg + 1] = string.format("problem-inputs bagFree=%s lootRunFinished=%s lootRunning=%s problem=%s",
+            tostring(s.bagFree), tostring(ctx.uiState and ctx.uiState.lootRunFinished),
+            tostring(s.lootRunning), tostring(s.lootProblem))
         -- Every render error contained this session (dockLayout.contained dedupes into .seen),
         -- so the debug dump answers "what broke" and not just "what was computed".
         local errs = ctx.uiState.dockErrors

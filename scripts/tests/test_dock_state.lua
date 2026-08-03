@@ -189,6 +189,27 @@ do
     local p = dockState.get()
     check('state 5: problem when bags really are full mid-run',
         p.lootState == 'problem' and p.lootProblem == 'bags full', p.lootState)
+
+    -- 5b - problem AFTER the run stopped, which is the case the field actually hits: loot.mac
+    -- prints "Your Inventory is full!!" and ENDS, so by the time anyone reads the bar the
+    -- macro is no longer running. lootRunFinished stays set (a new run clears it), so
+    -- lootingContext still holds and the problem must outlive the run -- otherwise the state
+    -- that is meant to "stay alert until dealt with" is the one state you can never see.
+    dockState.init(newDeps({ lootRunning = false, freeSlots = 0,
+        inventoryItems = { {}, {}, {} },
+        uiState = { lootRunFinished = true, lootRunLootedItems = {} } }))
+    tickWithDemand()
+    local pf = dockState.get()
+    check('state 5b: problem SURVIVES the run ending (bags still full)',
+        pf.lootState == 'problem' and pf.lootProblem == 'bags full', pf.lootState)
+
+    -- ...and it must not decay the way `done` does. The done hold is six seconds; a problem
+    -- has no hold at all, because nothing about it stopped being true.
+    now = now + (constants and 0 or 0) + (T.DOCK_LANE_DONE_HOLD_MS + 5000)
+    tickWithDemand()
+    local pl = dockState.get()
+    check('state 5b: and does not decay to idle after the done-hold elapses',
+        pl.lootState == 'problem', pl.lootState)
 end
 
 -- =================================================================
