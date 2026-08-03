@@ -309,13 +309,23 @@ local function phase5_lootMacro(now)
         lootMacState.pendingScan = true
         lootMacState.finishedAt = now
         -- A run that ENDED is finished, whether or not it also produced a session summary.
-        -- This used to be set only inside the `if session then` block below, so a run that
-        -- ABORTED -- loot.mac printing "Your Inventory is full!!" and stopping -- never set
-        -- it, and dock_state's bags-full check (which needs `running or lootRunFinished` to
-        -- decide a full bag is a LOOT problem) saw false on both. Field-confirmed by
-        -- /itemui dock debug: bagFree=0 lootRunFinished=false lootRunning=false problem=nil,
-        -- with the console showing the macro's own full-inventory message. The one state
-        -- built to "stay alert until dealt with" was the one you could only see mid-run.
+        --
+        -- This used to be set ONLY inside the `if session then` block below, and that read is
+        -- deferred and chunked (pendingSession/pendingSessionAt), so whether the flag ever
+        -- landed depended on timing and on the macro having written a complete summary before
+        -- it stopped. dock_state's bags-full check needs `running or lootRunFinished` to
+        -- decide a full bag is a LOOT problem rather than ordinary bag pressure, so when the
+        -- flag missed, the problem state vanished the moment the run ended.
+        --
+        -- INTERMITTENT, which is why it was confusing to report and worth saying plainly:
+        -- two field captures minutes apart show both outcomes on the same condition -- one
+        -- with the lane reading "bags full / Open Bags" after the run, one with it reading
+        -- "nothing running" while bags sat at 300/300. /itemui dock debug caught the failing
+        -- side: bagFree=0 lootRunFinished=false lootRunning=false problem=nil.
+        --
+        -- Setting it here makes it deterministic: the edge always fires, the summary read no
+        -- longer gates the flag, and the state built to "stay alert until dealt with" no
+        -- longer depends on how tidily the macro exited.
         uiState.lootRunFinished = true
         d.scanState.inventoryBagsDirty = true
         lootLoopRefs.pendingSession = true
