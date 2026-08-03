@@ -365,6 +365,26 @@ function M.render(refs)
             if curView == "Inventory" then w, h = layoutConfig.WidthInventory, layoutConfig.Height
             elseif curView == "Sell" then w, h = layoutConfig.WidthSell, layoutConfig.Height
             end
+            -- TWO MEMORIES OF ONE RECT, and it is worth knowing which one is answering.
+            --
+            -- This window does NOT set NoSavedSettings (only the bars and the transient
+            -- overlays do), so ImGui persists its size and position in its own settings file,
+            -- automatically, across sessions. Because the branch below asks for
+            -- FirstUseEver in the ordinary case, ImGui's memory wins every normal frame --
+            -- which is precisely why day-to-day resizing "just works" and survives a restart.
+            --
+            -- layoutConfig's WidthInventory / WidthSell / Height are therefore NOT the live
+            -- size. They are only ever applied in two situations: while the UI is locked, and
+            -- during the 3-5 forced frames after a Revert to Default Layout, a preset apply,
+            -- or a window_zones placement (see layoutRevertedApplyFrames).
+            --
+            -- One consequence is worth stating because it looks like a bug from the outside:
+            -- WidthSell can only be applied while curView is "Sell", i.e. while a merchant is
+            -- open, AND during one of those forced bursts. That intersection is narrow enough
+            -- that the key is very nearly unreachable -- sizing the Sell view is remembered by
+            -- ImGui, not by this. Collapsing the two width keys into one is the honest
+            -- simplification whenever this area is next opened; it is not done here because
+            -- the keys are also read by presets and revert.
             if w and h and w > 0 and h > 0 then
                 local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
                 if uiState.uiLocked or forceApply then
