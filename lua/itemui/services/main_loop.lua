@@ -621,16 +621,57 @@ local function handleScriptConsume(now)
         end
     end
     if ps.waitingForConfirm then
+        -- `verified` counts real "You gained 1 alternate currency" chat lines
+        -- (script_consume_events). `consumedSoFar` counts commands ISSUED. They are not the
+        -- same number and this branch used to pretend they were: it advanced on
+        -- `gotConfirm or timedOut` and then reported the ISSUED count as though it were
+        -- consumed, so a run where every /itemnotify silently failed announced
+        -- "Added 18 to Alt Currency" for zero scripts. The confirm mechanism was already
+        -- here; the timeout is what made it advisory.
         local gotConfirm = verified >= ps.consumedSoFar
         local timedOut = (ps.confirmUntil and now >= ps.confirmUntil)
         if gotConfirm or timedOut then
             ps.waitingForConfirm = nil
             ps.confirmUntil = nil
-            if ps.consumedSoFar >= ps.totalToConsume then
-                finishConsume(ps.source, ps.consumedSoFar, string.format("Added %d to Alt Currency.", ps.consumedSoFar))
+            if gotConfirm then
+                ps.unconfirmedRun = 0
+                -- The cache decrement moved HERE from the issue site. Doing it on issue meant
+                -- a failed run left CoOpt's item list short of what the character actually
+                -- still had, until the next rescan -- the UI disagreeing with the game about
+                -- the user's property, which is worse than a wrong status line.
+                if ps.source == "bank" then
+                    itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
+                else
+                    itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
+                end
+            else
+                ps.unconfirmedRun = (ps.unconfirmedRun or 0) + 1
+            end
+
+            -- Stop early rather than grinding the whole plan out against something that is
+            -- not working. Two in a row is enough: one can be a dropped line, two is a
+            -- pattern, and the alternative is the full plan at one timeout each while
+            -- nothing happens. The message names the likeliest cause because we know it --
+            -- /itemnotify addresses a UI slot, so it needs the container open, and the guard
+            -- above cannot see that (it reads the stack through the TLO, which answers fine
+            -- either way).
+            if (ps.unconfirmedRun or 0) >= 2 then
+                finishConsume(ps.source, verified, string.format(
+                    "Stopped: added %d of %d. No confirmation for the last %d - open your bags and try again.",
+                    verified, ps.totalToConsume, ps.unconfirmedRun))
+            elseif ps.consumedSoFar >= ps.totalToConsume then
+                -- Report what was CONFIRMED, and say so plainly when it is short.
+                if verified >= ps.totalToConsume then
+                    finishConsume(ps.source, verified,
+                        string.format("Added %d to Alt Currency.", verified))
+                else
+                    finishConsume(ps.source, verified, string.format(
+                        "Added %d of %d to Alt Currency - %d unconfirmed.",
+                        verified, ps.totalToConsume, ps.totalToConsume - verified))
+                end
             else
                 ps.nextClickAt = now + delayMs
-                if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", ps.consumedSoFar, ps.totalToConsume)) end
+                if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d", verified, ps.totalToConsume)) end
             end
         end
     else
@@ -648,22 +689,25 @@ local function handleScriptConsume(now)
                 stack = (it and it.Stack and it.Stack()) or 0
             end
             if stack < 1 then
-                finishConsume(ps.source, ps.consumedSoFar, string.format("Added %d to Alt Currency; item moved or depleted.", ps.consumedSoFar))
+                -- Confirmed count again, not issued: this exit is reached mid-plan and used
+                -- to inherit the same lie as the finish path.
+                finishConsume(ps.source, verified, string.format(
+                    "Added %d to Alt Currency; item moved or depleted.", verified))
             else
                 if ps.source == "bank" then
                     mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
                 else
                     mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
                 end
+                -- ISSUED, not consumed. The cache decrement that used to sit here now waits
+                -- for the confirmation in the branch above.
                 ps.consumedSoFar = ps.consumedSoFar + 1
-                if ps.source == "bank" then
-                    itemOps.reduceStackOrRemoveBySlotBank(ps.bag, ps.slot, 1)
-                else
-                    itemOps.reduceStackOrRemoveBySlot(ps.bag, ps.slot, 1)
-                end
                 ps.waitingForConfirm = true
                 ps.confirmUntil = now + confirmTimeoutMs
                 if ps.consumedSoFar >= ps.totalToConsume then
+                    -- ISSUED here on purpose: this line is about the request being in flight,
+                    -- not about what has landed. The two lines that report a RESULT use the
+                    -- verified count.
                     if setStatusMessage then setStatusMessage(string.format("Verifying %d / %d...", ps.consumedSoFar, ps.totalToConsume)) end
                 else
                     if setStatusMessage then setStatusMessage(string.format("Alt Currency: %d / %d (waiting for confirm)...", ps.consumedSoFar, ps.totalToConsume)) end
@@ -2271,6 +2315,13 @@ local function phase5b_lootSellStatusDrain()
 end
 
 local M = {}
+
+--- Test seam. handleScriptConsume is the FSM that turns a consume PLAN into /itemnotify calls
+--- and decides what to report, and it had no coverage at all -- which is how it shipped
+--- treating a confirm timeout as a confirmation and announcing scripts it had not consumed.
+--- main_loop is too large to harness whole, so this exposes the one step that needed testing.
+--- Same shape as hints._reset and TooltipData._seedTooltipCacheForTests.
+M._handleScriptConsumeForTests = function(now) return handleScriptConsume(now) end
 
 function M.init(deps)
     d = deps

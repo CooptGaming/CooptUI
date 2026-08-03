@@ -80,7 +80,6 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     
     if d.WidthInventory then layoutDefaults.WidthInventory = tonumber(d.WidthInventory) or layoutDefaults.WidthInventory end
     if d.Height then layoutDefaults.Height = tonumber(d.Height) or layoutDefaults.Height end
-    if d.WidthSell then layoutDefaults.WidthSell = tonumber(d.WidthSell) or layoutDefaults.WidthSell end
     if d.WidthLoot then layoutDefaults.WidthLoot = tonumber(d.WidthLoot) or layoutDefaults.WidthLoot end
     if d.WidthBankPanel then layoutDefaults.WidthBankPanel = tonumber(d.WidthBankPanel) or layoutDefaults.WidthBankPanel end
     if d.HeightBank then layoutDefaults.HeightBank = tonumber(d.HeightBank) or layoutDefaults.HeightBank end
@@ -304,7 +303,8 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("UILocked=" .. (uiState.uiLocked and "1" or "0") .. "\n")
         f:write("WidthInventory=" .. tostring(layoutConfig.WidthInventory or layoutDefaults.WidthInventory) .. "\n")
         f:write("Height=" .. tostring(layoutConfig.Height or layoutDefaults.Height) .. "\n")
-        f:write("WidthSell=" .. tostring(layoutConfig.WidthSell or layoutDefaults.WidthSell) .. "\n")
+        -- WidthSell is retired and no longer written. An older file that still carries the
+        -- line keeps it harmlessly: nothing reads it, and rewriting the file drops it.
         f:write("WidthLoot=" .. tostring(layoutConfig.WidthLoot or layoutDefaults.WidthLoot) .. "\n")
         f:write("WidthBankPanel=" .. tostring(layoutConfig.WidthBankPanel or layoutDefaults.WidthBankPanel) .. "\n")
         f:write("HeightBank=" .. tostring(layoutConfig.HeightBank or layoutDefaults.HeightBank) .. "\n")
@@ -523,7 +523,6 @@ local function applyLayoutSection(parsed)
     uiState.uiLocked = LayoutUtils.loadLayoutValue(layout, "UILocked", layoutDefaults.UILocked == 1)
     layoutConfig.WidthInventory = LayoutUtils.loadLayoutValue(layout, "WidthInventory", layoutDefaults.WidthInventory)
     layoutConfig.Height = LayoutUtils.loadLayoutValue(layout, "Height", layoutDefaults.Height)
-    layoutConfig.WidthSell = LayoutUtils.loadLayoutValue(layout, "WidthSell", layoutDefaults.WidthSell)
     layoutConfig.WidthLoot = LayoutUtils.loadLayoutValue(layout, "WidthLoot", layoutDefaults.WidthLoot)
     layoutConfig.WidthBankPanel = LayoutUtils.loadLayoutValue(layout, "WidthBankPanel", layoutDefaults.WidthBankPanel)
     layoutConfig.HeightBank = LayoutUtils.loadLayoutValue(layout, "HeightBank", layoutDefaults.HeightBank)
@@ -814,11 +813,11 @@ end
 function LayoutUtils.saveLayoutForView(view, w, h, bankPanelW)
     local layoutConfig = LayoutUtils.layoutConfig
     
-    if view == "Inventory" then
+    -- Inventory and Sell are ONE window (sell.lua has no ImGui.Begin), so sizing it from
+    -- either mode saves the same rect. WidthSell was a per-view key on a window with no
+    -- views; it is retired, and an older INI that still carries the line is simply ignored.
+    if view == "Inventory" or view == "Sell" then
         layoutConfig.WidthInventory = w
-        layoutConfig.Height = h
-    elseif view == "Sell" then
-        layoutConfig.WidthSell = w
         layoutConfig.Height = h
     elseif view == "Loot" then
         layoutConfig.WidthLoot = w

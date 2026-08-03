@@ -361,9 +361,14 @@ function M.render(refs)
             -- the toolbar clips. One site covers Inventory AND Sell: they swap into this
             -- same frame.
             ImGui.SetNextWindowSizeConstraints(ImVec2(520, 260), ImVec2(16384, 16384))
+            -- ONE RECT for both modes. Sell is not a second window -- views/sell.lua has no
+            -- ImGui.Begin of its own, it is a mode of this frame -- so a per-view width could
+            -- only ever mean "the hub jumps wider when a merchant opens", which is the reflow
+            -- the bars forbid one scale down. WidthSell was also unreachable in practice: it
+            -- needed curView == "Sell" AND a force-apply burst at the same moment. Retired.
             local w, h = nil, nil
-            if curView == "Inventory" then w, h = layoutConfig.WidthInventory, layoutConfig.Height
-            elseif curView == "Sell" then w, h = layoutConfig.WidthSell, layoutConfig.Height
+            if curView == "Inventory" or curView == "Sell" then
+                w, h = layoutConfig.WidthInventory, layoutConfig.Height
             end
             -- TWO MEMORIES OF ONE RECT, and it is worth knowing which one is answering.
             --
@@ -373,18 +378,23 @@ function M.render(refs)
             -- FirstUseEver in the ordinary case, ImGui's memory wins every normal frame --
             -- which is precisely why day-to-day resizing "just works" and survives a restart.
             --
-            -- layoutConfig's WidthInventory / WidthSell / Height are therefore NOT the live
-            -- size. They are only ever applied in two situations: while the UI is locked, and
-            -- during the 3-5 forced frames after a Revert to Default Layout, a preset apply,
-            -- or a window_zones placement (see layoutRevertedApplyFrames).
+            -- layoutConfig's WidthInventory / Height are therefore NOT the live size. They are
+            -- only ever applied in two situations: while the UI is locked, and during the 3-5
+            -- forced frames after a Revert to Default Layout, a preset apply, or a
+            -- window_zones placement (see layoutRevertedApplyFrames).
             --
-            -- One consequence is worth stating because it looks like a bug from the outside:
-            -- WidthSell can only be applied while curView is "Sell", i.e. while a merchant is
-            -- open, AND during one of those forced bursts. That intersection is narrow enough
-            -- that the key is very nearly unreachable -- sizing the Sell view is remembered by
-            -- ImGui, not by this. Collapsing the two width keys into one is the honest
-            -- simplification whenever this area is next opened; it is not done here because
-            -- the keys are also read by presets and revert.
+            -- They are still worth keeping, and it is worth saying why, because the natural
+            -- next thought is that ImGui's memory makes them redundant: revert and preset
+            -- apply exist precisely to OVERRULE what ImGui remembers, so being overruled is
+            -- the job, and a preset's saved geometry is written in these exact key names
+            -- (layout_presets: "geometry keys are the views' own layoutConfig keys, verbatim").
+            -- Renaming them would invalidate every preset a user has saved.
+            --
+            -- WidthSell used to sit beside them and is retired: it could only be applied while
+            -- curView was "Sell" AND a forced burst was running, an intersection narrow enough
+            -- to be unreachable in practice -- and a live per-view width would have meant the
+            -- hub jumping wider when a merchant opened, which is the reflow the bars forbid
+            -- one scale down.
             if w and h and w > 0 and h > 0 then
                 local forceApply = uiState.layoutRevertedApplyFrames and uiState.layoutRevertedApplyFrames > 0
                 if uiState.uiLocked or forceApply then
@@ -627,9 +637,12 @@ function M.render(refs)
         if prevLocked ~= uiState.uiLocked then
             saveLayoutToFile()
             if uiState.uiLocked then
+                -- Locking captures the rect to pin to, and it is ONE rect regardless of which
+                -- mode is showing -- these are two views of a single window.
                 local w, h = ImGui.GetWindowSize()
-                if curView == "Inventory" then layoutConfig.WidthInventory = w; layoutConfig.Height = h
-                elseif curView == "Sell" then layoutConfig.WidthSell = w; layoutConfig.Height = h
+                if curView == "Inventory" or curView == "Sell" then
+                    layoutConfig.WidthInventory = w
+                    layoutConfig.Height = h
                 end
                 saveLayoutToFile()
             end

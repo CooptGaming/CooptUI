@@ -32,7 +32,7 @@ end
 local function layout_setup_captureCurrentLayoutAsDefault()
     layoutDefaults.WidthInventory = layoutConfig.WidthInventory or layoutDefaults.WidthInventory
     layoutDefaults.Height = layoutConfig.Height or layoutDefaults.Height
-    layoutDefaults.WidthSell = layoutConfig.WidthSell or layoutDefaults.WidthSell
+    -- WidthSell retired: one window, one rect (see saveLayoutForView).
     layoutDefaults.WidthLoot = layoutConfig.WidthLoot or layoutDefaults.WidthLoot
     layoutDefaults.WidthBankPanel = layoutConfig.WidthBankPanel or layoutDefaults.WidthBankPanel
     layoutDefaults.HeightBank = layoutConfig.HeightBank or layoutDefaults.HeightBank
@@ -154,7 +154,6 @@ local function layout_setup_captureCurrentLayoutAsDefault()
             f:write("UILocked=" .. layoutDefaults.UILocked .. "\n")
             f:write("WidthInventory=" .. layoutDefaults.WidthInventory .. "\n")
             f:write("Height=" .. layoutDefaults.Height .. "\n")
-            f:write("WidthSell=" .. layoutDefaults.WidthSell .. "\n")
             f:write("WidthLoot=" .. layoutDefaults.WidthLoot .. "\n")
             f:write("WidthBankPanel=" .. layoutDefaults.WidthBankPanel .. "\n")
             f:write("HeightBank=" .. layoutDefaults.HeightBank .. "\n")
@@ -273,7 +272,6 @@ local function layout_setup_resetLayoutToDefault()
 
     layoutConfig.WidthInventory = layoutDefaults.WidthInventory
     layoutConfig.Height = layoutDefaults.Height
-    layoutConfig.WidthSell = layoutDefaults.WidthSell
     layoutConfig.WidthLoot = layoutDefaults.WidthLoot
     layoutConfig.WidthBankPanel = layoutDefaults.WidthBankPanel
     layoutConfig.HeightBank = layoutDefaults.HeightBank

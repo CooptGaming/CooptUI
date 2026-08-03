@@ -226,7 +226,12 @@ M.VIEWS = {
     -- widths must match too (handoff item 4).
     WidthInventory = 800,
     Height = 560,
-    WidthSell = 800,
+    -- WidthSell retired 2026-08-03. Sell is a MODE of the hub window (views/sell.lua has no
+    -- ImGui.Begin of its own), so a per-view width could only mean "the hub jumps wider when a
+    -- merchant opens" -- the reflow the bars forbid one scale down. It was also unreachable in
+    -- practice, needing curView == "Sell" AND a force-apply burst in the same frame. Both
+    -- modes now read WidthInventory. Old INIs and saved presets may still carry the line;
+    -- nothing reads it, and a rewrite drops it.
     -- WidthLoot is the MAIN WINDOW's live-loot view; WidthLootPanel below is the
     -- companion loot panel. Two windows, not duplicates - do not unify them.
     WidthLoot = 560,
