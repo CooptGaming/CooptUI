@@ -964,42 +964,86 @@ popovers.buffs = function(ctx, s)
     theme.TextMuted(string.format("Everything up . %d buffs, %d songs, %d aura%s",
         s.buffCount, s.songCount, s.auraCount, s.auraCount == 1 and "" or "s"))
 
-    local buffs = s.buffs or {}
-    if #buffs > 0 then
-        -- Resolved at most once per popover render (see drawSpellIcon above), so an
-        -- unavailable texture never re-queries mq.FindTextureAnimation once per icon.
-        if not spellIconAnim and mq.FindTextureAnimation then
-            spellIconAnim = mq.FindTextureAnimation("A_SpellIcons")
+    -- Resolved at most once per popover render (see drawSpellIcon above), so an unavailable
+    -- texture never re-queries mq.FindTextureAnimation once per icon.
+    if not spellIconAnim and mq.FindTextureAnimation then
+        spellIconAnim = mq.FindTextureAnimation("A_SpellIcons")
+    end
+
+    --- One hoverable icon grid. `prefix` is a muted gutter word on the SAME line as the first
+    --- row -- not a header line, because a header would cost a whole line per group and the
+    --- groups here are three parts of one section, not three sections (SectionBreak is what
+    --- separates "Expiring soon" from "Everything up", and adding another would flatten that
+    --- distinction).
+    ---
+    --- No urgency colouring on the icons, deliberately: the Expiring soon block above already
+    --- owns the red/amber ranking, and the same effect appears in both. A second urgency
+    --- signal down here could disagree with the first about the same fact. The per-item hover
+    --- timer is fine -- it is on demand and cannot contradict a ranking it is not part of.
+    ---
+    --- No Recast here either. It lives in the expiring block where the urgency is, a tooltip
+    --- cannot hold a button anyway, and 25 icons offering it would be a second home for one
+    --- control.
+    local function iconGrid(prefix, list, idTag)
+        if not list or #list == 0 then return end
+        local startX = nil
+        if prefix and prefix ~= "" then
+            theme.TextMuted(prefix)
+            ImGui.SameLine(0, 6)
+            startX = ImGui.GetCursorPosX and ImGui.GetCursorPosX() or nil
         end
-        if spellIconAnim then
-            -- Wrap on the CONTENT width, not the window width minus a guessed padding. This
-            -- was GetWindowWidth() - 16 while the popover pushes WindowPadding (10, 8) -- 20
-            -- horizontally -- so it reserved 4px too little and the last icon of a row was
-            -- clipped by the window edge. Field-reported as an icon cut off; visible in the
-            -- capture. GetContentRegionAvail already accounts for whatever padding is
-            -- actually in force, so it cannot drift from the push again.
-            local availW = ImGui.GetContentRegionAvail()
-            if type(availW) ~= "number" or availW <= 0 then availW = ImGui.GetWindowWidth() - 20 end
-            local perRow = math.max(1, math.floor(availW / (BUFF_ICON_SIZE + 4)))
-            for i, b in ipairs(buffs) do
-                if (i - 1) % perRow ~= 0 then ImGui.SameLine(0, 4) end
-                ImGui.PushID("dockbuff" .. i)
-                if not drawSpellIcon(b.icon, BUFF_ICON_SIZE) then
-                    ImGui.Dummy(ImVec2(BUFF_ICON_SIZE, BUFF_ICON_SIZE))
-                end
-                if ImGui.IsItemHovered() then
-                    ImGui.BeginTooltip()
-                    safeText(tostring(b.name or "?"))
-                    if not b.permanent then theme.TextMuted(mmss(b.seconds)) end
-                    ImGui.EndTooltip()
-                end
-                ImGui.PopID()
+        -- Wrap on the CONTENT width, not the window width minus a guessed padding. This was
+        -- GetWindowWidth() - 16 while the popover pushes WindowPadding (10, 8) -- 20
+        -- horizontally -- so it reserved 4px too little and the last icon of a row was clipped
+        -- by the window edge. GetContentRegionAvail accounts for whatever padding is actually
+        -- in force, so it cannot drift from the push again.
+        local availW = ImGui.GetContentRegionAvail()
+        if type(availW) ~= "number" or availW <= 0 then availW = ImGui.GetWindowWidth() - 20 end
+        local perRow = math.max(1, math.floor(availW / (BUFF_ICON_SIZE + 4)))
+        for i, b in ipairs(list) do
+            if (i - 1) % perRow ~= 0 then
+                ImGui.SameLine(0, 4)
+            elseif i > 1 and startX then
+                -- Wrapped rows line up under the first icon rather than under the gutter word.
+                ImGui.SetCursorPosX(startX)
             end
-        else
-            mutedNameList("", buffs)
+            ImGui.PushID(idTag .. i)
+            if not drawSpellIcon(b.icon, BUFF_ICON_SIZE) then
+                ImGui.Dummy(ImVec2(BUFF_ICON_SIZE, BUFF_ICON_SIZE))
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                safeText(tostring(b.name or "?"))
+                if not b.permanent then theme.TextMuted(mmss(b.seconds)) end
+                ImGui.EndTooltip()
+            end
+            ImGui.PopID()
         end
     end
-    mutedNameList("songs: ", s.songs)
+
+    local buffs = s.buffs or {}
+    if spellIconAnim then
+        iconGrid(nil, buffs, "dockbuff")
+        -- Songs get the grid too. They are the same KIND of thing as a buff -- timed, plural,
+        -- and already sharing the Expiring soon block above -- so every affordance the grid
+        -- offers actually fires for them.
+        iconGrid("songs", s.songs, "docksong")
+    else
+        mutedNameList("", buffs)
+        mutedNameList("songs: ", s.songs)
+    end
+
+    -- Auras stay a NAME, and the line is the clock rather than the count. Every affordance in
+    -- the grid is time-related: the hover is the name plus `if not permanent then mmss(...)`,
+    -- and the block above escalates the same items as they get short. An aura is permanent, so
+    -- that branch never fires -- an aura icon's hover would show its name and nothing else,
+    -- which is exactly the text already on screen without hovering. An icon whose hover adds
+    -- nothing is a worse label than the label.
+    --
+    -- Not "a grid of one looks silly": that would flip the moment someone runs two auras. The
+    -- clock rule holds at any count. It also keeps the two apart when they read alike -- the
+    -- field capture had `songs: Myrmidon's Aura Effect` beside `aura: Myrmidons Aura`, and as
+    -- bare icons telling those apart would need a hover on each.
     mutedNameList("aura: ", s.auras)
 
     if ImGui.Button("Open Buffs window##dockBuffsOpen") then

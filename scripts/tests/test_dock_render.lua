@@ -1701,6 +1701,63 @@ end
 
 -- ---------------------------------------------------------------- summary
 -- =================================================================
+-- The buffs popover's ICON path: songs get the grid, auras keep the name.
+--
+-- Every popover assertion above runs the FALLBACK path, because the stub has no
+-- FindTextureAnimation so spellIconAnim stays nil and everything degrades to name lines. The
+-- grid was therefore never exercised at all - which is how it shipped wrapping on a padding
+-- that did not match the one being pushed, clipping the last icon of every row.
+--
+-- The ruling this covers: songs are the same KIND of thing as buffs (timed, plural, already in
+-- the Expiring soon block) so every affordance the grid offers fires for them. An aura is
+-- PERMANENT, so the hover's `if not permanent then mmss(...)` branch never runs and an aura
+-- icon's hover would show its name and nothing else - exactly the text already on screen. An
+-- icon whose hover adds nothing is a worse label than the label.
+-- =================================================================
+do
+    resetInput()
+    stub.advance(T.DOCK_POPOVER_GRACE_MS * 4)
+
+    -- Same table dock_top captured at require time, so mutating it reaches the upvalue.
+    local mqStub = package.loaded['mq']
+    local realFind = mqStub.FindTextureAnimation
+    mqStub.FindTextureAnimation = function()
+        return { SetTextureCell = function() end }
+    end
+    local realDraw = rawget(_G.ImGui, 'DrawTextureAnimation')
+    _G.ImGui.DrawTextureAnimation = function() end
+
+    local ctx = newCtx({ segments = 'buffs' })
+    dockState.init(newDeps(ctx))
+    warmState(580000)
+    local snap = dockState.get()
+    snap.buffCount, snap.songCount, snap.auraCount = 2, 2, 1
+    snap.buffs = { { name = 'Spirit of Wolf', permanent = false, seconds = 900, icon = 101 },
+                   { name = 'Skin like Diamond', permanent = true, icon = 102 } }
+    snap.songs = { { name = 'Hymn of the Last Stand', permanent = false, seconds = 30, icon = 201 },
+                   { name = 'Gem of Cleave', permanent = false, seconds = 60, icon = 202 } }
+    snap.auras = { { name = 'Myrmidons Aura', permanent = true, icon = 301 } }
+    snap.expiring, snap.expiringCount = {}, 0
+
+    stub.hover = { dockseg_buffs = true }
+    local r = stub.frame(function() dockTop.render(ctx) end)
+    stub.hover = {}
+
+    check('icons: songs render as a grid, not a name line',
+        not stub.drew(r, 'Hymn of the Last Stand'), table.concat(r.text, '|'))
+    check('icons: the songs group keeps its gutter word', stub.drew(r, 'songs'),
+        table.concat(r.text, '|'))
+    -- The ruling's core. If this ever flips, someone decided by count rather than by clock.
+    check('icons: the AURA is still a name, because its hover would add nothing',
+        stub.drew(r, 'Myrmidons Aura'), table.concat(r.text, '|'))
+    check('icons: balanced', stub.balanced(r), stub.imbalance(r))
+    check('icons: no TLO from the icon path', #r.tloAccess == 0, table.concat(r.tloAccess, ','))
+
+    mqStub.FindTextureAnimation = realFind
+    _G.ImGui.DrawTextureAnimation = realDraw
+end
+
+-- =================================================================
 -- The SELL popover's "Full preview", both branches.
 --
 -- It used to queue a bare hub open, on a comment claiming the hub's Sell view IS the full
