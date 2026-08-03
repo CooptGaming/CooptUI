@@ -69,11 +69,18 @@ function M.migrateCsv(savedCsv, entries, savedSchema, idField)
     local additions = M.additions(entries, savedSchema, idField)
     if #additions == 0 then return savedCsv, false end
 
+    -- "none" is not an empty list, it is a RECORDED CHOICE: config_general writes it when the
+    -- user unchecks the last launcher, and it means "I want no row". Migrating into it would
+    -- override that with one chip -- defensible under the per-id rule (favorites was never
+    -- present at schema 0, so adding it is not a resurrection) and wrong against what the file
+    -- actually records. Only pre-marker files can be in this state; any later edit stamps.
+    if tostring(savedCsv or "") == "none" then return savedCsv, false end
+
     local order, present = {}, {}
     for part in tostring(savedCsv or ""):gmatch("([^,]+)") do
         local id = part:match("^%s*(.-)%s*$")
-        -- "none" is the explicit empty marker the editors write; it is not an id, and a
-        -- migration that carried it through would produce "none,favorites".
+        -- A stray "none" mid-list is still not an id -- carrying it through would produce
+        -- the literal string sitting in the row.
         if id ~= "" and id ~= "none" then
             order[#order + 1] = id
             present[id] = true

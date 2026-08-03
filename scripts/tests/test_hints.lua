@@ -144,14 +144,21 @@ for _, h in ipairs(hints.HINTS or {}) do
 end
 check('every hint anchors to a segment that still exists', #orphaned == 0,
     table.concat(orphaned, ', '))
--- 11. No hint may promise a control that does not exist.
+-- 11. No hint may name a control that was REMOVED and left its copy behind.
 --
--- A "Review button" has now been invented twice for the lane's finished state -- once in
--- docs/DOCK_UI.md and once here, in the copy a new player is taught at their first loot run.
--- It has never existed in dock_top or dock_state. The lane's finished mood draws the result
--- and holds it six seconds; the only lane buttons are Take/Pass on a mythical and Bags when a
--- run stops full. Teaching a control that is not there is worse than teaching nothing, and
--- copy is the one surface no render test covers.
+-- A Review button did exist in the lane's finished state, and was removed because it stayed on
+-- screen after a run and had to be clicked before the bar would return to idle. The copy that
+-- taught it survived in two places -- docs/DOCK_UI.md and this hint, the card a new player
+-- meets at their first loot run -- and both shipped for months after the control was gone.
+-- The finished mood now draws the result and decays after six seconds on its own.
+--
+-- The general shape, which is the part worth carrying: WHEN A CONTROL IS REMOVED, THE COPY
+-- THAT TAUGHT IT USUALLY SURVIVES, and nothing sweeps for that. Copy is also the one surface
+-- no render test reaches -- that card was correctly anchored, perfectly stack-balanced and
+-- passing every assertion while naming a button that had been deleted.
+--
+-- Scope honestly: this is a denylist of names known to have outlived their control, not a
+-- general proof that every hint names something real. Add to it when a control is retired.
 local PHANTOM = { 'Review' }
 local promises = {}
 for _, h in ipairs(hints.HINTS or {}) do
@@ -161,7 +168,7 @@ for _, h in ipairs(hints.HINTS or {}) do
         end
     end
 end
-check('no hint promises a control that does not exist', #promises == 0,
+check('no hint names a control that was removed', #promises == 0,
     table.concat(promises, ', '))
 
 -- Stop is never in the lane -- it is Loot All transforming in place. A hint that says

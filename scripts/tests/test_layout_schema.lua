@@ -98,11 +98,20 @@ check('migrate: running twice against a schema-0 file is idempotent', once == tw
 local same, noChange = schema.migrateCsv('alpha,bravo,charlie,echo', ENTRIES, 2)
 check('migrate: nothing to do at the current schema', same == 'alpha,bravo,charlie,echo' and noChange == false, same)
 
--- "none" is the explicit-empty marker both editors write. Carrying it through would produce
--- the literal id "none" sitting in the row.
-local fromNone = schema.migrateCsv('none', ENTRIES, 0)
-check('migrate: the "none" empty-marker is not treated as an id',
-    fromNone == 'charlie,echo', fromNone)
+-- "none" is not an empty list, it is a RECORDED CHOICE -- the editors write it when the user
+-- unchecks the last entry. This asserted the opposite until design pointed out that migrating
+-- into it hands one chip back to someone who asked for none. Correct under the per-id rule
+-- (the new id was never present, so adding it is not a resurrection) and wrong against what
+-- the file records; intent wins.
+local fromNone, noneChanged = schema.migrateCsv('none', ENTRIES, 0)
+check('migrate: an explicitly emptied list stays empty',
+    fromNone == 'none' and noneChanged == false, tostring(fromNone))
+
+-- A stray "none" INSIDE a list is still not an id -- that path is separate from the whole-
+-- value check above, and carrying it through would leave the literal string in the row.
+check('migrate: a stray "none" mid-list is not treated as an id',
+    schema.migrateCsv('alpha,none', ENTRIES, 0) == 'alpha,charlie,echo',
+    schema.migrateCsv('alpha,none', ENTRIES, 0))
 local fromEmpty = schema.migrateCsv('', ENTRIES, 0)
 check('migrate: an empty saved list still receives the new entries',
     fromEmpty == 'charlie,echo', fromEmpty)
@@ -150,12 +159,72 @@ local trimmed = schema.migrateCsv('bags,bank,equipment,aa', dockButtons.BUTTONS,
 check('real: a trimmed row keeps its trim', trimmed:find('mythicals', 1, true) == nil, trimmed)
 check('real: a trimmed row still gains Clickies', trimmed == 'bags,bank,equipment,aa,favorites', trimmed)
 
+-- An explicitly emptied row is a recorded choice, not an empty list. Migrating into it would
+-- hand back one chip to someone who asked for none.
+local noneCsv, noneChanged = schema.migrateCsv('none', dockButtons.BUTTONS, 0)
+check('real: an explicitly emptied launcher row stays empty',
+    noneCsv == 'none' and noneChanged == false, tostring(noneCsv))
+
 -- Every entry must carry a `since`, or it silently reads as 0 and never migrates.
 local missing = {}
 for _, b in ipairs(dockButtons.BUTTONS) do
     if b.since == nil then missing[#missing + 1] = b.id end
 end
 check('real: every canonical button declares a `since`', #missing == 0, table.concat(missing, ','))
+
+-- =================================================================
+-- 6. ColumnVisibility against the SHIPPED table, not a synthetic one.
+--
+-- §4 proved migrateVisibility works on a hand-built AVAILABLE table that carries `since`. It
+-- did not prove the real one does, and the real one carries no `since` above 0 -- so the call
+-- wired into layout.lua adds nothing on any file at any schema level. That is correct TODAY
+-- and deliberate (the marker's first release touches only the launcher row), but it means the
+-- third whitelist is wired and unproven, which is where the four-time bug recurs next.
+--
+-- So: assert the dormancy is real rather than accidental, and assert the plumbing would fire
+-- if a column ever declared a `since`. The second half is the one that matters -- it is the
+-- difference between "wired" and "working".
+-- =================================================================
+local columnConfig = require('itemui.utils.column_config')
+
+local undeclared = {}
+for view, cols in pairs(columnConfig.availableColumns) do
+    for _, c in ipairs(cols) do
+        if c.since == nil then undeclared[#undeclared + 1] = view .. '.' .. tostring(c.key) end
+    end
+end
+check('columns: every column declares a `since`', #undeclared == 0,
+    table.concat(undeclared, ','))
+
+columnConfig.initColumnVisibility()
+check('columns: the shipped table migrates nothing today (dormant on purpose)',
+    schema.migrateVisibility(columnConfig.columnVisibility,
+        columnConfig.availableColumns, 0) == false)
+
+-- Now prove it is dormant rather than broken: declare one column newer than the marker and it
+-- must come on. Restored immediately so the rest of the suite sees the shipped table.
+local probe = columnConfig.availableColumns.Inventory[1]
+local wasSince, wasVisible = probe.since, columnConfig.columnVisibility.Inventory[probe.key]
+probe.since = schema.CURRENT
+columnConfig.columnVisibility.Inventory[probe.key] = false
+local fired = schema.migrateVisibility(columnConfig.columnVisibility,
+    columnConfig.availableColumns, schema.CURRENT - 1)
+check('columns: a column newer than the saved schema DOES migrate on',
+    fired == true and columnConfig.columnVisibility.Inventory[probe.key] == true,
+    'fired=' .. tostring(fired))
+probe.since = wasSince
+columnConfig.columnVisibility.Inventory[probe.key] = wasVisible
+
+-- ...and that a ships-off column still never migrates, the same rule as loot on the bar.
+local offProbe = columnConfig.availableColumns.Inventory[2]
+local offSince, offDefault = offProbe.since, offProbe.default
+offProbe.since, offProbe.default = schema.CURRENT, false
+columnConfig.columnVisibility.Inventory[offProbe.key] = false
+schema.migrateVisibility(columnConfig.columnVisibility,
+    columnConfig.availableColumns, schema.CURRENT - 1)
+check('columns: a ships-off column is never migrated on',
+    columnConfig.columnVisibility.Inventory[offProbe.key] == false)
+offProbe.since, offProbe.default = offSince, offDefault
 check('real: CURRENT is at least as high as the newest entry',
     (function()
         for _, b in ipairs(dockButtons.BUTTONS) do

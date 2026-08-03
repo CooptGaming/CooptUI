@@ -10,13 +10,30 @@ local FORMAT_VALUE_CACHE_SIZE = 64
 local formatValueCache = {}
 local formatValueCacheKeys = {}
 
+--- Thousands separators for the platinum figure.
+---
+--- The bars and the windows deliberately differ on PRECISION -- a bar cell reports whole
+--- platinum so a fixed-width slot never reflows, a window has room for the gold. They were
+--- also differing on GROUPING, which was not a decision, just two habits: the bar's own
+--- formatter groups and this one did not. So the same figure rendered as "5,720p" on the bar
+--- and "5720p 1g" three times inside one window, and read as two different numbers rather
+--- than one number at two precisions. Grouping here leaves them differing only on the axis
+--- that is actually documented.
+---
+--- Only the platinum branch needs it: gold, silver and copper are each 0-9 by construction.
+local function groupThousands(n)
+    local s = tostring(n)
+    local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    return (out:gsub("^,", ""))
+end
+
 local function formatValueImpl(copperValue)
     if not copperValue or copperValue == 0 then return "0c" end
     local plat = math.floor(copperValue / 1000)
     local gold = math.floor((copperValue % 1000) / 100)
     local silver = math.floor((copperValue % 100) / 10)
     local copper = copperValue % 10
-    if plat > 0 then return string.format("%dp %dg", plat, gold) end
+    if plat > 0 then return string.format("%sp %dg", groupThousands(plat), gold) end
     if gold > 0 then return string.format("%dg %ds", gold, silver) end
     if silver > 0 then return string.format("%ds %dc", silver, copper) end
     return string.format("%dc", copper)

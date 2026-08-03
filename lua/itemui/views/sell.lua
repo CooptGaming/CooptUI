@@ -150,10 +150,13 @@ function SellView.render(ctx, simulateSellView)
         ImGui.OpenPopup("Sell Preview##ItemUI")
     end
     SellView.renderSellPreviewModal(ctx)
-    if not simulateSellView then
-        ImGui.SameLine()
-        ctx.theme.TextMuted("Auto Sell / /dosell")
-    end
+    -- "Auto Sell / /dosell" used to sit here as muted text between two real buttons, which
+    -- taught a third meaning of grey in a window that already teaches two: Auto Sell greys to
+    -- mean UNAVAILABLE (no merchant), the row's Keep/Junk are grey to mean NOT-THE-CURRENT-
+    -- CHOICE and are fully clickable, and this was grey to mean "not a control at all". Three
+    -- conventions in one frame is none, and the cost lands on the greys that are genuinely
+    -- informative. It was also the third statement of the same fact -- the Auto Sell button's
+    -- own tooltip names the sell mode, and /dosell is in the command list.
     ImGui.SameLine()
     ctx.renderRefreshButton(ctx, "Refresh##Sell", "Rescan inventory, bank (if open), sell list, and loot", function() ctx.refreshAllScans() end, { messageBefore = "Scanning..." })
     ImGui.SameLine()

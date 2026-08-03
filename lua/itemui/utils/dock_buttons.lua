@@ -13,9 +13,14 @@
     Pure data, no requires -- state.lua loads this and declares itself free of anything but
     pure state.
 
-    Adding an entry does NOT reach an existing install: DockButtons persists as a "these are
-    on" whitelist with no schema marker, so a saved layout keeps its old set. That is a known
-    open item, not a property of this table.
+    Adding a `default = true` entry DOES reach an existing install, via the `since` field and
+    utils/layout_schema.lua. Give the new entry `since = layout_schema.CURRENT + 1` and bump
+    CURRENT; a load then adds it to any file saved before that number, without resurrecting
+    anything the user turned off.
+
+    (This paragraph used to say the opposite -- correctly, until the schema marker shipped one
+    commit later and made it false. Which is the residue problem this file exists to prevent,
+    in this file, about this file.)
 --]]
 
 local M = {}

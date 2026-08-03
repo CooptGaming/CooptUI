@@ -697,10 +697,19 @@ local function applyLayoutSection(parsed)
         if changed then layoutConfig.DockButtons = migrated end
         layoutSchema.migrateVisibility(columnConfig.columnVisibility,
             columnConfig.availableColumns, savedSchema)
-        -- DockSegments is covered by the same mechanism but NOT wired: it has no canonical
-        -- table to carry `since` (its ids live in dock_top's CELL_OPTIONAL and its default in
-        -- state.lua), and its shipped default already enables all six optional cells, so there
-        -- is nothing to migrate today. Give it a table before adding a seventh.
+        -- DockSegments is covered by the same mechanism but NOT wired, and the reason is
+        -- weaker than it looks at first: it has no canonical table to carry `since` (its ids
+        -- live in dock_top's CELL_OPTIONAL and its default in state.lua), and its shipped
+        -- default already enables all six optional cells.
+        --
+        -- The stronger reason is the exposure. dock_top treats an EMPTY DockSegments as
+        -- everything-on, so a user who has never opened that editor holds no recorded opinion
+        -- and a new optional cell reaches them with no migration at all. Only users who have
+        -- edited the set are exposed -- far fewer than DockButtons, where every install
+        -- carries an explicit CSV whether they touched it or not.
+        --
+        -- The trigger to wire it is therefore not "a seventh cell" but "a seventh cell that
+        -- people who have already edited this list should receive". Give it a table then.
     end
     layoutConfig[layoutSchema.KEY] = layoutSchema.CURRENT
 end

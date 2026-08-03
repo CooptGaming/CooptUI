@@ -2,9 +2,9 @@
 
 **Two thin strips instead of a hub full of buttons: one reports, one takes orders.**
 
-The bars are off by default. Turn them on in **Settings → General → Dock**, or with
-`/itemui dock`. Everything below only applies once they're on; with them off, CoOpt UI is
-exactly what it has always been.
+New installs start with the bars on. Existing installs keep whatever UI they had — turn the
+bars on in **Settings → General → Dock**, or with `/itemui dock`. Everything below only
+applies once they're on; with them off, CoOpt UI is exactly what it has always been.
 
 ---
 
@@ -225,10 +225,11 @@ After that, five **hints** appear once each, at their own first real moment — 
 first loot run, first mythical decision, first full bag, first rule edit. **Got it** dismisses
 one forever; `/itemui hints` replays all five.
 
-The config itself ships in classic mode, so nothing changes under an existing install until
-someone opts in — the first run's screen-use question is what turns the bars on. Upgrades
-keep whatever mode they had, and re-running setup won't flip your answer unless you change
-it.
+A truly new install — no config file at all — comes up in bars mode, and the screen-use
+question above is already answered that way when you see it. The *bundled default file* still
+says classic, which is what keeps an existing install from being flipped by an upgrade or by
+Revert to Default Layout. Upgrades keep whatever mode they had, and re-running setup won't
+change your answer unless you change it.
 
 ---
 

@@ -1096,7 +1096,7 @@ local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
     -- Toolbar and content
     if #tabs == 0 then
         if ImGui.BeginChild("##ItemDisplayScroll", ImVec2(0, 0), true) then
-            ImGui.TextColored(ImVec4(0.7, 0.7, 0.7, 1.0), "No item selected. Right-click an item and choose \"CoOp UI Item Display\" to open.")
+            ImGui.TextColored(ImVec4(0.7, 0.7, 0.7, 1.0), "No item selected. Right-click an item and choose \"Item info\" to open it here.")
         end
         ImGui.EndChild()
     else

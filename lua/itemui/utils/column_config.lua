@@ -2,6 +2,19 @@
     ItemUI Column Config
     Column definitions (availableColumns), visibility state, and autofit widths per view.
     Reduces locals/upvalues in init.lua.
+
+    ADDING A COLUMN THAT SHOULD REACH EXISTING INSTALLS: give it
+    `since = <layout_schema.CURRENT + 1>` and bump CURRENT. ColumnVisibility persists as a
+    "these are on" whitelist, so without that an install with a saved layout -- which is every
+    install past its first session -- keeps its old set and never sees the new column, however
+    the shipped default is written. utils/layout_schema.lua carries the mechanism and the
+    history of the four times that bug shipped.
+
+    Everything defined below predates the marker and is normalised to `since = 0` at the foot
+    of this file, so it migrates to nobody. That is deliberate: the marker's first release
+    changes exactly one thing in anyone's config (the launcher row), and a migration that
+    quietly rearranged someone's Bags columns on upgrade would be a worse bug than the one it
+    fixes.
 --]]
 
 local M = {}
@@ -149,6 +162,16 @@ M.columnVisibility = {
     Sell = {},
     Bank = {},
 }
+
+-- Normalise `since` onto every column so it is a real declared field rather than an absence
+-- layout_schema has to infer. `additions()` already treats a missing `since` as 0, so this
+-- changes no behaviour -- what it changes is that a reader editing this file sees the field
+-- on every neighbour and has to decide about it, which an absent key does not prompt.
+for _, cols in pairs(M.availableColumns) do
+    for _, col in ipairs(cols) do
+        if col.since == nil then col.since = 0 end
+    end
+end
 
 function M.initColumnVisibility()
     for view, cols in pairs(M.availableColumns) do
