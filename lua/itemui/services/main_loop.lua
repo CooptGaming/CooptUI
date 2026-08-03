@@ -604,22 +604,12 @@ local function handleScriptConsume(now)
     local confirmTimeoutMs = (constants.TIMING and constants.TIMING.SCRIPT_CONSUME_CONFIRM_TIMEOUT_MS) or 2000
     local verified = ps.verifiedFromChat or 0
     local function finishConsume(src, n, msg)
-        local openedBags = ps and ps.openedBags
         uiState.pendingScriptConsume = nil
         local q = uiState.pendingScriptConsumeQueue or {}
         if #q > 0 then
             uiState.pendingScriptConsume = table.remove(q, 1)
             uiState.pendingScriptConsumeQueue = q
-            -- Hand the open bags to the next plan rather than closing and reopening between
-            -- queued turn-ins.
-            if openedBags and uiState.pendingScriptConsume then
-                uiState.pendingScriptConsume.openedBags = true
-                uiState.pendingScriptConsume.bagsPrepared = true
-                openedBags = false
-            end
         end
-        -- Put the bags back only if WE opened them, and only once the queue is empty.
-        if openedBags then pcall(mq.cmd, '/keypress CLOSE_INV_BAGS') end
         if setStatusMessage then setStatusMessage(msg) end
         if d.storage then
             if src == "inv" then
@@ -685,39 +675,14 @@ local function handleScriptConsume(now)
             end
         end
     else
-        -- PRECONDITION, once per plan: the native bags have to be open.
-        --
-        -- Not a preference. MQ's /itemnotify has three paths and only one of them needs a
-        -- window: `leftmouseup` calls PickupItem on the item's global index (data-level, which
-        -- is why Auto Sell works with the bags shut); `rightmouseup` on an item with
-        -- Clicky.SpellID > 0 is redirected to /useitem; and `rightmouseup` on anything else --
-        -- AA scripts, which have no clicky -- falls through to SendWndClick2 against the
-        -- item's pInvSlotWnd. With the container closed that pointer is null, which is the
-        -- "Could not find slot to send notification to in pack3" EQ prints. There is no
-        -- command-level way around it, because consuming by right-click IS a UI interaction.
-        --
-        -- Inferred rather than detected: nothing exposes "is pack N open", but this file
-        -- already opens every bag when the native Inventory window opens (the OPEN_INV_BAGS
-        -- call further down) and closes them with it. So an open Inventory means the bags are
-        -- open, and if it is shut we open them ourselves and put them back when the queue
-        -- drains. Bank turn-ins are excluded -- that is the bank window's own problem.
-        if ps.bagsPrepared == nil then
-            ps.bagsPrepared = true
-            if ps.source ~= "bank" then
-                local invOpen = d.getLastInventoryWindowState and d.getLastInventoryWindowState()
-                if not invOpen then
-                    pcall(mq.cmd, '/keypress OPEN_INV_BAGS')
-                    ps.openedBags = true
-                    -- Give EQ a frame or two to actually draw them before the first notify.
-                    ps.nextClickAt = now + delayMs
-                    return
-                end
-            end
-        end
         local shouldFire = (ps.nextClickAt > 0 and now >= ps.nextClickAt) or (ps.nextClickAt == 0 and ps.consumedSoFar == 0)
         if shouldFire then
             local Me = mq.TLO and mq.TLO.Me
             local stack = 0
+            -- The item's INVENTORY index, which is what /useitem takes. ItemSlot is
+            -- GetIndex().GetSlot(0) and ItemSlot2 is GetSlot(1) -- exactly the pair
+            -- UseItemCmd computes for itself when you hand it a name.
+            local slot0, slot1 = nil, nil
             if ps.source == "bank" then
                 local bn = Me and Me.Bank and Me.Bank(ps.bag)
                 local it = bn and bn.Item and bn.Item(ps.slot)
@@ -726,6 +691,12 @@ local function handleScriptConsume(now)
                 local pack = Me and Me.Inventory and Me.Inventory("pack" .. ps.bag)
                 local it = pack and pack.Item and pack.Item(ps.slot)
                 stack = (it and it.Stack and it.Stack()) or 0
+                if it then
+                    pcall(function()
+                        slot0 = it.ItemSlot and it.ItemSlot()
+                        slot1 = it.ItemSlot2 and it.ItemSlot2()
+                    end)
+                end
             end
             if stack < 1 then
                 -- Confirmed count again, not issued: this exit is reached mid-plan and used
@@ -733,9 +704,36 @@ local function handleScriptConsume(now)
                 finishConsume(ps.source, verified, string.format(
                     "Added %d to Alt Currency; item moved or depleted.", verified))
             else
+                -- /useitem, NOT /itemnotify rightmouseup, and this is the whole reason the
+                -- turn-in used to need the native bags open.
+                --
+                -- /itemnotify has three paths (MQ2Windows.cpp). `leftmouseup` on a closed bag
+                -- falls back to PickupItem on the global index -- data-level, which is why
+                -- Auto Sell never needed the bags. `rightmouseup` gets that fallback ONLY
+                -- when Clicky.SpellID > 0; otherwise it drops through to SendWndClick2 on the
+                -- item's pInvSlotWnd, which is null with the container shut. That null is
+                -- EQ's "Could not find slot to send notification to in pack3".
+                --
+                -- /useitem has no such gate. UseItemCmd resolves the item's location and
+                -- hands the slot pair to EQ's own cmdUseItem -- it never looks at Clicky at
+                -- all. (I reasoned the opposite from the itemnotify redirect's condition and
+                -- was wrong: that gate says when MQ will SUBSTITUTE the command, not what the
+                -- command can do. A guard on one caller is not a constraint on the callee.
+                -- Field-proven by /useitem "Rare Script of Lost Memories" consuming with the
+                -- bags closed.)
+                --
+                -- Numeric form rather than by name: the FSM tracks one specific slot, and
+                -- FindItemByName would consume whichever copy it found first.
                 if ps.source == "bank" then
+                    -- /useitem only handles eItemContainerPossessions, so bank turn-ins keep
+                    -- the old path -- and the bank window is open by definition at a banker.
                     mq.cmdf('/itemnotify in bank%d %d rightmouseup', ps.bag, ps.slot)
+                elseif slot0 and slot1 then
+                    mq.cmdf('/useitem %d %d', slot0, slot1)
                 else
+                    -- The TLO could not give an index (zoning, most likely). Fall back rather
+                    -- than skip; if the bags are shut this fails, and the two-unconfirmed
+                    -- guard reports that honestly instead of claiming a consume.
                     mq.cmdf('/itemnotify in pack%d %d rightmouseup', ps.bag, ps.slot)
                 end
                 -- ISSUED, not consumed. The cache decrement that used to sit here now waits

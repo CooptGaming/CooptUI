@@ -34,6 +34,8 @@ stub.install()
 
 local issued = {}
 local STACK = 99          -- the TLO always reports stock left; that is the point of the bug
+local SLOT0, SLOT1 = 25, 4   -- the item's inventory index, what /useitem takes
+local HAS_SLOTS = true       -- flip to model a TLO that cannot answer (zoning)
 
 package.loaded['mq'] = {
     gettime = function() return 0 end,
@@ -49,7 +51,16 @@ package.loaded['mq'] = {
             Name = function() return 'Tester' end,
             -- The guard the FSM uses reads through the TLO, which answers correctly whether
             -- or not the bag's WINDOW is open. That is precisely why it cannot catch this.
-            Inventory = function() return { Item = function() return { Stack = function() return STACK end } end } end,
+            Inventory = function()
+                return { Item = function()
+                    local it = { Stack = function() return STACK end }
+                    if HAS_SLOTS then
+                        it.ItemSlot = function() return SLOT0 end
+                        it.ItemSlot2 = function() return SLOT1 end
+                    end
+                    return it
+                end }
+            end,
             Bank = function() return { Item = function() return { Stack = function() return STACK end } end } end,
         },
     },
@@ -211,52 +222,50 @@ do
 end
 
 -- =================================================================
--- 5. The bags precondition.
+-- 5. /useitem, not /itemnotify -- the reason a turn-in no longer needs the bags open.
 --
--- /itemnotify rightmouseup on a non-clicky item resolves through the item's pInvSlotWnd, which
--- is null when the container is shut -- so the run cannot work at all without the bags open,
--- and there is no command that avoids it (leftmouseup takes a data-level PickupItem path,
--- which is why selling is fine; a clicky item gets redirected to /useitem, which scripts are
--- not). So the FSM opens them first and puts them back.
+-- /itemnotify rightmouseup on a non-clicky item resolves through the item's pInvSlotWnd,
+-- which is null when the container is shut. /useitem has no such gate: UseItemCmd resolves
+-- the item's location and hands the slot pair to EQ's own cmdUseItem, never looking at
+-- Clicky. Field-proven -- /useitem "Rare Script of Lost Memories" consumed with bags closed.
+--
+-- Numeric form rather than by name, because the FSM tracks one specific slot and
+-- FindItemByName would consume whichever copy it found first.
 -- =================================================================
 do
     issued = {}
-    INV_OPEN = false                          -- bags shut
-    local uiState = { pendingScriptConsume = newPlan(2) }
+    local uiState = { pendingScriptConsume = newPlan(1) }
     mainLoop.init(newDeps(uiState))
-
     step(0)
-    check('bags shut: opens them before issuing anything',
-        issued[1] == '/keypress OPEN_INV_BAGS', table.concat(issued, '|'))
-    check('bags shut: does NOT fire a notify in the same step', #issued == 1,
-        table.concat(issued, '|'))
 
-    -- Confirm both, so the plan completes and the queue empties.
-    local t = T.SCRIPT_CONSUME_DELAY_MS + 1
-    for _ = 1, 2 do
-        step(t)
-        uiState.pendingScriptConsume.verifiedFromChat =
-            (uiState.pendingScriptConsume.verifiedFromChat or 0) + 1
-        t = t + 1
-        step(t)
-        t = t + T.SCRIPT_CONSUME_DELAY_MS + 1
-    end
+    check('inventory turn-in uses /useitem with the item index',
+        issued[1] == string.format('/useitem %d %d', SLOT0, SLOT1), table.concat(issued, '|'))
+    check('and never touches the bag keybinds',
+        not table.concat(issued, '|'):find('INV_BAGS', 1, true), table.concat(issued, '|'))
+    check('nor the UI-slot notify path',
+        not table.concat(issued, '|'):find('itemnotify', 1, true), table.concat(issued, '|'))
 
-    check('bags shut: run completes', uiState.pendingScriptConsume == nil,
-        tostring(uiState.pendingScriptConsume))
-    check('bags shut: puts the bags back when it is done',
-        issued[#issued] == '/keypress CLOSE_INV_BAGS', table.concat(issued, '|'))
-
-    -- Already open: leave the user's screen exactly as it was.
+    -- If the TLO cannot supply an index -- zoning, most likely -- fall back rather than skip.
+    -- That path needs the bags, and the two-unconfirmed guard is what reports it honestly.
     issued = {}
-    INV_OPEN = true
+    HAS_SLOTS = false
     local uiState2 = { pendingScriptConsume = newPlan(1) }
     mainLoop.init(newDeps(uiState2))
     step(0)
-    uiState2.pendingScriptConsume.verifiedFromChat = 1
-    step(1)
-    check('bags already open: never touches the keybinds',
-        not table.concat(issued, '|'):find('INV_BAGS', 1, true), table.concat(issued, '|'))
+    check('no index available: falls back to the notify rather than doing nothing',
+        issued[1] == '/itemnotify in pack3 1 rightmouseup', table.concat(issued, '|'))
+    HAS_SLOTS = true
+
+    -- Bank turn-ins keep the old path: /useitem only handles possessions, and the bank
+    -- window is open by definition at a banker.
+    issued = {}
+    local bankPlan = newPlan(1)
+    bankPlan.source = 'bank'
+    local uiState3 = { pendingScriptConsume = bankPlan }
+    mainLoop.init(newDeps(uiState3))
+    step(0)
+    check('bank turn-in still uses the bank notify',
+        issued[1] == '/itemnotify in bank3 1 rightmouseup', table.concat(issued, '|'))
 end
 
 print(string.format('\n%d passed, %d failed', pass, fail))
