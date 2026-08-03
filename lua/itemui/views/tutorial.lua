@@ -543,36 +543,64 @@ local function renderSetupBar(refs)
     ImGui.PopTextWrapPos()
     ImGui.SameLine(winW - buttonReserve)
 
+    --- Save the view this step was shaping, from the LIVE window.
+    ---
+    --- saveLayoutForView takes (view, w, h) and assigns them straight through, so calling it
+    --- without the size writes NIL over WidthInventory/WidthSell and the shared Height. That
+    --- shipped for one commit and read in the field as "the Inventory Companion keeps getting
+    --- resized" -- it was not being resized, its saved size was being erased.
+    ---
+    --- Only Inventory and Sell go through here. Bank is a separate window that saves its own
+    --- size when resized (saveLayoutForView has no Bank branch at all), and step 8 is the
+    --- open-everything step, where each companion likewise saves itself.
+    local function saveCurrentView()
+        if step ~= 2 and step ~= 4 then return end
+        local w, h = ImGui.GetWindowSize()
+        if w and h and w > 0 and h > 0 then
+            saveLayoutForView((step == 2) and "Inventory" or "Sell", w, h, nil)
+        end
+    end
+
+    --- Step 6 shapes the Bank companion, so arriving there has to open it.
+    local function enterStep(target)
+        if target == 6 then
+            registry.setWindowState("bank", true, true)
+            if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened("bank") end
+        end
+        -- Leaving step 8 in either direction clears the opened-once flag, so re-entering it
+        -- re-opens every companion instead of showing a stale "now open" prompt.
+        if step == 8 then uiState.setupCompanionsOpenedAtStep8 = false end
+        uiState.setupStep = target
+    end
+
     if idx > 1 then
         if ImGui.Button("Back##TutorialBar", ImVec2(50, 0)) then
-            uiState.setupStep = SEQUENCE[idx - 1]
+            enterStep(SEQUENCE[idx - 1])
         end
         ImGui.SameLine()
     end
     if isLast then
-        -- Each sizing step saves its own view on the way out; this saves the last one and
-        -- closes. The protection layers are NOT here any more -- they live in Settings, where
-        -- they stay editable instead of being a thing you got one pass at.
+        -- The protection layers are NOT here any more -- they live in Settings, where they
+        -- stay editable instead of being a thing you got one pass at.
         if ImGui.Button("Save & Finish##TutorialBar", ImVec2(110, 0)) then
-            saveLayoutForView("Inventory")
+            saveCurrentView()
+            uiState.setupCompanionsOpenedAtStep8 = false
             if refs.setOnboardingComplete then refs.setOnboardingComplete() end
             uiState.setupMode = false
             uiState.setupStep = 0
         end
         if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip(); ImGui.Text("Save these sizes and close the wizard"); ImGui.EndTooltip()
+            ImGui.BeginTooltip(); ImGui.Text("Finish setup and close the wizard"); ImGui.EndTooltip()
         end
     else
         if ImGui.Button("Next##TutorialBar", ImVec2(60, 0)) then
-            local nextStep = SEQUENCE[idx + 1]
-            -- Steps 2/4/6 each save the view they were shaping before moving on.
-            if step == 2 then saveLayoutForView("Inventory")
-            elseif step == 4 then saveLayoutForView("Sell")
-            elseif step == 6 then saveLayoutForView("Bank") end
-            uiState.setupStep = nextStep
+            saveCurrentView()
+            enterStep(SEQUENCE[idx + 1])
         end
         if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip(); ImGui.Text("Save this window's size and continue"); ImGui.EndTooltip()
+            ImGui.BeginTooltip()
+            ImGui.Text((step == 2 or step == 4) and "Save this window's size and continue" or "Continue")
+            ImGui.EndTooltip()
         end
     end
     ImGui.Separator()
