@@ -39,7 +39,13 @@ local SCREEN_TITLES = {
 -- Steps where user configures sizing/reshaping include "Click Next to save and proceed."
 local HEADER_PROMPTS = {
     [2]  = "Resize the window, reorder columns, and adjust column widths to your liking. When done, click Next to save and proceed.",
-    [4]  = "Resize the Sell window and adjust columns as you like. No merchant needed - this is a simulated view. When done, click Next to save and proceed.",
+    -- Columns, not size. Sell has no window of its own -- it is a MODE of the hub window
+    -- (views/sell.lua has no ImGui.Begin at all), so there is one rect and WidthSell is a
+    -- leftover that is very nearly unreachable anyway (see main_window's note on the two size
+    -- memories). A live per-view width would mean the hub jumping wider when a merchant opens,
+    -- which is the reflow the bars forbid one scale down. What genuinely saves here is the
+    -- per-view column set, and that is what the step now asks for.
+    [4]  = "Show, hide and reorder the columns you want when selling - Sell carries a few more than Inventory. No merchant needed, this is a simulated view. When done, click Next to save and proceed.",
     [6]  = "Open and resize the Bank companion window to your preference. When done, click Next to save and proceed.",
     [8]  = "All companion windows are now open. Drag and resize each one to fit your screen. When done, click Next to save and proceed.",
     [9]  = "Review the three layers of protection (Sell, Loot, Epic). Additional settings are in the Settings window. Click Next to continue.",

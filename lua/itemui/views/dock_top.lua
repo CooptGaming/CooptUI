@@ -1465,27 +1465,102 @@ local STRIPS = {
         note = "everything still works",
         tip = "The MQ2CoOptUI plugin reads items natively. Without it CoOpt falls back to slower TLO scans - every feature still functions.",
     },
-    -- LESSONS. Same strip, same contract -- say what, say the cost, offer a fix that exists --
-    -- but teaching rather than degradation, and dismissed FOREVER rather than for the session
-    -- (dock_state ranks them below every real condition, so one only ever appears on a
-    -- healthy install). They live here because the two things they teach have no bar cell to
-    -- anchor a hint to, and inventing an anchor is the 480fe52 bug as a decision.
-    lesson_retidy = {
-        color = "Success",
-        msg = "moved windows stay where you put them",
-        note = "Re-tidy puts every open window back in its zone",
-        btn = { label = "Re-tidy now", action = { kind = "retidy" } },
-        tip = "Dragging a window opts it out of automatic placement until you re-tidy. Magnet edges still snap it to its neighbours; hold Alt while dragging to ignore them.",
+}
+
+-- ---------------------------------------------------------------------------
+-- LESSONS: one-time teaching, drawn as a CARD rather than a strip row.
+--
+-- These started as two more STRIPS entries, which was right about mechanics and wrong about
+-- register. The line that decides it is CONDITION versus EVENT: every member of STRIPS above
+-- is a condition -- it persists, it recurs, it will still be true in ten minutes -- so quiet
+-- is correct, because it gets a second chance to be read. A lesson is an event. It fires once
+-- on an edge and dismisses forever. It has exactly one chance, and a register built for the
+-- thing that waits is wrong for the thing that happens.
+--
+-- Shipped as a strip, the re-tidy lesson rendered as a second bar row: same height, same
+-- background, no border, no title, and `Success` green -- which in this palette means "fine,
+-- informational" and is what stale_bank wears. The one entry that needed attention was
+-- dressed in the word for nothing to see. Field-reported as not catching the eye at all.
+--
+-- So: the geometry stays (dockLayout.barRect, the dock_state trigger, the persisted flag --
+-- all the things a window-anchored card would have had to reinvent) and the SHAPE comes from
+-- the hint card. Looking like a hint is the goal, not a side effect: a lesson and a hint
+-- teach the same kind of thing at the same kind of moment, and two vocabularies for one idea
+-- is how a user learns neither. What still separates them is real and needs no styling --
+-- a hint points at a cell, a lesson has no anchor at all.
+--
+-- Contract is the hint's, plus one addition: `action` is optional and queued. A hint teaches
+-- something you will do later; a lesson can offer the thing now. M6 deliberately has none --
+-- the CoOpt cell is two inches from the card, and a button that opens what the sentence
+-- points at is D6's empty "Open Item Display" all over again.
+-- ---------------------------------------------------------------------------
+
+local LESSONS = {
+    retidy = {
+        title = "Moved windows stay put",
+        -- msg and note merged: the split into a line plus a trailing muted note is a STRIP
+        -- affordance (one row, no wrapping) and a card has no reason to keep it. The second
+        -- sentence is the half that was missing and the half people actually need -- it was
+        -- in docs/DOCK_UI.md and nowhere on screen.
+        body = "A window you drag stops auto-slotting and stays where you put it. Re-tidy puts every open window back into its zone and forgets the hand placements.",
+        action = { label = "Re-tidy now", queued = { kind = "retidy" } },
     },
-    lesson_hublist = {
-        color = "Success",
-        msg = "the CoOpt cell opens every window, and shows where each one is",
-        note = "top left of this bar",
-        -- No button on purpose: the thing it points at is two inches away, and a button
-        -- would teach the button instead of the cell.
-        tip = "Click CoOpt for the full list - items, character windows, layouts and their shortcuts. It is the one surface that answers \"what else is there\".",
+    hublist = {
+        title = "Every window, in one list",
+        body = "Click CoOpt at the left of the status bar for the full list - items, character windows, layouts and their shortcuts. It is the one surface that answers what else is there.",
     },
 }
+
+--- A lesson card. Same slot under the bar as the strip, the hint card's shape inside it.
+local function renderLessonCard(ctx, s, edge, index, deg)
+    local spec = LESSONS[deg.lesson]
+    if not spec then return end
+    local uiState = ctx.uiState
+
+    -- Positioned by the bar's own geometry, exactly as the strip is -- this is the half of
+    -- the strip design worth keeping. AlwaysAutoResize so the wrapped body sets the height
+    -- rather than a strip's fixed one row.
+    local x, y = dockLayout.barRect(edge, index or 1)
+    ImGui.SetNextWindowPos(ImVec2(x, y))
+    ImGui.SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, 400))
+    local flags = bit32.bor(barFlags(), ImGuiWindowFlags.AlwaysAutoResize or 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, ImVec2(10, 8))
+    ImGui.PushStyleColor(ImGuiCol.Border, theme.ToVec4(theme.Colors.Warning))
+    local okBegin, _, visible = pcall(ImGui.Begin, "##CoOptDockLesson", true, flags)
+    if not okBegin then
+        ImGui.PopStyleColor(1)
+        ImGui.PopStyleVar(1)
+        return
+    end
+    if visible then
+        dockLayout.contained(uiState, "dock lesson card", function()
+            theme.TextWarning(tostring(spec.title or ""))
+            ImGui.PushTextWrapPos(440)
+            ImGui.TextWrapped(tostring(spec.body or ""))
+            ImGui.PopTextWrapPos()
+            ImGui.Spacing()
+            -- Got it FIRST, matching the hint card, so the dismissal is in the same place on
+            -- both teaching surfaces.
+            if ImGui.SmallButton("Got it##dockLessonGotIt") then
+                if uiState then
+                    uiState.dockStripDismissed = uiState.dockStripDismissed or {}
+                    uiState.dockStripDismissed[deg.id] = true
+                end
+                -- Queued: this writes an INI, and the render path does no file IO.
+                M.queue(ctx, { kind = "lesson_seen", id = deg.lesson })
+            end
+            if spec.action then
+                ImGui.SameLine(0, 8)
+                if ImGui.SmallButton(spec.action.label .. "##dockLessonAction") then
+                    M.queue(ctx, spec.action.queued)
+                end
+            end
+        end)
+    end
+    ImGui.End()
+    ImGui.PopStyleColor(1)
+    ImGui.PopStyleVar(1)
+end
 
 local function renderDegradedStrip(ctx, s, edge, index)
     local deg = s.degraded
@@ -1493,6 +1568,8 @@ local function renderDegradedStrip(ctx, s, edge, index)
     local uiState = ctx.uiState
     local dismissed = uiState and uiState.dockStripDismissed
     if dismissed and dismissed[deg.id] then return end
+    -- A lesson takes the same slot but not the same shape.
+    if deg.lesson then return renderLessonCard(ctx, s, edge, index, deg) end
     local spec = STRIPS[deg.id]
     if not spec then return end
 
@@ -1534,18 +1611,11 @@ local function renderDegradedStrip(ctx, s, edge, index)
             end
             ImGui.SameLine(0, 10)
             -- A degraded condition can come back, so its dismissal is session-scoped and the
-            -- button says so. A lesson cannot -- you only learn it once -- so it says "Got
-            -- it", matching the hint cards, and writes through to the onboarding INI.
-            local isLesson = deg.lesson ~= nil
-            local hideLabel = isLesson and "Got it##dockStripHide" or "Hide for this session##dockStripHide"
-            if ImGui.SmallButton(hideLabel) and uiState then
+            -- button says exactly that. Lessons never reach here -- they are cards, and their
+            -- Got it is permanent.
+            if ImGui.SmallButton("Hide for this session##dockStripHide") and uiState then
                 uiState.dockStripDismissed = uiState.dockStripDismissed or {}
                 uiState.dockStripDismissed[deg.id] = true
-                if isLesson then
-                    -- Queued, not written inline: this touches an INI and the render path
-                    -- does not do file IO (the same rule the hint cards' Got it follows).
-                    M.queue(ctx, { kind = "lesson_seen", id = deg.lesson })
-                end
             end
             ImGui.SameLine(0, 12)
             theme.TextMuted(spec.note or "")

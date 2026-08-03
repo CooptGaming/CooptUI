@@ -267,6 +267,54 @@ do
     r = stub.frame(function() dockTop.render(ctx) end)
     check('strip: a different condition still shows', stub.drew(r, 'snapshot taken 3 days ago'),
         table.concat(r.text, '|'))
+
+    -- LESSONS take the strip's slot but not its shape. A condition persists and gets a second
+    -- chance to be read, so quiet suits it; a lesson fires once on an edge and dismisses
+    -- forever, so it borrows the hint card -- title, wrapped body, Got it. Shipped as a strip
+    -- row it read as a second bar row in Success green and was field-reported as invisible.
+    resetInput()
+    ctx.uiState.dockStripDismissed = {}
+    dockState.get().degraded = { id = 'lesson_retidy', lesson = 'retidy' }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('lesson: draws the card title, not a strip line',
+        stub.drew(r, 'Moved windows stay put'), table.concat(r.text, '|'))
+    check('lesson: the body carries the half that was missing (what Re-tidy actually does)',
+        stub.drew(r, 'forgets the hand placements'), table.concat(r.text, '|'))
+    check('lesson: dismissal is permanent, so it says Got it rather than for-this-session',
+        stub.drew(r, 'Got it##dockLessonGotIt')
+        and not stub.drew(r, 'Hide for this session##dockStripHide'),
+        table.concat(r.buttons, '|'))
+    check('lesson: offers its action when it has one', stub.drew(r, 'Re-tidy now##dockLessonAction'),
+        table.concat(r.buttons, '|'))
+    -- The load-bearing one: a new Begin/End pair drawn every frame the lesson is up. An
+    -- unbalanced pair here is an uncatchable C++ exception that kills the script.
+    check('lesson: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- Got it must both hide it now and queue the write that stops it returning next session.
+    resetInput()
+    ctx.uiState.dockActionQueue = nil
+    stub.click = { ['Got it##dockLessonGotIt'] = true }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    stub.click = {}
+    local q = ctx.uiState.dockActionQueue
+    check('lesson: Got it queues the permanent flag',
+        q and #q >= 1 and q[#q].kind == 'lesson_seen' and q[#q].id == 'retidy',
+        q and q[#q] and (tostring(q[#q].kind) .. '/' .. tostring(q[#q].id)) or 'nil')
+    check('lesson: Got it also dismisses it for this session',
+        ctx.uiState.dockStripDismissed and ctx.uiState.dockStripDismissed.lesson_retidy == true)
+
+    -- The one without an action must not grow one -- a button that opens what the sentence
+    -- points at is D6's empty "Open Item Display" again.
+    resetInput()
+    ctx.uiState.dockStripDismissed = {}
+    dockState.get().degraded = { id = 'lesson_hublist', lesson = 'hublist' }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('lesson: the hub-list card draws', stub.drew(r, 'Every window, in one list'),
+        table.concat(r.text, '|'))
+    check('lesson: it offers no action button', not stub.drew(r, '##dockLessonAction'),
+        table.concat(r.buttons, '|'))
+    check('lesson: hub-list card balanced', stub.balanced(r), stub.imbalance(r))
+
     dockState.get().degraded = nil
 end
 
