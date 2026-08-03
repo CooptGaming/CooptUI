@@ -388,16 +388,39 @@ segments.lane = function(ctx, s)
         -- No key hints on these labels: no hotkey handler exists, and EQ binds F1/F2 to
         -- self/group targeting, so ImGui could not safely own those keys anyway (MQ only
         -- blocks the keyboard from EQ while a text input wants it). Buttons only, honestly.
+        -- Take and Take + reroll share the keep register ON PURPOSE. Colour here says what
+        -- KIND of thing an action is -- keep, skip, danger -- and these are the same kind:
+        -- both loot the item. They differ by an ADDITION, not a kind, so the label carries it
+        -- and the palette does not. A third colour would assert a difference that is not
+        -- there, and would compete with Pass for the eye at the moment Pass is the socially
+        -- consequential choice (the pause exists so a NoDrop mythical can be left for someone
+        -- else in the group -- config_general's pauseOnMythicalNoDropNoTrade).
+        --
+        -- The old label was "Reroll", which read as take-it VERSUS reroll-it: two
+        -- alternatives. The truth is take-it versus take-it-AND-queue-it, and "+" is the three
+        -- characters that say containment. The lane is the flexing cell, so it has the room.
         theme.PushKeepButton()
         if ImGui.SmallButton("Take##dockLootTake") then M.queue(ctx, { kind = "loot_take" }) end
         theme.PopButtonColors()
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            -- The consequence a newcomer is actually weighing, said plainly. Reroll's tooltip
+            -- has always modelled this; Take had none, which left the pair explained by half.
+            safeText("Loot it. A NoDrop item soulbinds to you.")
+            ImGui.EndTooltip()
+        end
         ImGui.SameLine(0, 4)
         theme.PushSkipButton()
         if ImGui.SmallButton("Pass##dockLootPass") then M.queue(ctx, { kind = "loot_pass" }) end
         theme.PopButtonColors()
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            safeText("Leave it on the corpse for someone else.")
+            ImGui.EndTooltip()
+        end
         ImGui.SameLine(0, 4)
         theme.PushKeepButton()
-        if ImGui.SmallButton("Reroll##dockLootReroll") then M.queue(ctx, { kind = "loot_take_reroll" }) end
+        if ImGui.SmallButton("Take + reroll##dockLootReroll") then M.queue(ctx, { kind = "loot_take_reroll" }) end
         theme.PopButtonColors()
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()

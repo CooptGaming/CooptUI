@@ -194,9 +194,12 @@ local mythBody = ''
 for _, h in ipairs(hints.HINTS or {}) do
     if h.id == 'mythical' then mythBody = tostring(h.body or '') end
 end
+-- Matched case-insensitively against the LABELS the lane draws, so a relabel has to be
+-- reflected in the copy: this guard caught "Take + reroll" the moment the button changed and
+-- the card still said "Reroll", which is the same mismatch one rename later.
 local unnamed = {}
-for _, verb in ipairs({ 'Take', 'Pass', 'Reroll' }) do
-    if not mythBody:find(verb, 1, true) then unnamed[#unnamed + 1] = verb end
+for _, verb in ipairs({ 'take', 'pass', 'reroll' }) do
+    if not mythBody:lower():find(verb, 1, true) then unnamed[#unnamed + 1] = verb end
 end
 check('the mythical hint names every button the lane offers', #unnamed == 0,
     'missing: ' .. table.concat(unnamed, ','))

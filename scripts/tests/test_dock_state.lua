@@ -144,8 +144,15 @@ do
     check('decision name', s.lootDecisionName == 'Mythical Faceplate', s.lootDecisionName)
     -- The countdown must be compared in the clock the value was WRITTEN in (os.time seconds).
     -- Subtracting an os.time value from mq.gettime() would be off by ~1000x.
-    check('decision timer uses os.time seconds, not mq.gettime ms',
-        s.lootDecisionSecs == 8, s.lootDecisionSecs)
+    -- REMAINING, not elapsed. The bar counted UP until 2026-08-03 while the Loot window counted
+    -- down from the same start, so one deadline rendered as two numbers running opposite ways
+    -- -- and the bar's "2s" read as about-to-expire when it meant two seconds spent of five
+    -- minutes. 8 seconds in, 292 left.
+    check('decision timer counts DOWN from the five-minute deadline',
+        s.lootDecisionSecs == T.LOOT_MYTHICAL_DECISION_SEC - 8, s.lootDecisionSecs)
+    check('decision timer uses os.time seconds, not mq.gettime ms (a ms mixup would floor at 0)',
+        s.lootDecisionSecs > 0 and s.lootDecisionSecs < T.LOOT_MYTHICAL_DECISION_SEC,
+        s.lootDecisionSecs)
     -- The corpse slot the macro writes (loot.mac:676 "Alert slot") flows through to the
     -- snapshot, so the bar's hover tooltip can resolve a real item.
     check('decision slot flows from the alert table', s.lootDecisionSlot == 5, s.lootDecisionSlot)

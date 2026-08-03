@@ -56,7 +56,7 @@ M.HINTS = {
       -- AND queues it) -- and because it shares Take's exact button style, so nothing on
       -- screen distinguishes them either. The stats line points at the hover, which is on the
       -- bar where the card is, rather than at the Loot window.
-      body = "Take, Pass or Reroll right from the bar - hover the item's name for its full stats first. Reroll takes it and queues it for the reroll list." },
+      body = "Three choices on the bar: Take, Pass, or Take + reroll. Hover the item's name for its full stats first - you have five minutes, and the bar counts them down." },
     { id = "full_bag", anchor = "bags",
       title = "Bags are full",
       body = "The bags slot goes amber past 90%. Auto Sell at a merchant clears the junk your rules already agreed to." },

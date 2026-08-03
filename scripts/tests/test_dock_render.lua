@@ -222,7 +222,10 @@ do
     check('decision: no phantom F1/F2 key hints on the labels',
         not stub.drew(r, 'Take F1') and not stub.drew(r, 'Pass F2'), table.concat(r.buttons, '|'))
     -- Reroll is the third verb: Take AND queue the taken item for the mythical reroll list.
-    check('decision: Reroll is on the bar', stub.drew(r, 'Reroll##dockLootReroll'),
+    -- Labelled "Take + reroll", not "Reroll": it takes the item AND queues it, and the old
+    -- label read as an alternative to Take rather than a superset of it. Shares Take's keep
+    -- register deliberately -- same kind of action, differing by an addition.
+    check('decision: Take + reroll is on the bar', stub.drew(r, 'Take + reroll##dockLootReroll'),
         table.concat(r.buttons, '|'))
     -- No TLO from this frame -- the name was never hovered, so the tooltip's hover-gated
     -- getItemStatsForTooltip lookup must not have fired.
@@ -231,7 +234,7 @@ do
 
     -- Clicking Reroll enqueues the deferred action (main_loop phase0b drains it into a
     -- mythicalTake call + a name-latch), never a direct command from the render path.
-    stub.click = { ['Reroll##dockLootReroll'] = true }
+    stub.click = { ['Take + reroll##dockLootReroll'] = true }
     stub.frame(function() dockTop.render(ctx) end)
     local q = ctx.uiState.dockActionQueue
     check('decision: Reroll enqueues loot_take_reroll',

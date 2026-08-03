@@ -428,10 +428,20 @@ local function readLoot(now)
             -- lootMythicalDecisionStartAt is os.time() -- SECONDS, set at main_loop.lua:247 --
             -- while `now` is mq.gettime() milliseconds. Subtracting them would be off by
             -- ~1000x, so compare in the same clock the value was written in.
+            -- REMAINING, not elapsed. This counted UP until 2026-08-03, so a decision that
+            -- gives you five minutes (LOOT_MYTHICAL_DECISION_SEC) rendered as "2s" on the bar
+            -- while the Loot window, from the same start time, rendered "4:58" -- two numbers
+            -- for one deadline, running opposite ways, and the bar's had no reference point.
+            --
+            -- It genuinely misleads: reviewing a screenshot of this exact frame I read "2s" as
+            -- a countdown about to expire and wrote "under a five-second countdown" twice,
+            -- having just read this branch's source. Someone under a real drop will read it
+            -- the same way and rush a decision built to give them time not to.
             local startedAt = tonumber(uiState.lootMythicalDecisionStartAt)
             local nowSecs = os.time and os.time() or nil
             snap.lootDecisionSecs = (startedAt and startedAt > 0 and nowSecs)
-                and math.max(0, nowSecs - startedAt) or nil
+                and math.max(0, constants.TIMING.LOOT_MYTHICAL_DECISION_SEC - (nowSecs - startedAt))
+                or nil
             snap.lootProblem = nil
             return
         end
