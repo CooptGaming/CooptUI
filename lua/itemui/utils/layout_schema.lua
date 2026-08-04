@@ -31,7 +31,9 @@ local M = {}
 --- Bump when adding a canonical entry that existing installs should receive.
 ---   0 -> no marker in the file (every install before 2026-08-02)
 ---   1 -> Clickies joined the launcher row (utils/dock_buttons.lua)
-M.CURRENT = 1
+---   2 -> Inventory's Status column ships on (utils/column_config.lua) -- the column
+---        migration's first live entry
+M.CURRENT = 2
 
 M.KEY = "LayoutSchema"
 

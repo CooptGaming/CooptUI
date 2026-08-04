@@ -212,10 +212,26 @@ end
 check('columns: every column literal declares its `since` in source', #undeclared == 0,
     table.concat(undeclared, ','))
 
+-- The column migration has its FIRST LIVE ENTRY: Inventory's Status column ships on at
+-- schema 2 (user call, field 2026-08-03). A saved map from an older install -- Status
+-- recorded off, because the old default was off -- must gain it exactly once.
 columnConfig.initColumnVisibility()
-check('columns: the shipped table migrates nothing today (dormant on purpose)',
+columnConfig.columnVisibility.Inventory.Status = false   -- an old install's saved state
+check('columns: Status migrates ON for a pre-schema-2 install',
     schema.migrateVisibility(columnConfig.columnVisibility,
-        columnConfig.availableColumns, 0) == false)
+        columnConfig.availableColumns, 1) == true
+    and columnConfig.columnVisibility.Inventory.Status == true)
+check('columns: ...and never re-migrates at the current schema',
+    schema.migrateVisibility(columnConfig.columnVisibility,
+        columnConfig.availableColumns, schema.CURRENT) == false)
+-- A user who turns it off AFTER the migration stays off: their file is stamped at 2, and
+-- additions() only fires for entries NEWER than the saved schema.
+columnConfig.columnVisibility.Inventory.Status = false
+check('columns: turned off post-migration, it stays off',
+    schema.migrateVisibility(columnConfig.columnVisibility,
+        columnConfig.availableColumns, schema.CURRENT) == false
+    and columnConfig.columnVisibility.Inventory.Status == false)
+columnConfig.columnVisibility.Inventory.Status = true
 
 -- Now prove it is dormant rather than broken: declare one column newer than the marker and it
 -- must come on. Restored immediately so the rest of the suite sees the shipped table.

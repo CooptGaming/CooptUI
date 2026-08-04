@@ -30,7 +30,14 @@ M.columnAutofitWidths = {
 M.availableColumns = {
     Inventory = {
         {key = "Name", label = "Name", numeric = false, default = true, since = 0},
-        {key = "Status", label = "Status", numeric = false, default = false, since = 0},
+        -- ON by default since schema 2 (user call, field 2026-08-03): Bags shows the sell
+        -- ruling out of the box, like Bank always has -- the status IS the answer to "what
+        -- happens to this item", and a fresh install got a table that would not say.
+        -- `since = 2` is what carries it to EXISTING installs: their saved column CSVs are
+        -- explicit whitelists, and the schema migration inserts the key at canonical
+        -- position exactly once. This is the column migration's first live entry -- the
+        -- machinery was wired (and its cache write-through fixed) the same week.
+        {key = "Status", label = "Status", numeric = false, default = true, since = 2},
         {key = "Value", label = "Value", numeric = true, default = true, since = 0},
         {key = "Weight", label = "Weight", numeric = true, default = true, since = 0},
         {key = "Type", label = "Type", numeric = false, default = true, since = 0},
