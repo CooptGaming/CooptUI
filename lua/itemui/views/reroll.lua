@@ -235,7 +235,12 @@ local function renderTabContent(ctx, track, rerollService)
         bankConnected, countInBank)
     local rollDisabled = rollBlockedText ~= nil
 
-    ImGui.SameLine()
+    -- OWN line, flush left. A SameLine here hung the whole button row off the tray's
+    -- second row, so at field widths only "Add to Reroll (from Cur..." survived the right
+    -- edge and Remove/Roll/Refresh/Sync were all clipped invisible -- photographed in the
+    -- fullscreen-bankopen capture, and the reason "the reroll has no way to sync" was a
+    -- true statement about the pixels.
+    ImGui.Spacing()
     if addDisabled then
         theme.PushKeepButton(true)
     else
