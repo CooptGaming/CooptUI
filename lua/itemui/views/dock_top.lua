@@ -290,7 +290,12 @@ end
 --- One slot of the pair: go label when startable, solid-red Stop while its own job runs,
 --- kit-disabled otherwise. The pcall-around-the-button pattern is this file's standard —
 --- a throwing Button must not strand the kit push (5 colors + 2 vars).
-local function jobButton(ctx, id, label, running, disabled, startAction, stopAction)
+--- greyReason: WHY the button is disabled, shown on hover. The kit's first choice is a
+--- reason printed beside the control, but this pair lives in a 240px fixed cell with no
+--- room beside anything -- and the kit's own precedent for that case is the AA Train
+--- tooltip (design's W7 fix). PushKitDisabledButton is a colour push, not BeginDisabled,
+--- so the hover genuinely fires here without AllowWhenDisabled.
+local function jobButton(ctx, id, label, running, disabled, startAction, stopAction, greyReason)
     local pushedDisabled = false
     if running then
         theme.PushStopButton()
@@ -304,6 +309,11 @@ local function jobButton(ctx, id, label, running, disabled, startAction, stopAct
     local ok, clickedOrErr = pcall(ImGui.Button, shown, barButtonSize())
     theme.PopKitButton()
     if not ok then error(clickedOrErr, 0) end
+    if pushedDisabled and greyReason and ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        ImGui.Text(greyReason)
+        ImGui.EndTooltip()
+    end
     if clickedOrErr and not pushedDisabled then
         M.queue(ctx, running and stopAction or startAction)
     end
@@ -318,12 +328,15 @@ segments.buttons = function(ctx, s)
         jobButton(ctx, "dockBtnLootAll", "Loot All",
             s.lootRunning == true,
             s.sellRunning == true,
-            { kind = "loot_all" }, { kind = "loot_stop" })
+            { kind = "loot_all" }, { kind = "loot_stop" },
+            "A sell run is going - one job at a time.")
         ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
         jobButton(ctx, "dockBtnAutoSell", "Auto Sell",
             s.sellRunning == true,
             (not s.merchantOpen) or s.lootRunning == true,
-            { kind = "auto_sell" }, { kind = "sell_stop" })
+            { kind = "auto_sell" }, { kind = "sell_stop" },
+            s.lootRunning and "A loot run is going - one job at a time."
+                or "Open a merchant first.")
     end)
     ImGui.PopStyleVar(1)
     if not okPair then error(errPair, 0) end
@@ -745,7 +758,12 @@ local SEGMENT_DEMAND = {
     -- on merchant state, which rides the sell walk.
     lane    = dockState.requestBags,
     buttons = dockState.requestSell,
-    -- session/status need nothing beyond the every-tick cheap reads.
+    -- The session panel's why-line upgrades from "types 1, 3" to "fits N of your slots"
+    -- the moment the worn-socket census lands -- the demand-driven walk this line waited
+    -- on (the deferral was written when no census existed; 34c15f6 built it for Aug
+    -- Utility and the session cell now raises the same demand).
+    session = dockState.requestWornSockets,
+    -- status needs nothing beyond the every-tick cheap reads.
 }
 
 -- ---------------------------------------------------------------------------
@@ -1159,32 +1177,28 @@ local function renderSessionMenu(ctx, s)
     ImGui.End()
 end
 
---- 26b's per-row line: "why this deserves attention". The designed copy is "fits 3 of
---- your slots" vs "fits nothing you own", which needs a socket-type census of all 23
---- equipped items — roughly 115 TLO reads, and socket TYPES are cached nowhere (the
---- tooltip cache keeps them only inside formatted strings, and only after a hover).
---- That census belongs on a demand-driven dock_state walk, not here.
----
---- What ships instead is the half that is FREE and always true: the augment's own
---- accepted socket types, from its augType — pure bitmask arithmetic over a value
---- captured at record time. It never claims to know your slots, so it can never be
---- wrong, and there is always something true to print. That last part is the point: the
---- panel never shows a spinner and never shows a number it cannot defend.
-local function sessionWhyLine(e)
+--- 26b's per-row line: "why this deserves attention". The designed copy — "fits 3 of
+--- your slots" vs "fits nothing you wear" — needed a socket-type census of all 23
+--- equipped items, which did not exist when this line first shipped; 34c15f6 built it
+--- as a demand-driven dock_state walk for Aug Utility, and the session cell now raises
+--- the same demand (SEGMENT_DEMAND.session), so this line finally says the designed
+--- thing. fitsWornLine is the ONE definition of the copy (Aug Utility's Fits column
+--- uses it too, so the two surfaces can never word it differently), and its own
+--- degrade rule is this line's old behaviour: before the census lands it prints the
+--- augment's own accepted socket types — free, always true, never a spinner.
+local function sessionWhyLine(e, wornSockets)
     if e.cat == "mythic" then
         return e.departed and "mythic . no longer in bags" or "mythic"
     end
     if e.cat == "script" then return "script" end
-    local slots = augmentHelpers.getAugTypeSlotIds(tonumber(e.augType) or 0)
+    local fits = augmentHelpers.fitsWornLine(tonumber(e.augType) or 0, wornSockets)
     local line
-    if #slots == 0 then
+    if fits == "" then
         line = "augment"
-    elseif #slots == 1 then
-        line = string.format("type %d augment", slots[1])
+    elseif fits:find("^fits") then
+        line = fits    -- census landed: "fits 3 of your slots" / "fits nothing you wear"
     else
-        local ids = {}
-        for i = 1, math.min(#slots, 4) do ids[#ids + 1] = tostring(slots[i]) end
-        line = "types " .. table.concat(ids, ", ") .. ((#slots > 4) and "..." or "") .. " augment"
+        line = fits .. " augment"    -- pre-census: "type 5" / "types 1, 3"
     end
     if e.departed then line = line .. " . no longer in bags" end
     return line
@@ -1219,7 +1233,7 @@ local function sessionRowTooltip(ctx, e)
     end
     ImGui.BeginTooltip()
     safeText(tostring(e.name or "?"))
-    theme.TextMuted(sessionWhyLine(e))
+    theme.TextMuted(sessionWhyLine(e, (dockState.get() or {}).wornSockets))
     if e.departed then
         theme.TextMuted("no longer in your bags - stats unavailable")
     end
@@ -1316,7 +1330,7 @@ popovers.session = function(ctx, s)
             end
             -- 26b: "Every row says why it is worth your attention... without that line
             -- you are just reading names."
-            theme.TextMuted(sessionWhyLine(e))
+            theme.TextMuted(sessionWhyLine(e, s.wornSockets))
             ImGui.PopID()
         end
         if #calls > CALL_ROWS_MAX then

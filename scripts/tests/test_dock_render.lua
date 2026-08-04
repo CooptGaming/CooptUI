@@ -1672,14 +1672,25 @@ do
     warmState()
     stub.hover = { dockseg_session = true }
     local rWhy = stub.frame(function() dockTop.render(ctxWhy) end)
-    -- augType 5 -> types 1, 3 AND 5: the shared getAugTypeSlotIds deliberately treats the
-    -- value as EITHER a bitmask (101b = 1,3) OR a bare type id (5), because the field is
-    -- genuinely ambiguous and over-listing is safer than hiding a slot that fits. The
-    -- why-line inherits that, on purpose - it is the same helper the Item Display's
-    -- "fits in slot types" line uses, so the two can never disagree.
-    check('why-line: names the socket types the aug actually fits',
-        stub.drew(rWhy, 'types 1, 3, 5 augment'), table.concat(rWhy.text, '|'))
+    -- The why-line speaks the DESIGNED copy now (26b's own words): the worn-socket census
+    -- landed via SEGMENT_DEMAND.session, and fitsWornLine turns it into "fits N of your
+    -- slots" / "fits nothing you wear". The fixture wears nothing, so the honest answer
+    -- is the second form - a conclusion, not "fits 0 of your slots". It is the SAME
+    -- helper Aug Utility's Fits column uses, so the two surfaces can never disagree.
+    check('why-line: speaks the census when it has landed',
+        stub.drew(rWhy, 'fits nothing you wear'), table.concat(rWhy.text, '|'))
     check('why-line: balanced', stub.balanced(rWhy), stub.imbalance(rWhy))
+
+    -- Pre-census (a fresh session, walk not yet run): the line degrades to the augment's
+    -- own accepted socket types - free, always true, never a spinner. augType 5 -> types
+    -- 1, 3 AND 5: getAugTypeSlotIds deliberately treats the value as EITHER a bitmask
+    -- (101b = 1,3) OR a bare type id (5); over-listing is safer than hiding a slot.
+    resetInput()
+    dockState.get().wornSockets = nil
+    stub.hover = { dockseg_session = true }
+    local rWhy2 = stub.frame(function() dockTop.render(ctxWhy) end)
+    check('why-line: degrades to socket types before the census lands',
+        stub.drew(rWhy2, 'types 1, 3, 5 augment'), table.concat(rWhy2.text, '|'))
 
     -- Right-click a row: the §7 menu opens from a host OUTSIDE the panel (a popup opened
     -- inside it would kill the panel's hover grace and take itself down 250ms later), and

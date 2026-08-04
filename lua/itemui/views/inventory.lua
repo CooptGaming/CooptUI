@@ -476,15 +476,24 @@ function InventoryView.renderTable(ctx, bankOpen)
     -- Two different nothings, kept apart (the rule augment_utility and mythicals already
     -- follow): an empty list is not the same as a filter that hid everything, and a user who
     -- cannot tell them apart concludes the scan is broken.
+    -- Each string names the control BY THE LABEL THE CURRENT MODE DRAWS. The refresh is a
+    -- band glyph in bars and a button labelled "Refresh" in classic; the search-clear is
+    -- "clear" in bars and an "X" in classic -- and a fresh install lands in classic, so
+    -- the mode-blind copy was wrong precisely for the reader it was written for.
+    local barsMode = tostring((ctx.layoutConfig or {}).UIMode or "classic") == "bars"
     if #(ctx.inventoryItems or {}) == 0 then
         ImGui.Spacing()
-        ctx.theme.TextMuted("Nothing here yet. Bags are scanned when CoOpt starts and when you loot; the refresh button in the title bar rescans now.")
+        ctx.theme.TextMuted(barsMode
+            and "Nothing here yet. Bags are scanned when CoOpt starts and when you loot; the refresh glyph in the title band rescans now."
+            or "Nothing here yet. Bags are scanned when CoOpt starts and when you loot; the Refresh button above rescans now.")
     elseif tostring(ctx.uiState.searchFilterInv or "") ~= "" then
         -- Only reachable when the filter matched nothing, since the branch above owns the
         -- genuinely-empty case. The count is recorded by renderInvTableInner.
         if ctx.uiState.invVisibleCount == 0 then
             ImGui.Spacing()
-            ctx.theme.TextMuted("No items match your search. Clear it with the X beside the box.")
+            ctx.theme.TextMuted(barsMode
+                and "No items match your search. Clear it with the clear button beside the box."
+                or "No items match your search. Clear it with the X beside the box.")
         end
     end
 end

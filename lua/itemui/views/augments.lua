@@ -413,6 +413,10 @@ function AugmentsView.renderListContent(ctx)
                         ImGui.BeginTooltip()
                         if onDestList then
                             ImGui.Text((destList == "mythical") and "Already on mythical reroll list." or "Already on augment reroll list.")
+                        elseif rerollDisabled then
+                            -- The third grey: an add is mid-flight. Without this branch the
+                            -- button greyed with the ADD wording still on it.
+                            ImGui.Text("A reroll add is already in flight - one at a time.")
                         elseif destList == "mythical" then
                             ImGui.Text("Add to mythical reroll list (!mythicaladd) - auto-routed by the Mythical name prefix.")
                         else

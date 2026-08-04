@@ -176,7 +176,7 @@ MacroQuest2/
 | `/itemui hide` | Hide window |
 | `/itemui center` | Open the native Command Center (requires `/loadskin coopt`) |
 | `/itemui refresh` | Refresh inventory/bank/sell data |
-| `/itemui setup` | Run the 13-step setup wizard |
+| `/itemui setup` | The two-question first-run (`--full` for the four-step sizing wizard) |
 | `/itemui onboarding` | Show the first-run welcome again |
 | `/itemui config` | Open Settings |
 | `/itemui sell legacy` / `/itemui sell lua` | Force a specific sell engine |

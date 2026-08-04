@@ -187,13 +187,29 @@ check('real: every canonical button declares a `since`', #missing == 0, table.co
 -- =================================================================
 local columnConfig = require('itemui.utils.column_config')
 
+-- SOURCE scan, not a table walk. A load-time normaliser used to stamp since=0 onto every
+-- column inside this suite's own require, which made the table-walk version of this guard
+-- structurally unable to fail -- the exact test that "passed" while zero literals carried
+-- the field. Scanning the file's text means a new column added without deciding its since
+-- fails the build.
 local undeclared = {}
-for view, cols in pairs(columnConfig.availableColumns) do
-    for _, c in ipairs(cols) do
-        if c.since == nil then undeclared[#undeclared + 1] = view .. '.' .. tostring(c.key) end
+do
+    local f = io.open(repo .. '/lua/itemui/utils/column_config.lua', 'rb')
+    local src = f and f:read('*a') or ''
+    if f then f:close() end
+    local n = 0
+    for line in (src .. '\n'):gmatch('([^\n]*)\n') do
+        local code = line:gsub('%-%-.*$', '')
+        if code:find('{%s*key%s*=%s*"') then
+            n = n + 1
+            if not code:find('since%s*=') then
+                undeclared[#undeclared + 1] = code:match('key%s*=%s*"([^"]+)"') or '?'
+            end
+        end
     end
+    check('columns: the source declares columns at all (scan is not vacuous)', n > 100, n)
 end
-check('columns: every column declares a `since`', #undeclared == 0,
+check('columns: every column literal declares its `since` in source', #undeclared == 0,
     table.concat(undeclared, ','))
 
 columnConfig.initColumnVisibility()

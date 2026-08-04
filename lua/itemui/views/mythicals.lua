@@ -297,6 +297,8 @@ function MythicalsView.render(ctx)
                         ImGui.BeginTooltip()
                         if onMythicalList then
                             ImGui.Text("Already on mythical reroll list.")
+                        elseif rerollDisabled then
+                            ImGui.Text("A reroll add is already in flight - one at a time.")
                         else
                             ImGui.Text("Add to mythical reroll list (!mythicaladd).")
                         end

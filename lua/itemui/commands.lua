@@ -237,8 +237,9 @@ function M.handleCommand(...)
         print("\ag[ItemUI]\ax Refreshed")
     elseif cmd == "setup" then
         -- Bare /itemui setup shows the two-question first-run screen (mockup 14c); the
-        -- 13-step wizard lives behind --full. Both remain reachable forever — the wizard
-        -- is the deep tour, the questions are the fast path.
+        -- four-step sizing wizard lives behind --full. Both remain reachable forever --
+        -- the wizard shapes tables and window sizes with the live window in front of
+        -- you (the one job nothing else does), the questions are the fast path.
         local args = { ... }
         local sub = tostring(args[2] or ""):lower()
         if sub == "--full" or sub == "full" then
@@ -255,7 +256,7 @@ function M.handleCommand(...)
             end
             setShouldDraw(true)
             setIsOpen(true)
-            print(deps.uiState.setupMode and "\ag[ItemUI]\ax Setup wizard started - follow the 13 steps in the main window." or "\ar[ItemUI]\ax Setup off.")
+            print(deps.uiState.setupMode and "\ag[ItemUI]\ax Sizing wizard started - four steps in the main window." or "\ar[ItemUI]\ax Setup off.")
         else
             deps.uiState.setupMode = false
             deps.uiState.setupStep = 0
@@ -263,7 +264,7 @@ function M.handleCommand(...)
             if deps.loadConfigCache then deps.loadConfigCache() end
             setShouldDraw(true)
             setIsOpen(true)
-            print("\ag[ItemUI]\ax Setup: two questions in the main window. (/itemui setup --full for the 13-step wizard.)")
+            print("\ag[ItemUI]\ax Setup: two questions in the main window. (/itemui setup --full for the four-step sizing wizard.)")
         end
     elseif cmd == "hints" then
         if deps.uiState then
@@ -331,7 +332,7 @@ function M.handleCommand(...)
         print("  center = focus the command bar (bars mode) or open the native Command Center (classic)")
         print("  dock [on|off|top|bottom] = the two bars: status on one edge, launchers and chat on the other")
         print("  layout [name] = list or apply a layout preset  |  retidy = windows back into their zones")
-        print("  setup = the two-question first-run  |  setup --full = the 13-step wizard  |  hints = replay bar hints")
+        print("  setup = the two-question first-run  |  setup --full = the four-step sizing wizard  |  hints = replay bar hints")
         print("  config = open ItemUI & Loot settings (or click Settings in the header)")
         print("  onboarding = show the first-run welcome panel again")
         print("  reroll = open Reroll Companion (augment and mythical reroll lists)")

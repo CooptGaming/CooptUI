@@ -308,7 +308,9 @@ local function renderFilterSection(ctx, section, targetsTable, targetId, typeMod
                 setInputValue(toAdd)
             end
         end
-        if ImGui.IsItemHovered() then
+        -- AllowWhenDisabled: without it, the empty-cursor state -- the only state whose
+        -- reason NEEDS reading -- is exactly when ImGui suppresses the hover.
+        if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
             ImGui.BeginTooltip()
             if typeMode == 0 then ImGui.Text("Pick up an item, then click to fill its full name into the field.")
             elseif typeMode == 1 then ImGui.Text("Pick up an item, then click to fill its name as a keyword.")
@@ -524,7 +526,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
                     filterState.valuableFilterInputValue = toAdd
                 end
             end
-            if ImGui.IsItemHovered() then
+            if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
                 ImGui.BeginTooltip()
                 if filterState.valuableFilterTypeMode == 0 then ImGui.Text("Pick up an item, then click to fill its full name into the field.")
                 elseif filterState.valuableFilterTypeMode == 1 then ImGui.Text("Pick up an item, then click to fill its name as a keyword.")

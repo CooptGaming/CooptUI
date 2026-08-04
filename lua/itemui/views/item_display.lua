@@ -519,11 +519,18 @@ local function renderRulesBlock(ctx, entry, memo)
                     ctx.requestAddToRerollList(resolvedList, payload)
                 end
             end
-            if listStatus and ImGui.IsItemHovered() then
+            if rerollDisabled and ImGui.IsItemHovered() then
+                -- Every grey states its reason: listed, pending-sync, or an add mid-flight
+                -- (the last had NO tooltip at all -- a silent grey on the one button the
+                -- card exists to offer).
                 ImGui.BeginTooltip()
-                ImGui.Text(listStatus == "listed"
-                    and ((resolvedList == "mythical") and "Already on mythical reroll list." or "Already on augment reroll list.")
-                    or "Already on pending list (syncs in guild hall).")
+                if listStatus then
+                    ImGui.Text(listStatus == "listed"
+                        and ((resolvedList == "mythical") and "Already on mythical reroll list." or "Already on augment reroll list.")
+                        or "Already on pending list (syncs in guild hall).")
+                else
+                    ImGui.Text("A reroll add is already in flight - one at a time.")
+                end
                 ImGui.EndTooltip()
             end
             ctx.theme.PopButtonColors()
@@ -1108,7 +1115,10 @@ local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
             ImGui.Spacing()
             local recent = state.itemDisplayRecent
             if windowHeader.iconButton("##IDRecentBtn", GLYPH_RECENT,
-                    "Recent items", #recent == 0, false) then
+                    -- The tooltip is the grey's reason too: with no recents the bare noun
+                    -- read as a label on a dead control rather than an explanation.
+                    (#recent == 0) and "Recent items - nothing viewed yet this session"
+                        or "Recent items", #recent == 0, false) then
                 ImGui.OpenPopup("##IDRecentPopup")
             end
             if #recent > 0 then

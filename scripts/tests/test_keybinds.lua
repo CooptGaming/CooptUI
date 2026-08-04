@@ -44,7 +44,7 @@ end
 
 -- ---------------------------------------------------------------- 1. the set itself
 do
-    check('set: eleven binds (8 windows/pair + 3 presets)', #keybinds.BINDS == 11, #keybinds.BINDS)
+    check('set: thirteen binds (8 windows/pair + 5 presets)', #keybinds.BINDS == 13, #keybinds.BINDS)
     local seenBind, seenId = {}, {}
     local dupBind, dupId = nil, nil
     for _, b in ipairs(keybinds.BINDS) do
@@ -165,7 +165,7 @@ end
 -- ---------------------------------------------------------------- 4. commands enqueue
 do
     local commands = require('itemui.commands')
-    local uiState = { dockPresetNames = { 'Bag session', 'Farming', 'Merchant run' } }
+    local uiState = { dockPresetNames = { 'Bag session', 'Farming', 'Merchant run', 'Gearing up', 'Raid - minimal' } }
     registry.init({ layoutConfig = {}, companionWindowOpenedAt = {} })
     for _, id in ipairs({ 'equipment', 'effects', 'reroll', 'mythicals', 'aa', 'bank',
                           'itemDisplay', 'augmentUtility' }) do

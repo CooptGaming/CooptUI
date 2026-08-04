@@ -112,7 +112,16 @@ function CommandCenterView.render(ctx)
         uiState.autoSellRequested = true
     end
     theme.PopButtonColors()
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(merchantOpen and "Sell everything marked Sell to this merchant." or "Open a merchant first."); ImGui.EndTooltip() end
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        -- The grey has two causes and the tooltip names the live one - "Open a merchant
+        -- first" over a button greyed by a RUNNING MACRO sent people to a merchant for
+        -- nothing.
+        if busy then ImGui.Text("A macro is running - wait for it or stop it above.")
+        elseif not merchantOpen then ImGui.Text("Open a merchant first.")
+        else ImGui.Text("Sell everything marked Sell to this merchant.") end
+        ImGui.EndTooltip()
+    end
     ImGui.Separator()
 
     -- Windows
@@ -139,6 +148,14 @@ function CommandCenterView.render(ctx)
         if uiState.lootUIOpen and ctx.recordCompanionWindowOpened then ctx.recordCompanionWindowOpened("loot") end
     end
     theme.PopButtonColors()
+    -- In this window the Keep push means OPEN, not disabled - a third meaning of one
+    -- colour, and the only fully-clickable "grey" on the panel. The tooltip is what keeps
+    -- that legible.
+    if ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        ImGui.Text(lootUIOpen and "Loot window is open - click to close it." or "Open the Loot window.")
+        ImGui.EndTooltip()
+    end
 
     for i, spec in ipairs(LAUNCHERS) do
         if i % 2 == 0 then ImGui.SameLine() end
@@ -148,6 +165,11 @@ function CommandCenterView.render(ctx)
             registry.toggleWindow(spec.id)
         end
         theme.PopButtonColors()
+        if open and ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text(spec.label .. " is open - click to close it.")
+            ImGui.EndTooltip()
+        end
     end
 
     ImGui.End()

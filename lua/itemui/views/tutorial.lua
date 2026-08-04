@@ -278,7 +278,7 @@ local function renderWelcomeScreen(refs)
         if refs.recordCompanionWindowOpened then refs.recordCompanionWindowOpened("config") end
     end
     if not allowProceed then ImGui.EndDisabled() end
-    if ImGui.IsItemHovered() then
+    if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
         ImGui.BeginTooltip()
         ImGui.Text("Applies your answers, then opens Settings on the sell/loot rules.")
         ImGui.EndTooltip()
@@ -288,7 +288,7 @@ local function renderWelcomeScreen(refs)
     ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
         "After this, the bar teaches itself: five hints, each on its first occurrence. /itemui hints replays them.")
     ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
-        "Prefer the guided tour? /itemui setup --full runs the 13-step wizard.")
+        "Prefer to shape the tables and windows you will live in? /itemui setup --full runs the four-step sizing wizard.")
 end
 
 --- Description overlay for step 1 (Inventory overview). Renders as a child region over the content.

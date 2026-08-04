@@ -206,7 +206,9 @@ captures your exact arrangement, positions and all.
 
 Switching a preset closes what isn't in it (pinned windows stay), opens what is, and places
 anything the preset doesn't position. Apply one from the bottom-bar **Layouts** menu,
-Settings → General → Layouts, or `/itemui layout <name>`.
+Settings → General → Layouts, `/itemui layout <name>`, or **ctrl+shift+F1…F5** (rebindable
+in Settings → General → Keybindings — EQ owns the bare function keys, so these ride the
+ctrl+shift layer like every CoOpt bind).
 
 Presets live in their own file — `Macros\sell_config\itemui_presets.ini` — which **Revert to
 Default Layout never touches**. Deleting a bundled preset is permanent; they only reseed if
@@ -224,7 +226,19 @@ wizard still exists at `/itemui setup --full`.
 
 After that, five **hints** appear once each, at their own first real moment — first merchant,
 first loot run, first mythical decision, first full bag, first rule edit. **Got it** dismisses
-one forever; `/itemui hints` replays all five.
+one forever; `/itemui hints` replays all five. A hint points at the bar cell it teaches; if
+you've turned that cell off, the hint waits — it isn't used up, and it fires when the cell
+comes back.
+
+Three **lessons** carry what no hint can — the facts whose first moment isn't a bar cell.
+They use the hint card's shape (a lesson and a hint teach the same kind of thing, and two
+vocabularies for one idea means learning neither) but have no anchor, and each fires once at
+its own point of consequence: the first time a run skips items under your **loot value
+floor** (the card explains the lane's `N skipped` with this run's count and the actual
+floor), the first time a window becomes **user-placed** (what moving a window means, with
+**Re-tidy now** attached), and once on a healthy install for the **hub list** (the one
+surface that answers "what else is there"). Lessons rank below every real problem — you only
+ever see one on a healthy install — and **Got it** dismisses forever.
 
 A truly new install — no config file at all — comes up in bars mode, and the screen-use
 question above is already answered that way when you see it. The *bundled default file* still
@@ -237,7 +251,8 @@ change your answer unless you change it.
 ## When something's broken
 
 One thin strip under the bar — never a modal — for the four conditions that used to surface
-as a console line or nothing: `sell.mac` missing (macro mode only), no sell rules yet, bank
+as a console line or nothing (a lesson card borrows this slot when nothing is wrong; a
+condition always evicts it): `sell.mac` missing (macro mode only), no sell rules yet, bank
 shown from a days-old snapshot, running without the plugin. Each says what's wrong, what it
 costs you right now, and offers a fix that actually exists. **Hide for this session** does
 exactly that.
@@ -280,7 +295,7 @@ skin's static labels stand and everything keeps working as before):
 /itemui retidy            put every open window back into its zone
 /itemui hints             replay the five bar hints
 /itemui setup             the two-question first run
-/itemui setup --full      the 13-step wizard
+/itemui setup --full      the four-step sizing wizard (window sizes and columns)
 ```
 
 Every command you already use still works exactly as before.
@@ -301,10 +316,9 @@ the `Dock*` keys for the edge, the chat height and which slots you kept.
 
 ## Not here yet
 
-- **Consolidate.** The bags-full strip offers Bags and Sell junk. Actual bag consolidation
-  doesn't exist in CoOpt yet, so there's no button pretending it does.
-- **Preset hotkeys and live drag guides.** Shift+1…5 preset switching and the yellow
-  alignment guides from the mockups are deferred — EQ owns most function keys, and guides
+- **Consolidate.** The bags-full state offers **Open Bags** and **Sell N now**. Actual bag
+  consolidation doesn't exist in CoOpt yet, so there's no button pretending it does.
+- **Live drag guides.** The yellow alignment guides from the mockups are deferred — they
   need per-window draw hooks. Snapping itself works; you just don't see lines while dragging.
 - **Take/Pass hotkeys.** The decision buttons are buttons only: EQ binds F1/F2 to targeting,
   and an overlay can't safely steal them.

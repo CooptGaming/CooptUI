@@ -71,6 +71,12 @@ M.BINDS = {
       cmd = "/itemui preset 2",          default = "ctrl+shift+F2" },
     { id = "preset3",   bind = "coopt_preset3",   label = "Layout preset 3",
       cmd = "/itemui preset 3",          default = "ctrl+shift+F3" },
+    -- Five presets ship; only three had keys, and the sheet called the whole feature
+    -- deferred. /itemui preset already takes any N -- these are just the missing rows.
+    { id = "preset4",   bind = "coopt_preset4",   label = "Layout preset 4",
+      cmd = "/itemui preset 4",          default = "ctrl+shift+F4" },
+    { id = "preset5",   bind = "coopt_preset5",   label = "Layout preset 5",
+      cmd = "/itemui preset 5",          default = "ctrl+shift+F5" },
 }
 
 -- id -> spec, for O(1) lookup from the views that draw shortcut hints.

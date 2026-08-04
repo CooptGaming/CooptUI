@@ -675,7 +675,11 @@ renderForSlotContent = function(ctx)
         ctx.uiState.removeAllQueue = { bag = bag, slot = slot, source = source or "inv", slotIndices = filledSlots, total = #filledSlots }
     end
     if ctx.theme then ctx.theme.PopButtonColors() end
-    if ImGui.IsItemHovered() then
+    -- AllowWhenDisabled, or the else-branch below is unreachable code: ImGui returns
+    -- false from a bare IsItemHovered for a disabled item, so the one sentence written
+    -- for the greyed state was the one sentence nobody could ever read. Every
+    -- BeginDisabled reason-tooltip in this codebase needs this flag.
+    if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
         ImGui.BeginTooltip()
         if canRemoveAll then
             ImGui.Text("Remove augments from all filled slots on this item (one at a time).")
@@ -709,7 +713,9 @@ renderForSlotContent = function(ctx)
         ctx.uiState.optimizeQueue = { targetLoc = { bag = bag, slot = slot, source = source or "inv" }, steps = queueSteps, total = #queueSteps }
     end
     if fillDisabled then ImGui.EndDisabled() end
-    if ImGui.IsItemHovered() then
+    -- Hover checked AFTER EndDisabled here, but the flag still matters when the pop
+    -- happens later on other paths -- keep the sites uniform (see Remove All above).
+    if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
         ImGui.BeginTooltip()
         if canOptimize then
             ImGui.Text("Fill all empty augment slots with the top-ranked compatible augments (best first; each used at most once).")

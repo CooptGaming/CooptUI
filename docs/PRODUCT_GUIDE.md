@@ -23,8 +23,8 @@ Setting up from scratch? Use the prebuilt E3Next package first: [Getting started
 ## First 10 minutes
 
 1. In game: `/lua run itemui`
-2. The **welcome screen** appears on first run. Click **Run Setup** — the 13-step wizard walks every window, lets you position and size things, and sets your sell/loot rules.
-3. **Step 12 matters most: pick your class(es) for epic protection.** Epic protection and always-loot-epics are ON by default, but they only act on the classes you enable. (Later: Settings → General → "Enable Epic Loot and Protection".)
+2. The **welcome screen** appears on first run. Two questions: how careful CoOpt should be with your stuff, and how much screen to use — with a live strip showing what the current rules would sell right now. **Start playing** applies them; **Tune rules first** applies them and opens Settings.
+3. **Pick your class(es) for epic protection.** Epic protection and always-loot-epics are ON by default, but they only act on the classes you enable: Settings → General → "Enable Epic Loot and Protection".
 4. Optional: in **Settings → General → Features**, click **Install skin** and then `/loadskin coopt` — this adds CoOpt controls to the game's own windows (see "Native integration" below). Nothing touches your EQ folder unless you click it.
 5. Toggle the UI anytime with `/itemui` (default keybind **Shift+Q**, changeable in Settings → General → Keybindings).
 
@@ -109,7 +109,7 @@ Go back anytime with `/loadskin default`. The skin stays current with CoOpt UI u
 | `/itemui` (or `/inv`) | Toggle the main window (default keybind Shift+Q) |
 | `/itemui center` | Open the native Command Center (skin required) |
 | `/itemui config` | Open Settings |
-| `/itemui setup` | Run the 13-step setup wizard |
+| `/itemui setup` | The two-question first-run (`--full` for the four-step sizing wizard) |
 | `/itemui onboarding` | Show the first-run welcome again |
 | `/itemui refresh` | Rescan inventory/bank/sell data |
 | `/itemui sell legacy` / `lua` | Force a specific sell engine this run |
