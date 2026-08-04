@@ -11,6 +11,7 @@ local mq = require('mq')
 require('ImGui')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
+local icons = require('itemui.utils.icons')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local registry = require('itemui.core.registry')
 local windowHeader = require('itemui.components.window_header')
@@ -33,10 +34,12 @@ local _lastBankCount = -1
 
 -- Tab index: 1 = Augments, 2 = Mythicals
 
--- 20b tray geometry. Two rows of five, fixed cells so a long name never shifts a slot.
-local TRAY_PER_ROW = 5
-local TRAY_CELL_W = 96
-local TRAY_NAME_MAX = 14
+-- 20b tray geometry. ONE row of ten icon slots (field ruling 08-04: the user chose
+-- icons over names - they read at a glance and give a text row of height back; the
+-- NAME rides the hover tooltip, which already carried it). A square cell holds a
+-- 24px item icon behind a 3px inset.
+local TRAY_ICON_SIZE = 24
+local TRAY_CELL_W = TRAY_ICON_SIZE + 6
 
 --- The ten items a roll would actually consume, bags first then bank — the same order
 --- the roll's own bank-move pre-flight uses, so the tray is not a separate opinion about
@@ -66,7 +69,7 @@ local function buildTray(rerollService, list, inventoryItems, bankList)
                 local before = #out
                 for _ = 1, n do
                     if #out >= ITEMS_REQUIRED then break end
-                    out[#out + 1] = { name = it.name, id = id, where = where }
+                    out[#out + 1] = { name = it.name, id = id, where = where, icon = it.icon }
                 end
                 if where == "bank" and #out > before then
                     bankRows[#bankRows + 1] = { bag = it.bag, slot = it.slot, id = id, name = it.name or "" }
@@ -172,70 +175,75 @@ local function renderTabContent(ctx, track, rerollService)
             theme.TextMuted(header)
         end
 
-        -- Two rows of five. Each cell is a fixed-width child so a long item name stays
-        -- inside its slot instead of shoving the next one sideways — and each cell is
-        -- CONTAINED: the kit's Inset wash (whose definition names tray cells) plus a 1px
-        -- Divider hairline. Ten floating labels read as a wrapped sentence; ten bounded
-        -- slots are countable, and an EMPTY slot only states the shortfall if it is
-        -- visible as a slot.
+        -- One row of ten icon slots (field ruling 08-04: icons over names, and the two
+        -- text rows were part of "the top section is a bit tall"). Each cell is a fixed
+        -- square child, CONTAINED: the kit's Inset wash (whose definition names tray
+        -- cells) plus a 1px hairline — and the hairline now carries the location
+        -- vocabulary the cell text used to: bags-green, bank-amber, muted Divider on
+        -- empties. Ten bounded slots stay countable at a glance; the NAME rides the
+        -- hover tooltip, which already carried it.
         local cellW = TRAY_CELL_W
-        local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
-        local cellH = lineH + 6
         ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(theme.Kit.Inset))
         for i = 1, ITEMS_REQUIRED do
-            if (i - 1) % TRAY_PER_ROW ~= 0 then ImGui.SameLine(0, 4) end
+            if i > 1 then ImGui.SameLine(0, 4) end
             local slot = tray[i]
             local okCell = pcall(function()
                 -- border = FALSE. The bool-border overload maps true to
                 -- ImGuiChildFlags_Borders, and a bordered child DOES apply WindowPadding
-                -- (8px top and bottom) — which would leave a lineH+6 cell with negative
-                -- room for its own text and clip every slot label. Same class as the
-                -- bar-button clipping this session already fixed: the container has to
+                -- (8px top and bottom) — which would clip the icon in a 30px cell. Same
+                -- class as the bar-button clipping already fixed: the container has to
                 -- pay for what it draws. Containment is the ChildBg wash plus the
                 -- hairline drawn after EndChild — never the border flag.
-                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, cellH), false,
+                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, cellW), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
                     if slot then
-                        -- Location is the tint, same vocabulary the list table uses:
-                        -- in bags = ready, in bank = has to be fetched first. Inside a
-                        -- bounded cell the truncation marker is ".." — one dot reads as
-                        -- a period; two read as deliberate.
-                        local name = tostring(slot.name or "?")
-                        if #name > TRAY_NAME_MAX then name = name:sub(1, TRAY_NAME_MAX - 2) .. ".." end
                         ImGui.SetCursorPosX(3)
                         ImGui.SetCursorPosY(3)
-                        if slot.where == "bank" then
-                            theme.TextWarning(name)
-                        else
-                            theme.TextSuccess(name)
+                        -- The icon draw is pcall'd on its own: a throw here must not
+                        -- skip EndChild (stack balance is safety-critical). drawItemIcon
+                        -- returns true only when it actually drew — its early-outs are
+                        -- silent, and an occupied cell must never look empty.
+                        local okIcon, drew = pcall(icons.drawItemIcon, slot.icon, TRAY_ICON_SIZE)
+                        if not (okIcon and drew) then
+                            -- No icon id on this row (older bank-cache entries predate
+                            -- the field): a location-tinted filled square — clearly
+                            -- OCCUPIED, distinct from the bare wash of an empty slot.
+                            ImGui.Dummy(ImVec2(TRAY_ICON_SIZE, TRAY_ICON_SIZE))
+                            pcall(function()
+                                local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+                                if not dl or not dl.AddRectFilled then return end
+                                local x1, y1 = ImGui.GetItemRectMin()
+                                local x2, y2 = ImGui.GetItemRectMax()
+                                if type(x1) ~= "number" or type(x2) ~= "number" then return end
+                                local c = (slot.where == "bank") and theme.Colors.Warning or theme.Colors.Success
+                                local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(c)) or 0xFF404040
+                                dl:AddRectFilled(ImVec2(x1 + 6, y1 + 6), ImVec2(x2 - 6, y2 - 6), col)
+                            end)
                         end
-                    else
-                        -- Centered in the visible slot: "empty" is the fact the tray
-                        -- exists to state, not filler text.
-                        local tw = ImGui.CalcTextSize and ImGui.CalcTextSize("empty")
-                        if type(tw) == "number" and tw > 0 and tw < cellW then
-                            ImGui.SetCursorPosX((cellW - tw) * 0.5)
-                        else
-                            ImGui.SetCursorPosX(3)
-                        end
-                        ImGui.SetCursorPosY(3)
-                        theme.TextMuted("empty")
                     end
                 end
                 ImGui.EndChild()
             end)
             if not okCell then break end
-            -- The 1px hairline over the cell's rect. Four AddRectFilled strips, not
-            -- AddRect: an outline is unproven in this binding (window_header records
-            -- why), and filled strips are what ships everywhere else.
+            -- The 1px hairline over the cell's rect — four AddRectFilled strips, not
+            -- AddRect (an outline is unproven in this binding; window_header records
+            -- why). Filled cells tint it by location, the vocabulary the list table
+            -- speaks in text; empty cells keep the muted Divider.
             pcall(function()
                 local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
                 if not dl or not dl.AddRectFilled then return end
                 local x1, y1 = ImGui.GetItemRectMin()
                 local x2, y2 = ImGui.GetItemRectMax()
                 if type(x1) ~= "number" or type(x2) ~= "number" then return end
-                local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.Divider))
-                    or 0xFF302B2B
+                local c
+                if not slot then
+                    c = theme.Kit.Divider
+                elseif slot.where == "bank" then
+                    c = theme.Colors.Warning
+                else
+                    c = theme.Colors.Success
+                end
+                local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(c)) or 0xFF302B2B
                 dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 1), col)
                 dl:AddRectFilled(ImVec2(x1, y2 - 1), ImVec2(x2, y2), col)
                 dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 1, y2), col)
@@ -277,7 +285,9 @@ local function renderTabContent(ctx, track, rerollService)
     -- left: a SameLine chain here once hung the whole strip off the tray's second row
     -- and clipped every button past the right edge ("the reroll has no way to sync" was
     -- a true statement about the pixels, photographed in fullscreen-bankopen).
-    local groupGap = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
+    -- Group separation: 8px, not a full text line (field 08-04: "the top section is a
+    -- bit tall") — still double the 4px in-row spacing, so the grouping stays legible.
+    local groupGap = 8
     ImGui.Spacing()
 
     -- Row 1: Roll — the primary verb, directly under the tray it consumes.

@@ -21,13 +21,17 @@ local function getItemIconTextureAnimation()
     return itemIconTextureAnimation
 end
 
---- Draw item icon at given size (default 24). Used for tooltip header (larger) and socket rows (24).
+--- Draw item icon at given size (default 24). Used for tooltip header (larger), socket
+--- rows (24), and the reroll tray cells. Returns true ONLY when it actually drew -
+--- callers that need a fallback (a cell that must never look empty while occupied)
+--- key on the return, because the early-outs here are silent.
 function M.drawItemIcon(iconId, size)
     local anim = getItemIconTextureAnimation()
-    if not anim or not iconId or iconId == 0 then return end
+    if not anim or not iconId or iconId == 0 then return nil end
     local s = (type(size) == "number" and size > 0) and size or ITEM_ICON_SIZE
     anim:SetTextureCell(iconId - ITEM_ICON_OFFSET)
     ImGui.DrawTextureAnimation(anim, s, s)
+    return true
 end
 
 --- Reserve 24x24 space and draw a dark grey filled square for empty sockets (visible on black tooltip background).
