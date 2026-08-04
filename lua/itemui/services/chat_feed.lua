@@ -41,6 +41,7 @@ local MAX_LINES = (constants.LIMITS and constants.LIMITS.CHAT_FEED_MAX) or 200
 
 -- Ring buffer of { text, channel, tab }. Newest last.
 local lines = {}
+local totalCaptured = 0   -- monotonic; count() saturates at the ring's cap and this never does
 -- Per-channel unread counts, cleared when the user looks at that tab.
 local unread = {}
 local started = false
@@ -117,6 +118,7 @@ local function onChatLine(line)
         if who then lastTell = who end
     end
     lines[#lines + 1] = entry
+    totalCaptured = totalCaptured + 1
     -- Trim with table.move rather than a table.remove loop: this is the hot path, and the
     -- same trim shape services/loot_feed_events.lua:58-63 already uses.
     local over = #lines - MAX_LINES
@@ -154,6 +156,13 @@ function M.init(d)
     end
 end
 
+--- The ring's capacity. Views read the depth from HERE, never from a literal or from
+--- constants directly, so the seed, the plain renderer and the band's saturation check
+--- cannot drift onto three different numbers again (C4).
+function M.maxLines()
+    return MAX_LINES
+end
+
 --- Newest `count` lines, oldest first, optionally filtered to one tab.
 --- Returns a COPY so a mid-render mutation cannot shift indices under ImGui — the same
 --- contract core/diagnostics.lua:30-34 uses for its buffer.
@@ -189,6 +198,13 @@ end
 
 function M.count()
     return #lines
+end
+
+--- Lines ever captured, monotonic. count() stops moving at the ring's cap -- which is
+--- most of a play session once the cap is reachable -- so anything measuring ARRIVALS
+--- (the window's "N new" pill) reads this, never a count() delta.
+function M.totalCaptured()
+    return totalCaptured
 end
 
 return M

@@ -75,7 +75,7 @@ end
 --- Fallback lines for the active tab (chat_console owns no reference to chat_feed itself --
 --- see chat_console.lua's file header), narrowed by the filter when one is set.
 local function fallbackLines()
-    local lines = chatFeed.getLines(200, activeTab ~= "all" and activeTab or nil)
+    local lines = chatFeed.getLines(chatFeed.maxLines(), activeTab ~= "all" and activeTab or nil)
     local needle = filterOn and filterText:lower() or ""
     if needle == "" then return lines end
     local out = {}
@@ -225,10 +225,36 @@ renderWindowBody = function(ctx, layoutConfig)
     -- the picker states where bare text goes and the input's own placeholder states the
     -- slash rule. Two lines of a 380px window back.
     if barsOn then
+        -- C3: at the ring's cap the count can never change again, and a stat that cannot
+        -- change is furniture -- the band contract's own word for what does not belong
+        -- there. "last N lines" states the one thing worth knowing at that moment: older
+        -- chat is gone.
+        local cnt = chatFeed.count()
+        local statText
+        if cnt >= chatFeed.maxLines() then
+            statText = string.format("last %d lines", cnt)
+        else
+            statText = string.format("%d line%s", cnt, (cnt == 1) and "" or "s")
+        end
+        -- C5: timestamps are BAKED into the text Zep receives at append (that is what let
+        -- times and links coexist), and rebuilding consoles on toggle is the exact object
+        -- lifetime that used to crash the client (chat_console.setTimestamps' own header).
+        -- So with Zep rendering, the toggle reaches new lines only -- and the control says
+        -- so, rather than silently meaning two things in two renderers. The plain renderer
+        -- re-reads per frame and flips everything.
+        local zepRendering = chatConsole.zepAvailable()
+            and ((tonumber(layoutConfig.ChatUseZep) or 0) ~= 0) and not filterOn
+        local clockTip
+        if timestamps then
+            clockTip = zepRendering and "Hide the time column (new lines onward - existing lines keep theirs)"
+                or "Hide the time column"
+        else
+            clockTip = zepRendering and "Show the time column (new lines onward)"
+                or "Show the time column"
+        end
         windowHeader.render({
             id = "chat", title = "Chat",
-            stat = string.format("%d line%s", chatFeed.count(),
-                (chatFeed.count() == 1) and "" or "s"),
+            stat = statText,
             actions = {
                 { label = windowHeader.GLYPHS.FILTER,
                   tooltip = filterOn and "Stop filtering" or "Filter these lines",
@@ -237,7 +263,7 @@ renderWindowBody = function(ctx, layoutConfig)
                       if not filterOn then filterText = "" end
                   end },
                 { label = windowHeader.GLYPHS.CLOCK,
-                  tooltip = timestamps and "Hide the time column" or "Show the time column",
+                  tooltip = clockTip,
                   onClick = function()
                       if ctx.setLayoutValue then
                           ctx.setLayoutValue("ChatTimestamps", timestamps and 0 or 1)
@@ -321,7 +347,10 @@ renderWindowBody = function(ctx, layoutConfig)
     local wasAtBottom = atBottom
     if not ownRenderer and chatConsole.zepAvailable() then
         local console = chatConsole.ensureConsole(activeTab, function()
-            return chatFeed.getLines(500, activeTab ~= "all" and activeTab or nil)
+            -- The seed asks for exactly what the ring can hold (C4): the old literal 500
+            -- over a 200-line ring read as if Zep tabs held more history than they could
+            -- ever be given.
+            return chatFeed.getLines(chatFeed.maxLines(), activeTab ~= "all" and activeTab or nil)
         end)
         if console then
             -- POSITIVE height only: ImGui's BeginChild would resolve a negative, but the
@@ -353,7 +382,9 @@ renderWindowBody = function(ctx, layoutConfig)
 
     -- "N new" (19c): only while you are scrolled away, and it says how many arrived since
     -- you left the bottom. Clicking it parks you back at the newest line.
-    local total = chatFeed.count()
+    -- totalCaptured, NOT count(): count() saturates at the ring's cap, and a pill fed by
+    -- its delta silently died forever the moment the ring first filled.
+    local total = chatFeed.totalCaptured()
     if atBottom then
         seenCount = total
     elseif total > seenCount then

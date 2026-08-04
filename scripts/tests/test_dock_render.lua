@@ -1272,6 +1272,46 @@ do
     check('v2: Settings toggles rather than only opening',
         qs[1] and qs[1].id == 'config' and qs[1].toggle == true,
         qs[1] and tostring(qs[1].toggle))
+
+    -- =================================================================
+    -- The chat pass (HANDOFF_CHAT C1/C2): hidden mode gets its exit back, and the numeral
+    -- stops being a number nobody reads.
+    -- =================================================================
+    -- C2: the hidden label caps at 99+ -- past two digits it moves the cell's width and
+    -- stops being read. Dot tooltips keep exact counts (collapsed mode; asserted above).
+    resetInput()
+    local hidCtx = newCtx({ uiState = {} })
+    hidCtx.layoutConfig.DockChat = 'hidden'
+    dockState.init(newDeps(hidCtx))
+    warmState()
+    chatFeed.clearUnread()
+    for _ = 1, 458 do chatFeed._inject('You say, \'x\'') end
+    local rHid = stub.frame(function() dockBottom.render(hidCtx) end)
+    check('chat C2: the hidden numeral caps at 99+',
+        stub.drew(rHid, 'chat  99+##dockChatShow'), table.concat(rHid.buttons, '|'))
+
+    -- C1: hidden is no longer a one-way door -- right-click on the button restores the
+    -- collapsed line through the same setLayoutValue path the '^' uses (debounce-safe),
+    -- and left-click still opens the window.
+    resetInput()
+    hidCtx.uiState.dockActionQueue = nil
+    stub.hover = { ['chat  99+##dockChatShow'] = true }
+    stub.mouse = { [ImGuiMouseButton.Right] = true }
+    local setKeys = {}
+    hidCtx.setLayoutValue = function(k, v) setKeys[k] = v end
+    stub.frame(function() dockBottom.render(hidCtx) end)
+    check('chat C1: right-click on the hidden button brings the chat line back',
+        setKeys.DockChat == 'collapsed', tostring(setKeys.DockChat))
+
+    resetInput()
+    hidCtx.layoutConfig.DockChat = 'hidden'
+    hidCtx.uiState.dockActionQueue = nil
+    stub.click = { ['chat  99+##dockChatShow'] = true }
+    stub.frame(function() dockBottom.render(hidCtx) end)
+    local qh = hidCtx.uiState.dockActionQueue or {}
+    check('chat C1: left-click still opens the window',
+        qh[1] and qh[1].kind == 'window' and qh[1].id == 'chat', qh[1] and tostring(qh[1].id))
+    chatFeed.clearUnread()
 end
 
 -- =================================================================

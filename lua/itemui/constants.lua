@@ -211,7 +211,12 @@ M.LIMITS = {
     LOOT_HISTORY_MAX = 100,
     -- Chat feed ring buffer. Only the last few lines are ever drawn; the depth exists so the
     -- peek view can scroll back a little without holding the whole session in memory.
-    CHAT_FEED_MAX = 200,
+    -- One scrollback depth, one constant (HANDOFF_CHAT C4). Three depths used to be in
+    -- play: the ring held 200, the Zep seed asked for 500 (which could never return more
+    -- than 200), the plain renderer asked for 200. Raised to 500 so the seed's number is
+    -- TRUE; every reader goes through chatFeed (maxLines()/getLines) -- no literal depths
+    -- in view code.
+    CHAT_FEED_MAX = 500,
     ITEM_DISPLAY_RECENT_MAX = 10,
     SEARCH_HISTORY_MAX = 5,
     LOOT_SELL_STATUS_CAP = 500,

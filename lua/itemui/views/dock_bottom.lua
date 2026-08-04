@@ -589,10 +589,12 @@ local function drawUnreadDots(ctx)
         end)
         if hovered then
             ImGui.BeginTooltip()
+            -- Same voice as the cell's other tooltips (C6): lowercase, click-result first,
+            -- exact counts here because a tooltip has the room the bar label does not.
             if n > 0 then
-                ImGui.Text(string.format("%s: %d unread - click to read them.", t.label, n))
+                ImGui.Text(string.format("click opens %s - %d unread", t.label, n))
             else
-                ImGui.Text(t.label .. ": nothing new.")
+                ImGui.Text(t.label .. " - nothing new")
             end
             ImGui.EndTooltip()
             if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
@@ -618,11 +620,27 @@ local function renderChat(ctx, availW)
     local chatStartX = ImGui.GetCursorPosX and ImGui.GetCursorPosX() or 0
 
     if mode == "hidden" then
+        -- Capped at 99+ (C2): past two digits the number stops being read and starts
+        -- moving the cell's rendered width. The per-dot tooltips in collapsed mode keep
+        -- exact counts -- a tooltip has room, a bar cell does not.
         local n = chatFeed.getUnread()
-        local label = (n > 0) and string.format("chat  %d##dockChatShow", n) or "chat##dockChatShow"
-        -- Opens the window directly now -- there is no more collapsed strip to cycle into on
-        -- the way there, so this button's whole job is "show me chat".
-        if ImGui.SmallButton(label) then openChatWindow(ctx) end
+        local nText = (n > 99) and "99+" or tostring(n)
+        local label = (n > 0) and string.format("chat  %s##dockChatShow", nText) or "chat##dockChatShow"
+        local pressed = ImGui.SmallButton(label)
+        local hoveredHidden = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+        if pressed then openChatWindow(ctx) end
+        -- C1: hidden used to be a one-way door -- cycleChat was only reachable from the
+        -- collapsed line's '^', so entering hidden cost one click and leaving it cost a
+        -- trip to Settings > Dock. Right-click is the way back, and the tooltip states
+        -- both actions because neither is guessable from a five-letter button.
+        if hoveredHidden then
+            if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Right) then
+                cycleChat(ctx)
+            end
+            ImGui.BeginTooltip()
+            ImGui.Text("click opens the chat window - right-click brings the chat line back")
+            ImGui.EndTooltip()
+        end
         return
     end
 
@@ -633,7 +651,8 @@ local function renderChat(ctx, availW)
     end
     if ImGui.IsItemHovered() then
         ImGui.BeginTooltip()
-        ImGui.Text("Hide the chat line. Click the line itself to open the chat window.")
+        -- One voice across the cell's three tooltips (C6): lowercase, click-result first.
+        ImGui.Text("click hides the chat line - the small chat button that remains brings it back")
         ImGui.EndTooltip()
     end
     ImGui.SameLine(0, 6)

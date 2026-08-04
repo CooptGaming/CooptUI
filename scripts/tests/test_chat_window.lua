@@ -95,6 +95,20 @@ do
     check('band: drawn, with the window name', stub.drew(r, 'Chat'), table.concat(r.text, '|'))
     check('band: the stat is how much scrollback this window holds',
         stub.drew(r, string.format('%d lines', chatFeed.count())), table.concat(r.text, '|'))
+
+    -- C3: at the ring's cap the count can never change again -- a stat that cannot change
+    -- is furniture. Saturation states the one useful fact: older chat is gone.
+    for _ = 1, chatFeed.maxLines() + 5 do chatFeed._inject('You say, \'filler\'') end
+    local rCap = frameWith(ctx)
+    check('band C3: at the cap the stat says last-N, not a frozen count',
+        stub.drew(rCap, string.format('last %d lines', chatFeed.maxLines())),
+        table.concat(rCap.text, '|'))
+    -- C4: one depth constant -- the ring's cap IS what the seed and the plain renderer ask
+    -- for, so the count can never exceed it and no literal can drift again.
+    check('band C4: the ring holds exactly maxLines at saturation',
+        chatFeed.count() == chatFeed.maxLines(),
+        chatFeed.count() .. ' vs ' .. chatFeed.maxLines())
+    chatFeed.clearUnread()
     check('band: the pin replaces the legacy Lock row in bars', not saved.legacyLock)
     check('tabs: all five drawn as chips',
         stub.drew(r, 'All##chatTab_all') and stub.drew(r, 'Main##chatTab_main')
