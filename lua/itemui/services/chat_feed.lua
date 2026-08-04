@@ -169,12 +169,18 @@ end
 function M.getLines(count, tab)
     local out = {}
     count = tonumber(count) or 1
+    -- Append newest-first then reverse IN PLACE: the old insert-at-1 was O(n^2) -- ~125k
+    -- element shifts per call at the 500-line cap, and the chat window calls this per
+    -- rendered frame.
     for i = #lines, 1, -1 do
         local e = lines[i]
         if not tab or tab == "all" or e.tab == tab then
-            table.insert(out, 1, e)
+            out[#out + 1] = e
             if #out >= count then break end
         end
+    end
+    for i = 1, math.floor(#out / 2) do
+        out[i], out[#out - i + 1] = out[#out - i + 1], out[i]
     end
     return out
 end

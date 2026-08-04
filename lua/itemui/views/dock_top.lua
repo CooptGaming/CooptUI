@@ -1619,15 +1619,20 @@ local STRIPS = {
 
 --- Copper -> readable, for the floor value in the lootfloor card. NOT the file's plat()
 --- helper: that is math.floor(copper/1000), which renders the shipped STACK floor of 500
---- copper as "0p" -- a card teaching the floor by printing a wrong one.
+--- copper as "0p" -- a card teaching the floor by printing a wrong one. EVERY non-zero
+--- denomination prints, for the same reason: a user who set 2550 must read "2p 5g 50c",
+--- not a rounded number that is quietly lower than the rule that skipped their loot.
 local function copperStr(c)
     c = tonumber(c) or 0
-    local p, rem = math.floor(c / 1000), c % 1000
-    local g = math.floor(rem / 100)
-    if p > 0 and g > 0 then return string.format("%dp %dg", p, g) end
-    if p > 0 then return string.format("%dp", p) end
-    if g > 0 then return string.format("%dg", g) end
-    return string.format("%dc", c)
+    local p = math.floor(c / 1000)
+    local g = math.floor((c % 1000) / 100)
+    local cop = c % 100
+    local parts = {}
+    if p > 0 then parts[#parts + 1] = string.format("%dp", p) end
+    if g > 0 then parts[#parts + 1] = string.format("%dg", g) end
+    if cop > 0 then parts[#parts + 1] = string.format("%dc", cop) end
+    if #parts == 0 then return "0c" end
+    return table.concat(parts, " ")
 end
 
 local LESSONS = {
@@ -1636,10 +1641,11 @@ local LESSONS = {
     lootfloor = {
         title = "Some items were left behind",
         -- bodyFn, not body: the sentence carries this run's counts and the LIVE floor
-        -- values (latched by dock_state when the card armed). "kinds of item" is exact,
-        -- not hedging: repeat skips of a name short-circuit at loot.mac's session cache,
-        -- so the counters count unique names while the lane's "N skipped" counts
-        -- occurrences -- a card claiming to partition that number would not add up.
+        -- values (latched by dock_state when the card armed). "kinds of item": repeat
+        -- skips of a name short-circuit at loot.mac's session cache, so the counters
+        -- count unique names while the lane's "N skipped" counts occurrences -- a card
+        -- claiming to partition that number would not add up. (Uniqueness is bounded by
+        -- the session cache's ~230-name capacity; see the counter declares in loot.mac.)
         bodyFn = function(deg)
             local n, ns = tonumber(deg.n) or 0, tonumber(deg.nStack) or 0
             local total = n + ns
@@ -1800,7 +1806,16 @@ local function renderHint(ctx, s, edge, barX, barY, barW, barH)
     if not hint then return end
     local uiState = ctx.uiState
 
-    local slot = M.slots[hint.anchor or ""] or {}
+    local slot = M.slots[hint.anchor or ""]
+    -- No slot this frame = the anchor cell is not on the bar (disabled, width-dropped, or
+    -- the first frame after a mode flip before cells rebuilt). The card WAITS undrawn --
+    -- it is not dismissed and not consumed -- and reappears anchored the frame its cell
+    -- returns. The old `or barX` fallback relocated it to the bar's left edge, teaching a
+    -- hover gesture on a slot that was not present: the 480fe52 class, from the position
+    -- side, which the suppress-not-relocate ruling exists to end.
+    if not slot then return end
+    -- slot.x can still be nil when the rect query failed on a frame the cell WAS drawn;
+    -- the bar edge is acceptable then, because the cell is genuinely present.
     local px = slot.x or barX
     local py = (edge == "bottom") and barY or (barY + barH)
     local pivotY = (edge == "bottom") and 1.0 or 0.0

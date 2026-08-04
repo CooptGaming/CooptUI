@@ -112,8 +112,12 @@ function M.requestStats() request("stats") end
 function M.requestSell()  request("sell")  end
 --- Only the open buffs popover needs this, and only while it is open.
 function M.requestClickyMap() request("clicky") end
---- Only Aug Utility's All-augments tab needs the worn-socket census, and only while it is
---- open — ~115 TLO reads is affordable on a slow interval and not affordable per frame.
+--- The worn-socket census (~115 TLO reads, affordable on the slow interval and not per
+--- frame). TWO demanders now: Aug Utility's All-augments tab while open, and the bar's
+--- SESSION cell (default-on) for the triage panel's "fits N of your slots" why-line — so
+--- on a default bars install this walk runs whenever the bar draws, on its slow clock.
+--- Size the TLO budget from that, not from the tab-only world this comment used to
+--- describe.
 function M.requestWornSockets() request("sockets") end
 
 -- ---------------------------------------------------------------------------
@@ -689,26 +693,44 @@ local function walkHealth(now)
         -- "N skipped - see chat" is on the lane with a cause the user never chose (the
         -- loot floors ship ARMED at 2000/500 copper). Ranked first among lessons -- it is
         -- the only one explaining a number currently on screen. Latched because the next
-        -- run zeroes the counts; expired because a card about "just now" must not surface
-        -- days later from under a broken-state strip.
-        if lootFloorLatch and (now - lootFloorLatch.at) > LOOT_FLOOR_LESSON_TTL_MS then
-            lootFloorLatch = nil
-        end
+        -- run zeroes the counts; EXPIRED-not-nilled because the uiState counts stay
+        -- non-zero until that next run, so a nilled latch re-armed the same stale numbers
+        -- with a fresh timestamp in the very same pass -- the card was immortal, and a
+        -- two-day sellmac_missing strip would have lifted to reveal two-day-old counts
+        -- reading as "just now". An expired latch blocks re-arm until the counts CHANGE,
+        -- which only a new run's skips can make happen.
         if not hintsSvc.lessonSeen("lootfloor") then
-            if not lootFloorLatch then
-                local fl = tonumber(uiState and uiState.lootRunFloorSkipped) or 0
-                local fs = tonumber(uiState and uiState.lootRunFloorSkippedStack) or 0
-                if (fl + fs) > 0 then
-                    local floor, floorStack = 0, 0
-                    pcall(function()
-                        local v = require('itemui.config_cache').getCache().loot.values
-                        floor, floorStack = tonumber(v.minLoot) or 0, tonumber(v.minStack) or 0
-                    end)
-                    lootFloorLatch = { n = fl, nStack = fs, floor = floor,
-                        floorStack = floorStack, at = now }
-                end
+            local fl = tonumber(uiState and uiState.lootRunFloorSkipped) or 0
+            local fs = tonumber(uiState and uiState.lootRunFloorSkippedStack) or 0
+            if lootFloorLatch and (fl + fs) > 0
+                and (fl ~= lootFloorLatch.n or fs ~= lootFloorLatch.nStack) then
+                -- A NEWER run's floor skips supersede whatever the latch holds -- armed or
+                -- expired. The card lands beside the lane's CURRENT "N skipped" line, and
+                -- a card carrying run A's numbers next to run B's lane would contradict
+                -- the very thing it exists to explain. Fresh timestamp: a new consequence
+                -- is a new moment.
+                lootFloorLatch = nil
             end
-            if lootFloorLatch then
+            if lootFloorLatch and not lootFloorLatch.expired
+                and (now - lootFloorLatch.at) > LOOT_FLOOR_LESSON_TTL_MS then
+                lootFloorLatch.expired = true
+            end
+            -- An EXPIRED latch is done blocking once a new run has zeroed the counts --
+            -- clearing it here lets the next run's identical-looking skips arm fresh.
+            -- (An ARMED latch deliberately survives the zeroing; that is its whole job.)
+            if lootFloorLatch and lootFloorLatch.expired and (fl + fs) == 0 then
+                lootFloorLatch = nil
+            end
+            if not lootFloorLatch and (fl + fs) > 0 then
+                local floor, floorStack = 0, 0
+                pcall(function()
+                    local v = require('itemui.config_cache').getCache().loot.values
+                    floor, floorStack = tonumber(v.minLoot) or 0, tonumber(v.minStack) or 0
+                end)
+                lootFloorLatch = { n = fl, nStack = fs, floor = floor,
+                    floorStack = floorStack, at = now }
+            end
+            if lootFloorLatch and not lootFloorLatch.expired then
                 return { id = "lesson_lootfloor", lesson = "lootfloor",
                     n = lootFloorLatch.n, nStack = lootFloorLatch.nStack,
                     floor = lootFloorLatch.floor, floorStack = lootFloorLatch.floorStack }

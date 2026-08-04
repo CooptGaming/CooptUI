@@ -342,7 +342,14 @@ renderWindowBody = function(ctx, layoutConfig)
     -- default install silently lost clickable links -- the one thing Zep is for. Times are
     -- baked into the text Zep receives instead (chat_console.zepText), so the two coexist.
     local ownRenderer = filterOn
-    local lines = fallbackLines()
+    -- LAZY: on the default path (Zep up, no filter) the fallback copy was built and
+    -- discarded every frame -- a 500-entry ring copy per frame feeding branches that were
+    -- never taken. Built only when a consuming branch actually runs.
+    local lines = nil
+    local function fbLines()
+        if not lines then lines = fallbackLines() end
+        return lines
+    end
     local consoleH = math.max((availH or 0) - inputRowH, 1)
     local wasAtBottom = atBottom
     if not ownRenderer and chatConsole.zepAvailable() then
@@ -360,17 +367,17 @@ renderWindowBody = function(ctx, layoutConfig)
             -- examples/console.lua:130) subtracts the footer and passes the result.
             local ok = pcall(function() console:Render(ImVec2(availW, consoleH)) end)
             if not ok then
-                atBottom = chatConsole.renderFallback(activeTab, consoleH, lines,
+                atBottom = chatConsole.renderFallback(activeTab, consoleH, fbLines(),
                     { timestamps = timestamps })
             else
                 atBottom = true    -- Zep autoscrolls itself; there is nothing to catch up to
             end
         else
-            atBottom = chatConsole.renderFallback(activeTab, consoleH, lines,
+            atBottom = chatConsole.renderFallback(activeTab, consoleH, fbLines(),
                 { timestamps = timestamps })
         end
     else
-        atBottom = chatConsole.renderFallback(activeTab, consoleH, lines, {
+        atBottom = chatConsole.renderFallback(activeTab, consoleH, fbLines(), {
             timestamps = timestamps,
             -- Scroll to the newest line only when we were ALREADY parked there. Scrolling a
             -- user who has walked back up the log is the single worst thing a chat window

@@ -280,7 +280,14 @@ local function renderWelcomeScreen(refs)
     if not allowProceed then ImGui.EndDisabled() end
     if ImGui.IsItemHovered(ImGuiHoveredFlags and ImGuiHoveredFlags.AllowWhenDisabled or 0) then
         ImGui.BeginTooltip()
-        ImGui.Text("Applies your answers, then opens Settings on the sell/loot rules.")
+        -- Now that the disabled state can actually show a tooltip, it states the GREY's
+        -- reason -- describing the click result on a button that will not click is the
+        -- shape this pass removed everywhere else.
+        if not allowProceed then
+            ImGui.Text("Fix the environment issue listed above first.")
+        else
+            ImGui.Text("Applies your answers, then opens Settings on the sell/loot rules.")
+        end
         ImGui.EndTooltip()
     end
 

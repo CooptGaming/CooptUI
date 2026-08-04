@@ -133,6 +133,23 @@ function M.getActive()
     return active
 end
 
+--- Advance the replay queue to the next hint whose anchor cell is actually ON the bar.
+--- The replay walk honours the same gate the organic triggers do: a card for a disabled
+--- cell would render at the bar's left edge (renderHint has no slot to anchor to), which
+--- is the relocation the suppression ruling forbids -- on an explicit user command, no
+--- less. A skipped hint keeps its cleared seen flag, so it fires organically the moment
+--- its cell comes back; the replay teaches what the bar can currently show.
+local function nextReplayHint()
+    while replayQueue and #replayQueue > 0 do
+        local nextId = table.remove(replayQueue, 1)
+        local h = hintById(nextId)
+        if h and cellOn(h.anchor) then
+            return { id = h.id, title = h.title, body = h.body, anchor = h.anchor, replay = true }
+        end
+    end
+    return nil
+end
+
 --- [Got it]: mark the active hint seen (INI) and advance the replay queue, if one runs.
 function M.dismissActive()
     if not active then return end
@@ -141,9 +158,7 @@ function M.dismissActive()
     config.writeINIValue(HINTS_INI, HINTS_SECTION, "hint_" .. active.id, "TRUE")
     active = nil
     if replayQueue and #replayQueue > 0 then
-        local nextId = table.remove(replayQueue, 1)
-        local h = hintById(nextId)
-        if h then active = { id = h.id, title = h.title, body = h.body, anchor = h.anchor, replay = true } end
+        active = nextReplayHint()
     else
         replayQueue = nil
     end
@@ -159,9 +174,7 @@ function M.replayAll()
         config.writeINIValue(HINTS_INI, HINTS_SECTION, "hint_" .. h.id, "FALSE")
         replayQueue[#replayQueue + 1] = h.id
     end
-    local first = table.remove(replayQueue, 1)
-    local h = hintById(first)
-    active = h and { id = h.id, title = h.title, body = h.body, anchor = h.anchor, replay = true } or nil
+    active = nextReplayHint()
 end
 
 --- Edge detection against the dock snapshot. One hint at a time; a new trigger while one
@@ -175,6 +188,22 @@ function M.tick(now)
     -- the fragile version of the same guarantee.
     if d.uiState and d.uiState.setupMode then return end
     loadSeen()
+
+    -- An ACTIVE hint whose anchor cell has gone away (disabled from Settings while the
+    -- card was up, or fired inside the one-frame window before dock_top's first push)
+    -- demotes back to waiting rather than sitting invisible and blocking the queue.
+    -- Nothing is marked seen, so nothing is lost: rule_edit's sticky ruleEditSeen re-fires
+    -- it the moment the cell returns, and the edge-triggered hints wait for their next
+    -- occurrence exactly as a suppressed fire would have.
+    if active and not cellOn(active.anchor) then
+        if active.replay then
+            -- Mid-replay disable: advance to the next showable card instead of stalling
+            -- the walk on an invisible one. The skipped hint's seen flag stays cleared.
+            active = nextReplayHint()
+        else
+            active = nil
+        end
+    end
 
     -- The anchor-visibility gate rides IN the trigger chain, before anything is marked
     -- seen, so a suppressed hint is never consumed -- it waits, and fires when its cell

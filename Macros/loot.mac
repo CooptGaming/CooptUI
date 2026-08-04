@@ -193,6 +193,11 @@ Sub Main
 | the other would teach a false fact. NOTE these count UNIQUE NAMES, not occurrences:
 | repeat skips of a name short-circuit at the session cache and never reach the counting
 | site, so the card's copy says "kinds of item", never a partition of runSkippedCount.
+| HONEST BOUND: uniqueness holds only while the session cache can hold the name -- the
+| three chunks cap at ~230-300 distinct skipped names per run (all skip reasons share
+| them), and past that an uncached name recounts on every later corpse. Accepted: a run
+| skipping 230+ DISTINCT names is far past the card's audience, and the failure direction
+| is an overcount on a card, never a loot decision.
 /declare runSkippedFloorCount int outer 0
 /declare runSkippedFloorStackCount int outer 0
 /declare runSkippedList string outer
@@ -1283,6 +1288,17 @@ sub FinishLooting
     | these INI files are redundant and their synchronous writes (3*N + S lines) cause a frame stutter
     | that scales with corpse count.
     /if (!${pluginLoaded}) {
+        | A zero-loot run must still say so, same class as the skipped-count fix below: the
+        | whole items block is guarded on runLootedCount > 0, so a run that looted nothing
+        | left the PREVIOUS run's items and totals on disk for Phase A to replay as this
+        | run's loot. Count and summary both zero - the reader takes Summary unconditionally.
+        /if (${runLootedCount} == 0) {
+            /ini "${configPath}/loot_session.ini" Items count 0
+            /ini "${configPath}/loot_session.ini" Summary totalValue 0
+            /ini "${configPath}/loot_session.ini" Summary tributeValue 0
+            /ini "${configPath}/loot_session.ini" Summary bestItemName ""
+            /ini "${configPath}/loot_session.ini" Summary bestItemValue 0
+        }
         | Write loot_session.ini only when this run had items (from chunked lists; each chunk capped at runListMaxLen)
         /if (${runLootedCount} > 0) {
             /declare count1 int local 0

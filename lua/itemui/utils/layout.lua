@@ -693,7 +693,17 @@ local function applyLayoutSection(parsed)
     if savedSchema < layoutSchema.CURRENT then
         local migrated, changed = layoutSchema.migrateCsv(
             layoutConfig.DockButtons, dockButtons.BUTTONS, savedSchema)
-        if changed then layoutConfig.DockButtons = migrated end
+        if changed then
+            layoutConfig.DockButtons = migrated
+            -- WRITE-THROUGH THE CACHE, exactly as setLayoutValue does for its keys. The
+            -- stamp below patches the cached parse's schema; if the VALUES are not
+            -- patched with it, the next cache-branch load re-reads the old CSV, sees the
+            -- new schema, skips the migration -- and the first ordinary save then
+            -- persists the unmigrated CSV under the new stamp, burning the migration
+            -- permanently. (Stamping without value-through was tried first and was
+            -- exactly that bug.)
+            if parsed.layout then parsed.layout.DockButtons = migrated end
+        end
         layoutSchema.migrateVisibility(columnConfig.columnVisibility,
             columnConfig.availableColumns, savedSchema)
         -- The visibility map is NOT the whole story for Inventory/Bank: those two views
@@ -704,15 +714,16 @@ local function applyLayoutSection(parsed)
         -- fixed order at canonical position (same rule migrateCsv uses), so a migrated
         -- install matches a fresh one.
         local fixedOrder = layoutConfig.fixedColumnOrder
-        if fixedOrder then
-            for view, cols in pairs(columnConfig.availableColumns) do
-                local order = fixedOrder[view]
+        for view, cols in pairs(columnConfig.availableColumns) do
+            local added = layoutSchema.additions(cols, savedSchema, "key")
+            if #added > 0 then
+                local order = fixedOrder and fixedOrder[view]
                 if order and #order > 0 then
                     local present = {}
                     for _, k in ipairs(order) do present[k] = true end
                     local canonPos = {}
                     for i, col in ipairs(cols) do canonPos[col.key] = i end
-                    for _, id in ipairs(layoutSchema.additions(cols, savedSchema, "key")) do
+                    for _, id in ipairs(added) do
                         if not present[id] then
                             local at = #order + 1
                             for i, existing in ipairs(order) do
@@ -725,6 +736,20 @@ local function applyLayoutSection(parsed)
                             present[id] = true
                         end
                     end
+                    -- Cache write-through for the fixed views: their [ColumnVisibility]
+                    -- parse line is what rebuilds fixedColumnOrder on a cache-branch load.
+                    if parsed.columnVisibility and parsed.columnVisibility[view] then
+                        parsed.columnVisibility[view] = table.concat(order, "/")
+                    end
+                elseif parsed.columnVisibility and parsed.columnVisibility[view] then
+                    -- Non-fixed views (the visibility map is the truth): append the new
+                    -- ids to the cached CSV so a cache re-apply keeps them on. Order is
+                    -- irrelevant on this path -- applyVisibility treats the line as a set.
+                    local line = parsed.columnVisibility[view]
+                    for _, id in ipairs(added) do
+                        if not line:find(id, 1, true) then line = line .. "/" .. id end
+                    end
+                    parsed.columnVisibility[view] = line
                 end
             end
         end
