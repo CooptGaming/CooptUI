@@ -545,12 +545,67 @@ local function textRaw(s)
     end
 end
 
-local function drawChatLine(e)
+--- One plain-text piece of the line, with any residual link tags stripped: a tag
+--- ExtractLinks did not model would otherwise print its raw hex payload straight onto the
+--- bar (the "broken links" field capture -- a Difficulty-options line of pure tag soup).
+local function textStripped(s)
+    local ok, stripped = pcall(function() return mq.StripTextLinks and mq.StripTextLinks(s) end)
+    textRaw((ok and type(stripped) == "string") and stripped or s)
+end
+
+--- The line's links, rendered AS links. Each captured TextTagInfo splits the raw text at
+--- its tag: plain chunks draw stripped, the tag draws its visible text in the open-blue
+--- the product already uses for "this is live", and a click queues the tag for
+--- mq.ExecuteTextLink on the MAIN LOOP -- executing a link is the game acting, and
+--- nothing in a render callback may do that directly. Zep gets this natively in the chat
+--- window; this is the same affordance for the one-line cell.
+local function drawLinkedText(ctx, text, links, col)
+    local pos = 1
+    for _, tag in ipairs(links) do
+        local ok, s, epos = pcall(function()
+            local a, b = text:find(tag.link, pos, true)
+            return a, b
+        end)
+        if ok and s then
+            if s > pos then
+                if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
+                pcall(textStripped, text:sub(pos, s - 1))
+                if col then ImGui.PopStyleColor() end
+                ImGui.SameLine(0, 0)
+            end
+            ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.OpenBlue))
+            local okT = pcall(textRaw, tostring(tag.text or ""))
+            ImGui.PopStyleColor()
+            if okT and ImGui.IsItemHovered and ImGui.IsItemHovered() then
+                if ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+                    dockTop.queue(ctx, { kind = "chatlink", tag = tag })
+                end
+                ImGui.BeginTooltip()
+                ImGui.Text("click to open this link")
+                ImGui.EndTooltip()
+            end
+            ImGui.SameLine(0, 0)
+            pos = epos + 1
+        end
+    end
+    if pos <= #text then
+        if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
+        pcall(textStripped, text:sub(pos))
+        if col then ImGui.PopStyleColor() end
+    else
+        -- The line ended on a link: close the dangling SameLine with a zero-width text so
+        -- the layout cursor lands where a line normally leaves it.
+        ImGui.Text("")
+    end
+end
+
+local function drawChatLine(e, ctx)
     local col = chatConsole.channelColor(e.channel)
     -- 19b draws the speaker's bracket in amber ahead of the line. It is the one token you
     -- scan a one-line chat cell FOR -- "did someone talk to me" -- and colouring the whole
     -- line by channel cannot answer that, because a group line and a group emote are the
     -- same channel. Split, not substring-coloured: only a LEADING bracket is a speaker.
+    local links = e.links
     local speaker, rest = tostring(e.text or ""):match("^(%[[^%]]+%])%s*(.*)$")
     if speaker then
         ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(theme.Kit.Attention))
@@ -560,8 +615,12 @@ local function drawChatLine(e)
         ImGui.SameLine(0, 4)
         e = { text = rest, channel = e.channel }
     end
+    if ctx and links and #links > 0 then
+        drawLinkedText(ctx, tostring(e.text or ""), links, col)
+        return
+    end
     if col then ImGui.PushStyleColor(ImGuiCol.Text, theme.ToVec4(col)) end
-    local ok, err = pcall(textRaw, e.text)
+    local ok, err = pcall(textStripped, e.text)
     if col then ImGui.PopStyleColor() end
     if not ok then error(err, 0) end
 end
@@ -683,7 +742,7 @@ local function renderChat(ctx, availW)
             ImGui.SameLine(0, 8)
             local lines = chatFeed.getLines(1)
             if lines[1] then
-                drawChatLine(lines[1])
+                drawChatLine(lines[1], ctx)
             else
                 theme.TextMuted("(no chat yet - click to open chat)")
             end
@@ -858,7 +917,14 @@ function M.render(ctx)
         if launchers and chatBudget(true) < CHAT_MIN_W then
             launchers, launchW = nil, 0
         end
-        local chatW = math.max(chatBudget(false), 80)
+        -- The budget that matches what is ACTUALLY on the bar. This read chatBudget(false)
+        -- for years: with the launcher row up, chat claimed the launcher-less width, the
+        -- row started after chat's right edge, and its tail ran under the right-anchored
+        -- menus -- the launcher chips and Native UI/Layouts/Settings overdrew each other.
+        -- Invisible for as long as hidden mode was a one-way door (a ~60px button leaves
+        -- acres of slack); the C1 fix put the collapsed line back on screen and the
+        -- overlap with it.
+        local chatW = math.max(chatBudget(launchers ~= nil), 80)
 
         --- A section divider in the gap after whatever was just drawn -- zero layout width
         --- (see dockTop.drawDividerAt).

@@ -1056,6 +1056,12 @@ local function trackWindowStateChanges(now)
     local invJustOpened = invOpen and not lastInventoryWindowState
     local shouldDraw = d.getShouldDraw()
     if lootOpen or lootJustClosed then scanState.inventoryBagsDirty = true end
+    -- Corpse evidence for the session record's gate: hand-looting may produce a loot line
+    -- worded past recognition (or none the event layer sees), but it cannot happen without
+    -- the LootWnd being open. Noted every tick it is open; loot_watch keeps the grace.
+    if lootOpen then
+        pcall(function() require('itemui.services.loot_watch').noteLootWindow() end)
+    end
     -- When bank just opened, apply sell status (incl. RerollList) to bankCache so initial display matches reroll list before deferred scan runs.
     if bankJustOpened and bankCache and #bankCache > 0 and computeAndAttachSellStatus then
         computeAndAttachSellStatus(bankCache)
@@ -1547,6 +1553,12 @@ local function phase0b_dockActionQueue(now)
 
     elseif a.kind == "native" and a.window then
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
+
+    elseif a.kind == "chatlink" and a.tag then
+        -- A link clicked on the bar's one-line chat. The TextTagInfo rode the queue from
+        -- the render callback; executing it is the game acting (opens item/spell/achieve
+        -- windows), which belongs here, never in-frame.
+        pcall(function() mq.ExecuteTextLink(a.tag) end)
 
     elseif a.kind == "pair" and a.id == "idau" then
         -- The Item Display + Aug Utility pair opens and closes as a UNIT (23c) — the bar

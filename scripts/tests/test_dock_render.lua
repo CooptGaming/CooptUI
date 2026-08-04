@@ -1312,6 +1312,48 @@ do
     check('chat C1: left-click still opens the window',
         qh[1] and qh[1].kind == 'window' and qh[1].id == 'chat', qh[1] and tostring(qh[1].id))
     chatFeed.clearUnread()
+
+    -- =================================================================
+    -- Links on the one-line chat (field ask). A line carrying \18 tags used to print the
+    -- tag's raw hex payload straight onto the bar; now the captured TextTagInfo renders
+    -- its visible text as a CLICKABLE segment, and the click queues the tag for
+    -- mq.ExecuteTextLink on the main loop -- the same links Zep gives the window.
+    -- =================================================================
+    resetInput()
+    local mqTab = package.loaded['mq']
+    local fakeTag = { type = 1, link = '\18FAKETAGPAYLOAD\18', text = 'Fancy Sword' }
+    mqTab.ExtractLinks = function(line) return { fakeTag } end
+    mqTab.StripTextLinks = function(s) return (s:gsub('\18[^\18]*\18', '')) end
+    chatFeed._inject('You say, \'look at \18FAKETAGPAYLOAD\18 now\'')
+    local linkCtx = newCtx({ uiState = {} })
+    linkCtx.layoutConfig.DockChat = 'collapsed'
+    dockState.init(newDeps(linkCtx))
+    warmState()
+    local rLink = stub.frame(function() dockBottom.render(linkCtx) end)
+    check('chat links: the tag renders as its visible text',
+        stub.drew(rLink, 'Fancy Sword'), table.concat(rLink.text, '|'))
+    check('chat links: the raw payload never reaches the bar',
+        not (function()
+            for _, t in ipairs(rLink.text) do if t:find('FAKETAGPAYLOAD', 1, true) then return true end end
+            return false
+        end)(), table.concat(rLink.text, '|'))
+    check('chat links: frame balanced with a linked line up', stub.balanced(rLink), stub.imbalance(rLink))
+
+    resetInput()
+    linkCtx.uiState.dockActionQueue = nil
+    stub.hover = { ['Fancy Sword'] = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
+    stub.frame(function() dockBottom.render(linkCtx) end)
+    local ql = linkCtx.uiState.dockActionQueue or {}
+    check('chat links: clicking the link queues the tag for the main loop',
+        ql[1] and ql[1].kind == 'chatlink' and ql[1].tag == fakeTag,
+        ql[1] and tostring(ql[1].kind))
+    -- The link click must NOT also open the chat window: the queue-length guard treats
+    -- the consumed click as spent.
+    check('chat links: the click is consumed, not doubled into opening the window',
+        #ql == 1, #ql)
+    mqTab.ExtractLinks, mqTab.StripTextLinks = nil, nil
+    chatFeed.clearUnread()
 end
 
 -- =================================================================

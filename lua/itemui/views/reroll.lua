@@ -302,8 +302,12 @@ local function renderTabContent(ctx, track, rerollService)
         theme.TextMuted(rollBlockedText)
     end
 
-    -- Single refresh button: requests both aug and mythical lists
-    ImGui.SameLine()
+    -- Refresh and Sync Pending live on their OWN row. They used to trail the
+    -- Add/Remove/Roll row, which with its printed roll-reason runs past 500px -- and the
+    -- window's floor is 420, so at field widths Sync Pending sat clipped off the right
+    -- edge. A sync surface that exists but cannot be seen was field-reported as "the
+    -- reroll has no way to sync" -- which, for the person looking at the window, it did
+    -- not.
     if ImGui.Button("Refresh##" .. track, ImVec2(70, 0)) then
         rerollService.requestBothLists()
     end
@@ -321,11 +325,17 @@ local function renderTabContent(ctx, track, rerollService)
     else
         theme.PushKeepButton(false)
     end
-    local syncLabel = "Sync Pending##" .. track
+    -- The label carries the COUNT: "Sync Pending 3" is the number the field asked for --
+    -- how many items are waiting to reach the server list.
+    local syncLabel
     if syncActive then
         syncLabel = string.format("Syncing %d/%d##%s", sync.nextIndex or 0, sync.totalCount or 0, track)
+    elseif pendingCount > 0 then
+        syncLabel = string.format("Sync Pending %d##%s", pendingCount, track)
+    else
+        syncLabel = "Sync Pending##" .. track
     end
-    if ImGui.Button(syncLabel, ImVec2(95, 0)) then
+    if ImGui.Button(syncLabel, ImVec2(115, 0)) then
         if not syncPendingDisabled and not syncActive then rerollService.startPendingSync(track) end
     end
     if ImGui.IsItemHovered() then
@@ -342,6 +352,13 @@ local function renderTabContent(ctx, track, rerollService)
         ImGui.EndTooltip()
     end
     theme.PopButtonColors()
+    -- The reason, printed beside per kit rule 3.5 -- and the pending count even when the
+    -- button is grey, so "3 waiting - sync in the guild hall" is readable at a glance
+    -- instead of being a fact the tooltip hides.
+    if not syncActive and pendingCount > 0 and not inGuildHall then
+        ImGui.SameLine(0, 8)
+        theme.TextMuted(string.format("%d waiting - sync in the guild hall", pendingCount))
+    end
 
     -- Sync failures, said out loud. main_loop records a per-item {name, reason} for every
     -- item a sync could not push (equipped, in the bank, not owned) — and until now

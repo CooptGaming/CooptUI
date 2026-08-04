@@ -320,5 +320,7 @@ the `Dock*` keys for the edge, the chat height and which slots you kept.
   consolidation doesn't exist in CoOpt yet, so there's no button pretending it does.
 - **Live drag guides.** The yellow alignment guides from the mockups are deferred — they
   need per-window draw hooks. Snapping itself works; you just don't see lines while dragging.
-- **Take/Pass hotkeys.** The decision buttons are buttons only: EQ binds F1/F2 to targeting,
-  and an overlay can't safely steal them.
+- **Take/Pass hotkeys.** The decision buttons are buttons only — ruled in the field
+  (2026-08-03): you hover the item's name to read its stats before deciding anyway, so the
+  mouse is already there and a hotkey would mostly invite deciding blind. (EQ also binds
+  F1/F2 to targeting, so the bare keys were never available.)

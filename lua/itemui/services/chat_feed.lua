@@ -113,6 +113,15 @@ local function onChatLine(line)
     -- window may not draw for minutes. os.date, not mq.gettime -- the user reads a clock,
     -- not a monotonic tick. Formatted once here rather than per frame per visible line.
     local entry = { text = line, channel = channel, tab = tab, time = os.date("%H:%M") }
+    -- Extract EQ text links ONCE, at capture, only for lines that carry the \18 tag byte.
+    -- mq.ExtractLinks returns TextTagInfo usertypes ({ type, link, text }) that
+    -- mq.ExecuteTextLink can click later -- this is what lets the bar's one-line chat (and
+    -- anything else drawing entries as plain ImGui text) offer the same clickable links
+    -- Zep gets natively, instead of printing the tag's raw hex payload as garbage.
+    if line:find("\18", 1, true) then
+        local okL, tags = pcall(function() return mq.ExtractLinks and mq.ExtractLinks(line) end)
+        if okL and type(tags) == "table" and #tags > 0 then entry.links = tags end
+    end
     if channel == "tell" then
         local who = line:match("^(%a[%w_]*) tells you,") or line:match("^(%a[%w_]*) told you,")
         if who then lastTell = who end

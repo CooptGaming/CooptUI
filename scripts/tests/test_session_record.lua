@@ -340,6 +340,61 @@ do
         sessionRecord.getCounts().looted)
 end
 
+-- ---------------------------------------------------------------- 5b. wording resilience
+-- Field lesson: exact-match credits made a mis-parse indistinguishable from no corpse.
+-- The whole line rides on the credit, so any wording that CONTAINS the item's name still
+-- pays -- and the loot WINDOW is corpse evidence of its own, because hand-looting can
+-- produce a line no pattern anticipates, or none the event layer sees at all.
+do
+    sessionRecord._resetForTests()
+    lootWatch._resetForTests(false)
+    files = {}
+    local deps = makeDeps({})
+    deps.inventoryItems = {}
+    sessionRecord.init(deps)
+
+    -- A wording with a suffix the parser does not model: the parsed name is garbage, the
+    -- LINE still contains the real name, so the substring fallback pays.
+    lootWatch._feedLine("--You have looted a Fresh Emerald from a gnoll's corpse.--")
+    deps.inventoryItems = { aug(551, 'Fresh Emerald', 11, 142000) }
+    sessionRecord.tick(1000)
+    check('wording: a suffixed loot line still credits by substring',
+        sessionRecord.getCounts().looted == 1, sessionRecord.getCounts().looted)
+
+    -- Hand-loot with NO line at all: the open loot window is the corpse evidence.
+    sessionRecord._resetForTests()
+    lootWatch._resetForTests(false)
+    files = {}
+    deps = makeDeps({})
+    deps.inventoryItems = {}
+    sessionRecord.init(deps)
+    lootWatch.noteLootWindow(os.time())    -- window seen open; arms the gate
+    deps.inventoryItems = { aug(561, 'Hand Looted Aug', 21, 9000) }
+    sessionRecord.tick(1000)
+    check('window: an item arriving in the loot-window grace is recorded', (function()
+        for _, e in ipairs(sessionRecord.getCallList()) do
+            if e.name == 'Hand Looted Aug' then return true end
+        end
+        return false
+    end)())
+
+    -- ...and the grace EXPIRES: the same gate that admits hand-loot must still exclude a
+    -- socket-popped augment ten minutes later.
+    deps.inventoryItems = {
+        deps.inventoryItems[1],
+        aug(562, 'Popped Ornament', 22, 0),
+    }
+    -- claim() reads os.time internally via the tick path; drive the window stamp stale.
+    lootWatch._resetForTests(true)          -- armed, no credits, no window
+    sessionRecord.tick(2000)
+    check('window: outside the grace the gate still excludes non-corpse inflows', (function()
+        for _, e in ipairs(sessionRecord.getCallList()) do
+            if e.name == 'Popped Ornament' then return false end
+        end
+        return true
+    end)())
+end
+
 -- ---------------------------------------------------------------- 6. re-linking
 -- What makes "not in bags" mean it. An entry used to find its live row by acquiredSeq
 -- alone, and that stamp follows the SLOT before it follows the item (scan.lua matches

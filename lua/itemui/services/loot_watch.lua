@@ -38,9 +38,19 @@ local LINE_PATTERN = "#*#You have looted#*#"
 local CREDIT_TTL_S = 300
 local CREDITS_MAX = 500
 
-local credits = {}      -- array of { name, raw, at } — oldest first
-local armed = false     -- has a real corpse-loot line ever been seen?
+local credits = {}      -- array of { name, raw, line, at } — oldest first
+local armed = false     -- has a real corpse-loot signal ever been seen?
 local deniedSeen = {}   -- name -> true; a denial is logged once, not once per tick
+local lastLootWndAt = nil  -- os.time the game's loot window was last seen open
+
+-- The loot-WINDOW grace: hand-looting on this server can produce a loot line worded in
+-- ways no pattern anticipates -- or (field-reported) no line the event layer sees at all.
+-- The one thing hand-looting cannot happen without is the game's own LootWnd being open,
+-- so a recently-open loot window is corpse evidence in its own right: any tracked item
+-- arriving within this many seconds of it claims successfully. Two minutes covers the
+-- fingerprint-scan lag after closing the corpse without re-opening the socket-ornament
+-- hole except in the narrow overlap where someone pops an augment mid-looting-session.
+local LOOT_WND_GRACE_S = 120
 
 local function lower(s) return tostring(s or ""):lower() end
 
@@ -100,7 +110,21 @@ local function onLootLine(line)
     armed = true
     local nowS = os.time()
     prune(nowS)
-    credits[#credits + 1] = { name = lower(stripped), raw = lower(raw), at = nowS }
+    -- The WHOLE line rides along (lowered): a wording this parser did not anticipate --
+    -- "You have looted a X from a gnoll's corpse.", say -- makes the parsed name garbage,
+    -- but the line still CONTAINS the item's real name, and claim() falls back to a
+    -- substring test against it. Field lesson: exact-match credits made a mis-parse
+    -- indistinguishable from no corpse at all.
+    credits[#credits + 1] = { name = lower(stripped), raw = lower(raw),
+        line = lower(line), at = nowS }
+end
+
+--- The game's loot window is open right now. Called from the main loop's window poll;
+--- arms the gate (an open corpse is corpse evidence) and starts the grace period.
+function M.noteLootWindow(nowS)
+    if not armed then dbg.log("loot gate: armed by the loot window") end
+    armed = true
+    lastLootWndAt = nowS or os.time()
 end
 
 --- Can `name` be accounted for by a corpse this session? Consumes the credit that pays
@@ -117,11 +141,19 @@ function M.claim(name, nowS)
     prune(nowS)
     for i = 1, #credits do
         local c = credits[i]
-        if c.name == want or c.raw == want then
+        if c.name == want or c.raw == want
+            or (c.line and c.line:find(want, 1, true)) then
             table.remove(credits, i)
             deniedSeen[want] = nil
             return true
         end
+    end
+    -- No line credit -- but a recently-open loot window is corpse evidence too (the
+    -- hand-loot path, where the line may be worded unrecognisably or never seen at all).
+    -- NOT consumed: one looting session covers everything taken during it.
+    if lastLootWndAt and (nowS - lastLootWndAt) <= LOOT_WND_GRACE_S then
+        deniedSeen[want] = nil
+        return true
     end
     -- The silent failure mode of this whole design is a loot line whose wording does not
     -- match, which looks exactly like a quiet night. Denials say so on the Loot channel —
@@ -149,8 +181,14 @@ function M.peek(name, nowS)
     prune(nowS or os.time())
     for i = 1, #credits do
         local c = credits[i]
-        if c.name == want or c.raw == want then return true end
+        if c.name == want or c.raw == want
+            or (c.line and c.line:find(want, 1, true)) then return true end
     end
+    -- Deliberately NO loot-window grace here, unlike claim(): peek is the tiebreak
+    -- between "my recorded aug moved slots" and "I looted a second identical one", and
+    -- during a looting session the window is open for BOTH. A window-grace peek would
+    -- turn every mid-session bag shuffle of a recorded item into a phantom second record;
+    -- requiring a NAMED credit means only actual evidence of a second copy creates one.
     return false
 end
 
@@ -172,6 +210,7 @@ function M._resetForTests(startArmed)
     credits = {}
     deniedSeen = {}
     armed = startArmed == true
+    lastLootWndAt = nil
 end
 
 --- Test seam: drive the chat handler without an mq event pump.
