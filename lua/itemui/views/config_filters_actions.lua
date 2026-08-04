@@ -120,7 +120,7 @@ function M.performSellFilterAdd(ctx, targetId, typeKey, value)
     list[#list + 1] = value
     writeFn(iniFile, "Items", iniKey, ctx.config.joinList(list))
     ctx.invalidateSellConfigCache()
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     return true
 end
 
@@ -134,7 +134,7 @@ function M.performValuableFilterAdd(ctx, typeKey, value)
     list[#list + 1] = value
     writeFn(iniFile, "Items", iniKey, ctx.config.joinList(list))
     ctx.invalidateSellConfigCache()
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
     return true
 end
@@ -166,7 +166,7 @@ function M.removeFromSellFilterList(ctx, targetId, typeKey, value)
             table.remove(list, i)
             writeFn(iniFile, "Items", iniKey, ctx.config.joinList(list))
             ctx.invalidateSellConfigCache()
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
             return true
         end
     end
@@ -203,7 +203,7 @@ function M.removeFromValuableFilterList(ctx, typeKey, value)
             table.remove(list, i)
             writeFn(iniFile, "Items", iniKey, ctx.config.joinList(list))
             ctx.invalidateSellConfigCache()
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
             events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
             return true
         end

@@ -711,6 +711,15 @@ local function applyLayoutSection(parsed)
         -- people who have already edited this list should receive". Give it a table then.
     end
     layoutConfig[layoutSchema.KEY] = layoutSchema.CURRENT
+    -- The CACHED PARSE gets the stamp too, exactly as setLayoutValue patches it for its
+    -- keys. Without this the cache still carries the file's old schema for the length of
+    -- the save debounce, and a reload that takes the cache branch inside that window
+    -- re-runs the migration against the user's freshest CSV -- so turning a just-migrated
+    -- entry OFF reverted itself: the toggle patched the cache's CSV, the stale cached
+    -- schema re-armed the migration, and the pending save then persisted the revert.
+    -- `parsed` here IS perfCache.layoutCached (stored before applyLayoutSection runs), so
+    -- patching it patches the cache.
+    if parsed.layout then parsed.layout[layoutSchema.KEY] = tostring(layoutSchema.CURRENT) end
 end
 
 function LayoutUtils.loadLayoutConfig()

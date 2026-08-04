@@ -541,7 +541,11 @@ function Get-CoOptUISourceHash {
         # layout_manifest.json and overlay_snippet.ini.
         @{ Path = (Join-Path $RepoRoot 'lua\itemui');        Include = @('*'); Exclude = @('docs/*', 'upvalue_check.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\coopui');        Include = @('*.lua') }
-        @{ Path = (Join-Path $RepoRoot 'lua\scripttracker'); Include = @('*.lua'); Exclude = @('scripttracker.ini') }
+        # Include '*': README.md ships (whole-dir copy + release_manifest) so it must hash.
+        # The old Exclude('scripttracker.ini') was dead code -- Include='*.lua' filtered the
+        # ini out before Exclude was ever consulted -- and the file itself is deleted now
+        # (nothing ever read it; the sidecar's `pinned` is a local, reset every /lua run).
+        @{ Path = (Join-Path $RepoRoot 'lua\scripttracker'); Include = @('*') }
         @{ Path = (Join-Path $RepoRoot 'lua\mq\ItemUtils.lua') }
         @{ Path = (Join-Path $RepoRoot 'lua\coopt_launcher.lua') }
         @{ Path = (Join-Path $RepoRoot 'uifiles\coopt');     Include = @('*') }

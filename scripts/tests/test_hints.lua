@@ -98,10 +98,20 @@ check('decision edge fires the mythical hint', hints.getActive() and hints.getAc
 hints.dismissActive()
 snap.lootState = 'idle'
 
--- 8. Rule edit via the filters-UI hook.
-hints.noteRuleEdit()
+-- 8. Rule edit is armed by the COMMIT, and only when a person made it (Q4 ruling: the
+-- trigger means "a rule changed and a person changed it", not "the filter UI was used" --
+-- provenance rides the CONFIG_SELL_CHANGED payload, absent defaults to not-user so a
+-- forgotten flag is a missed hint, never a wrong first-run card).
+local events = require('itemui.core.events')
+events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = false })
 tick()
-check('rule edit fires the last hint', hints.getActive() and hints.getActive().id == 'rule_edit')
+check('a product-seeded rule change does not arm the hint', hints.getActive() == nil)
+events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+tick()
+check('an emit with no payload does not arm the hint', hints.getActive() == nil)
+events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
+tick()
+check('a user rule edit fires the last hint', hints.getActive() and hints.getActive().id == 'rule_edit')
 hints.dismissActive()
 check('all five INI flags are now TRUE', (function()
     for _, id in ipairs({ 'merchant', 'loot_run', 'mythical', 'full_bag', 'rule_edit' }) do
@@ -211,6 +221,147 @@ check('the two lane hints point at the lane, not the retired loot slot',
         end
         return true
     end)())
+
+-- 13. Anchor suppression: a hint whose cell is off is SUPPRESSED, not relocated -- and
+-- not consumed. It waits, and fires when the cell comes back (ONBOARDING §11, finding 10).
+hints._reset()
+ini = {}
+snap.merchantOpen, snap.lootRunning, snap.lootState, snap.bagFree, snap.bagItems =
+    false, false, 'idle', 10, 50
+tick()   -- baseline with everything visible-unknown (nil = fail open)
+
+check('noteVisibleCells ignores a non-table', (function()
+    hints.noteVisibleCells("sell")
+    return hints._visibleCells() == nil
+end)())
+
+hints.noteVisibleCells({ status = true, lane = true, buttons = true })  -- sell + bags OFF
+snap.merchantOpen = true
+tick()
+check('suppressed: merchant edge with the sell cell off fires nothing', hints.getActive() == nil)
+check('suppressed hint is NOT consumed', ini[iniKey('coopui_onboarding.ini', 'Hints', 'hint_merchant')] ~= 'TRUE')
+
+-- The cell comes back while the merchant is STILL open: the frozen prev means the edge is
+-- still pending, so the card fires now rather than waiting for a close-and-reopen.
+hints.noteVisibleCells({ status = true, lane = true, buttons = true, sell = true, bags = true })
+tick()
+check('the hint waited and fires when the cell returns', hints.getActive() and hints.getActive().id == 'merchant')
+hints.dismissActive()
+
+-- full_bag's edge survives being suppressed: bags fill while the bags cell is off, and the
+-- frozen prev.bagFree turns the suppressed occurrence into a still-pending edge.
+hints.noteVisibleCells({ status = true, lane = true, buttons = true, sell = true })  -- bags OFF
+snap.bagFree = 0; snap.bagItems = 120
+tick()
+check('full bag with the bags cell off fires nothing', hints.getActive() == nil)
+hints.noteVisibleCells({ status = true, lane = true, buttons = true, sell = true, bags = true })
+tick()
+check('full bag fires on cell return with the bags still full', hints.getActive() and hints.getActive().id == 'full_bag')
+hints.dismissActive()
+
+-- Suppression must not block the hint BEHIND it: both edges land on the same tick from a
+-- fresh prev, the suppressed merchant loses, the visible loot_run wins.
+hints._reset()
+ini = {}
+snap.merchantOpen, snap.lootRunning, snap.bagFree, snap.bagItems = false, false, 10, 50
+tick()   -- fresh baseline
+hints.noteVisibleCells({ status = true, lane = true, buttons = true })  -- sell off
+snap.merchantOpen, snap.lootRunning = true, true
+tick()
+check('a suppressed hint does not block the one behind it',
+    hints.getActive() and hints.getActive().id == 'loot_run',
+    hints.getActive() and hints.getActive().id)
+hints.dismissActive()
+
+-- 14. Route-shaped emit guard (Q4): every file that WRITES a sell-rule INI must also talk
+-- to the bus, and every emit must carry provenance. File-granularity on purpose -- it
+-- proves a mutation file emits, not that the right function does, and that honest scope
+-- still catches the class this pass fixed three times (a route that writes and never
+-- emits: the wizard's sell flags, the wizard's epic step, import/restore).
+local function luaFiles()
+    local out = {}
+    local p = io.popen('dir /b /s "' .. repo:gsub('/', '\\') .. '\\lua\\*.lua" 2>nul')
+    if p then
+        for line in p:lines() do
+            if not line:find('Patcher_FreshInstall', 1, true) then out[#out + 1] = line end
+        end
+        p:close()
+    end
+    return out
+end
+local function codeLines(src)
+    -- Strip -- line comments and --[[ ]] blocks so prose naming the event cannot gate.
+    src = src:gsub('%-%-%[%[.-%]%]', '')
+    local out = {}
+    for line in (src .. '\n'):gmatch('([^\n]*)\n') do
+        out[#out + 1] = line:gsub('%-%-.*$', '')
+    end
+    return out
+end
+local SELL_INIS = { 'sell_keep_exact.ini', 'sell_always_sell_exact.ini', 'sell_keep_contains.ini',
+    'sell_protected_types.ini', 'sell_augment_always_sell_exact.ini', 'sell_flags.ini',
+    'epic_classes.ini' }
+local badFiles, badEmits = {}, {}
+for _, f in ipairs(luaFiles()) do
+    local fh = io.open(f, 'rb')
+    if fh then
+        local src = fh:read('*a'); fh:close()
+        local lines = codeLines(src)
+        local writes, emits = false, false
+        for _, line in ipairs(lines) do
+            -- A CALL, not a reference: config_filters_targets.lua names the writers and
+            -- the INI files in a definitions table (`writeListValue,` -- no paren) that
+            -- config_filters_actions consumes, and actions is where the emit lives.
+            if line:find('writeINIValue%s*%(') or line:find('writeListValue%s*%(')
+                or line:find('writeSharedINIValue%s*%(') then
+                for _, ininame in ipairs(SELL_INIS) do
+                    if line:find(ininame, 1, true) then writes = true end
+                end
+            end
+            if line:find('events.emit', 1, true) and line:find('CONFIG_SELL_CHANGED', 1, true) then
+                emits = true
+                if not line:find('fromUser', 1, true) then
+                    badEmits[#badEmits + 1] = f:match('[^\\/]+$') .. ': ' .. line:gsub('^%s+', ''):sub(1, 60)
+                end
+            end
+        end
+        -- backup_service writes the files but its UI (config_advanced) owns the emit; the
+        -- pair is asserted separately below.
+        if writes and not emits and not f:find('backup_service', 1, true) then
+            badFiles[#badFiles + 1] = f:match('[^\\/]+$')
+        end
+    end
+end
+check('every file that writes a sell-rule INI also emits CONFIG_SELL_CHANGED', #badFiles == 0,
+    table.concat(badFiles, ', '))
+check('every CONFIG_SELL_CHANGED emit carries fromUser', #badEmits == 0,
+    table.concat(badEmits, ' | '))
+check('config_advanced (the import/restore UI) emits for backup_service', (function()
+    local fh = io.open(repo .. '/lua/itemui/views/config_advanced.lua', 'rb')
+    if not fh then return false end
+    local src = fh:read('*a'); fh:close()
+    return src:find('CONFIG_SELL_CHANGED', 1, true) ~= nil
+end)())
+
+-- Lua arity rules make a stale one-arg loadDefaultProtectList call compile and run with
+-- fromUser=nil -> false -> the hint silently never arms from the Settings button. Both
+-- callers must state their provenance.
+local oneArg = {}
+for _, f in ipairs(luaFiles()) do
+    local fh = io.open(f, 'rb')
+    if fh then
+        local src = fh:read('*a'); fh:close()
+        for _, line in ipairs(codeLines(src)) do
+            local call = line:match('loadDefaultProtectList%s*%(([^%)]*)%)')
+            -- Skip the definition and the facade re-export; a CALL has ctx as its first arg.
+            if call and call:find('ctx', 1, true) and not call:find(',') then
+                oneArg[#oneArg + 1] = f:match('[^\\/]+$') .. ': (' .. call .. ')'
+            end
+        end
+    end
+end
+check('every loadDefaultProtectList call states its provenance', #oneArg == 0,
+    table.concat(oneArg, ' | '))
 
 print(string.format('\n%d passed, %d failed', pass, fail))
 os.exit(fail == 0 and 0 or 1)

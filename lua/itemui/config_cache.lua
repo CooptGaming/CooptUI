@@ -100,7 +100,7 @@ local function addToKeepList(itemName)
     local newValue = current == "" and itemName or (current .. "/" .. itemName)
     config.writeListValue("sell_keep_exact.ini", "Items", "exact", newValue)
     if sellLists and sellLists.keepExact then sellLists.keepExact = config.parseList(newValue) end
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     opts.setStatusMessage("Added to Keep list")
     return true
 end
@@ -124,7 +124,7 @@ local function addToJunkList(itemName)
     local newValue = current == "" and itemName or (current .. "/" .. itemName)
     config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", newValue)
     if sellLists and sellLists.junkExact then sellLists.junkExact = config.parseList(newValue) end
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     opts.setStatusMessage("Added to Always sell list")
     return true
 end
@@ -143,7 +143,7 @@ local function removeFromKeepList(itemName)
     config.writeListValue("sell_keep_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
     local sellLists = cache.sell.lists
     if sellLists and sellLists.keepExact then sellLists.keepExact = items end
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     opts.setStatusMessage("Removed from Keep list")
     return true
 end
@@ -162,7 +162,7 @@ local function removeFromJunkList(itemName)
     config.writeListValue("sell_always_sell_exact.ini", "Items", "exact", #items == 0 and "" or table.concat(items, "/"))
     local sellLists = cache.sell.lists
     if sellLists and sellLists.junkExact then sellLists.junkExact = items end
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     opts.setStatusMessage("Removed from Always sell list")
     return true
 end
@@ -265,7 +265,7 @@ local function createAugmentListAPI()
         list[#list + 1] = itemName
         config.writeListValue("sell_augment_always_sell_exact.ini", "Items", "exact", config.joinList(list))
         if sellLists and sellLists.augmentAlwaysSellExact then sellLists.augmentAlwaysSellExact = list end
-        events.emit(events.EVENTS.CONFIG_SELL_CHANGED); opts.setStatusMessage("Added to Augment Always sell list")
+        events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true }); opts.setStatusMessage("Added to Augment Always sell list")
         return true
     end
     function api.removeFromAugmentAlwaysSellList(itemName)
@@ -277,7 +277,7 @@ local function createAugmentListAPI()
         if not found then return false end
         config.writeListValue("sell_augment_always_sell_exact.ini", "Items", "exact", config.joinList(newList))
         if sellLists and sellLists.augmentAlwaysSellExact then sellLists.augmentAlwaysSellExact = newList end
-        events.emit(events.EVENTS.CONFIG_SELL_CHANGED); opts.setStatusMessage("Removed from Augment Always sell list")
+        events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true }); opts.setStatusMessage("Removed from Augment Always sell list")
         return true
     end
     function api.isInAugmentNeverLootList(itemName)

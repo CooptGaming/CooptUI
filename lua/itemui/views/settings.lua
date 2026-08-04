@@ -59,7 +59,9 @@ local function renderConfigWindow(ctx)
             local keepContains = ctx.configSellLists and ctx.configSellLists.keepContains
             if keepContains then
                 if #keepContains == 0 then
-                    ConfigFilters.loadDefaultProtectList(ctx)
+                    -- fromUser = false: the auto-seed is the product supplying defaults,
+                    -- not a person editing rules -- it must not arm the rule_edit hint.
+                    ConfigFilters.loadDefaultProtectList(ctx, false)
                     ctx.setStatusMessage("Welcome! Default protection loaded.")
                 end
                 if config.writeINIValue then

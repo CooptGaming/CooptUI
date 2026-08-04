@@ -237,7 +237,7 @@ function ConfigGeneral.render(ctx)
             -- Settings contract leg 3: without the events, attached willSell/
             -- sellReason on visible rows keeps advertising the OLD ruling until
             -- an unrelated rescan.
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
             events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
             scheduleLayoutSave()
         end
@@ -304,7 +304,7 @@ function ConfigGeneral.render(ctx)
                     end
                     invalidateSellConfigCache()
                     invalidateLootConfigCache()
-                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
                     events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
@@ -316,7 +316,7 @@ function ConfigGeneral.render(ctx)
                     end
                     invalidateSellConfigCache()
                     invalidateLootConfigCache()
-                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
                     events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                 end
                 if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all (no epic items when none selected)"); ImGui.EndTooltip() end
@@ -328,7 +328,7 @@ function ConfigGeneral.render(ctx)
                         config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE")
                         invalidateSellConfigCache()
                         invalidateLootConfigCache()
-                        events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+                        events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
                         events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
                     end
                 end
@@ -869,7 +869,7 @@ function ConfigGeneral.render(ctx)
         ImGui.Spacing()
         local function sellFlag(name, key, tooltip)
             local v = ImGui.Checkbox(name, configSellFlags[key])
-            if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache(); events.emit(events.EVENTS.CONFIG_SELL_CHANGED) end
+            if v ~= configSellFlags[key] then configSellFlags[key] = v; config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE"); invalidateSellConfigCache(); events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true }) end
             if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
         end
         sellFlag("Enable No-Drop protection", "protectNoDrop", "Never sell items with the No-Drop flag")
@@ -888,7 +888,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.minSell = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValue", tostring(configSellValues.minSell))
             invalidateSellConfigCache()
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minSell))
@@ -899,7 +899,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.minStack = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "minSellValueStack", tostring(configSellValues.minStack))
             invalidateSellConfigCache()
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.minStack) .. "/unit")
@@ -910,7 +910,7 @@ function ConfigGeneral.render(ctx)
             configSellValues.maxKeep = math.max(0, math.floor(n))
             config.writeINIValue("sell_value.ini", "Settings", "maxKeepValue", tostring(configSellValues.maxKeep))
             invalidateSellConfigCache()
-            events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
         end
         ImGui.SameLine()
         ImGui.TextColored(theme.ToVec4(theme.Colors.Muted), formatCurrency(configSellValues.maxKeep))

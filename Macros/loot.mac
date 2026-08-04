@@ -185,6 +185,16 @@ Sub Main
 /declare runLootedTributes2 string outer
 /declare runLootedTributes3 string outer
 /declare runSkippedCount int outer 0
+| Floor-attributable skips, counted where the decision is made ("No criteria met" is the
+| sole else of the shouldLoot test, and an item above the applicable floor always loots --
+| so every item that lands there WAS below the floor; with a floor of 0 the branch is
+| unreachable). TWO counters because there are two floors (minLootValue /
+| minLootValueStack) and a card that prints one number while the skip was judged against
+| the other would teach a false fact. NOTE these count UNIQUE NAMES, not occurrences:
+| repeat skips of a name short-circuit at the session cache and never reach the counting
+| site, so the card's copy says "kinds of item", never a partition of runSkippedCount.
+/declare runSkippedFloorCount int outer 0
+/declare runSkippedFloorStackCount int outer 0
 /declare runSkippedList string outer
 /declare runSkippedList2 string outer
 /declare runSkippedList3 string outer
@@ -298,6 +308,8 @@ Sub Main
 /varset runLootedTributes2
 /varset runLootedTributes3
 /varset runSkippedCount 0
+/varset runSkippedFloorCount 0
+/varset runSkippedFloorStackCount 0
 /varset runSkippedList
 /varset runSkippedList2
 /varset runSkippedList3
@@ -867,11 +879,19 @@ sub EvaluateItem(int slot)
         }
         /call LootItemWithSound ${slot}
     } else {
+        | Floor attribution: this else is reachable ONLY for an item below the applicable
+        | value floor (the value gate is the one criterion that fires for everything above
+        | it). isStackable here is the same variable the value test branched on, so the
+        | counter and the floor that judged the item agree by construction. Counted BEFORE
+        | AddToSkippedSessionCache: repeats of this name short-circuit at the cache next
+        | time, so these are unique names.
+        /if (${isStackable}) /varcalc runSkippedFloorStackCount ${runSkippedFloorStackCount}+1
+        /if (!${isStackable}) /varcalc runSkippedFloorCount ${runSkippedFloorCount}+1
         /call LogSkippedItem "${lootName}" "No criteria met"
         /call AddToSkippedSessionCache
         /if (${lootVerbose}) /echo Skipping (no criteria met): ${lootName}
     }
-    
+
 /return
 
 | ================================================= |
@@ -1254,7 +1274,9 @@ sub FinishLooting
     /ini "${configPath}/loot_progress.ini" Progress heartbeat ${Time.MillisecondsSinceEpoch}
     
     | IPC: send loot_end FIRST so Lua UI gets the finish signal immediately (before any INI writes)
-    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}"
+    | Fields 7-8 (floor-attributable skip counts) are APPENDED, never reordered: the bridge
+    | indexes fields 1-6 positionally and an older Lua reading a longer payload still works.
+    /if (${pluginLoaded}) /squelch /cooptui ipc send loot_end "${runLootedCount}|${runSkippedCount}|${runTotalValue}|${runTributeValue}|${runBestItemName}|${runBestItemValue}|${runSkippedFloorCount}|${runSkippedFloorStackCount}"
 
     | Write loot_session.ini and loot_skipped.ini ONLY when plugin is NOT loaded (fallback path).
     | When plugin is loaded, IPC already streamed every loot_item and loot_skip in real-time —
@@ -1294,6 +1316,10 @@ sub FinishLooting
             /ini "${configPath}/loot_session.ini" Summary bestItemName "${runBestItemName}"
             /ini "${configPath}/loot_session.ini" Summary bestItemValue ${runBestItemValue}
         }
+        | A run that skipped NOTHING must still say so: the whole block below is guarded on
+        | runSkippedCount > 0, so before this write a clean run left the PREVIOUS run's
+        | count on disk and the bar's "N skipped" read it back as this run's number.
+        /if (${runSkippedCount} == 0) /ini "${configPath}/loot_skipped.ini" Skipped count 0
         | Write loot_skipped.ini for CoOpt UI Skip History tab (from chunked lists; value format name^reason). IPC Protocol Version=1.
         /if (${runSkippedCount} > 0) {
             /declare skipCount1 int local 0

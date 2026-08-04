@@ -172,6 +172,32 @@ do
     check('classic: renders without the band, balanced', r2.ok and stub.balanced(r2), r2.err)
 end
 
+-- ---------------------------------------------------------------- 6. the sidecar is not
+-- promoted from inside CoOpt UI (ONBOARDING.md Q2 ruling). The standalone tracker exists
+-- for one audience -- people running it with itemui DOWN -- and that audience never sees a
+-- CoOpt surface, so any in-product button that launches it is offering the lesser window
+-- to someone who already has the real one. This locks the three sites that used to.
+do
+    local function src(rel)
+        local f = io.open(repo .. '/' .. rel, 'r')
+        if not f then return nil end
+        local s = f:read('*a')
+        f:close()
+        return s
+    end
+    for _, rel in ipairs({
+        'lua/itemui/components/character_stats.lua',
+        'lua/itemui/views/command_center.lua',
+        'lua/itemui/services/native_bridge.lua',
+    }) do
+        local s = src(rel)
+        check('no sidecar promotion: ' .. rel .. ' has no /lua run scripttracker',
+            s ~= nil and not s:find('lua run scripttracker', 1, true), rel)
+        check('no sidecar promotion: ' .. rel .. ' has no /st show',
+            s ~= nil and not s:find('/st show', 1, true), rel)
+    end
+end
+
 -- ---------------------------------------------------------------- report
 print(string.format('\n%d passed, %d failed', pass, fail))
 if fail > 0 then os.exit(1) end

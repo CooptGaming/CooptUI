@@ -491,6 +491,8 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         uiState.lootRunTotalCorpses = 0
         uiState.lootRunCurrentCorpse = ""
         uiState.lootRunSkipped = 0
+        uiState.lootRunFloorSkipped = 0
+        uiState.lootRunFloorSkippedStack = 0
     end
 
     local realTime = (uiState.enableRealTimeLoot == true)
@@ -621,12 +623,22 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
         local parts = {}
         for p in (last .. "|"):gmatch("([^|]*)|") do parts[#parts + 1] = p end
         if #parts >= 6 then
+            uiState.lootRunSkipped = tonumber(parts[2]) or uiState.lootRunSkipped
             uiState.lootRunTotalValue = tonumber(parts[3]) or uiState.lootRunTotalValue
             uiState.lootRunTributeValue = tonumber(parts[4]) or uiState.lootRunTributeValue
             if parts[5] ~= "" then uiState.lootRunBestItemName = item_name.normalizeItemName(parts[5]) end
             uiState.lootRunBestItemValue = tonumber(parts[6]) or uiState.lootRunBestItemValue
         end
+        -- Fields 7-8 in their own guard: an older loot.mac sends six, and a Lua that
+        -- hard-required eight would silently stop updating the totals it already handles.
+        if #parts >= 8 then
+            uiState.lootRunFloorSkipped = tonumber(parts[7]) or 0
+            uiState.lootRunFloorSkippedStack = tonumber(parts[8]) or 0
+        end
         uiState.lootRunFinished = true
+        -- The floor lesson wants to land while "N skipped - see chat" is still on the lane
+        -- (6s), not up to a 30s health tick later.
+        pcall(function() require('itemui.services.dock_state').probeHealthSoon() end)
     end
 end
 

@@ -222,12 +222,6 @@ function M.drawEntries(entries, ctx, s, queue)
                 if lit then ImGui.PopStyleColor() end
             end
 
-        elseif e.kind == "scripttracker" then
-            drew = true
-            if ImGui.Selectable(e.label .. "##dockmenu_st") then
-                queue(ctx, { kind = "scripttracker" })
-            end
-
         elseif e.kind == "native" then
             drew = true
             -- These are game windows opened through MQ, not CoOpt windows. The bar is the one

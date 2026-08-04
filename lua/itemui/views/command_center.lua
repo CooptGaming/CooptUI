@@ -24,19 +24,13 @@ local LAUNCHERS = {
     { label = "AA",          id = "aa" },
     { label = "Effects",     id = "effects" },
     { label = "Clickies",    id = "favorites" },
+    -- The registry Scripts companion. This used to be a bespoke button that probed and
+    -- launched the standalone sidecar -- the lesser window, kept only for running without
+    -- itemui, an audience that by definition is not looking at this panel. As a LAUNCHERS
+    -- row it opens the real window and lights while it is open, like every other entry.
+    { label = "Scripts",     id = "scripttracker" },
     { label = "Settings",    id = "config" },
 }
-
--- MQ2Lua's Lua TLO isn't guaranteed on every build; nil = unknown.
-local function scriptTrackerRunning()
-    local ok, status = pcall(function()
-        local l = mq.TLO and mq.TLO.Lua
-        local s = l and l.Script and l.Script('scripttracker')
-        return s and s.Status and s.Status()
-    end)
-    if ok and type(status) == 'string' then return status:upper() == 'RUNNING' end
-    return nil
-end
 
 local function statusDot(theme, okState, labelOn, labelOff)
     if okState then theme.TextSuccess(labelOn) else theme.TextMuted(labelOff) end
@@ -119,19 +113,6 @@ function CommandCenterView.render(ctx)
     end
     theme.PopButtonColors()
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(merchantOpen and "Sell everything marked Sell to this merchant." or "Open a merchant first."); ImGui.EndTooltip() end
-    ImGui.SameLine()
-    if ImGui.Button("ScriptTracker##CmdCenter", ImVec2(110, 0)) then
-        -- Status probe only on click, not per frame (pcall'd TLO chain).
-        local stRunning = scriptTrackerRunning()
-        if stRunning == false then
-            mq.cmd('/lua run scripttracker')
-        else
-            -- running or unknown: show it (harmless no-op chat error when not loaded)
-            mq.cmd('/st show')
-            if stRunning == nil then mq.cmd('/lua run scripttracker') end
-        end
-    end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open the ScriptTracker window (starts it if needed)."); ImGui.EndTooltip() end
     ImGui.Separator()
 
     -- Windows

@@ -29,16 +29,14 @@ local FILTER_PLACEHOLDERS = {"e.g. Rusty Dagger", "e.g. Epic", "e.g. Armor, Weap
 local filterListGeneration = 0
 local entryCache = { sell = nil, valuable = nil, loot = nil }
 
-local function bumpFilterListGeneration(silent)
+local function bumpFilterListGeneration()
+    -- This used to be the rule_edit hint's arming point, on the theory that every user
+    -- rule edit lands in this file. It does not: right-click Keep/Junk -- the first edit a
+    -- newcomer ever makes -- goes applySellListChange -> config_cache and never enters
+    -- here, so the hint mostly never fired. Provenance now rides the CONFIG_SELL_CHANGED
+    -- payload ({ fromUser = ... } on the emit; hints.lua subscribes) and this counter went
+    -- back to being exactly what its name says.
     filterListGeneration = filterListGeneration + 1
-    -- Every USER rule add/remove lands here, which makes it the "first rule edit" signal
-    -- the hint system listens for (mockup 14c). Seeding paths (the default-protect button,
-    -- the first-run care profiles, the Settings defaults seed) pass silent=true — a hint
-    -- that says "rules explain themselves" must not fire because the PRODUCT edited the
-    -- rules. pcall: hints must never break rule editing.
-    if silent then return end
-    local ok, hints = pcall(require, 'itemui.services.hints')
-    if ok and hints and hints.noteRuleEdit then hints.noteRuleEdit() end
 end
 
 local function countDefEntries(def)
@@ -85,11 +83,15 @@ local function addTypeEntries(ctx, types)
     return added
 end
 
-function M.loadDefaultProtectList(ctx)
+--- fromUser distinguishes the Settings BUTTON (a person deliberately bulk-editing their
+--- rules -- exactly the moment the rule_edit hint teaches) from the first-run auto-seed
+--- (settings.lua), which is the product supplying defaults before the user has touched
+--- anything. Same function, two provenances -- the flag lives on the CALL, per Q4.
+function M.loadDefaultProtectList(ctx, fromUser)
     local added = addContainsEntries(ctx, DEFAULT_PROTECT_KEYWORDS) + addTypeEntries(ctx, DEFAULT_PROTECT_TYPES)
     ctx.invalidateSellConfigCache()
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
-    bumpFilterListGeneration(true)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = fromUser and true or false })
+    bumpFilterListGeneration()
     ctx.setStatusMessage(added > 0 and string.format("Added %d default protect entries", added) or "Default protect list already loaded")
 end
 
@@ -114,7 +116,7 @@ function M.protectType(ctx, typeName)
     ctx.invalidateSellConfigCache()
     -- Row statuses refresh off this event (perfCache.sellConfigPendingRefresh); without it
     -- the row still says "Will sell" after the click until some other edit fires it.
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true })
     bumpFilterListGeneration()
     if ctx.setStatusMessage then
         ctx.setStatusMessage(added > 0 and ("Protected type: " .. typeName)
@@ -139,10 +141,11 @@ function M.applyProtectProfile(ctx, level)
         added = added + addTypeEntries(ctx, CAUTIOUS_EXTRA_TYPES)
     end
     ctx.invalidateSellConfigCache()
-    events.emit(events.EVENTS.CONFIG_SELL_CHANGED)
-    -- silent: profile application is the product seeding rules, not the user editing them —
-    -- it must not pre-arm the "rules explain themselves" hint on the first bars tick.
-    bumpFilterListGeneration(true)
+    -- fromUser = false: profile application is the product seeding rules, not the user
+    -- editing them — it must not pre-arm the "rules explain themselves" hint on the first
+    -- bars tick.
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = false })
+    bumpFilterListGeneration()
     if ctx.setStatusMessage then
         ctx.setStatusMessage(string.format("Sell protection set to %s (%d entries added).", level, added))
     end
@@ -388,7 +391,7 @@ function M.renderFiltersSection(ctx, forcedSubTab, showTabs)
             function(tid, tk, val) return actions.performSellFilterAdd(ctx, tid, tk, val) end,
             function(tid, tk, val) return actions.removeFromSellFilterList(ctx, tid, tk, val) end)
 
-        if ImGui.Button("Load default protect list##Sell", ImVec2(180, 0)) then M.loadDefaultProtectList(ctx) end
+        if ImGui.Button("Load default protect list##Sell", ImVec2(180, 0)) then M.loadDefaultProtectList(ctx, true) end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Add default keywords (Legendary, Mythical, Script, etc.) and types (Food, Gem, Augment, Quest)"); ImGui.EndTooltip() end
 
         ImGui.Spacing()

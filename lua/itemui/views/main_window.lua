@@ -53,13 +53,24 @@ local function renderSetupStep0Content(refs)
             if configEpicClasses[cls] == true then nSelected = nSelected + 1 end
         end
         ImGui.SameLine()
+        -- Each write invalidates AND emits, like the Settings twin of this editor
+        -- (config_general's epic block): epic_classes.ini is a real sell rule (rules.lua
+        -- reads it to protect epic quest items), and an edit that does not emit leaves
+        -- every visible row advertising the OLD ruling until an unrelated rescan.
+        -- fromUser = false: this is the wizard -- the product's own teaching surface --
+        -- and the rule_edit hint must not fire on top of it.
+        local function epicChanged()
+            invalidateSellConfigCache()
+            invalidateLootConfigCache()
+            events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = false })
+            events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+        end
         if ImGui.SmallButton("Select all##setup_epic") then
             for _, cls in ipairs(EPIC_CLASSES) do
                 configEpicClasses[cls] = true
                 if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "TRUE") end
             end
-            invalidateSellConfigCache()
-            invalidateLootConfigCache()
+            epicChanged()
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Check all classes"); ImGui.EndTooltip() end
         ImGui.SameLine()
@@ -68,8 +79,7 @@ local function renderSetupStep0Content(refs)
                 configEpicClasses[cls] = false
                 if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, "FALSE") end
             end
-            invalidateSellConfigCache()
-            invalidateLootConfigCache()
+            epicChanged()
         end
         if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Uncheck all"); ImGui.EndTooltip() end
         ImGui.Spacing()
@@ -78,8 +88,7 @@ local function renderSetupStep0Content(refs)
             if v ~= (configEpicClasses[cls] == true) then
                 configEpicClasses[cls] = v
                 if config and config.writeSharedINIValue then config.writeSharedINIValue("epic_classes.ini", "Classes", cls, v and "TRUE" or "FALSE") end
-                invalidateSellConfigCache()
-                invalidateLootConfigCache()
+                epicChanged()
             end
         end
     end
@@ -661,6 +670,13 @@ function M.render(refs)
         ImGui.BeginChild("MainContent", ImVec2(0, -C.FOOTER_HEIGHT), true)
         local showWelcomePanel = not uiState.setupMode and refs.getOnboardingComplete and not refs.getOnboardingComplete() and not uiState.welcomeSkippedThisSession
         if showWelcomePanel then
+            -- Freshness stamp for dock_state's lesson gate: the welcome panel shows when
+            -- setupMode is FALSE, so a setupMode test alone suppresses lessons during the
+            -- wizard and not during welcome -- the exact frame a fresh install would
+            -- otherwise stack the hublist card on. A timestamp rather than a boolean
+            -- because nothing reliably runs to clear a flag once this window stops
+            -- drawing; staleness clears itself.
+            uiState.welcomePanelVisibleAt = mq.gettime()
             tutorial.renderWelcomeScreen(refs)
         elseif uiState.setupMode and uiState.setupStep == 1 then
             tutorial.renderDescriptionOverlay(1, refs)
@@ -745,6 +761,12 @@ function M.render(refs)
                         configSellFlags[key] = v
                         if config and config.writeINIValue then config.writeINIValue("sell_flags.ini", "Settings", key, v and "TRUE" or "FALSE") end
                         invalidateSellConfigCache()
+                        -- The loot half of this wizard notifies (notifyLootConfigChanged in
+                        -- step 11 below); the sell half never did, so a protection toggled
+                        -- here left every visible row advertising the OLD ruling until an
+                        -- unrelated rescan. fromUser = false: the wizard is the product
+                        -- teaching -- the rule_edit card must not fire on top of it.
+                        events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = false })
                     end
                     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text(tooltip); ImGui.EndTooltip() end
                 end

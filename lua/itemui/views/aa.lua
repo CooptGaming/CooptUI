@@ -410,11 +410,13 @@ function AAView.render(ctx)
     local sel = selectedAAName
     local canTrainSel = false
     local selCost = 0
+    local selTrainable = false
     if sel then
         for _, aa in ipairs(sorted) do
             if aa.name == sel then
                 canTrainSel = aa.canTrain and (aaPoints >= (aa.cost or 0))
                 selCost = aa.cost or 0
+                selTrainable = aa.canTrain and true or false
                 break
             end
         end
@@ -432,6 +434,22 @@ function AAView.render(ctx)
         end
     end
     if ctx.theme.PopButtonColors then ctx.theme.PopButtonColors() end
+    -- The grey says WHY. It greys for two different causes -- nothing selected, or the
+    -- selection cannot be bought -- and a low-AA character staring at a grey Train over a
+    -- table of abilities reads "broken", not "waiting for a selection". PushKeepButton is a
+    -- colour push, not BeginDisabled, so the hover genuinely fires here (the BeginDisabled
+    -- sites need AllowWhenDisabled for that; this one does not).
+    if not (canTrainSel and sel) and ImGui.IsItemHovered() then
+        ImGui.BeginTooltip()
+        if not sel then
+            ImGui.Text("Select an ability to train.")
+        elseif selTrainable and aaPoints < selCost then
+            ImGui.Text(string.format("Costs %d points - you have %d.", selCost, aaPoints))
+        else
+            ImGui.Text("Already at max rank, or prerequisites not met.")
+        end
+        ImGui.EndTooltip()
+    end
     ImGui.SameLine()
     if ImGui.Button("Hotkey", ImVec2(80, 0)) and sel then
         -- Use /aa act for activatable AAs (macro/keybind); no programmatic hotkey creation in MQ

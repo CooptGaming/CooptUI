@@ -141,8 +141,12 @@ do
         uiState.pendingScriptConsume == nil, tostring(uiState.pendingScriptConsume))
     check('does not claim to have added anything',
         lastStatus() and lastStatus():find('added 0 of 18', 1, true) ~= nil, lastStatus())
-    check('names the likely cause rather than just failing',
-        lastStatus() and lastStatus():find('open your bags', 1, true) ~= nil, lastStatus())
+    -- The message used to prescribe "open your bags" -- right for /itemnotify, wrong once
+    -- /useitem made the inventory path bag-independent (128a2eb). The remaining causes
+    -- (TLO gave no index mid-zone, bank without the banker, confirm line worded
+    -- differently) do not share one fix, so it points at EQ's chat, which names the real one.
+    check('points at the chat for the real cause rather than prescribing one',
+        lastStatus() and lastStatus():find('check chat', 1, true) ~= nil, lastStatus())
     check('the cache is never touched without a confirmation', #decrements == 0, #decrements)
     check('and it stopped well short of the plan', #issued < 18, #issued)
 end

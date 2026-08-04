@@ -302,6 +302,8 @@ local function phase5_lootMacro(now)
         uiState.lootRunBestItemName = ""
         uiState.lootRunBestItemValue = 0
         uiState.lootRunSkipped = 0
+        uiState.lootRunFloorSkipped = 0
+        uiState.lootRunFloorSkippedStack = 0
         d.recordCompanionWindowOpened("loot")
     end
     if lootMacState.lastRunning and not lootMacRunning then
@@ -327,6 +329,9 @@ local function phase5_lootMacro(now)
         -- longer gates the flag, and the state built to "stay alert until dealt with" no
         -- longer depends on how tidily the macro exited.
         uiState.lootRunFinished = true
+        -- Same reason as the IPC finish edge in macro_bridge: the floor lesson should land
+        -- while the lane's "N skipped" is still up, not a health tick later.
+        pcall(function() require('itemui.services.dock_state').probeHealthSoon() end)
         d.scanState.inventoryBagsDirty = true
         lootLoopRefs.pendingSession = true
         lootLoopRefs.pendingSessionAt = now
@@ -437,11 +442,12 @@ local function phase5_lootMacro(now)
         local finish = lootLoopRefs.pendingSessionFinish
         lootLoopRefs.pendingSessionFinish = nil
         local session = finish.session
-        -- This run's skip count, read OUTSIDE the two gates below. lootUIOpen is a
-        -- window-visibility flag and enableSkipHistory (default 0) governs the history
-        -- BUFFER, not the count -- but the dock's "N skipped" needs the number regardless of
-        -- either, and it is one cheap INI read at run finish.
-        do
+        -- This run's skip count, read OUTSIDE the two gates below (lootUIOpen is a
+        -- window-visibility flag and enableSkipHistory governs the history BUFFER, not the
+        -- count) -- but ONLY on the pluginless path. With IPC live, loot_end already
+        -- delivered this number, loot.mac deliberately does not write the INI, and this
+        -- read would clobber the fresh value with a PREVIOUS run's file.
+        if not (macroBridge and macroBridge.isIPCAvailable and macroBridge.isIPCAvailable()) then
             local sp = config.getLootConfigFile and config.getLootConfigFile("loot_skipped.ini")
             if sp and sp ~= "" then
                 uiState.lootRunSkipped =
@@ -651,13 +657,14 @@ local function handleScriptConsume(now)
             -- Stop early rather than grinding the whole plan out against something that is
             -- not working. Two in a row is enough: one can be a dropped line, two is a
             -- pattern, and the alternative is the full plan at one timeout each while
-            -- nothing happens. The message names the likeliest cause because we know it --
-            -- /itemnotify addresses a UI slot, so it needs the container open, and the guard
-            -- above cannot see that (it reads the stack through the TLO, which answers fine
-            -- either way).
+            -- nothing happens. The message no longer prescribes opening the bags: /useitem
+            -- made the inventory path bag-independent, so the remaining causes -- the TLO
+            -- giving no index mid-zone (which falls back to /itemnotify and DOES need the
+            -- bags), a bank turn-in without the banker, or the confirm line worded
+            -- differently -- do not share one fix, and EQ's chat names the real one.
             if (ps.unconfirmedRun or 0) >= 2 then
                 finishConsume(ps.source, verified, string.format(
-                    "Stopped: added %d of %d. No confirmation for the last %d - open your bags and try again.",
+                    "Stopped: added %d of %d. The last %d got no confirmation - check chat for the reason and try again.",
                     verified, ps.totalToConsume, ps.unconfirmedRun))
             elseif ps.consumedSoFar >= ps.totalToConsume then
                 -- Report what was CONFIRMED, and say so plainly when it is short.
@@ -1480,8 +1487,9 @@ local function phase0b_dockActionQueue(now)
     elseif a.kind == "window" and a.id then
         -- Two callers with different needs. The bar's launcher menus TOGGLE (they light an
         -- open entry and say "click again to close", so open-only would make a lit entry do
-        -- nothing at all). The status bar's buttons -- Review, Open Buffs window, Rules --
-        -- must be idempotent OPENS: clicking "Rules" twice should not close Settings.
+        -- nothing at all). The bar's action buttons -- Open Bags on the bags-full strip,
+        -- Open rules on the no-rules strip, Open Scripts in the session panel -- must be
+        -- idempotent OPENS: clicking one twice should not close the window it just opened.
         local registry = require('itemui.core.registry')
         if registry.isRegistered(a.id) then
             local open = registry.isOpen(a.id)
@@ -1539,19 +1547,6 @@ local function phase0b_dockActionQueue(now)
 
     elseif a.kind == "native" and a.window then
         pcall(function() mq.TLO.Window(a.window).DoOpen() end)
-
-    elseif a.kind == "scripttracker" then
-        -- Phase 15: the Scripts companion is a registry module now
-        -- (views/script_tracker.lua), so this action is just a window toggle. The old
-        -- /lua run sidecar probe lives on only in the classic Command Center's button.
-        local registry = require('itemui.core.registry')
-        if registry.isRegistered("scripttracker") then
-            local open = registry.isOpen("scripttracker")
-            registry.toggleWindow("scripttracker")
-            if not open and d.recordCompanionWindowOpened then
-                d.recordCompanionWindowOpened("scripttracker")
-            end
-        end
 
     elseif a.kind == "pair" and a.id == "idau" then
         -- The Item Display + Aug Utility pair opens and closes as a UNIT (23c) — the bar

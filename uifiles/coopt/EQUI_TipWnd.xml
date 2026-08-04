@@ -211,9 +211,9 @@
 		<RelativePosition>true</RelativePosition>
 		<Location><X>182</X><Y>56</Y></Location>
 		<Size><CX>166</CX><CY>22</CY></Size>
-		<TooltipReference>Open the ScriptTracker window (starts it if needed)</TooltipReference>
+		<TooltipReference>Open the Scripts window</TooltipReference>
 		<Style_Checkbox>true</Style_Checkbox>
-		<Text>ScriptTracker</Text>
+		<Text>Scripts</Text>
 		<TextColor><R>255</R><G>255</G><B>255</B></TextColor>
 		<Template>BDT_Normal</Template>
 	</Button>

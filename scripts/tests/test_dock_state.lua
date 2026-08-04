@@ -527,7 +527,67 @@ do
         s.degraded and s.degraded.id)
     deps.uiState.setupMode = false
 
+    -- The value-floor lesson (Q3): fires on floor-attributable skips, outranks the other
+    -- two lessons (it explains a number currently on the lane), yields to real problems,
+    -- and never fires with the counts at zero.
+    deps.uiState.lootRunFloorSkipped = 0
+    deps.uiState.lootRunFloorSkippedStack = 0
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: zero floor skips does not arm it',
+        not (s.degraded and s.degraded.id == 'lesson_lootfloor'), s.degraded and s.degraded.id)
+
+    deps.uiState.lootRunFloorSkipped = 2
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: floor skips arm the card',
+        s.degraded and s.degraded.id == 'lesson_lootfloor', s.degraded and s.degraded.id)
+    check('lootfloor: the card carries the count', s.degraded and s.degraded.n == 2,
+        s.degraded and tostring(s.degraded.n))
+
+    -- The LATCH: the next run zeroes the uiState counts, and the card must survive that
+    -- (walkHealth re-evaluates every 30s; a card that vanishes mid-read taught nothing).
+    deps.uiState.lootRunFloorSkipped = 0
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: latched across the next run zeroing the counts',
+        s.degraded and s.degraded.id == 'lesson_lootfloor' and s.degraded.n == 2,
+        s.degraded and s.degraded.id)
+
+    -- It outranks re-tidy (UserPlaced is still set from above)...
+    check('lootfloor: outranks the other lessons',
+        s.degraded and s.degraded.id == 'lesson_lootfloor', s.degraded and s.degraded.id)
+    -- ...and yields to a real problem, like every lesson.
+    testCache.sell.lists.keepContains[1] = nil
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: a real problem still outranks it',
+        s.degraded and s.degraded.id == 'no_rules', s.degraded and s.degraded.id)
+    testCache.sell.lists.keepContains[1] = 'Legendary'
+
+    -- Dismissal is permanent, same as the others.
+    hintsSvc.markLessonSeen('lootfloor')
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: dismissed forever', not (s.degraded and s.degraded.id == 'lesson_lootfloor'),
+        s.degraded and s.degraded.id)
+
+    -- PLUGIN-PRESENT ONLY, by structure: no_plugin sits above the lesson branch, so a
+    -- pluginless install never sees teaching over the thing that matters more. This is
+    -- the constraint that scopes the whole feature, so it gets its own assertion.
+    hintsSvc._reset()
+    deps.uiState.lootRunFloorSkipped = 3
+    pluginStub.getPlugin = realGetPlugin   -- back to pluginless
+    healthTick()
+    s = dockState.get()
+    check('lootfloor: no_plugin pre-empts the lesson entirely',
+        s.degraded and s.degraded.id == 'no_plugin', s.degraded and s.degraded.id)
+    pluginStub.getPlugin = function() return {} end
+    deps.uiState.lootRunFloorSkipped = 0
+    dockState.resetSession()   -- clear the latch armed above
+
     -- Dismissed forever, not for the session: once marked, it never returns.
+    hintsSvc.markLessonSeen('lootfloor')
     hintsSvc.markLessonSeen('retidy')
     hintsSvc.markLessonSeen('hublist')
     healthTick()

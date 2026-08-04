@@ -315,6 +315,45 @@ do
         table.concat(r.buttons, '|'))
     check('lesson: hub-list card balanced', stub.balanced(r), stub.imbalance(r))
 
+    -- The value-floor card (Q3): its body is BUILT from the payload -- counts and the
+    -- LIVE floor -- via bodyFn, the lesson analogue of STRIPS' msgFn.
+    resetInput()
+    ctx.uiState.dockStripDismissed = {}
+    dockState.get().degraded = { id = 'lesson_lootfloor', lesson = 'lootfloor',
+        n = 2, nStack = 0, floor = 2000, floorStack = 500 }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('lootfloor: the card names the count and the floor',
+        stub.drew(r, '2 kinds of item were below your loot value floor (2p). Settings > Loot Rules sets it.'),
+        table.concat(r.text, '|'))
+    check('lootfloor: offers the rules door', stub.drew(r, 'Open Loot Rules##dockLessonAction'),
+        table.concat(r.buttons, '|'))
+    check('lootfloor: balanced', stub.balanced(r), stub.imbalance(r))
+
+    -- The STACK floor is 500 copper, which the bar's plat() would render as "0p" -- the
+    -- card must never teach the floor by printing a wrong one.
+    resetInput()
+    ctx.uiState.dockStripDismissed = {}
+    dockState.get().degraded = { id = 'lesson_lootfloor', lesson = 'lootfloor',
+        n = 0, nStack = 1, floor = 2000, floorStack = 500 }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('lootfloor: stack floor renders in gold, never 0p',
+        stub.drew(r, '1 kind of item was below your loot value floor (5g). Settings > Loot Rules sets it.')
+        and not (function()
+            for _, t in ipairs(r.text) do if t:find('(0p)', 1, true) then return true end end
+            return false
+        end)(),
+        table.concat(r.text, '|'))
+
+    -- Both floors hit: name neither number rather than a wrong one.
+    resetInput()
+    ctx.uiState.dockStripDismissed = {}
+    dockState.get().degraded = { id = 'lesson_lootfloor', lesson = 'lootfloor',
+        n = 1, nStack = 2, floor = 2000, floorStack = 500 }
+    r = stub.frame(function() dockTop.render(ctx) end)
+    check('lootfloor: both floors names neither number',
+        stub.drew(r, '3 kinds of item were below your loot value floors. Settings > Loot Rules sets them.'),
+        table.concat(r.text, '|'))
+
     dockState.get().degraded = nil
 end
 

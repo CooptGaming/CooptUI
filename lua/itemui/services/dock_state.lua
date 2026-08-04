@@ -601,6 +601,23 @@ local firstTickAt = nil
 local sellMacPresent = nil       -- nil until first probe
 local BANK_STALE_SECS = 3 * 86400
 
+-- Value-floor lesson latch. uiState.lootRunFloorSkipped is zeroed by the NEXT run's
+-- loot_start and walkHealth only re-evaluates every 30s, so without a latch the card
+-- could vanish mid-read. Latched once when the counts first go non-zero, BOUNDED: a card
+-- suppressed past its moment (a broken-state strip outranked it for long enough) expires
+-- rather than surfacing later with archaeological numbers -- the whole point is teaching
+-- at the point of consequence, and fifteen minutes later is not that point. An expired
+-- unseen latch re-arms on a later run's floor skips, which is a better first moment
+-- anyway. Cleared in resetSession.
+local lootFloorLatch = nil
+local LOOT_FLOOR_LESSON_TTL_MS = 15 * 60 * 1000
+
+--- Pull the next health walk forward. Called from the loot finish edges so the floor
+--- lesson can land while the lane's "N skipped" line (6s) is still on screen.
+function M.probeHealthSoon()
+    healthAt = 0
+end
+
 local function walkHealth(now)
     if (now - healthAt) < (T.DOCK_HEALTH_MS or 30000) then return end
     healthAt = now
@@ -656,10 +673,47 @@ local function walkHealth(now)
         local lc = d.layoutConfig
         if not lc or tostring(lc.UIMode or "classic") ~= "bars" then return nil end
         if uiState and uiState.setupMode then return nil end
+        -- The WELCOME screen is the other teaching surface, and it shows precisely when
+        -- setupMode is FALSE (main_window's showWelcomePanel) -- so the gate above tested
+        -- the inverse of the condition it existed for, and a fresh bars install drew the
+        -- hublist card on the same frame as the welcome panel. main_window stamps a
+        -- freshness time while the panel is visible; a minute of quiet after it closes is
+        -- deliberate, so the first lesson does not fire the instant welcome is dismissed.
+        if uiState and uiState.welcomePanelVisibleAt
+            and (now - uiState.welcomePanelVisibleAt) < 60000 then return nil end
         local okH, hintsSvc = pcall(require, 'itemui.services.hints')
         if not okH or not hintsSvc then return nil end
         if hintsSvc.getActive and hintsSvc.getActive() then return nil end
 
+        -- The value floor: fires on the first floor-attributable skip, which is the moment
+        -- "N skipped - see chat" is on the lane with a cause the user never chose (the
+        -- loot floors ship ARMED at 2000/500 copper). Ranked first among lessons -- it is
+        -- the only one explaining a number currently on screen. Latched because the next
+        -- run zeroes the counts; expired because a card about "just now" must not surface
+        -- days later from under a broken-state strip.
+        if lootFloorLatch and (now - lootFloorLatch.at) > LOOT_FLOOR_LESSON_TTL_MS then
+            lootFloorLatch = nil
+        end
+        if not hintsSvc.lessonSeen("lootfloor") then
+            if not lootFloorLatch then
+                local fl = tonumber(uiState and uiState.lootRunFloorSkipped) or 0
+                local fs = tonumber(uiState and uiState.lootRunFloorSkippedStack) or 0
+                if (fl + fs) > 0 then
+                    local floor, floorStack = 0, 0
+                    pcall(function()
+                        local v = require('itemui.config_cache').getCache().loot.values
+                        floor, floorStack = tonumber(v.minLoot) or 0, tonumber(v.minStack) or 0
+                    end)
+                    lootFloorLatch = { n = fl, nStack = fs, floor = floor,
+                        floorStack = floorStack, at = now }
+                end
+            end
+            if lootFloorLatch then
+                return { id = "lesson_lootfloor", lesson = "lootfloor",
+                    n = lootFloorLatch.n, nStack = lootFloorLatch.nStack,
+                    floor = lootFloorLatch.floor, floorStack = lootFloorLatch.floorStack }
+            end
+        end
         -- Re-tidy: fires the first time a window becomes user-placed, which is the moment
         -- auto-placement starts looking like the app fighting you. It has a real fix
         -- attached, which is the strip's whole contract.
@@ -702,6 +756,7 @@ end
 function M.resetSession()
     session.looted, session.sold = 0, 0
     snap.sessionLooted, snap.sessionSold, snap.sessionPlat = 0, 0, 0
+    lootFloorLatch = nil
 end
 
 -- ---------------------------------------------------------------------------

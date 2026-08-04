@@ -1097,8 +1097,18 @@ local sessionMenu = { item = nil, openRequested = false }
 --- guards and are the decisions the panel exists for.
 local function sessionMenuItem(ctx, e)
     if not e or e.departed or not e.rowSeq then return nil, nil end
+    local wantId = tonumber(e.itemId) or 0
     for _, row in ipairs(ctx.inventoryItems or {}) do
-        if row.acquiredSeq == e.rowSeq then return row, "inv" end
+        -- Identity is verified, not assumed, mirroring the record's own merge walk: an
+        -- acquiredSeq follows the SLOT before it follows the item (scan.lua stamps bag:slot
+        -- first), so between a bag shuffle and the next tick this stamp can point at
+        -- whatever moved into the entry's old slot -- and the menu and hover card would act
+        -- on the wrong item.
+        if row.acquiredSeq == e.rowSeq
+            and tostring(row.name or "") == tostring(e.name or "")
+            and (wantId <= 0 or (tonumber(row.id) or 0) == wantId) then
+            return row, "inv"
+        end
     end
     return nil, nil
 end
@@ -1593,7 +1603,42 @@ local STRIPS = {
 -- points at is D6's empty "Open Item Display" all over again.
 -- ---------------------------------------------------------------------------
 
+--- Copper -> readable, for the floor value in the lootfloor card. NOT the file's plat()
+--- helper: that is math.floor(copper/1000), which renders the shipped STACK floor of 500
+--- copper as "0p" -- a card teaching the floor by printing a wrong one.
+local function copperStr(c)
+    c = tonumber(c) or 0
+    local p, rem = math.floor(c / 1000), c % 1000
+    local g = math.floor(rem / 100)
+    if p > 0 and g > 0 then return string.format("%dp %dg", p, g) end
+    if p > 0 then return string.format("%dp", p) end
+    if g > 0 then return string.format("%dg", g) end
+    return string.format("%dc", c)
+end
+
 local LESSONS = {
+    -- Ordered by dock_state's lessonStrip, not by this table: lootfloor outranks the other
+    -- two because it is the only lesson explaining a number currently on the lane.
+    lootfloor = {
+        title = "Some items were left behind",
+        -- bodyFn, not body: the sentence carries this run's counts and the LIVE floor
+        -- values (latched by dock_state when the card armed). "kinds of item" is exact,
+        -- not hedging: repeat skips of a name short-circuit at loot.mac's session cache,
+        -- so the counters count unique names while the lane's "N skipped" counts
+        -- occurrences -- a card claiming to partition that number would not add up.
+        bodyFn = function(deg)
+            local n, ns = tonumber(deg.n) or 0, tonumber(deg.nStack) or 0
+            local total = n + ns
+            local kinds = (total == 1) and "1 kind of item was" or (total .. " kinds of item were")
+            if n > 0 and ns > 0 then
+                return kinds .. " below your loot value floors. Settings > Loot Rules sets them."
+            end
+            local floor = (ns > 0) and deg.floorStack or deg.floor
+            return string.format("%s below your loot value floor (%s). Settings > Loot Rules sets it.",
+                kinds, copperStr(floor))
+        end,
+        action = { label = "Open Loot Rules", queued = { kind = "window", id = "config" } },
+    },
     retidy = {
         title = "Moved windows stay put",
         -- msg and note merged: the split into a line plus a trailing muted note is a STRIP
@@ -1634,7 +1679,10 @@ local function renderLessonCard(ctx, s, edge, index, deg)
         dockLayout.contained(uiState, "dock lesson card", function()
             theme.TextWarning(tostring(spec.title or ""))
             ImGui.PushTextWrapPos(440)
-            ImGui.TextWrapped(tostring(spec.body or ""))
+            -- bodyFn mirrors STRIPS' msgFn: a card whose sentence carries live numbers
+            -- builds it from the degraded payload; static cards keep plain body.
+            local body = spec.bodyFn and spec.bodyFn(deg) or spec.body
+            ImGui.TextWrapped(tostring(body or ""))
             ImGui.PopTextWrapPos()
             ImGui.Spacing()
             -- Got it FIRST, matching the hint card, so the dismissal is in the same place on
@@ -1890,6 +1938,17 @@ function M.render(ctx)
     local laneW = math.max(constants.UI.DOCK_LANE_MIN_W, w - fixedTotal())
     for _, c in ipairs(cells) do
         if c.id == "lane" then c.w = laneW end
+    end
+
+    -- Tell hints which cells are ACTUALLY on screen this frame -- the enable set minus the
+    -- narrow-width drops, i.e. the final `cells` list, not `enabled`. A hint whose anchor
+    -- cell is off must be suppressed, not relocated: renderHint's `M.slots[anchor] or {}`
+    -- falls back to the bar's left edge, which taught a hover gesture on a slot that was
+    -- not present. The push is a plain table write, allowed on the render path.
+    do
+        local visible = {}
+        for _, c in ipairs(cells) do visible[c.id] = true end
+        if hintsService.noteVisibleCells then hintsService.noteVisibleCells(visible) end
     end
 
     -- /itemui dock debug: capture what the bar actually computed, from INSIDE the frame where

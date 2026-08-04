@@ -74,7 +74,13 @@ local CC_BUTTONS = {
     { name = 'Coopt_CCLootAllBtn',  action = 'lootall' },
     { name = 'Coopt_CCStopLootBtn', action = 'stoploot' },
     { name = 'Coopt_CCSellBtn',     action = 'autosell' },
-    { name = 'Coopt_CCTrackerBtn',  action = 'tracker' },
+    -- The registry Scripts companion, NOT the standalone sidecar. The sidecar is kept for
+    -- exactly one audience -- people running it with itemui down -- and that audience never
+    -- sees this panel, because this panel is ticked by itemui. Offering the sidecar here
+    -- promoted the lesser window (3 columns, read-only, no turn-in) from inside the thing
+    -- it is a fallback for. As a registry id the button also inherits the open-state latch
+    -- every other launcher on this panel has (ccOpenState's generic branch).
+    { name = 'Coopt_CCTrackerBtn',  action = 'scripttracker' },
     { name = 'Coopt_CCUiBtn',       action = 'cmd:/itemui' },
     { name = 'Coopt_CCLootUiBtn',   action = 'lootui' },
     { name = 'Coopt_CCEquipBtn',    action = 'equipment' },
@@ -269,17 +275,6 @@ local function lootBusy()
     return (mb and mb.isLootMacroRunning and mb.isLootMacroRunning()) or false
 end
 
--- MQ2Lua's Lua TLO isn't guaranteed on every build; nil = unknown.
-local function scriptTrackerRunning()
-    local ok, status = pcall(function()
-        local l = mq.TLO and mq.TLO.Lua
-        local script = l and l.Script and l.Script('scripttracker')
-        return script and script.Status and script.Status()
-    end)
-    if ok and type(status) == 'string' then return status:upper() == 'RUNNING' end
-    return nil
-end
-
 -- Shared launcher/process executor for all native button surfaces. The optional
 -- s/wnd/statusName route feedback into that surface's status EditBox.
 local function runAction(action, s, wnd, statusName, now)
@@ -333,14 +328,6 @@ local function runAction(action, s, wnd, statusName, now)
         end
         d.uiState.autoSellRequested = true
         if s then hint(s, wnd, statusName, "Starting sell...", now) end
-    elseif action == 'tracker' then
-        local running = scriptTrackerRunning()
-        if running == false then
-            mq.cmd('/lua run scripttracker')
-        else
-            mq.cmd('/st show')
-            if running == nil then mq.cmd('/lua run scripttracker') end
-        end
     else
         registry.toggleWindow(action)
     end
@@ -519,7 +506,7 @@ end
 local function ccOpenState(action)
     if action == 'lootui' then return d.uiState.lootUIOpen == true end
     if action == 'cmd:/itemui' then return (d.getShouldDraw and d.getShouldDraw()) == true end
-    if action == 'lootall' or action == 'stoploot' or action == 'autosell' or action == 'tracker' then
+    if action == 'lootall' or action == 'stoploot' or action == 'autosell' then
         return nil
     end
     return registry.isRegistered and registry.isRegistered(action) and registry.isOpen(action) or false

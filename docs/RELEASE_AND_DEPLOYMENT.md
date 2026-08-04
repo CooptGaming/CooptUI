@@ -102,9 +102,8 @@ This is the canonical list of project files under version control and included i
 
 | Path | Role |
 |------|------|
-| `lua/scripttracker/init.lua` | AA script tracker; /scripttracker |
+| `lua/scripttracker/init.lua` | Standalone AA script tracker (fallback for play without itemui); `/st` |
 | `lua/scripttracker/README.md` | ScriptTracker readme |
-| `lua/scripttracker/scripttracker.ini` | Optional config (script may not read it yet) |
 
 ### 3.3 Lua — MQ shared (`lua/mq/`)
 
@@ -220,8 +219,7 @@ CoOpt UI_vX.Y.zip
 │   │       └── sell.lua
 │   ├── scripttracker/
 │   │   ├── init.lua
-│   │   ├── README.md
-│   │   └── scripttracker.ini
+│   │   └── README.md
 │   └── mq/
 │       └── ItemUtils.lua
 ├── Macros/
@@ -288,7 +286,7 @@ When building an **update** package or script, follow this rule so user settings
 ### 5.1 Replace on every update (safe to overwrite)
 
 - **lua/itemui/** — entire directory
-- **lua/scripttracker/** — init.lua, README.md; scripttracker.ini is optional (script does not currently read it)
+- **lua/scripttracker/** — init.lua, README.md (scripttracker.ini deleted 2026-08-03: nothing ever read it)
 - **lua/mq/ItemUtils.lua**
 - **Macros/sell.mac**, **Macros/loot.mac**
 - **Macros/shared_config/log_item.mac**, **Macros/shared_config/validate_config.mac**
@@ -334,7 +332,7 @@ Use this when building the package or an update script. For the full repository 
 | itemui/services/*.lua | filter_service, loot_feed_events, macro_bridge, scan, script_consume_events, ... |
 | itemui/utils/*.lua | column_config, columns, item_tooltip, layout, sort, theme |
 | itemui/views/*.lua | inventory, bank, sell, loot, config, augments |
-| scripttracker/init.lua | AA script tracker; /scripttracker |
+| scripttracker/init.lua | Standalone AA script tracker; `/st` (no /scripttracker bind exists) |
 | mq/ItemUtils.lua | formatValue, formatWeight (ItemUI dependency) |
 
 ### 7.2 Macros

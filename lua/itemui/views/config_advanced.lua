@@ -9,6 +9,20 @@ local debugModule = require('itemui.core.debug')
 local diagnostics = require('itemui.core.diagnostics')
 local soundService = require('itemui.services.sound')
 local backupService = require('itemui.services.backup_service')
+local events = require('itemui.core.events')
+
+--- Import/restore rewrite EVERY sell and loot rule INI on disk wholesale
+--- (backup_service copies the whole config set, epic_classes.ini included) -- and used to
+--- do it without telling anyone: no cache invalidation, no event, so every subscriber
+--- kept serving the replaced ruleset until an unrelated edit fired. fromUser = false: a
+--- bulk restore is not the "first rule edit" moment the rule_edit card teaches, and the
+--- status line about restored files is already on screen.
+local function notifyRulesReplaced(ctx)
+    if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
+    if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
+    events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = false })
+    events.emit(events.EVENTS.CONFIG_LOOT_CHANGED)
+end
 
 local ConfigAdvanced = {}
 local state = {
@@ -221,6 +235,7 @@ function ConfigAdvanced.render(ctx)
             if ImGui.Button("Confirm Import##BackupBtn", ImVec2(120, 0)) then
                 local ok, result = backupService.importPackage(state.importPath)
                 if ok then
+                    notifyRulesReplaced(ctx)
                     setStatusMessage(string.format("Import complete. %d files restored.", result or 0))
                 else
                     setStatusMessage("Import failed: " .. tostring(result or "unknown"))
@@ -242,6 +257,7 @@ function ConfigAdvanced.render(ctx)
             if ImGui.Button("Restore Previous (from .bak)##Backup", ImVec2(220, 0)) then
                 local ok, result = backupService.restoreFromBackup()
                 if ok then
+                    notifyRulesReplaced(ctx)
                     setStatusMessage(string.format("Restore complete. %d files restored from backup.", result or 0))
                 else
                     setStatusMessage("Restore failed: " .. tostring(result or "unknown"))

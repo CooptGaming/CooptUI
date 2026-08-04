@@ -804,14 +804,17 @@ function M.render(ctx)
         -- the launchers, then the command menus, then the identity group at the right. Chat
         -- used to sit after the menus in the menus style, which put the one flexible thing
         -- on the bar in the middle of two fixed groups.
+        -- Every menu is right-grouped since turn 27 retired Hub and Actions; there is no
+        -- left menu group any more, so nothing is reserved for one. (A dead menusIn("left")
+        -- pass survived the retirement for a while, drawing an empty group and claiming in
+        -- its comment to be the only path to Stop -- Stop lives on the TOP bar's button
+        -- pair, and MENUS has carried group="right" only ever since.)
         local rightMenus = menusIn("right")
-        local leftMenus = menusIn("left")
         -- + one gap: menuRowWidth counts the gaps BETWEEN its own buttons, not the one
         -- before Settings. Under-reserving here starts the right group too far right and
         -- pushes Settings past the window edge.
         local rightW = menuRowWidth(rightMenus) + constants.UI.DOCK_SLOT_GAP
             + dockLayout.slotWidth("dockRight", { "Settings" }, 16)
-        local leftW = menuRowWidth(leftMenus)
 
         -- 19b: "the launcher row folds itself into menus automatically instead of being a
         -- setting you have to find". The row is dropped, not squeezed, because squeezing
@@ -830,7 +833,7 @@ function M.render(ctx)
         end
         local gaps = constants.UI.DOCK_SLOT_GAP * 3
         local function chatBudget(withLaunchers)
-            return winW - (withLaunchers and launchW or 0) - leftW - rightW
+            return winW - (withLaunchers and launchW or 0) - rightW
                 - constants.UI.DOCK_SLOT_PADDING_X * 2 - gaps
         end
         if launchers and chatBudget(true) < CHAT_MIN_W then
@@ -863,15 +866,6 @@ function M.render(ctx)
             ImGui.EndGroup()
             dividerAfterLast()
         end
-
-        -- Commands: Actions and Game windows. They stay on this bar in BOTH styles -- with
-        -- the launcher row folded (or turned off) they are the only path to Stop, and the
-        -- bar whose job is COMMANDS (13d) cannot be the one that loses them.
-        ImGui.SameLine(0, constants.UI.DOCK_SLOT_GAP)
-        ImGui.BeginGroup()
-        dockLayout.contained(ctx.uiState, "dock command menus",
-            drawMenuButtons, ctx, leftMenus, edge, hover.id)
-        ImGui.EndGroup()
 
         -- The identity group, right-anchored: Hub, Layouts, Settings (19b and 23c both put
         -- the lit Hub chip HERE, beside them, not on the left).

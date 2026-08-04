@@ -39,11 +39,11 @@ which takes whatever width is left.
 | Cell | Shows | Click / hover |
 |---|---|---|
 | **CoOpt** | A dot: green normally, amber without the plugin, red if something has errored. | Click opens the launcher list — every window, and where it is |
-| **session** | How long you've been at it, what you've made, and how many augs, mythics and scripts still need a call. | Each of those three is a door to the window that answers it |
+| **session** | How long you've been at it, what you've made, how many augs and mythics still need a call, and how many scripts you've collected. Scripts are a tally — you always keep them for turn-in, so there's no call to make on one. | Each of those is a door to the window that answers it |
 | **bags** | Items / total slots. Amber past 90%. Weight too, once the game has told us. | — |
-| **sell** | What your rules would sell right now, and for how much. Red if a keep-list item is somehow queued to sell. | Hover for the full breakdown; click opens the hub in Sell |
+| **sell** | What your rules would sell right now, and for how much. Red if a keep-list item is somehow queued to sell. | Hover for the full breakdown — the popover carries **Sell**, **Full preview** and **Rules**; with no merchant open it says so instead of offering a button that would fail |
 | **Loot All / Auto Sell** | Two buttons that never move. Auto Sell greys out with a reason when there's no merchant. | Each green start becomes its own solid-red **Stop**, in place |
-| **action lane** | Whatever is running, and nothing when nothing is. The only cell that flexes. | The state's own buttons, where the state has any — **Take** / **Pass** on a mythical, **Bags** when a run stops full |
+| **action lane** | Whatever is running, and nothing when nothing is. The only cell that flexes. | The state's own buttons, where the state has any — **Take** / **Pass** / **Take + reroll** on a mythical, **Open Bags** when a run stops full |
 | **buffs** | Buff / song / aura counts. Amber only when something is under five minutes. | What's expiring, with Recast |
 | **XP** | XP %, AA total, and the AA sitting in your bags as scripts. | — |
 
@@ -66,13 +66,14 @@ One cell, one width, whichever of these it's in:
 
 1. **idle** — `nothing running`, and where jobs will report.
 2. **looting** — `corpse 4/9 · 7 taken`, with live progress.
-3. **decision** — a mythical needs a call. The item, a timer, **Take** and **Pass**. The Loot
-   window doesn't need to be open.
+3. **decision** — a mythical needs a call. The item, the time remaining, and three buttons:
+   **Take**, **Pass**, and **Take + reroll** (takes it AND queues it for the reroll list).
+   The Loot window doesn't need to be open.
 4. **finished** — `looted 9 corpses · 1,208p`, and `3 skipped - see chat` when the run passed
    on anything. It holds for six seconds and then the lane returns to idle, so it reports the
    result without becoming something you have to dismiss.
-5. **problem** — `stopped — bags full`, with **Bags** (and **Sell junk** if you're at a
-   merchant). It stays alert until you deal with it.
+5. **problem** — `stopped — bags full`, with **Open Bags** (and **Sell N now** if you're at a
+   merchant with junk queued). It stays alert until you deal with it.
 6. **selling** — a sell run's progress.
 7. **turning in scripts** — a script turn-in's progress, with its **Stop** (the one job with
    no start button on the bar, so the lane carries its stop).

@@ -380,7 +380,9 @@ end
 -- Sell status service: init and local aliases (delegated to services/sell_status.lua)
 favoritesService.init({
     getStoragePath = config.getCharStoragePath,
-    onChanged = function() events.emit(events.EVENTS.CONFIG_SELL_CHANGED) end,
+    -- fromUser: a clicky list is sell protection by item id (it feeds favoritesIdSet in
+    -- sell_status), and every mutation of one is view-driven -- a person editing.
+    onChanged = function() events.emit(events.EVENTS.CONFIG_SELL_CHANGED, { fromUser = true }) end,
 })
 -- Section memory (windows pass §6): per-character collapsible state, own file — zero
 -- [Layout] loader sites involved (see services/section_state.lua header for why).

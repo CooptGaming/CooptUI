@@ -375,12 +375,17 @@ function M.render()
     moneyStr = moneyStr .. string.format("%dc", s.copper)
     ImGui.Text(moneyStr)
 
-    -- AA Scripts (Lost/Planar)
+    -- AA Scripts (Lost/Planar). The "Pop-out Tracker" button that used to sit beside this
+    -- head launched the standalone sidecar (lua/scripttracker) -- the LESSER window: it
+    -- re-walks the packs itself, has no band, no lock, and cannot turn anything in. The
+    -- sidecar exists for one audience, people running it with itemui DOWN, and that
+    -- audience never sees this panel -- so the button only ever offered the fallback to
+    -- someone who already had the real thing. Repointing it at the registry module was
+    -- considered and rejected: in classic the hub's own header row already draws a Scripts
+    -- launcher from the registry, and in bars the hub has no launcher row at all (one home
+    -- per control). The sidecar keeps its own doors: its lua-run command and its /st bind.
     ImGui.Separator()
     ImGui.TextColored(tv(C.SectionHead), "Scripts:")
-    ImGui.SameLine()
-    if ImGui.SmallButton("Pop-out Tracker") then mq.cmd('/st show') end
-    if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Open AA Script Tracker window (run /lua run scripttracker first if needed)"); ImGui.EndTooltip() end
     local scriptData = cachedScriptData or getScriptCountsFromInventory(deps and deps.inventoryItems)
     -- Number table at the mono register (13px Lucida) — real glyphs, not a scaled bitmap.
     fonts.pushMono()

@@ -50,14 +50,16 @@ If you already have these folders with INI files inside (from SellUI or a previo
 ### Step 4: Launch in-game
 
 ```
-/lua run itemui            -- Start ItemUI
-/lua run scripttracker     -- Start ScriptTracker (optional)
+/lua run itemui            -- Start CoOpt UI (the Scripts window is built in)
 ```
+
+The standalone AA Script Tracker (`/lua run scripttracker`, toggled with `/st`) is an
+optional fallback for playing **without** CoOpt UI running — with CoOpt UI up, use the
+built-in Scripts window instead (the `Scripts` chip on the bar, or the hub list).
 
 ### Step 5: Verify
 
 - Type `/itemui` — the ItemUI window should appear
-- Type `/scripttracker` — ScriptTracker should appear
 - Check the MQ2 console for the version message: `[ItemUI] Item UI v0.2.0-alpha loaded.`
 
 ## Updating
@@ -181,12 +183,15 @@ MacroQuest2/
 | `/itemui exit` (or `quit`, `unload`) | Unload ItemUI |
 | `/itemui help` | Show command help |
 
-### ScriptTracker
+### Standalone AA Script Tracker (fallback, for playing without CoOpt UI)
 
 | Command | Description |
 |---------|-------------|
-| `/lua run scripttracker` | Load ScriptTracker |
-| `/st` | Toggle ScriptTracker window (`/st show`, `/st hide`, `/st refresh`) |
+| `/lua run scripttracker` | Load the standalone tracker |
+| `/st` | Toggle its window (`/st show`, `/st hide`, `/st refresh`) |
+
+With CoOpt UI running, use the built-in **Scripts** window instead — it shows the same
+counts plus per-tier turn-in buttons.
 
 ### Optional native skin
 

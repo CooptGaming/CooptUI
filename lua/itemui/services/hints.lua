@@ -16,6 +16,7 @@
 
 local config = require('itemui.config')
 local dockState = require('itemui.services.dock_state')
+local events = require('itemui.core.events')
 
 local M = {}
 
@@ -43,10 +44,14 @@ M.HINTS = {
     { id = "loot_run", anchor = "lane",
       title = "A loot run, live",
       -- Was: "...and a Stop button live here while loot.mac runs. The Review button opens the
-      -- full recap." Both halves were false about the cell the card points at. Stop is never
-      -- in the lane -- Loot All becomes its own Stop in place (dock_top.lua's buttons segment,
-      -- and the rule stated beside the lane) -- and no Review button exists anywhere on the
-      -- bar. The finished mood draws the result and holds it six seconds.
+      -- full recap." Both halves were STALE, not invented: the lane once carried its own Stop,
+      -- and a Review button on the done mood really shipped -- it was removed at the user's
+      -- request because it blocked the lane's return to idle (94cef00). The copy was written
+      -- against that bar and nobody re-read it when the controls moved. That is the lesson
+      -- worth keeping: inherited copy outlives its control, so a hint body is re-checked
+      -- whenever the surface it teaches changes shape. Today: Stop is never in the lane --
+      -- Loot All becomes its own Stop in place -- and the finished mood draws the result and
+      -- holds it six seconds, with no button.
       body = "Corpse progress and items taken appear here while a run goes. Loot All becomes Stop while it runs, and the result holds here for a few seconds after." },
     { id = "mythical", anchor = "lane",
       title = "A mythical needs a decision",
@@ -69,11 +74,43 @@ M.HINTS = {
 local seen = nil
 local active = nil          -- { id, title, body, anchor, replay = bool }
 local replayQueue = nil     -- list of hint ids when "show all" is running
-local ruleEditSeen = false  -- set by noteRuleEdit (called from the filters UI)
+local ruleEditSeen = false  -- set by the CONFIG_SELL_CHANGED subscription when fromUser rides the emit
 local prev = {}             -- previous-tick snapshot values for edge detection
+local visibleCells = nil    -- cells actually on the bar this frame (dock_top pushes; nil = never told)
+local subscribed = false
 
 function M.init(deps)
     d = deps
+    if subscribed then return end
+    subscribed = true
+    -- The trigger is the COMMIT, not the filter UI. The old arming point was
+    -- bumpFilterListGeneration, on the theory that every user rule edit lands in the
+    -- filters view; it does not -- right-click Keep/Junk, the first edit a newcomer ever
+    -- makes, goes applySellListChange -> config_cache and never enters that file, so the
+    -- hint mostly never fired at all. Every rule-changing route already ends in one place,
+    -- the CONFIG_SELL_CHANGED emit, so the hint listens there and provenance rides the
+    -- payload: fromUser=true is a person editing, absent-or-false is the product seeding
+    -- (profile application, the wizard, first-run defaults) -- a hint that says "rules
+    -- explain themselves" must not fire because the product edited the rules. Absent
+    -- defaults to NOT-user on purpose: a forgotten flag is a missed hint, never a wrong
+    -- first-run card.
+    events.on(events.EVENTS.CONFIG_SELL_CHANGED, function(payload)
+        if payload and payload.fromUser then ruleEditSeen = true end
+    end)
+end
+
+--- dock_top pushes the set of cells that made it onto the bar this frame (the enable set
+--- minus narrow-width drops). A hint whose anchor is not in it is SUPPRESSED, not
+--- relocated -- and not consumed: nothing here marks it seen, so it waits and fires when
+--- the cell comes back. nil (never told: classic mode, or a test that never renders)
+--- fails open, matching the old behaviour exactly.
+function M.noteVisibleCells(set)
+    if type(set) ~= "table" then return end
+    visibleCells = set
+end
+
+local function cellOn(id)
+    return visibleCells == nil or visibleCells[id] == true
 end
 
 local function loadSeen()
@@ -94,11 +131,6 @@ end
 --- The hint the bar should draw right now, or nil. Read-only for the render path.
 function M.getActive()
     return active
-end
-
---- Called from the filters UI whenever a rule is added or removed.
-function M.noteRuleEdit()
-    ruleEditSeen = true
 end
 
 --- [Got it]: mark the active hint seen (INI) and advance the replay queue, if one runs.
@@ -137,18 +169,33 @@ end
 function M.tick(now)
     local lc = d and d.layoutConfig
     if not lc or tostring(lc.UIMode or "classic") ~= "bars" then return end
+    -- Structurally quiet during setup: the wizard and the welcome screen are teaching
+    -- surfaces of their own, and a card over either stacks two vocabularies on one moment.
+    -- This is a GATE, not a flag audit -- getting fromUser right at every wizard site is
+    -- the fragile version of the same guarantee.
+    if d.uiState and d.uiState.setupMode then return end
     loadSeen()
 
+    -- The anchor-visibility gate rides IN the trigger chain, before anything is marked
+    -- seen, so a suppressed hint is never consumed -- it waits, and fires when its cell
+    -- comes back (the ruling: suppressed, not relocated, not used up).
     local s = dockState.get()
     local fire = nil
-    if s.merchantOpen and not prev.merchantOpen and not seen.merchant then fire = "merchant" end
+    if s.merchantOpen and not prev.merchantOpen and not seen.merchant and cellOn("sell") then fire = "merchant" end
     if not fire and s.lootRunning and not prev.lootRunning and not seen.loot_run then fire = "loot_run" end
     if not fire and s.lootState == "decision" and prev.lootState ~= "decision" and not seen.mythical then fire = "mythical" end
-    if not fire and s.bagFree == 0 and prev.bagFree ~= 0 and (s.bagItems or 0) > 0 and not seen.full_bag then fire = "full_bag" end
-    if not fire and ruleEditSeen and not seen.rule_edit then fire = "rule_edit" end
+    if not fire and s.bagFree == 0 and prev.bagFree ~= 0 and (s.bagItems or 0) > 0 and not seen.full_bag and cellOn("bags") then fire = "full_bag" end
+    if not fire and ruleEditSeen and not seen.rule_edit and cellOn("sell") then fire = "rule_edit" end
 
-    prev.merchantOpen, prev.lootRunning = s.merchantOpen, s.lootRunning
-    prev.lootState, prev.bagFree = s.lootState, s.bagFree
+    -- prev freezes for a suppressed trigger's OWN field. Without this the edge a hint
+    -- waits on can be eaten while its cell is off: bags fill with the bags cell disabled,
+    -- prev.bagFree advances to 0, and re-enabling the cell with the bags still full finds
+    -- no edge left -- the card would wait until the player empties AND refills. Freezing
+    -- prev turns the suppressed occurrence into a still-pending edge, which is what "it
+    -- waits" means. The lane cannot be disabled, so its two fields always advance.
+    if cellOn("sell") then prev.merchantOpen = s.merchantOpen end
+    if cellOn("bags") then prev.bagFree = s.bagFree end
+    prev.lootRunning, prev.lootState = s.lootRunning, s.lootState
 
     if fire and not active then
         local h = hintById(fire)
@@ -202,6 +249,12 @@ end
 function M._reset()
     seen, active, replayQueue, ruleEditSeen, prev = nil, nil, nil, false, {}
     lessonSeen = nil
+    visibleCells = nil
+end
+
+--- Tests only: observe what dock_top pushed without clobbering the setter.
+function M._visibleCells()
+    return visibleCells
 end
 
 return M

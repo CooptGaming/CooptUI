@@ -256,6 +256,12 @@ function ScriptTrackerView.renderBody(ctx, barsOn)
         -- Names the path, like mythicals and augments do, instead of stating the absence and
         -- stopping. Same rule, same dialect.
         ctx.theme.TextMuted("No scripts in bags. Loot some and refresh.")
+    elseif legendaryCount == 0 then
+        ImGui.SameLine(0, 8)
+        -- The third state used to fall through both reasons: scripts in bags but none
+        -- Legendary left the Legendary button grey with nothing beside it, which is the
+        -- one shape the kit forbids (a grey with no printed reason).
+        ctx.theme.TextMuted("none of them are Legendary")
     end
     ImGui.Spacing()
 
