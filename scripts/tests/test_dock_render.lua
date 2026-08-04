@@ -1549,10 +1549,14 @@ do
     stub.hover = { dockseg_session = true }
     local r2 = stub.frame(function() dockTop.render(ctx) end)
     check('session panel: opens on hover', #r2.windows == 2, table.concat(r2.windows, ','))
-    -- Both rows need a call now: the script is no longer auto-sorted, because scripts are
-    -- keep-protected by default like the rest and the user still has to decide whether to
-    -- turn one in.
-    check('session panel: truth line carries the full totals', stub.drew(r2, '2 looted . 2 need a call . 0 sorted'),
+    -- The truth line counts the DECISION record only, so its three numbers add up and each
+    -- one is a row you can go and look at. The script is not in it: it is a tally, printed
+    -- on its own line, and there is no call to make on one.
+    check('session panel: truth line counts only what can be decided',
+        stub.drew(r2, '1 augs + mythics . 1 need a call . 0 sorted'),
+        table.concat(r2.text, '|'))
+    check('session panel: the script is tallied, not queued',
+        stub.drew(r2, 'scripts  3 looted this session - the Scripts window turns them in'),
         table.concat(r2.text, '|'))
     check('session panel: the call row is offered best-first', stub.drew(r2, 'Fresh Emerald'),
         table.concat(r2.text, '|'))

@@ -1090,10 +1090,11 @@ local sessionMenu = { item = nil, openRequested = false }
 --- stay in sync with a growing row table; not offering the menu is one rule that cannot
 --- rot.
 ---
---- This is not a small exclusion: after a UI restart EVERY entry is departed, because
---- rowSeq is not persisted and the acquired-seq floor is re-stamped on snapshot load.
---- Those rows keep the three chips (Keep / Reroll / Junk), which carry their own
---- canDecide guards and are the decisions the panel exists for.
+--- Departed is now a real answer rather than a bookkeeping artifact: the merge walk
+--- re-links an entry to its row by item identity, so a restart or a bag shuffle no longer
+--- reads as the item having left. A row that still has no menu genuinely has no item —
+--- and it keeps the three chips (Keep / Reroll / Junk), which carry their own canDecide
+--- guards and are the decisions the panel exists for.
 local function sessionMenuItem(ctx, e)
     if not e or e.departed or not e.rowSeq then return nil, nil end
     for _, row in ipairs(ctx.inventoryItems or {}) do
@@ -1242,8 +1243,11 @@ popovers.session = function(ctx, s)
     ImGui.Separator()
 
     -- The truth line (§12): the header carries the full total; the bar's amber count is
-    -- only what still needs a call.
-    theme.TextMuted(string.format("%d looted . %d need a call . %d sorted",
+    -- only what still needs a call. It counts the DECISION record — augs and mythics — so
+    -- the three numbers add up and every one of them is a row you can go and look at.
+    -- Scripts are not in it: they get their own line at the foot of the panel, because
+    -- they are a tally of what you collected and never a thing to rule on.
+    theme.TextMuted(string.format("%d augs + mythics . %d need a call . %d sorted",
         s.srLooted or 0, s.srNeedCall or 0, s.srSorted or 0))
     theme.TextMuted(string.format("money  %sp looted . %sp sold",
         plat(s.sessionLooted), plat(s.sessionSold)))

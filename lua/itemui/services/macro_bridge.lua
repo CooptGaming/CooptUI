@@ -43,6 +43,7 @@ local item_name = require('itemui.utils.item_name')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
 local dbg = require('itemui.core.debug').channel('MacroBridge')
 local soundService = require('itemui.services.sound')
+local lootWatch = require('itemui.services.loot_watch')
 
 local IPC_PROTOCOL_VERSION = (constants.TIMING and constants.TIMING.IPC_PROTOCOL_VERSION) or 1
 
@@ -494,13 +495,19 @@ function MacroBridge.drainIPCFast(uiState, getSellStatusForItem, LOOT_HISTORY_MA
 
     local realTime = (uiState.enableRealTimeLoot == true)
     local items = ipc.receiveAll("loot_item")
-    -- Play rare loot sound for every IPC item regardless of realTime UI setting
+    -- Play rare loot sound for every IPC item regardless of realTime UI setting, and feed
+    -- the corpse-loot watcher the session record gates on. Both have to happen here rather
+    -- than in the realTime block below: neither is a UI-display concern, and the echo-based
+    -- feed that would otherwise carry them is deliberately not registered while IPC is up.
     if items and #items > 0 then
         for _, msg in ipairs(items) do
             local rn = (msg:match("^([^|]+)") or "")
             local nn = item_name.normalizeItemName(rn)
-            if nn ~= "" and (nn:find("Legendary") or nn:find("Script of") or nn:find("Mythical")) then
-                soundService.play("loot_rare")
+            if nn ~= "" then
+                lootWatch.note(nn)
+                if nn:find("Legendary") or nn:find("Script of") or nn:find("Mythical") then
+                    soundService.play("loot_rare")
+                end
             end
         end
     end

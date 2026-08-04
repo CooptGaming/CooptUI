@@ -2364,6 +2364,9 @@ function M.init(deps)
     d = deps
     lootFeedEvents.init(d)
     scriptConsumeEvents.init(d)
+    -- The corpse-loot signal the session record gates on. Registered here with the other
+    -- chat events so it is pumped by the same mq.doevents().
+    require('itemui.services.loot_watch').init(d)
     -- Registered here for the same reason as the two above: nothing self-registers, and
     -- M.init runs exactly once (app.lua calls mainLoop.init once), which is what makes
     -- "the event is registered once" true. mq.doevents() in phase 10 pumps it.

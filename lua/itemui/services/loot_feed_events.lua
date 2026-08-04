@@ -8,6 +8,7 @@
 
 local mq = require('mq')
 local item_name = require('itemui.utils.item_name')
+local lootWatch = require('itemui.services.loot_watch')
 local coopuiPlugin = require('itemui.utils.coopui_plugin')
 local dbg = require('itemui.core.debug').channel('Loot')
 
@@ -36,6 +37,10 @@ local function onLootItemLine(line)
     if name == "" then return end
     local value = tonumber(parts[2]) or 0
     local tribute = tonumber(parts[3]) or 0
+    -- loot.mac only echoes this after a VERIFIED pickup, so it is a second, independent
+    -- corpse signal for the session record — belt to the chat line's braces on any path
+    -- where the game's own wording does not match.
+    lootWatch.note(name)
 
     local uiState = deps and deps.uiState
     local getSellStatusForItem = deps and deps.getSellStatusForItem
