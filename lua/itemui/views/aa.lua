@@ -30,6 +30,21 @@ local sortCache = { key = "", list = {} }
 -- re-run (and re-allocate) every frame; only the SORT was cached.
 local filterCache = { key = "", list = {} }
 
+--- The one train path (Enter, double-click, and the Train button all land
+--- here). Fires the buy at the record's nextIndex - which the truth overlay
+--- has made the actual next-rank table id - then bumps the record in place
+--- (noteAATrained) so a repeat-click trains the NEXT rank instead of re-firing
+--- the one just bought while the rescan is still pumping, and schedules that
+--- rescan. Both caches are cleared: the row's spend fields just changed.
+local function fireTrain(ctx, aa)
+    if not (aa and aa.nextIndex and aa.nextIndex > 0) then return end
+    mq.cmd("/alt buy " .. tostring(aa.nextIndex))
+    if ctx.noteAATrained then ctx.noteAATrained(aa.id) end
+    ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
+    sortCache.key = ""
+    filterCache.key = ""
+end
+
 local function getFilteredList(ctx)
     local list = ctx.getAAList()
     if not list or #list == 0 then return {} end
@@ -201,10 +216,8 @@ function AAView.render(ctx)
         local pointsSummary = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
         local aaPoints = pointsSummary.aaPoints or 0
         for _, aa in ipairs(list or {}) do
-            if aa.name == selectedAAName and aa.canTrain and aaPoints >= (aa.cost or 0) and aa.nextIndex and aa.nextIndex > 0 then
-                mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
-                sortCache.key = ""
+            if aa.name == selectedAAName and aa.canTrain and aaPoints >= (aa.cost or 0) then
+                fireTrain(ctx, aa)
                 break
             end
         end
@@ -367,11 +380,7 @@ function AAView.render(ctx)
                     ImGui.EndTooltip()
                 end
                 if rowHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) and isSelected and aa.canTrain and aaPoints >= (aa.cost or 0) then
-                    if aa.nextIndex and aa.nextIndex > 0 then
-                        mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                        ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
-                        sortCache.key = ""
-                    end
+                    fireTrain(ctx, aa)
                 end
                 ImGui.TableNextColumn()
                 ImGui.Text(string.format("%d/%d", aa.rank or 0, aa.maxRank or 0))
@@ -424,11 +433,8 @@ function AAView.render(ctx)
     if ctx.theme.PushKeepButton then ctx.theme.PushKeepButton(not (canTrainSel and sel)) end
     if ImGui.Button("Train", ImVec2(80, 0)) and canTrainSel and sel then
         for _, aa in ipairs(ctx.getAAList()) do
-            if aa.name == sel and aa.nextIndex and aa.nextIndex > 0 then
-                mq.cmd("/alt buy " .. tostring(aa.nextIndex))
-                ctx.uiState.aaRefreshRequested = true  -- rebuild runs in the main loop, not this frame
-                sortCache.key = ""
-
+            if aa.name == sel then
+                fireTrain(ctx, aa)
                 break
             end
         end
@@ -568,6 +574,7 @@ registry.register({
         ctx.shouldRefreshAA = aa_data.shouldRefresh
         ctx.getAALastRefreshTime = aa_data.getLastRefreshTime
         ctx.isAABuilding = aa_data.isBuilding
+        ctx.noteAATrained = aa_data.noteTrained
         AAView.render(ctx)
     end,
 })

@@ -31,7 +31,79 @@ local lastRefreshTime = 0
 -- chunked across main-loop ticks so a rebuild never hitches a frame.
 local MAX_AA_ID = 65535
 local IDS_PER_PUMP = 2500
-local build = nil  -- { cursor, list, seen } while an incremental rebuild is running
+-- Wall-clock budget per pump. The id cap alone sized the chunk for the sparse
+-- full-range scan (most ids miss, cheap) - but on the plugin path EVERY id is a
+-- hit with a full record build behind it, so one 2500-id chunk was thousands of
+-- TLO evaluations in a single tick: the several-second freeze on window open.
+-- Time is the honest budget; the id cap stays as a backstop.
+local PUMP_BUDGET_MS = 8
+local build = nil  -- { cursor, list, seen, ids?, truth? } while an incremental rebuild is running
+-- Last truth maps fetched from the plugin (owned ranks + per-rank table ids and
+-- costs). Kept for noteTrained's optimistic post-buy bump between rescans.
+local lastTruth = nil
+
+--- Fetch the plugin's truth maps in one place: owned ranks (PcProfile AAList),
+--- per-rank table ids (what /alt buy actually takes - the global TLO's first
+--- group match is NOT rank 1 on this server's custom table), and per-rank
+--- costs. Returns nil when the plugin or its owned-ranks store is unavailable;
+--- rank indexes and costs are optional extras on top of owned.
+local function fetchTruth()
+    local pa = plugAA()
+    if not pa or type(pa.getOwnedRanks) ~= 'function' then return nil end
+    local ok, owned = pcall(pa.getOwnedRanks)
+    if not ok or type(owned) ~= 'table' then return nil end
+    local truth = { owned = owned }
+    if type(pa.getGroupRankIndexes) == 'function' then
+        local okR, m = pcall(pa.getGroupRankIndexes)
+        if okR and type(m) == 'table' then truth.rankIdx = m end
+    end
+    if type(pa.getGroupRankCosts) == 'function' then
+        local okC, m = pcall(pa.getGroupRankCosts)
+        if okC and type(m) == 'table' then truth.rankCosts = m end
+    end
+    return truth
+end
+
+--- Recompute the SPEND fields (nextIndex, cost, canTrain) from a record's rank
+--- and the truth maps. This is the fix for "Train doesn't work" and "Can
+--- Purchase lies": the TLO's character-side reads resolve the level-appropriate
+--- entry, so on partially-trained lines its Rank/CanTrain/NextIndex describe an
+--- ability the character does not own - and /alt buy with that NextIndex gets
+--- the server's "Unable to train". Rank must already be the OWNED rank.
+local function computeDerived(rec, truth)
+    local maxR = tonumber(rec.maxRank) or 0
+    local rank = tonumber(rec.rank) or 0
+    if maxR > 0 and rank >= maxR then
+        rec.nextIndex = 0
+        rec.canTrain = false
+        return
+    end
+    local nextR = rank + 1
+    local grpIdx = truth.rankIdx and truth.rankIdx[rec.id] or nil
+    local grpCosts = truth.rankCosts and truth.rankCosts[rec.id] or nil
+    -- Prereq from owned truth: requiresAbility is a GROUP-ID string; the
+    -- requirement is met when that group's owned rank reaches the stated rank.
+    local reqGid = tonumber(rec.requiresAbility) or 0
+    local prereqOk = reqGid == 0
+        or ((tonumber(truth.owned[reqGid]) or 0) >= (tonumber(rec.requiresAbilityPoints) or 1))
+    if grpIdx then
+        local ix = tonumber(grpIdx[nextR])
+        -- No table entry for the next rank = nothing buyable there (auto-granted
+        -- lines land here); a canTrain without a buyable id is a lie.
+        rec.nextIndex = (ix and ix > 0) and ix or 0
+        rec.canTrain = prereqOk and rec.nextIndex > 0
+    else
+        -- Per-rank table unavailable for this group: keep the scanned nextIndex
+        -- as a last resort and gate canTrain on prereqs alone.
+        rec.canTrain = prereqOk
+    end
+    if grpCosts then
+        local c = tonumber(grpCosts[nextR])
+        -- else keep the flat rank-1 cost from the global entry - stated
+        -- degradation, better than no number.
+        if c then rec.cost = c end
+    end
+end
 
 --- Build fingerprint string: changes when zone/level/AA points change
 local function buildFingerprint()
@@ -47,10 +119,14 @@ end
 --- character-specific rank/canTrain/nextIndex from Me.AltAbility(name).
 local AA_TYPE_NAMES = { [1] = "General", [2] = "Archetype", [3] = "Class", [4] = "Special" }
 
-local function buildRecord(aa, id, name)
+local function buildRecord(aa, id, name, hasTruth)
     local Me = mq.TLO and mq.TLO.Me
     local rank, canTrain, index, nextIndex, myReuseTime = 0, false, 0, 0, 0
-    if Me and Me.AltAbility then
+    -- The character-side resolve is BY NAME (a linear walk client-side) and it
+    -- is also the lying read - with truth maps in hand every field it supplies
+    -- gets overwritten by the completion overlay, so skip the whole call: it
+    -- was the bulk of the scan's cost. (index/myReuseTime have no consumers.)
+    if not hasTruth and Me and Me.AltAbility then
         local myAA = Me.AltAbility(name)
         if myAA then
             rank = (myAA.Rank and myAA.Rank()) or 0
@@ -95,15 +171,20 @@ end
 --- With the plugin, the rebuild walks only the ids the client itself would
 --- show (CanSeeAbility); otherwise it falls back to the full id-space scan.
 function M.refresh()
+    -- Truth maps are fetched at scan START and ride the build: buildRecord
+    -- skips the expensive character-side TLO resolve whenever they exist, and
+    -- the completion overlay applies them. A buy always schedules a fresh
+    -- rescan, so start-of-scan ranks are current for the scan they serve.
+    local truth = fetchTruth()
     local pa = plugAA()
     if pa then
         local ok, ids = pcall(pa.getVisibleAAIds)
         if ok and type(ids) == 'table' and #ids > 0 then
-            build = { ids = ids, cursor = 1, list = {}, seen = {} }
+            build = { ids = ids, cursor = 1, list = {}, seen = {}, truth = truth }
             return
         end
     end
-    build = { cursor = 1, list = {}, seen = {} }
+    build = { cursor = 1, list = {}, seen = {}, truth = truth }
 end
 
 --- True while an incremental rebuild is in progress.
@@ -127,10 +208,16 @@ function M.pump()
         return
     end
     -- Two id sources: the plugin's visible-id list (client-filtered), or the
-    -- full sparse range. Same record building and name-dedupe either way.
+    -- full sparse range. Same record building and name-dedupe either way. The
+    -- loop is TIME-BOXED (checked every 32 ids): the id cap suits the sparse
+    -- scan's cheap misses, but on the visible-ids path every id builds a full
+    -- record and an uncapped chunk froze the game for seconds on window open.
+    local t0 = mq.gettime()
+    local hasTruth = build.truth ~= nil
     local last = build.ids and #build.ids or MAX_AA_ID
     local upper = math.min(build.cursor + IDS_PER_PUMP - 1, last)
-    for k = build.cursor, upper do
+    local k = build.cursor
+    while k <= upper do
         local i = build.ids and build.ids[k] or k
         local aa = i and AltAbility(i)
         if aa and aa.ID then
@@ -139,25 +226,27 @@ function M.pump()
                 local name = (aa.Name and aa.Name()) or ""
                 if name ~= "" and not build.seen[name] then
                     build.seen[name] = true
-                    build.list[#build.list + 1] = buildRecord(aa, id, name)
+                    build.list[#build.list + 1] = buildRecord(aa, id, name, hasTruth)
                 end
             end
         end
+        k = k + 1
+        if k % 32 == 0 and (mq.gettime() - t0) >= PUMP_BUDGET_MS then break end
     end
-    build.cursor = upper + 1
+    build.cursor = k
     if build.cursor > last then
-        -- Overlay TRUE trained ranks from the plugin's owned-ranks store
-        -- (PcProfile AAList). The TLO Rank read above resolves the
-        -- level-appropriate entry and INFLATES partially-trained lines -
-        -- exports and the Cur/Max column must show what is actually owned.
-        local pa = plugAA()
-        if pa and type(pa.getOwnedRanks) == 'function' then
-            local ok, owned = pcall(pa.getOwnedRanks)
-            if ok and type(owned) == 'table' then
-                for _, rec in ipairs(build.list) do
-                    rec.rank = tonumber(owned[rec.id]) or 0
-                end
+        -- Overlay the truth maps fetched at scan start: TRUE trained ranks from
+        -- the plugin's owned-ranks store (PcProfile AAList - the TLO Rank read
+        -- resolves the level-appropriate entry and INFLATES partially-trained
+        -- lines), then the spend fields derived from that rank (next-rank table
+        -- id for /alt buy, next-rank cost, honest canTrain incl. prereqs).
+        local truth = build.truth
+        if truth then
+            for _, rec in ipairs(build.list) do
+                rec.rank = tonumber(truth.owned[rec.id]) or 0
+                computeDerived(rec, truth)
             end
+            lastTruth = truth
         end
         -- Resolve each record's requiresAbility (a GROUP-ID string as the TLO
         -- renders it) to the required ability's NAME. Name-keyed consumers
@@ -182,6 +271,32 @@ end
 --- Return current cached list (do not modify).
 function M.getList()
     return aaList
+end
+
+--- Optimistic post-buy bump: a /alt buy schedules a full rescan, but the old
+--- list keeps serving until it completes - and its nextIndex still points at
+--- the rank just bought, so a repeat-click would re-fire a refused id. Bump the
+--- record in place (rank +1, spend fields recomputed from the truth maps) so
+--- training rank 2,3,4 is repeat-click; the rescan that follows every buy
+--- corrects any drift (e.g. a buy the server refused).
+function M.noteTrained(gid)
+    if not gid then return end
+    for _, rec in ipairs(aaList) do
+        if rec.id == gid then
+            local maxR = tonumber(rec.maxRank) or 0
+            local newRank = (tonumber(rec.rank) or 0) + 1
+            if maxR > 0 and newRank > maxR then newRank = maxR end
+            rec.rank = newRank
+            if lastTruth then
+                -- Owned map is pre-buy; computeDerived reads rec.rank, so the
+                -- bump above is the correction. Refresh the map's view of this
+                -- group too, for any later bump before the rescan lands.
+                lastTruth.owned[gid] = newRank
+                computeDerived(rec, lastTruth)
+            end
+            return
+        end
+    end
 end
 
 --- True if we have never scanned or the fingerprint changed (caller should
