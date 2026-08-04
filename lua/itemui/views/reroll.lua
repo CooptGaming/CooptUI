@@ -159,6 +159,10 @@ local function renderTabContent(ctx, track, rerollService)
         bankConnected and bankList or nil)
     do
         local filled = #tray
+        -- One register per line: this line answers "can I roll" and nothing else. The
+        -- ownership pair (bags N . bank N) is a property of the server LIST, not the
+        -- tray, and lives on the list's header line below — beside "N of 10 ready" it
+        -- read as a second opinion about the same number.
         local header = string.format("%d of %d ready", filled, ITEMS_REQUIRED)
         if filled >= ITEMS_REQUIRED then
             theme.TextSuccess(header)
@@ -167,17 +171,17 @@ local function renderTabContent(ctx, track, rerollService)
         else
             theme.TextMuted(header)
         end
-        ImGui.SameLine(0, 8)
-        if countInBank > 0 then
-            theme.TextMuted(string.format("bags %d . bank %d", countInInv, countInBank))
-        else
-            theme.TextMuted(string.format("bags %d", countInInv))
-        end
 
-        -- Two rows of five. Each cell is a fixed-width, borderless child so a long item
-        -- name reflows inside its slot instead of shoving the next one sideways.
+        -- Two rows of five. Each cell is a fixed-width child so a long item name stays
+        -- inside its slot instead of shoving the next one sideways — and each cell is
+        -- CONTAINED: the kit's Inset wash (whose definition names tray cells) plus a 1px
+        -- Divider hairline. Ten floating labels read as a wrapped sentence; ten bounded
+        -- slots are countable, and an EMPTY slot only states the shortfall if it is
+        -- visible as a slot.
         local cellW = TRAY_CELL_W
         local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
+        local cellH = lineH + 6
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(theme.Kit.Inset))
         for i = 1, ITEMS_REQUIRED do
             if (i - 1) % TRAY_PER_ROW ~= 0 then ImGui.SameLine(0, 4) end
             local slot = tray[i]
@@ -187,26 +191,56 @@ local function renderTabContent(ctx, track, rerollService)
                 -- (8px top and bottom) — which would leave a lineH+6 cell with negative
                 -- room for its own text and clip every slot label. Same class as the
                 -- bar-button clipping this session already fixed: the container has to
-                -- pay for what it draws.
-                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, lineH + 6), false,
+                -- pay for what it draws. Containment is the ChildBg wash plus the
+                -- hairline drawn after EndChild — never the border flag.
+                if ImGui.BeginChild("rerollTray_" .. track .. "_" .. i, ImVec2(cellW, cellH), false,
                         bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
                     if slot then
                         -- Location is the tint, same vocabulary the list table uses:
-                        -- in bags = ready, in bank = has to be fetched first.
+                        -- in bags = ready, in bank = has to be fetched first. Inside a
+                        -- bounded cell the truncation marker is ".." — one dot reads as
+                        -- a period; two read as deliberate.
                         local name = tostring(slot.name or "?")
-                        if #name > TRAY_NAME_MAX then name = name:sub(1, TRAY_NAME_MAX - 1) .. "." end
+                        if #name > TRAY_NAME_MAX then name = name:sub(1, TRAY_NAME_MAX - 2) .. ".." end
+                        ImGui.SetCursorPosX(3)
+                        ImGui.SetCursorPosY(3)
                         if slot.where == "bank" then
                             theme.TextWarning(name)
                         else
                             theme.TextSuccess(name)
                         end
                     else
+                        -- Centered in the visible slot: "empty" is the fact the tray
+                        -- exists to state, not filler text.
+                        local tw = ImGui.CalcTextSize and ImGui.CalcTextSize("empty")
+                        if type(tw) == "number" and tw > 0 and tw < cellW then
+                            ImGui.SetCursorPosX((cellW - tw) * 0.5)
+                        else
+                            ImGui.SetCursorPosX(3)
+                        end
+                        ImGui.SetCursorPosY(3)
                         theme.TextMuted("empty")
                     end
                 end
                 ImGui.EndChild()
             end)
             if not okCell then break end
+            -- The 1px hairline over the cell's rect. Four AddRectFilled strips, not
+            -- AddRect: an outline is unproven in this binding (window_header records
+            -- why), and filled strips are what ships everywhere else.
+            pcall(function()
+                local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+                if not dl or not dl.AddRectFilled then return end
+                local x1, y1 = ImGui.GetItemRectMin()
+                local x2, y2 = ImGui.GetItemRectMax()
+                if type(x1) ~= "number" or type(x2) ~= "number" then return end
+                local col = ImGui.GetColorU32 and ImGui.GetColorU32(theme.ToVec4(theme.Kit.Divider))
+                    or 0xFF302B2B
+                dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 1), col)
+                dl:AddRectFilled(ImVec2(x1, y2 - 1), ImVec2(x2, y2), col)
+                dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 1, y2), col)
+                dl:AddRectFilled(ImVec2(x2 - 1, y1), ImVec2(x2, y2), col)
+            end)
             if slot and ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
                 ImGui.Text(tostring(slot.name or "?"))
@@ -215,6 +249,7 @@ local function renderTabContent(ctx, track, rerollService)
                 ImGui.EndTooltip()
             end
         end
+        ImGui.PopStyleColor(1)
     end
 
     -- Action buttons row. Add auto-routes by cursor item: Mythical-prefixed -> mythical list,
@@ -235,12 +270,93 @@ local function renderTabContent(ctx, track, rerollService)
         bankConnected, countInBank)
     local rollDisabled = rollBlockedText ~= nil
 
-    -- OWN line, flush left. A SameLine here hung the whole button row off the tray's
-    -- second row, so at field widths only "Add to Reroll (from Cur..." survived the right
-    -- edge and Remove/Roll/Refresh/Sync were all clipped invisible -- photographed in the
-    -- fullscreen-bankopen capture, and the reason "the reroll has no way to sync" was a
-    -- true statement about the pixels.
+    -- Verbs grouped by what they act on, top to bottom in consequence order: Roll
+    -- (consumes the tray) alone with its printed reason; Add/Remove (edit the list);
+    -- Refresh/Sync (talk to the server). Every confirm and failure surface anchors
+    -- directly under the row that owns it — always the same home. Each row starts flush
+    -- left: a SameLine chain here once hung the whole strip off the tray's second row
+    -- and clipped every button past the right edge ("the reroll has no way to sync" was
+    -- a true statement about the pixels, photographed in fullscreen-bankopen).
+    local groupGap = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
     ImGui.Spacing()
+
+    -- Row 1: Roll — the primary verb, directly under the tray it consumes.
+    if rollDisabled then
+        theme.PushKeepButton(true)
+    else
+        theme.PushKeepButton(false)
+    end
+    -- The label stays "Roll" in every state (20b: same slot, same width, the reason lives
+    -- beside it) rather than becoming "Moving 3/7" — a button whose text changes under
+    -- your cursor is a button you misclick.
+    if ImGui.Button("Roll##" .. track, ImVec2(60, 0)) then
+        if not rollDisabled then ctx.uiState[pendingRollKey] = true end
+    end
+    theme.PopButtonColors()
+    -- 20b: the reason is PRINTED, not hovered. Kit §3.5 - "Disabled = with the reason
+    -- printed beside it, never in a tooltip."
+    if rollBlockedText then
+        ImGui.SameLine(0, 8)
+        theme.TextMuted(rollBlockedText)
+    end
+
+    -- Roll's confirm, at its fixed home under Roll's own row.
+    if pendingRoll then
+        theme.TextWarning("Roll will consume 10 listed items from your inventory. Continue?")
+        ImGui.SameLine()
+        theme.PushKeepButton(false)
+        if ImGui.Button("Confirm Roll##" .. track, ImVec2(100, 0)) then
+            -- Sized from the TRAY, which is what the user was just looking at: exactly the
+            -- distinct bank ROWS its entries came from. The old arithmetic
+            -- (ITEMS_REQUIRED - countInInv) mixed units and rows — countInInventory counts
+            -- rows and ignores stackSize — so a stack of four listed augs in bags filled
+            -- four tray slots while the pre-flight still believed nine had to be fetched.
+            local bankItemsToMove = trayBankRows or {}
+            local needToMove = #bankItemsToMove
+            if needToMove > 0 then
+                -- Pre-flight: need free bag space for the bank ROWS we'll move
+                local freeSlots = (ctx.countFreeInvSlots and ctx.countFreeInvSlots()) or 0
+                if freeSlots < needToMove then
+                    setStatusMessage(string.format("Need %d free bag slots to move items from bank; you have %d. Free %d more.", needToMove, freeSlots, needToMove - freeSlots))
+                    -- Keep pendingRoll so they can fix and try again
+                elseif not bankConnected then
+                    setStatusMessage("Bank must be open to use bank items for roll.")
+                else
+                    do
+                        -- Start bank-to-bag move sequence; main_loop will process one per tick then trigger roll
+                        -- Pause location cache updates so each move doesn't trigger a rebuild
+                        rerollService.pauseLocationCache()
+                        ctx.uiState.pendingRerollBankMoves = { list = track, items = bankItemsToMove, nextIndex = 1 }
+                        ctx.uiState[pendingRollKey] = nil
+                        setStatusMessage(string.format("Moving %d item(s) from bank...", needToMove))
+                    end
+                end
+            else
+                -- Enough in inventory already; roll immediately
+                rerollService.pauseLocationCache()
+                if isAug then
+                    rerollService.augRoll()
+                    ctx.uiState.pendingAugRollComplete = true
+                    ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
+                else
+                    rerollService.mythicalRoll()
+                    -- Schedule reroll quick refresh so count updates and next roll doesn't use stale items.
+                    ctx.uiState.rerollPendingScan = true
+                    ctx.uiState.rerollPendingScanAt = (mq and mq.gettime and mq.gettime()) or 0
+                end
+                ctx.uiState[pendingRollKey] = nil
+            end
+        end
+        theme.PopButtonColors()
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##Roll" .. track, ImVec2(60, 0)) then
+            ctx.uiState[pendingRollKey] = nil
+        end
+    end
+
+    ImGui.Dummy(ImVec2(1, groupGap))
+
+    -- Row 2: the list editors.
     if addDisabled then
         theme.PushKeepButton(true)
     else
@@ -274,7 +390,7 @@ local function renderTabContent(ctx, track, rerollService)
     end
     theme.PopButtonColors()
 
-    ImGui.SameLine()
+    ImGui.SameLine(0, 8)
     theme.PushDeleteButton()
     local removeLabel = "Remove##" .. track
     if ImGui.Button(removeLabel, ImVec2(70, 0)) then
@@ -287,32 +403,39 @@ local function renderTabContent(ctx, track, rerollService)
     ImGui.PopStyleColor(3)
     if ImGui.IsItemHovered() then ImGui.BeginTooltip(); ImGui.Text("Select a row (or use context menu), then click Remove to confirm."); ImGui.EndTooltip() end
 
-    ImGui.SameLine()
-    if rollDisabled then
-        theme.PushKeepButton(true)
-    else
-        theme.PushKeepButton(false)
-    end
-    -- The label stays "Roll" in every state (20b: same slot, same width, the reason lives
-    -- beside it) rather than becoming "Moving 3/7" — a button whose text changes under
-    -- your cursor is a button you misclick.
-    if ImGui.Button("Roll##" .. track, ImVec2(60, 0)) then
-        if not rollDisabled then ctx.uiState[pendingRollKey] = true end
-    end
-    theme.PopButtonColors()
-    -- 20b: the reason is PRINTED, not hovered. Kit §3.5 - "Disabled = with the reason
-    -- printed beside it, never in a tooltip."
-    if rollBlockedText then
-        ImGui.SameLine(0, 8)
-        theme.TextMuted(rollBlockedText)
+    -- The list editors' confirm, at its fixed home under their row. It names the ITEM —
+    -- ids are the wire's vocabulary, names are the user's; the id stays reachable on the
+    -- row's hover tooltip and keys the removal internally, unchanged.
+    if pendingRemoveId then
+        local removeName
+        for _, e in ipairs(list) do
+            if e.id == pendingRemoveId then removeName = e.name; break end
+        end
+        local ask = (removeName and removeName ~= "")
+            and string.format("Remove %s?", removeName)
+            or string.format("Remove item ID %s?", tostring(pendingRemoveId))
+        theme.TextWarning(ask)
+        ImGui.SameLine()
+        if ImGui.Button("Confirm Remove##" .. track, ImVec2(120, 0)) then
+            if isAug then rerollService.removeAug(pendingRemoveId) else rerollService.removeMythical(pendingRemoveId) end
+            ctx.uiState[pendingRemoveKey] = nil
+            ctx.uiState[selectedKey] = nil
+            if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
+            if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
+            if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
+            if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##Remove" .. track, ImVec2(60, 0)) then
+            ctx.uiState[pendingRemoveKey] = nil
+        end
     end
 
-    -- Refresh and Sync Pending live on their OWN row. They used to trail the
-    -- Add/Remove/Roll row, which with its printed roll-reason runs past 500px -- and the
-    -- window's floor is 420, so at field widths Sync Pending sat clipped off the right
-    -- edge. A sync surface that exists but cannot be seen was field-reported as "the
-    -- reroll has no way to sync" -- which, for the person looking at the window, it did
-    -- not.
+    ImGui.Dummy(ImVec2(1, groupGap))
+
+    -- Row 3: the server verbs. Sync Pending used to sit clipped off the right edge when
+    -- these trailed the editor row past the 420px window floor — a sync surface that
+    -- exists but cannot be seen was field-reported as "the reroll has no way to sync".
     if ImGui.Button("Refresh##" .. track, ImVec2(70, 0)) then
         rerollService.requestBothLists()
     end
@@ -324,7 +447,7 @@ local function renderTabContent(ctx, track, rerollService)
     local sync = rerollState.pendingRerollSync
     local syncActive = sync and sync.list == track
     local syncPendingDisabled = (not inGuildHall or pendingCount == 0) and not syncActive
-    ImGui.SameLine()
+    ImGui.SameLine(0, 8)
     if syncPendingDisabled then
         theme.PushKeepButton(true)
     else
@@ -383,95 +506,29 @@ local function renderTabContent(ctx, track, rerollService)
 
     ImGui.Separator()
 
-    -- Pending remove confirmation
-    if pendingRemoveId then
-        theme.TextWarning("Remove item ID " .. tostring(pendingRemoveId) .. " from list?")
-        ImGui.SameLine()
-        if ImGui.Button("Confirm Remove##" .. track, ImVec2(120, 0)) then
-            if isAug then rerollService.removeAug(pendingRemoveId) else rerollService.removeMythical(pendingRemoveId) end
-            ctx.uiState[pendingRemoveKey] = nil
-            ctx.uiState[selectedKey] = nil
-            if ctx.invalidateSellConfigCache then ctx.invalidateSellConfigCache() end
-            if ctx.invalidateLootConfigCache then ctx.invalidateLootConfigCache() end
-            if ctx.computeAndAttachSellStatus and ctx.inventoryItems and #ctx.inventoryItems > 0 then ctx.computeAndAttachSellStatus(ctx.inventoryItems) end
-            if ctx.computeAndAttachSellStatus and ctx.bankItems and #ctx.bankItems > 0 then ctx.computeAndAttachSellStatus(ctx.bankItems) end
-        end
-        ImGui.SameLine()
-        if ImGui.Button("Cancel##Remove" .. track, ImVec2(60, 0)) then
-            ctx.uiState[pendingRemoveKey] = nil
-        end
-        ImGui.Separator()
-    end
-
-    -- Pending roll confirmation
-    if pendingRoll then
-        theme.TextWarning("Roll will consume 10 listed items from your inventory. Continue?")
-        ImGui.SameLine()
-        theme.PushKeepButton(false)
-        if ImGui.Button("Confirm Roll##" .. track, ImVec2(100, 0)) then
-            -- Sized from the TRAY, which is what the user was just looking at: exactly the
-            -- distinct bank ROWS its entries came from. The old arithmetic
-            -- (ITEMS_REQUIRED - countInInv) mixed units and rows — countInInventory counts
-            -- rows and ignores stackSize — so a stack of four listed augs in bags filled
-            -- four tray slots while the pre-flight still believed nine had to be fetched.
-            local bankItemsToMove = trayBankRows or {}
-            local needToMove = #bankItemsToMove
-            if needToMove > 0 then
-                -- Pre-flight: need free bag space for the bank ROWS we'll move
-                local freeSlots = (ctx.countFreeInvSlots and ctx.countFreeInvSlots()) or 0
-                if freeSlots < needToMove then
-                    setStatusMessage(string.format("Need %d free bag slots to move items from bank; you have %d. Free %d more.", needToMove, freeSlots, needToMove - freeSlots))
-                    -- Keep pendingRoll so they can fix and try again
-                elseif not bankConnected then
-                    setStatusMessage("Bank must be open to use bank items for roll.")
-                else
-                    do
-                        -- Start bank-to-bag move sequence; main_loop will process one per tick then trigger roll
-                        -- Pause location cache updates so each move doesn't trigger a rebuild
-                        rerollService.pauseLocationCache()
-                        ctx.uiState.pendingRerollBankMoves = { list = track, items = bankItemsToMove, nextIndex = 1 }
-                        ctx.uiState[pendingRollKey] = nil
-                        setStatusMessage(string.format("Moving %d item(s) from bank...", needToMove))
-                    end
-                end
-            else
-                -- Enough in inventory already; roll immediately
-                rerollService.pauseLocationCache()
-                if isAug then
-                    rerollService.augRoll()
-                    ctx.uiState.pendingAugRollComplete = true
-                    ctx.uiState.pendingAugRollCompleteAt = (mq and mq.gettime and mq.gettime()) or 0
-                else
-                    rerollService.mythicalRoll()
-                    -- Schedule reroll quick refresh so count updates and next roll doesn't use stale items.
-                    ctx.uiState.rerollPendingScan = true
-                    ctx.uiState.rerollPendingScanAt = (mq and mq.gettime and mq.gettime()) or 0
-                end
-                ctx.uiState[pendingRollKey] = nil
-            end
-        end
-        theme.PopButtonColors()
-        ImGui.SameLine()
-        if ImGui.Button("Cancel##Roll" .. track, ImVec2(60, 0)) then
-            ctx.uiState[pendingRollKey] = nil
-        end
-        ImGui.Separator()
-    end
-
-    -- Server list table: Name, Item ID, Status (Available / List Only), Location (Inventory / Bank / —)
+    -- Server list table: Name, Status (Available / List Only), Location (Inventory /
+    -- Bank / —). No Item ID column: names are the user's vocabulary, ids are the wire's —
+    -- the id rides every row's hover tooltip instead (the tray cells' pattern). The muted
+    -- ownership pair lives on this header because it is a property of this LIST ("what do
+    -- I own on it"), not of the tray above.
     theme.TextHeader(isAug and "Server reroll list (augments)" or "Server reroll list (mythicals)")
+    ImGui.SameLine(0, 8)
+    if countInBank > 0 then
+        theme.TextMuted(string.format(". yours: bags %d . bank %d", countInInv, countInBank))
+    else
+        theme.TextMuted(string.format(". yours: bags %d", countInInv))
+    end
     if #list == 0 then
         theme.TextMuted(isAug and "No augments on list. Add from cursor or refresh." or "No mythicals on list. Add from cursor or refresh.")
     else
     -- Use cached deduplicated list (rebuilt only when list generation changes)
     local uniqueList = isAug and rerollService.getUniqueAugList() or rerollService.getUniqueMythicalList()
     local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
-    local nCols = 4
+    local nCols = 3
     if ImGui.BeginTable("RerollList_" .. track, nCols, tableFlags) then
         ImGui.TableSetupColumn("Item Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 0, 0)
-        ImGui.TableSetupColumn("Item ID", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 60, 1)
-        ImGui.TableSetupColumn("Status", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 2)
-        ImGui.TableSetupColumn("Location", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 3)
+        ImGui.TableSetupColumn("Status", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 1)
+        ImGui.TableSetupColumn("Location", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable), 80, 2)
         ImGui.TableSetupScrollFreeze(0, 1)
         ImGui.TableHeadersRow()
 
@@ -511,9 +568,6 @@ local function renderTabContent(ctx, track, rerollService)
                     primary_lt = an < bn
                     primary_gt = an > bn
                 elseif sortCol == 1 then
-                    primary_lt = aid < bid
-                    primary_gt = aid > bid
-                elseif sortCol == 2 then
                     -- Status: Available (inv or bank) = 1, List Only = 0
                     local av = (inInvSet[a.id] or inBankSet[a.id]) and 1 or 0
                     local bv = (inInvSet[b.id] or inBankSet[b.id]) and 1 or 0
@@ -591,10 +645,15 @@ local function renderTabContent(ctx, track, rerollService)
                         local opts = { source = tipSource, bag = tipItem.bag, slot = tipItem.slot }
                         local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                         opts.effects = effects
-                        ItemTooltip.beginItemTooltip(w, h)
+                        -- The id rides the tooltip now that the column is gone. The
+                        -- tooltip is sized EXACTLY by prepareTooltipContent, so the extra
+                        -- line must pay for its own height or it clips.
+                        local idLineH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 4
+                        ItemTooltip.beginItemTooltip(w, (h or 0) + idLineH)
                         ImGui.Text("Stats")
                         ImGui.Separator()
                         ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                        theme.TextMuted(string.format("id %s", tostring(entry.id)))
                         ImGui.EndTooltip()
                     end
                 else
@@ -617,9 +676,6 @@ local function renderTabContent(ctx, track, rerollService)
                 rerollEntryId = entry.id,
             })
             ImGui.PopID()
-
-            ImGui.TableNextColumn()
-            ImGui.Text(tostring(entry.id or "\xe2\x80\x94"))
 
             -- Status column: Available or List Only
             ImGui.TableNextColumn()
@@ -662,18 +718,21 @@ local function renderTabContent(ctx, track, rerollService)
         theme.TextHeader("Pending (sync in guild hall)")
         ImGui.Text(string.format("%d item(s) will be added to server list when you sync in guild hall.", pendingCount))
         local plist = isAug and rerollService.getPendingAugList() or rerollService.getPendingMythicalList()
-        if plist and #plist > 0 and ImGui.BeginTable("RerollPending_" .. track, 3, ctx.uiState.tableFlags or 0) then
+        if plist and #plist > 0 and ImGui.BeginTable("RerollPending_" .. track, 2, ctx.uiState.tableFlags or 0) then
             ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch, 0, 0)
-            ImGui.TableSetupColumn("Item ID", ImGuiTableColumnFlags.WidthFixed, 60, 1)
-            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70, 2)
+            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 70, 1)
             ImGui.TableHeadersRow()
             for pidx, pe in ipairs(plist) do
                 ImGui.PushID("RerollPending_" .. track .. "_" .. tostring(pidx))
                 ImGui.TableNextRow()
                 ImGui.TableNextColumn()
                 theme.TextWarning(pe.name or ("ID " .. tostring(pe.id)))
-                ImGui.TableNextColumn()
-                ImGui.Text(tostring(pe.id or "-"))
+                if ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text(tostring(pe.name or "?"))
+                    ImGui.Text(string.format("id %s . waiting to sync", tostring(pe.id)))
+                    ImGui.EndTooltip()
+                end
                 ImGui.TableNextColumn()
                 if ImGui.Button("Remove##RerollPending" .. tostring(pe.id), ImVec2(64, 0)) then
                     rerollService.removeFromPending(track, pe.id)
@@ -695,10 +754,9 @@ local function renderTabContent(ctx, track, rerollService)
         theme.TextMuted(isAug and "No augmentations in your bags." or "No mythical items in your bags.")
     else
         local invTableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
-        if ImGui.BeginTable("RerollInv_" .. track, 3, invTableFlags) then
+        if ImGui.BeginTable("RerollInv_" .. track, 2, invTableFlags) then
             ImGui.TableSetupColumn("Item Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 0)
-            ImGui.TableSetupColumn("Item ID", ImGuiTableColumnFlags.WidthFixed, 60, 1)
-            ImGui.TableSetupColumn("On list", ImGuiTableColumnFlags.WidthFixed, 70, 2)
+            ImGui.TableSetupColumn("On list", ImGuiTableColumnFlags.WidthFixed, 70, 1)
             ImGui.TableSetupScrollFreeze(0, 1)
             ImGui.TableHeadersRow()
             for idx, it in ipairs(invFiltered) do
@@ -718,21 +776,28 @@ local function renderTabContent(ctx, track, rerollService)
                 else
                     ImGui.Text(dispName)
                 end
-                if ImGui.IsItemHovered() and ctx.getItemStatsForTooltip then
-                    local showItem = ctx.getItemStatsForTooltip(it, "inv")
+                if ImGui.IsItemHovered() then
+                    local showItem = ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip(it, "inv")
                     if showItem then
                         local opts = { source = "inv", bag = it.bag, slot = it.slot }
                         local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                         opts.effects = effects
-                        ItemTooltip.beginItemTooltip(w, h)
+                        -- Same contract as the server list: the id rides the tooltip and
+                        -- pays for its own line, because the size is exact.
+                        local idLineH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 4
+                        ItemTooltip.beginItemTooltip(w, (h or 0) + idLineH)
                         ImGui.Text("Stats")
                         ImGui.Separator()
                         ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                        theme.TextMuted(string.format("id %s", tostring(id or "?")))
+                        ImGui.EndTooltip()
+                    else
+                        ImGui.BeginTooltip()
+                        ImGui.Text(tostring(it.name or "?"))
+                        ImGui.Text(string.format("id %s", tostring(id or "?")))
                         ImGui.EndTooltip()
                     end
                 end
-                ImGui.TableNextColumn()
-                ImGui.Text(tostring(id or "\xe2\x80\x94"))
                 ImGui.TableNextColumn()
                 if onList then
                     theme.TextSuccess("Yes")
