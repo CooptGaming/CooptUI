@@ -316,8 +316,10 @@ the `Dock*` keys for the edge, the chat height and which slots you kept.
 
 ## Not here yet
 
-- **Consolidate.** The bags-full state offers **Open Bags** and **Sell N now**. Actual bag
-  consolidation doesn't exist in CoOpt yet, so there's no button pretending it does.
+- **Consolidate — scrapped, not deferred** (ruled in the field, 2026-08-03): the way the
+  UI works it wouldn't add any benefit, so it comes off the list rather than sitting on it.
+  The bags-full state offers **Open Bags** and **Sell N now**, and no button pretends
+  otherwise.
 - **Live drag guides.** The yellow alignment guides from the mockups are deferred — they
   need per-window draw hooks. Snapping itself works; you just don't see lines while dragging.
 - **Take/Pass hotkeys.** The decision buttons are buttons only — ruled in the field
