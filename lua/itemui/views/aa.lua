@@ -23,12 +23,22 @@ local searchText = ""
 local searchTextApplied = ""
 local searchDebounceAt = 0
 local selectedAAName = nil
-local canPurchaseOnly = false
+-- The lens (mockup aa_inshape): Can Purchase promoted from a footer checkbox to the
+-- window's visible filter - "buy" | "progress" | "all". Session state, like the old
+-- checkbox; the counts live in the chip labels so the window states how many
+-- decisions exist before you scroll.
+local aaLens = "all"
 -- Sort cache
 local sortCache = { key = "", list = {} }
--- Filter cache: the tab/search/can-purchase pass over ~2k records used to
--- re-run (and re-allocate) every frame; only the SORT was cached.
+-- Two-stage filter cache over ~2k records: stage 1 (tab + search) also carries the
+-- lens COUNTS, stage 2 applies the lens. Split so the chip labels can count the
+-- other lenses without a second full pass.
+local baseCache = { key = "", list = {}, canBuyN = 0, inProgN = 0 }
 local filterCache = { key = "", list = {} }
+
+--- Rail cache: per-selection derived data (next-rank description via one TLO read,
+--- the prereq's owned rank) so the right rail never does per-frame TLO or list walks.
+local railCache = { sel = nil, gen = nil, nextDesc = nil, reqOwned = 0 }
 
 --- The one train path (Enter, double-click, and the Train button all land
 --- here). Fires the buy at the record's nextIndex - which the truth overlay
@@ -45,72 +55,99 @@ local function fireTrain(ctx, aa)
     filterCache.key = ""
 end
 
+--- True when the record is buyable right now (the "Can buy" lens and the green cost).
+local function isBuyable(aa, points)
+    return aa.canTrain and points >= (aa.cost or 0)
+end
+
+--- True when the line is started but not finished (the "In progress" lens).
+local function isInProgress(aa)
+    local r = tonumber(aa.rank) or 0
+    local m = tonumber(aa.maxRank) or 0
+    return r > 0 and (m == 0 or r < m)
+end
+
 local function getFilteredList(ctx)
     local list = ctx.getAAList()
-    if not list or #list == 0 then return {} end
-    local tab = (ctx.sortState.aaTab and ctx.sortState.aaTab >= 1 and ctx.sortState.aaTab <= 4) and ctx.sortState.aaTab or 1
-    local ptsKey = 0
-    if canPurchaseOnly then
-        local points = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
-        ptsKey = points.aaPoints or 0
+    if not list or #list == 0 then
+        baseCache.key, baseCache.list, baseCache.canBuyN, baseCache.inProgN = "", {}, 0, 0
+        return {}
     end
+    local tab = (ctx.sortState.aaTab and ctx.sortState.aaTab >= 1 and ctx.sortState.aaTab <= 4) and ctx.sortState.aaTab or 1
+    local points = ((ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}).aaPoints or 0
     local rt = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
-    local cacheKey = string.format("%d|%s|%s|%d|%d|%s", tab, searchTextApplied or "",
-        canPurchaseOnly and "1" or "0", #list, ptsKey, tostring(rt))
-    if filterCache.key == cacheKey then return filterCache.list end
-    local tabName = TAB_NAMES[tab]
-    local filtered = {}
-    for i = 1, #list do
-        local aa = list[i]
-        -- Prefer the numeric Type (matches the client's own AA window tabs);
-        -- fall back to the category string for records without one.
-        local t = tonumber(aa.aatype) or 0
-        if t >= 1 and t <= 4 then
-            if t == tab then filtered[#filtered + 1] = aa end
-        else
-            local cat = (aa.category or ""):lower()
-            if tab == 1 then
-                if cat == "" or cat == "general" or (cat ~= "archetype" and cat ~= "class" and cat ~= "special") then
+    -- Stage 1: tab + search (points ride the key because the canBuy COUNT depends on them).
+    local baseKey = string.format("%d|%s|%d|%d|%s", tab, searchTextApplied or "", #list, points, tostring(rt))
+    if baseCache.key ~= baseKey then
+        local filtered = {}
+        for i = 1, #list do
+            local aa = list[i]
+            -- Prefer the numeric Type (matches the client's own AA window tabs);
+            -- fall back to the category string for records without one.
+            local t = tonumber(aa.aatype) or 0
+            if t >= 1 and t <= 4 then
+                if t == tab then filtered[#filtered + 1] = aa end
+            else
+                local cat = (aa.category or ""):lower()
+                if tab == 1 then
+                    if cat == "" or cat == "general" or (cat ~= "archetype" and cat ~= "class" and cat ~= "special") then
+                        filtered[#filtered + 1] = aa
+                    end
+                elseif (tab == 2 and cat == "archetype") or (tab == 3 and cat == "class") or (tab == 4 and cat == "special") then
                     filtered[#filtered + 1] = aa
                 end
-            elseif (tab == 2 and cat == "archetype") or (tab == 3 and cat == "class") or (tab == 4 and cat == "special") then
-                filtered[#filtered + 1] = aa
             end
         end
-    end
-    -- Search filter
-    local search = (searchTextApplied or ""):lower()
-    if search ~= "" then
-        local out = {}
-        for _, aa in ipairs(filtered) do
-            if (aa.name and aa.name:lower():find(search, 1, true)) or (aa.category and aa.category:lower():find(search, 1, true)) then
-                out[#out + 1] = aa
+        local search = (searchTextApplied or ""):lower()
+        if search ~= "" then
+            local out = {}
+            for _, aa in ipairs(filtered) do
+                if (aa.name and aa.name:lower():find(search, 1, true)) or (aa.category and aa.category:lower():find(search, 1, true)) then
+                    out[#out + 1] = aa
+                end
             end
+            filtered = out
         end
-        filtered = out
-    end
-    -- Can Purchase filter
-    if canPurchaseOnly then
-        local out = {}
+        local canBuyN, inProgN = 0, 0
         for _, aa in ipairs(filtered) do
-            if aa.canTrain and ptsKey >= (aa.cost or 0) then out[#out + 1] = aa end
+            if isBuyable(aa, points) then canBuyN = canBuyN + 1 end
+            if isInProgress(aa) then inProgN = inProgN + 1 end
         end
-        filtered = out
+        baseCache.key = baseKey
+        baseCache.list = filtered
+        baseCache.canBuyN = canBuyN
+        baseCache.inProgN = inProgN
     end
-    filterCache.key = cacheKey
-    filterCache.list = filtered
-    return filtered
+    -- Stage 2: the lens.
+    local lensKey = baseCache.key .. "|" .. aaLens
+    if filterCache.key == lensKey then return filterCache.list end
+    local out
+    if aaLens == "buy" then
+        out = {}
+        for _, aa in ipairs(baseCache.list) do
+            if isBuyable(aa, points) then out[#out + 1] = aa end
+        end
+    elseif aaLens == "progress" then
+        out = {}
+        for _, aa in ipairs(baseCache.list) do
+            if isInProgress(aa) then out[#out + 1] = aa end
+        end
+    else
+        out = baseCache.list
+    end
+    filterCache.key = lensKey
+    filterCache.list = out
+    return out
 end
 
 local function buildSortKey(ctx, filtered)
     local col = ctx.sortState.aaColumn or "Title"
     local dir = ctx.sortState.aaDirection or ImGuiSortDirection.Ascending
     local tab = ctx.sortState.aaTab or 1
-    local cp = canPurchaseOnly and "1" or "0"
     -- aaDataRefreshedAt: bumped by the main loop when a deferred AA rebuild completes,
     -- so freshly rebuilt rows always miss the cache.
     local rt = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
-    return string.format("%s|%d|%d|%s|%d|%s|%s", col, dir, tab, searchTextApplied or "", #filtered, cp, tostring(rt))
+    return string.format("%s|%d|%d|%s|%d|%s|%s", col, dir, tab, searchTextApplied or "", #filtered, aaLens, tostring(rt))
 end
 
 local function getSortedList(ctx, filtered)
@@ -291,22 +328,42 @@ function AAView.render(ctx)
     end
     ImGui.Spacing()
 
-    -- Search
+    local filtered = getFilteredList(ctx)
+    local pointsSummary = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
+    local aaPoints = pointsSummary.aaPoints or 0
+
+    -- Search + the lens chips (mockup aa_inshape): Can Purchase promoted from a footer
+    -- checkbox to the window's visible filter, counts in the labels - "Can buy (3)" is
+    -- the window stating how many decisions exist before you scroll.
     ImGui.Text("Search:")
     ImGui.SameLine()
-    ImGui.SetNextItemWidth(200)
+    ImGui.SetNextItemWidth(150)
     local changed
     searchText, changed = ImGui.InputText("##AASearch", searchText or "")
     if changed then searchDebounceAt = mq.gettime() end
     ImGui.SameLine()
     if ImGui.Button("X##AAClearSearch", ImVec2(22, 0)) then searchText = ""; searchTextApplied = ""; sortCache.key = "" end
+    ImGui.SameLine(0, 12)
+    do
+        local chips = {
+            { lens = "buy", label = string.format("Can buy (%d)", baseCache.canBuyN or 0) },
+            { lens = "progress", label = string.format("In progress (%d)", baseCache.inProgN or 0) },
+            { lens = "all", label = string.format("All (%d)", #(baseCache.list or {})) },
+        }
+        for ci, c in ipairs(chips) do
+            if ci > 1 then ImGui.SameLine(0, 6) end
+            if windowHeader.chip(c.label, "aaLens_" .. c.lens, aaLens == c.lens, "bottom") then
+                aaLens = c.lens
+                sortCache.key = ""
+            end
+        end
+    end
     if not barsOn then
         -- In bars the band above owns Refresh -- two buttons doing the identical thing on
         -- one window is the redundancy the §9 pass deletes.
         ImGui.SameLine()
         ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
     end
-    ImGui.SameLine()
     if ctx.isAABuilding and ctx.isAABuilding() then
         ctx.theme.TextWarning("Scanning AA tables...")
     else
@@ -314,13 +371,33 @@ function AAView.render(ctx)
     end
     ImGui.Spacing()
 
-    local filtered = getFilteredList(ctx)
     local sorted = getSortedList(ctx, filtered)
-    local pointsSummary = (ctx.getAAPointsSummary and ctx.getAAPointsSummary()) or {}
-    local aaPoints = pointsSummary.aaPoints or 0
 
     -- Two columns: left = table, right = panel
     ImGui.BeginChild("AALeft", ImVec2(-220, -80), true)
+    -- Three-way empty state (mockup aa_inshape, the augment_utility pattern): a scan in
+    -- flight, a lens/search that filtered everything out, and a truly empty list are
+    -- three different facts and each names its own way out.
+    if #sorted == 0 then
+        if ctx.isAABuilding and ctx.isAABuilding() then
+            ctx.theme.TextWarning("Scanning AA tables...")
+        elseif #(ctx.getAAList() or {}) == 0 then
+            ctx.theme.TextMuted("No AA data yet. Refresh to scan.")
+        elseif aaLens == "buy" then
+            ctx.theme.TextWarning("Nothing you can buy right now.")
+            local remain = {}
+            if (baseCache.inProgN or 0) > 0 then remain[#remain + 1] = "In progress" end
+            if #(baseCache.list or {}) > 0 then remain[#remain + 1] = "All" end
+            if #remain > 0 then
+                ctx.theme.TextMuted(table.concat(remain, " and ") .. " still "
+                    .. (#remain == 1 and "has" or "have") .. " entries.")
+            end
+        elseif aaLens == "progress" then
+            ctx.theme.TextMuted("Nothing in progress on this tab. All still has entries.")
+        else
+            ctx.theme.TextMuted("Nothing matches your search.")
+        end
+    else
     local colNames = { "Title", "Cur/Max", "Cost", "Category" }
     local tableFlags = bit32.bor(ImGuiTableFlags.ScrollY, ImGuiTableFlags.RowBg, ImGuiTableFlags.BordersOuter, ImGuiTableFlags.BordersV, ImGuiTableFlags.Resizable, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("AATable", 4, tableFlags) then
@@ -361,7 +438,11 @@ function AAView.render(ctx)
                     ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImGuiCol.Header, 0.4))
                 end
                 ImGui.TableNextColumn()
-                if ImGui.Selectable((aa.name or ""), isSelected, ImGuiSelectableFlags.SpanAllColumns, ImVec2(0, 0)) then
+                -- The activated marker (mockup aa_inshape): " *" on abilities Hotkey
+                -- applies to, so the Hotkey audience can scan for them. Passives get
+                -- nothing - the legend under the table says what * means.
+                local rowLabel = (aa.name or "") .. ((aa.passive == false) and " *" or "")
+                if ImGui.Selectable(rowLabel, isSelected, ImGuiSelectableFlags.SpanAllColumns, ImVec2(0, 0)) then
                     selectedAAName = aa.name
                 end
                 -- Capture hover state of the row Selectable now: tooltip items below change "last item"
@@ -384,8 +465,17 @@ function AAView.render(ctx)
                 end
                 ImGui.TableNextColumn()
                 ImGui.Text(string.format("%d/%d", aa.rank or 0, aa.maxRank or 0))
+                -- Cost vocabulary (mockup aa_inshape): green = buyable NOW, plain =
+                -- trainable but unaffordable, muted Max at cap. The table answers the
+                -- spend question at a glance - no per-row buttons, no new columns.
                 ImGui.TableNextColumn()
-                ImGui.Text((aa.maxRank and aa.maxRank > 0 and aa.rank and aa.rank >= aa.maxRank) and "Max" or tostring(aa.cost or 0))
+                if aa.maxRank and aa.maxRank > 0 and aa.rank and aa.rank >= aa.maxRank then
+                    ctx.theme.TextMuted("Max")
+                elseif isBuyable(aa, aaPoints) then
+                    ctx.theme.TextSuccess(tostring(aa.cost or 0))
+                else
+                    ImGui.Text(tostring(aa.cost or 0))
+                end
                 ImGui.TableNextColumn()
                 ImGui.Text(aa.category or "")
                 ::continue::
@@ -393,81 +483,156 @@ function AAView.render(ctx)
         end
         ImGui.EndTable()
     end
+    ctx.theme.TextMuted("cost: green = buyable now . plain = need more points . * = activated (hotkey-able)")
+    end
     ImGui.EndChild()
 
     ImGui.SameLine()
     ImGui.BeginChild("AARight", ImVec2(0, -80), true)
-    -- Exp to AA
+    -- The rail leads with the SELECTION (mockup aa_inshape): the thing being bought is
+    -- the rail's job; the wallet strip and exp progress close it. The next rank's text
+    -- leads because it is what the purchase buys; the current rank's sits muted below
+    -- when the two differ. Stated degradation: when no next-rank text resolves, the
+    -- current text stands alone - no apology line.
+    local sel = selectedAAName
+    local selRec = nil
+    if sel then
+        for _, aa in ipairs(sorted) do
+            if aa.name == sel then selRec = aa; break end
+        end
+        -- The selection can live outside the current lens/tab; fall back to the full
+        -- list so switching lens does not blank the rail under a live selection.
+        if not selRec then
+            for _, aa in ipairs(ctx.getAAList() or {}) do
+                if aa.name == sel then selRec = aa; break end
+            end
+        end
+    end
+    local canTrainSel, selCost, selTrainable = false, 0, false
+    if selRec then
+        selCost = selRec.cost or 0
+        selTrainable = selRec.canTrain and true or false
+        canTrainSel = selTrainable and (aaPoints >= selCost)
+    end
+    -- Per-selection derived data, cached: ONE TLO read for the next rank's description
+    -- (the truth overlay's per-rank table id makes AltAbility(nextIndex) the right
+    -- entry) and one list walk for the prereq's owned rank. Refreshed when the
+    -- selection or the data generation changes - never per frame.
+    local gen = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
+    if selRec and (railCache.sel ~= sel or railCache.gen ~= gen) then
+        railCache.sel, railCache.gen = sel, gen
+        railCache.nextDesc = nil
+        railCache.reqOwned = 0
+        if (selRec.nextIndex or 0) > 0 then
+            pcall(function()
+                local na = mq.TLO.AltAbility and mq.TLO.AltAbility(selRec.nextIndex)
+                local d = na and na.Description and na.Description()
+                if d and tostring(d) ~= "" and tostring(d):lower() ~= "null" then
+                    railCache.nextDesc = tostring(d)
+                end
+            end)
+        end
+        if selRec.requiresAbilityName and selRec.requiresAbilityName ~= "" then
+            for _, aa in ipairs(ctx.getAAList() or {}) do
+                if aa.name == selRec.requiresAbilityName then
+                    railCache.reqOwned = tonumber(aa.rank) or 0
+                    break
+                end
+            end
+        end
+    end
+
+    if not selRec then
+        -- The rail's empty state IS the old footer legend, in the place the info
+        -- appears - and it makes a grey Train self-explaining before any tooltip.
+        ctx.theme.TextMuted(string.format("Select an ability. You have %d points to spend.", aaPoints))
+    else
+        ImGui.Text(sel)
+        local maxR = tonumber(selRec.maxRank) or 0
+        if maxR > 0 then
+            ctx.theme.TextMuted(string.format("rank %d of %d . cost %d", selRec.rank or 0, maxR, selCost))
+        else
+            ctx.theme.TextMuted(string.format("rank %d . cost %d", selRec.rank or 0, selCost))
+        end
+        ImGui.Spacing()
+        local nd = railCache.nextDesc
+        local cur = tostring(selRec.description or "")
+        if nd and nd ~= cur then
+            ctx.theme.TextMuted("next rank:")
+            ImGui.TextWrapped(nd)
+            if cur ~= "" then
+                ctx.theme.TextMuted("now: " .. cur)
+            end
+        elseif cur ~= "" then
+            ImGui.TextWrapped(cur)
+        end
+        ImGui.Spacing()
+        if ctx.theme.PushKeepButton then ctx.theme.PushKeepButton(not canTrainSel) end
+        if ImGui.Button("Train", ImVec2(-1, 0)) and canTrainSel then
+            for _, aa in ipairs(ctx.getAAList()) do
+                if aa.name == sel then
+                    fireTrain(ctx, aa)
+                    break
+                end
+            end
+        end
+        if ctx.theme.PopButtonColors then ctx.theme.PopButtonColors() end
+        -- Capture the button's hover NOW - the printed reason below submits its own
+        -- item, and a later IsItemHovered() would be asking about the wrong one.
+        local trainHovered = ImGui.IsItemHovered()
+        -- The reason is PRINTED beside the grey (kit 3.5 / the W7 rule) - the rail has
+        -- the room the bar cells lack. The hover tooltip stays; it is no longer the
+        -- only place the answer lives.
+        if not canTrainSel then
+            local reason
+            local reqRank = tonumber(selRec.requiresAbilityPoints) or 1
+            if maxR > 0 and (tonumber(selRec.rank) or 0) >= maxR then
+                reason = "maxed"
+            elseif not selTrainable and selRec.requiresAbilityName and selRec.requiresAbilityName ~= ""
+                and railCache.reqOwned < reqRank then
+                reason = string.format("requires %s %d (you: %d)", selRec.requiresAbilityName, reqRank, railCache.reqOwned)
+            elseif selTrainable and aaPoints < selCost then
+                reason = string.format("costs %d - you have %d", selCost, aaPoints)
+            else
+                reason = "prerequisites not met"
+            end
+            ctx.theme.TextWarning(reason)
+        end
+        if trainHovered and not canTrainSel then
+            ImGui.BeginTooltip()
+            if selTrainable and aaPoints < selCost then
+                ImGui.Text(string.format("Costs %d points - you have %d.", selCost, aaPoints))
+            else
+                ImGui.Text("Already at max rank, or prerequisites not met.")
+            end
+            ImGui.EndTooltip()
+        end
+        -- Hotkey: rendered ONLY for activated abilities (mockup aa_inshape) - absent on
+        -- passives, never greyed. A passive can never be hotkeyed; a grey that can
+        -- never un-grey teaches grey is furniture.
+        if selRec.passive == false then
+            if ImGui.Button("Hotkey", ImVec2(-1, 0)) then
+                -- Use /aa act for activatable AAs (macro/keybind); no programmatic hotkey creation in MQ
+                mq.cmd('/aa act "' .. (sel or ""):gsub('"', '\\"') .. '"')
+                ctx.setStatusMessage('Use /aa act "' .. (sel or "") .. '" in a macro or keybind')
+            end
+            if ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text("Create hotkey for selected AA")
+                ImGui.Text('Uses: /aa act "AbilityName" in macro or keybind')
+                ImGui.EndTooltip()
+            end
+        end
+    end
+    ImGui.Spacing()
+    -- Wallet strip closes the rail: two numbers, not three - Assigned duplicated what
+    -- Cur/Max already says per row. The exp bar under it is why you come back tomorrow.
+    ctx.theme.TextMuted(string.format("%d unspent . %d spent", aaPoints, pointsSummary.totalSpent or 0))
     local pctExp = pointsSummary.pctAAExp or 0
     ImGui.Text("Exp to AA:")
     ImGui.SameLine()
     ctx.theme.TextInfo(string.format("%.1f%%", pctExp))
     ImGui.ProgressBar((pctExp or 0) / 100.0, ImVec2(-1, 0))
-    -- Points
-    ImGui.Spacing()
-    ImGui.Text("AA Points:")
-    ImGui.SameLine()
-    ImGui.Text(tostring(pointsSummary.aaPoints or 0))
-    ImGui.Text("Assigned:")
-    ImGui.SameLine()
-    ImGui.Text(tostring(pointsSummary.assigned or 0))
-    ImGui.Text("Total Spent:")
-    ImGui.SameLine()
-    ImGui.Text(tostring(pointsSummary.totalSpent or 0))
-    ImGui.Spacing()
-    -- Train
-    local sel = selectedAAName
-    local canTrainSel = false
-    local selCost = 0
-    local selTrainable = false
-    if sel then
-        for _, aa in ipairs(sorted) do
-            if aa.name == sel then
-                canTrainSel = aa.canTrain and (aaPoints >= (aa.cost or 0))
-                selCost = aa.cost or 0
-                selTrainable = aa.canTrain and true or false
-                break
-            end
-        end
-    end
-    if ctx.theme.PushKeepButton then ctx.theme.PushKeepButton(not (canTrainSel and sel)) end
-    if ImGui.Button("Train", ImVec2(80, 0)) and canTrainSel and sel then
-        for _, aa in ipairs(ctx.getAAList()) do
-            if aa.name == sel then
-                fireTrain(ctx, aa)
-                break
-            end
-        end
-    end
-    if ctx.theme.PopButtonColors then ctx.theme.PopButtonColors() end
-    -- The grey says WHY. It greys for two different causes -- nothing selected, or the
-    -- selection cannot be bought -- and a low-AA character staring at a grey Train over a
-    -- table of abilities reads "broken", not "waiting for a selection". PushKeepButton is a
-    -- colour push, not BeginDisabled, so the hover genuinely fires here (the BeginDisabled
-    -- sites need AllowWhenDisabled for that; this one does not).
-    if not (canTrainSel and sel) and ImGui.IsItemHovered() then
-        ImGui.BeginTooltip()
-        if not sel then
-            ImGui.Text("Select an ability to train.")
-        elseif selTrainable and aaPoints < selCost then
-            ImGui.Text(string.format("Costs %d points - you have %d.", selCost, aaPoints))
-        else
-            ImGui.Text("Already at max rank, or prerequisites not met.")
-        end
-        ImGui.EndTooltip()
-    end
-    ImGui.SameLine()
-    if ImGui.Button("Hotkey", ImVec2(80, 0)) and sel then
-        -- Use /aa act for activatable AAs (macro/keybind); no programmatic hotkey creation in MQ
-        mq.cmd('/aa act "' .. (sel or ""):gsub('"', '\\"') .. '"')
-        ctx.setStatusMessage('Use /aa act "' .. (sel or "") .. '" in a macro or keybind')
-    end
-    if ImGui.IsItemHovered() and sel then
-        ImGui.BeginTooltip()
-        ImGui.Text("Create hotkey for selected AA")
-        ImGui.Text('Uses: /aa act "AbilityName" in macro or keybind')
-        ImGui.EndTooltip()
-    end
     ImGui.Spacing()
     -- Export/Import are only accurate when the plugin's owned-ranks store is readable.
     -- Without it both fall back to the TLO rank read, which inflates on partially
@@ -532,16 +697,12 @@ function AAView.render(ctx)
     end
     ImGui.EndChild()
 
-    -- Bottom bar
+    -- Bottom bar. The legend sentence and the Can Purchase checkbox both died into
+    -- better homes (the rail's empty state; the lens chips) - Reset now covers the
+    -- lens along with the search.
     ImGui.Spacing()
-    ctx.theme.TextMuted("Click an ability for more info. Train to spend points. Hotkey to assign.")
-    ImGui.SameLine()
-    local cpChanged
-    canPurchaseOnly, cpChanged = ImGui.Checkbox("Can Purchase", canPurchaseOnly)
-    if cpChanged then sortCache.key = "" end
-    ImGui.SameLine()
     if ImGui.Button("Reset", ImVec2(60, 0)) then
-        canPurchaseOnly = false
+        aaLens = "all"
         searchText = ""
         searchTextApplied = ""
         sortCache.key = ""
