@@ -337,6 +337,33 @@ local function resolveWeights(classShortName)
     return merged, archName
 end
 
+--- Resolve an effect NAME to its scored family: -> line, units, stacking | "clicky",
+--- family | nil when unrecognized. Public because the set-aware consumers need it too:
+--- the upgrade walk builds its worn-lines context from equipped effect names, and the
+--- Aug Utility prints "dodge already worn (higher)" by asking the same question the
+--- scorer asks.
+function M.resolveEffectLine(name)
+    if not name or name == "" then return nil end
+    local eff = weights.effects.byName[name]
+    if eff then
+        if eff.clicky then return "clicky", eff.clicky, nil end
+        local spec = weights.effects.lines[eff.line]
+        return eff.line, eff.value or 1, spec and spec.stacking or nil
+    end
+    for _, p in ipairs(weights.effects.patterns) do
+        local cap = name:match(p.pattern)
+        if cap then
+            local n = parseUnits(cap)
+            if n then
+                local line = p.line
+                local spec = weights.effects.lines[line]
+                return line, n * (p.multiplier or 1), spec and spec.stacking or nil
+            end
+        end
+    end
+    return nil
+end
+
 --- One effect name -> HP-eq, or nil when unrecognized (the caller LISTS those as
 --- unscored - an honest zero beats a wrong guess, and the unscored list is how new
 --- names get found and added to the data table).
@@ -348,25 +375,9 @@ end
 ---   additive:        always full.
 --- No context = raw item score (candidates ranking against each other).
 local function scoreEffectName(name, archName, W, context)
-    local eff = weights.effects.byName[name]
-    local line, units
-    if eff then
-        if eff.clicky then
-            return (W.clickies and W.clickies[eff.clicky]) or 0
-        end
-        line, units = eff.line, eff.value or 1
-    else
-        for _, p in ipairs(weights.effects.patterns) do
-            local cap = name:match(p.pattern)
-            if cap then
-                local n = parseUnits(cap)
-                if n then
-                    line = p.line
-                    units = n * (p.multiplier or 1)
-                    break
-                end
-            end
-        end
+    local line, units = M.resolveEffectLine(name)
+    if line == "clicky" then
+        return (W.clickies and W.clickies[units]) or 0
     end
     if not line then return nil end
     local spec = weights.effects.lines[line]

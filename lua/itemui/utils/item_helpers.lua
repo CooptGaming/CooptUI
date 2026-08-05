@@ -15,6 +15,32 @@ local deps  -- set by init()
 -- Delegate TLO resolution and property readers to item_tlo (extraction 6)
 M.getItemTLO = item_tlo.getItemTLO
 M.getItemLoreText = item_tlo.getItemLoreText
+
+--- Cached player class short name (WAR/CLR/...) for the score surfaces. Class never
+--- changes in-session; a nil read retries until the TLO answers (headless stubs
+--- simply never answer, which turns every score surface off - the intended off
+--- switch for suites).
+--- 14930 -> "14,930" for the score surfaces (negative numbers pass through plain).
+function M.formatThousands(n)
+    n = math.floor((tonumber(n) or 0) + 0.5)
+    if n < 0 then return tostring(n) end
+    local s = tostring(n):reverse():gsub("(%d%d%d)", "%1,")
+    s = s:reverse():gsub("^,", "")
+    return s
+end
+
+local playerClassShortName = nil
+function M.getPlayerClassShortName()
+    if playerClassShortName then return playerClassShortName end
+    local ok, cls = pcall(function()
+        local Me = mq.TLO and mq.TLO.Me
+        return Me and Me.Class and Me.Class.ShortName and Me.Class.ShortName()
+    end)
+    if ok and cls and tostring(cls) ~= "" and tostring(cls):lower() ~= "null" then
+        playerClassShortName = tostring(cls)
+    end
+    return playerClassShortName
+end
 M.getEquipmentSlotLabel = item_tlo.getEquipmentSlotLabel
 M.getEquipmentSlotNameForItemNotify = item_tlo.getEquipmentSlotNameForItemNotify
 M.getSlotDisplayName = item_tlo.getSlotDisplayName

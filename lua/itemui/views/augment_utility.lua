@@ -6,7 +6,8 @@
 
 require('ImGui')
 local ItemTooltip = require('itemui.utils.item_tooltip')
-local augmentRanking = require('itemui.utils.augment_ranking')
+local itemCompare = require('itemui.utils.item_compare')
+local itemHelpers = require('itemui.utils.item_helpers')
 
 local constants = require('itemui.constants')
 local context = require('itemui.context')
@@ -17,6 +18,69 @@ local windowHeader = require('itemui.components.window_header')
 local TooltipData = require('itemui.utils.tooltip_data')
 
 local AugmentUtilityView = {}
+
+-- ---------------------------------------------------------------------------
+-- The ONE scoring model (UPGRADE_SCORE: "the augment revamp rides the same
+-- table - no second system"). Both consumers here - the Optimize planner and
+-- the compatible list - score through scoreForClass with the equipped set as
+-- context, so a duplicate "highest" family prints its ~0 with the reason.
+-- Protection never consumes this number and Insert never gates on it.
+-- ---------------------------------------------------------------------------
+
+--- Equipped worn/focus lines (best units per line): the set-awareness context.
+local function buildWornLines(ctx)
+    local lines = {}
+    local cache = ctx.equipmentCache or {}
+    for ei = 1, 23 do
+        local e = cache[ei]
+        if e then
+            for _, kind in ipairs({ "Worn", "Focus" }) do
+                local id = ctx.getItemSpellId and ctx.getItemSpellId(e, kind)
+                local nm = (id and id > 0 and ctx.getSpellName) and ctx.getSpellName(id) or nil
+                if nm and nm ~= "" then
+                    local line, units = itemCompare.resolveEffectLine(tostring(nm))
+                    if line and line ~= "clicky" and type(units) == "number" then
+                        if not lines[line] or units > lines[line] then lines[line] = units end
+                    end
+                end
+            end
+        end
+    end
+    return lines
+end
+
+--- One candidate -> score, why. `why` is the inline muted note: the stacking-zero
+--- reason ("dodge already worn (higher)") or the first unscored effect - the same
+--- printed-reason rule greys follow, speaking in the list.
+local function scoreCandidate(ctx, cand, cls, wornLines)
+    local effNames, why = {}, nil
+    for _, kind in ipairs({ "Worn", "Focus" }) do
+        local id = ctx.getItemSpellId and ctx.getItemSpellId(cand, kind)
+        local nm = (id and id > 0 and ctx.getSpellName) and ctx.getSpellName(id) or nil
+        if nm and nm ~= "" then
+            effNames[#effNames + 1] = nm
+            if not why then
+                local line, units, stacking = itemCompare.resolveEffectLine(tostring(nm))
+                if line and line ~= "clicky" and stacking == "highest"
+                    and wornLines[line] and type(units) == "number" and wornLines[line] >= units then
+                    why = string.format("%s already worn (higher)", line)
+                end
+            end
+        end
+    end
+    local total, brk
+    if cls then
+        local okS
+        okS, total, brk = pcall(itemCompare.scoreForClass, cand, cls,
+            { effects = effNames, context = { wornLines = wornLines } })
+        if not okS then total = nil end
+    end
+    local score = (type(total) == "number") and total or 0
+    if not why and brk and brk.unscored and #brk.unscored > 0 then
+        why = "effect unscored: " .. tostring(brk.unscored[1])
+    end
+    return score, why
+end
 
 local renderForSlotContent  -- declared ahead: render()'s tab bar calls it before its definition
 
@@ -350,8 +414,8 @@ renderForSlotContent = function(ctx)
             for i = 1, maxSlots do if not filledSetAU[i] then emptySlotsAU[#emptySlotsAU + 1] = i end end
             local function usedKeyAU(a) return tostring(a.bag or 0) .. "_" .. tostring(a.slot or 0) .. "_" .. (a.source or "inv") end
             local usedAU = {}
-            local parentContextAU = { bag = bag, slot = slot, source = source }
-            local rankConfigAU = augmentRanking.getDefaultConfig()
+            local clsAU = itemHelpers.getPlayerClassShortName()
+            local wornLinesAU = buildWornLines(ctx)
             local steps = {}
             for _, si in ipairs(emptySlotsAU) do
                 local compat = ctx.getCompatibleAugments(entry, si, { canUseFilter = canUseFilter })
@@ -366,10 +430,13 @@ renderForSlotContent = function(ctx)
                 for _, c in ipairs(compat) do if not usedAU[usedKeyAU(c)] then available[#available + 1] = c end end
                 if #available > 0 then
                     for _, c in ipairs(available) do
-                        local sc = augmentRanking.scoreAugment(c, parentContextAU, ctx, rankConfigAU)
-                        c._optScore = (type(sc) == "number") and sc or 0
+                        c._optScore = scoreCandidate(ctx, c, clsAU, wornLinesAU)
                     end
-                    table.sort(available, function(a, b) return (a._optScore or 0) > (b._optScore or 0) end)
+                    table.sort(available, function(a, b)
+                        local as, bs = a._optScore or 0, b._optScore or 0
+                        if as ~= bs then return as > bs end
+                        return (a.name or "") < (b.name or "")
+                    end)
                     local best = available[1]
                     usedAU[usedKeyAU(best)] = true
                     steps[#steps + 1] = { slotIndex = si, augmentItem = best }
@@ -423,16 +490,20 @@ renderForSlotContent = function(ctx)
                     rebuilt[#rebuilt + 1] = cand
                 end
             end
-            -- Score each candidate, then assign rank position (1 = best). scoreAugment takes
-            -- parent coordinates and resolves the parent item TLO itself; with this cache that
-            -- happens once per rebuild instead of once per candidate every frame.
-            local parentContext = { bag = bag, slot = slot, source = source }
-            local rankConfig = augmentRanking.getDefaultConfig()
+            -- Score each candidate through the one model, once per rebuild (never per
+            -- frame): effect names resolve here and the equipped worn-lines context
+            -- zeroes duplicate "highest" families WITH their reason attached to the
+            -- row. Ties keep name order (the model doc's rule).
+            local cls = itemHelpers.getPlayerClassShortName()
+            local wornLines = buildWornLines(ctx)
             for _, cand in ipairs(rebuilt) do
-                local s = augmentRanking.scoreAugment(cand, parentContext, ctx, rankConfig)
-                cand._rankScore = (type(s) == "number") and s or 0
+                cand._rankScore, cand._scoreWhy = scoreCandidate(ctx, cand, cls, wornLines)
             end
-            table.sort(rebuilt, function(a, b) return (a._rankScore or 0) > (b._rankScore or 0) end)
+            table.sort(rebuilt, function(a, b)
+                local as, bs = a._rankScore or 0, b._rankScore or 0
+                if as ~= bs then return as > bs end
+                return (a.name or "") < (b.name or "")
+            end)
             for i, cand in ipairs(rebuilt) do
                 cand._rankPosition = i
             end
@@ -491,7 +562,7 @@ renderForSlotContent = function(ctx)
                 local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
                 if ImGui.BeginTable("ItemUI_AugmentUtility", 5, tableFlags) then
                     ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 32, 0)
-                    ImGui.TableSetupColumn("Rank", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 48, 1)
+                    ImGui.TableSetupColumn("~score", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 60, 1)
                     ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
                     ImGui.TableSetupColumn("Clicky", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 3)
                     ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 4)
@@ -576,12 +647,20 @@ renderForSlotContent = function(ctx)
                                 ImGui.EndTooltip()
                             end
 
-                            -- Rank (1 = best)
+                            -- ~score (MOCKUP_score_surfaces C): the class score, best
+                            -- first by default. Ballpark by contract; it orders the
+                            -- list and never gates Insert.
                             ImGui.TableNextColumn()
-                            ImGui.Text(tostring(cand._rankPosition or 0))
+                            local sc = cand._rankScore or 0
+                            if sc > 0 then
+                                ctx.theme.TextSuccess(itemHelpers.formatThousands(sc))
+                            else
+                                ctx.theme.TextMuted("~0")
+                            end
                             if ImGui.IsItemHovered() then
                                 ImGui.BeginTooltip()
-                                ImGui.Text("Rank (1 = best)")
+                                ImGui.Text("Class score - orders the list, best first.")
+                                ImGui.Text("Ballpark by contract; it never gates Insert.")
                                 ImGui.EndTooltip()
                             end
 
@@ -602,6 +681,13 @@ renderForSlotContent = function(ctx)
                                 ImGui.BeginTooltip()
                                 ImGui.Text(cand.name or "?")
                                 ImGui.EndTooltip()
+                            end
+                            -- The stacking flags speak in the list: a duplicate
+                            -- "highest" family or an unpriced effect says so inline,
+                            -- muted, right where the ~0 or the number needs explaining.
+                            if cand._scoreWhy then
+                                ImGui.SameLine(0, 6)
+                                ctx.theme.TextMuted(". " .. cand._scoreWhy)
                             end
                             local subParts = {}
                             if cand.class and cand.class ~= "" then subParts[#subParts + 1] = tostring(cand.class):gsub("|", " ") end

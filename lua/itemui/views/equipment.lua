@@ -12,6 +12,7 @@ local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local dockLayout = require('itemui.utils.dock_layout')
+local upgradeScan = require('itemui.services.upgrade_scan')
 
 local EquipmentView = {}
 
@@ -111,19 +112,51 @@ function EquipmentView.render(ctx)
         end
     end
 
+    -- The cached compare walk (MOCKUP_score_surfaces B) - advanced only while this
+    -- window renders, time-boxed inside the service. deps are the view layer's own
+    -- helpers so the service stays ImGui-free.
+    upgradeScan.tick({
+        inventoryItems = ctx.inventoryItems,
+        equipmentCache = ctx.equipmentCache,
+        getItemSpellId = ctx.getItemSpellId,
+        getSpellName = ctx.getSpellName,
+        canUse = function(row)
+            local info = ItemTooltip.getCanUseInfo(row, row.source or "inv")
+            return info and info.canUse
+        end,
+    })
+    local upgrades = upgradeScan.getResult()
+    -- The hover line for a marked slot (mockup: "Vambraces of the Risen . ~+11% .
+    -- in bag 4"). pct is nil for the empty-slot case - anything beats nothing, and
+    -- a percent against zero is not a number worth printing.
+    local function upgradeLineFor(slotIndex)
+        local up = upgrades.bySlot and upgrades.bySlot[slotIndex]
+        if not up then return nil end
+        if up.pct then
+            return string.format("in your bags: %s . ~+%d%% . bag %d",
+                tostring(up.name or "?"), up.pct, tonumber(up.bag) or 0)
+        end
+        return string.format("in your bags: %s . bag %d",
+            tostring(up.name or "?"), tonumber(up.bag) or 0)
+    end
+
     if barsOn then
-        -- Kit 3.6. The designed number here is "N upgrades in bags" (mockup 19d); that
-        -- needs a cached compare walk that does not exist yet (docs/WINDOWS_PASS.md notes
-        -- it), so until it does the band states the one cheap number the bar never shows:
-        -- how many of the 23 slots are dressed.
+        -- Kit 3.6. The band's designed number (mockup 19d, built at last via
+        -- MOCKUP_score_surfaces B): worn count plus how many slots have a bag
+        -- candidate that beats them - "~" because the score is ballpark by contract.
         local worn = 0
         for i = 1, 23 do
             local e = (ctx.equipmentCache or {})[i]
             if e and e.id and e.id ~= 0 then worn = worn + 1 end
         end
+        local statText = string.format("%d/23 worn", worn)
+        if (upgrades.count or 0) > 0 then
+            statText = statText .. string.format(" . ~%d upgrade%s in bags",
+                upgrades.count, upgrades.count == 1 and "" or "s")
+        end
         windowHeader.render({
             id = "equipment", title = "Equipment",
-            stat = string.format("%d/23 worn", worn),
+            stat = statText,
             lock = {
                 locked = registry.isPinned("equipment"),
                 onToggle = function()
@@ -222,20 +255,31 @@ function EquipmentView.render(ctx)
                             local popupBg = ImGui.GetStyleColorVec4(ImGuiCol.PopupBg)
                             if popupBg then ImGui.PushStyleColor(ImGuiCol.ChildBg, popupBg); didPushTooltipBg = true end
                         end
+                        local upLine = upgradeLineFor(slotIndex)
                         if item and item.name then
                             -- Use pre-warmed cache item; getItemStatsForTooltip rebuilds with fresh TLO + stat pre-warm
                             local showItem = (ctx.getItemStatsForTooltip and ctx.getItemStatsForTooltip({ bag = 0, slot = slotIndex, source = "equipped" }, "equipped")) or item
                             local opts = { source = "equipped", bag = 0, slot = slotIndex }
                             local effects, tw, th = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                             opts.effects = effects
-                            ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH, th or constants.UI.TOOLTIP_MIN_HEIGHT)
+                            -- The upgrade line pays for its own height: the tooltip is
+                            -- sized EXACTLY by prepareTooltipContent (the reroll id-line
+                            -- lesson).
+                            local extraH = 0
+                            if upLine then
+                                extraH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 4
+                            end
+                            ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH,
+                                (th or constants.UI.TOOLTIP_MIN_HEIGHT) + extraH)
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
+                            if upLine then ctx.theme.TextSuccess(upLine) end
                             ImGui.EndTooltip()
                         else
                             ImGui.BeginTooltip()
                             ImGui.Text(slotLabel .. " (empty)")
+                            if upLine then ctx.theme.TextSuccess(upLine) end
                             ImGui.EndTooltip()
                         end
                         if didPushTooltipBg then ImGui.PopStyleColor() end
@@ -289,10 +333,21 @@ function EquipmentView.render(ctx)
                     local x1, y1 = dockLayout.itemRectMin()
                     local x2, y2 = dockLayout.itemRectMax()
                     if not (x1 and x2) then return end
-                    local borderCol = ImGui.GetColorU32 and ImGui.GetColorU32(ImVec4(0.35, 0.35, 0.4, 0.9))
+                    -- A slot with a beating bag candidate gets the Success edge + "^"
+                    -- (MOCKUP_score_surfaces B); hover names the item and the margin.
+                    local up = upgrades.bySlot and upgrades.bySlot[slotIndex]
+                    local borderCol
+                    if up then
+                        borderCol = ImGui.GetColorU32 and ImGui.GetColorU32(ctx.theme.ToVec4(ctx.theme.Colors.Success))
+                    else
+                        borderCol = ImGui.GetColorU32 and ImGui.GetColorU32(ImVec4(0.35, 0.35, 0.4, 0.9))
+                    end
                     if not borderCol then borderCol = 0xFF595966 end
                     if dl.AddRect then
                         dl:AddRect(ImVec2(x1, y1), ImVec2(x2, y2), borderCol)
+                    end
+                    if up and dl.AddText then
+                        dl:AddText(ImVec2(x2 - 9, y1 + 1), borderCol, "^")
                     end
                 end)
             end

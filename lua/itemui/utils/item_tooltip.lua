@@ -215,6 +215,18 @@ function ItemTooltip.renderStatsTooltip(item, ctx, opts)
         local diagnostics = require('itemui.core.diagnostics')
         diagnostics.recordError("Item tooltip", "Tooltip render failed", err)
     end
+    -- MOCKUP_score_surfaces A: the score line at the tooltip's bottom - one ranking
+    -- aid, "~" by contract, with whatever the model could not price NAMED under it.
+    -- Reads the same cache entry prepareTooltipContent sized this tooltip from, so
+    -- the lines are already paid for in height; no entry (or no class yet) = no line.
+    local entry = tooltip_data.getCachedTooltipEntry and tooltip_data.getCachedTooltipEntry(item, opts)
+    local si = entry and entry.scoreInfo
+    if si and si.total and ctx and ctx.theme then
+        ctx.theme.TextSuccess(string.format("score ~%s", itemHelpers.formatThousands(si.total)))
+        if si.unscoredLine and ctx.theme.TextMuted then
+            ctx.theme.TextMuted(si.unscoredLine)
+        end
+    end
 end
 
 return ItemTooltip

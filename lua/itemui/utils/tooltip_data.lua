@@ -1,5 +1,6 @@
 --[[ tooltip_data.lua: Tooltip data helpers, cache, and prepareTooltipContent. No ImGui. ]]
 local itemHelpers = require('itemui.utils.item_helpers')
+local itemCompare = require('itemui.utils.item_compare')
 local tooltip_layout = require('itemui.utils.tooltip_layout')
 
 local M = {}
@@ -348,14 +349,51 @@ function M.prepareTooltipContent(item, ctx, opts)
         end
         ornamentLine = { iconId = iconId, augName = augName, slotIndex = ORNAMENT_SLOT_INDEX, typ = 20 }
     end
+    -- MOCKUP_score_surfaces A: the score line, computed once per cache entry so the
+    -- tooltip's EXACT sizing and its content always agree. "~" by contract (ballpark);
+    -- whatever the model cannot price is NAMED in the unscored line, capped at two
+    -- names + a count so one line stays one line. No class answer (headless, or the
+    -- TLO not up yet) = no score line at all.
+    local scoreInfo = nil
+    do
+        local cls = itemHelpers.getPlayerClassShortName and itemHelpers.getPlayerClassShortName()
+        if cls then
+            local effNames = {}
+            for _, e in ipairs(effects) do
+                if e.spellName and (e.key == "Worn" or e.key == "Focus" or e.key == "Clicky" or e.key == "Proc") then
+                    effNames[#effNames + 1] = e.spellName
+                end
+            end
+            local okS, total, brk = pcall(itemCompare.scoreForClass, item, cls,
+                { augStats = augStats, effects = effNames })
+            if okS and type(total) == "number" then
+                local un = (brk and brk.unscored) or {}
+                local unscoredLine = nil
+                if #un > 0 then
+                    local shown = {}
+                    for i = 1, math.min(2, #un) do shown[#shown + 1] = tostring(un[i]) end
+                    unscoredLine = "unscored: " .. table.concat(shown, " . ")
+                    if #un > 2 then
+                        unscoredLine = unscoredLine .. string.format(" +%d more", #un - 2)
+                    end
+                end
+                scoreInfo = { total = total, unscoredLine = unscoredLine }
+            end
+        end
+    end
     local itemInfoRows = tooltip_layout.getItemInfoRowCount(item)
     local statRows = tooltip_layout.getStatRowCount(item)
     local augCount = (parentIt and itemHelpers.getStandardAugSlotsCountFromTLO(parentIt)) or ((item.augSlots or 0) > 0 and (itemHelpers.itemHasOrnamentSlot(it or parentIt) and math.min(AUGMENT_SLOT_COUNT, (item.augSlots or 0) - 1) or math.min(AUGMENT_SLOT_COUNT, item.augSlots or 0)) or 0)
     if augCount < 0 then augCount = 0 end
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
+    -- The score line(s) pay for their own height - added to the row count BEFORE the
+    -- size is computed, the same contract every other tooltip row lives under.
+    if scoreInfo then
+        leftRows = leftRows + 1 + (scoreInfo.unscoredLine and 1 or 0)
+    end
     local width, height = tooltip_layout.computeTooltipSize(leftRows, rightRows)
     opts.tooltipColWidth = tooltip_layout.TOOLTIP_COL_WIDTH
-    tooltipCache[cacheKey] = { effects = effects, width = width, height = height, augStats = augStats, augLines = augLines, ornamentLine = ornamentLine }
+    tooltipCache[cacheKey] = { effects = effects, width = width, height = height, augStats = augStats, augLines = augLines, ornamentLine = ornamentLine, scoreInfo = scoreInfo }
     if TOOLTIP_CACHE_MAX > 0 then
         local n = 0
         for _ in pairs(tooltipCache) do n = n + 1; if n > TOOLTIP_CACHE_MAX then break end end
