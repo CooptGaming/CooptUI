@@ -3,7 +3,8 @@
     pass 3e, extended by the windows pass 18a: type-aware strip, aug-inclusive totals,
     heroic rank).
 
-    PURE MODULE: no ImGui, no TLO, no requires beyond stdlib. Callers (item_display.lua)
+    PURE MODULE: no ImGui, no TLO, no requires beyond stdlib and the pure-DATA weight
+    table (utils/score_weights.lua - it executes nothing). Callers (item_display.lua)
     resolve `item` and `equipped` as plain tables and are responsible for making sure the
     numeric fields this module reads are already loaded — buildItemFromMQ's stat fields are
     lazy behind a metatable, so a caller that hasn't forced e.g. `local _ = item.ac` first
@@ -285,32 +286,194 @@ function M.compare(item, equipped, opts)
     return { rows = rows, verdict = verdict, summary = summary, strip = strip }
 end
 
---[[
-    STUB — future class-aware item score (not implemented; M.scoreForClass always returns nil).
+-- ===========================================================================
+-- scoreForClass — the UPGRADE_SCORE model (2026-08-04). One absolute HP-equivalent
+-- number for "how good is this item for <class>", weights and effect families all
+-- DATA in utils/score_weights.lua so new field intel is a table edit, not a build.
+-- Absolute, not delta (the stub's original rule): candidates rank against each
+-- other; upgrade detection compares two absolute scores; the verdict card's delta
+-- math above stays separate and unweighted.
+-- ===========================================================================
 
-    M.scoreForClass(item, classShortName) is meant to eventually return a single normalized
-    "how good is this item for <class>" number so the verdict box (and any future gear-optimizer
-    tooling) can rank candidates without needing a specific equipped comparison item.
+local weights = require('itemui.utils.score_weights')
 
-    Intended design:
-      - Reuse the normalized stat rows (general + weapon cell sets above) as the substrate. The
-        work this module already does — pulling comparable numbers off two item tables into a
-        flat, ordered row list — is exactly the shape a scorer needs; it only has to add
-        per-class weights over those same rows.
-      - Maintain a per-class weight table keyed by the class short names ItemUI already uses
-        elsewhere (see ConfigFilters.classLabel callers), e.g.
-            WAR = { ac = 4, hp = 2, attack = 2, mana = 0, haste = 1 },
-            CLR = { mana = 3, hp = 2, ac = 1, attack = 0, haste = 0 },
-        one entry per playable class.
-      - score = sum(weight[row.key] * row.value) over the ITEM's own rows (not deltas — this is
-        an absolute score for ranking candidates against each other, independent of what's
-        currently equipped; the verdict box's delta-based upgrade/downgrade math stays separate).
-      - Class weights are a content/balance decision (what a Paladin needs vs. what a Wizard
-        needs) and are deliberately deferred; this stub only reserves the call shape so a future
-        pass can fill it in without reworking the row-extraction plumbing above.
-]]
-function M.scoreForClass(item, classShortName)
+local RESIST_KEYS = { "svMagic", "svFire", "svCold", "svPoison", "svDisease", "svCorruption" }
+
+-- "VIII" / "IX" / "12" -> number. Ranked effect names carry magnitude as digits or
+-- roman numerals; both price the same way.
+local ROMAN = { I = 1, V = 5, X = 10, L = 50, C = 100 }
+local function parseUnits(s)
+    if not s or s == "" then return nil end
+    local n = tonumber(s)
+    if n then return n end
+    local total, prev = 0, 0
+    for i = #s, 1, -1 do
+        local v = ROMAN[s:sub(i, i)]
+        if not v then return nil end
+        if v < prev then total = total - v else total = total + v; prev = v end
+    end
+    if total > 0 then return total end
     return nil
+end
+
+--- Class -> merged weight set. classOverrides carry only the keys that differ and
+--- deep-merge over the archetype (stats/heroics/clickies key-wise, scalars replace).
+local function resolveWeights(classShortName)
+    local cls = tostring(classShortName or ""):upper()
+    local archName = weights.classes[cls]
+    local arch = archName and weights.archetypes[archName]
+    if not arch then return nil end
+    local over = weights.classOverrides and weights.classOverrides[cls]
+    if not over then return arch, archName end
+    local merged = {
+        stats = {}, heroics = {}, clickies = {},
+        dps = over.dps or arch.dps,
+        resist = over.resist or arch.resist,
+    }
+    for _, part in ipairs({ "stats", "heroics", "clickies" }) do
+        for k, v in pairs(arch[part] or {}) do merged[part][k] = v end
+        for k, v in pairs(over[part] or {}) do merged[part][k] = v end
+    end
+    return merged, archName
+end
+
+--- One effect name -> HP-eq, or nil when unrecognized (the caller LISTS those as
+--- unscored - an honest zero beats a wrong guess, and the unscored list is how new
+--- names get found and added to the data table).
+--- Stacking is applied against opts.context:
+---   highest:         context.wornLines[line] >= units -> 0 (a better or equal copy
+---                    of the line is already worn - or supplied by a buff/set bonus;
+---                    the context does not care where the best copy lives).
+---   additive_capped: scores only min(units, cap - context.lineUsed[line]).
+---   additive:        always full.
+--- No context = raw item score (candidates ranking against each other).
+local function scoreEffectName(name, archName, W, context)
+    local eff = weights.effects.byName[name]
+    local line, units
+    if eff then
+        if eff.clicky then
+            return (W.clickies and W.clickies[eff.clicky]) or 0
+        end
+        line, units = eff.line, eff.value or 1
+    else
+        for _, p in ipairs(weights.effects.patterns) do
+            local cap = name:match(p.pattern)
+            if cap then
+                local n = parseUnits(cap)
+                if n then
+                    line = p.line
+                    units = n * (p.multiplier or 1)
+                    break
+                end
+            end
+        end
+    end
+    if not line then return nil end
+    local spec = weights.effects.lines[line]
+    if not spec then return nil end
+    local usable = units
+    if spec.stacking == "highest" then
+        local best = context and context.wornLines and context.wornLines[line]
+        if best and best >= units then usable = 0 end
+    elseif spec.stacking == "additive_capped" and spec.cap then
+        local used = (context and context.lineUsed and context.lineUsed[line]) or 0
+        local headroom = spec.cap - used
+        if headroom < 0 then headroom = 0 end
+        if usable > headroom then usable = headroom end
+    end
+    if usable <= 0 then return 0 end
+    if spec.stat then
+        return usable * ((W.stats and W.stats[spec.stat]) or 0)
+    elseif spec.perUnit then
+        return usable * (spec.perUnit[archName] or 0)
+    elseif spec.flat then
+        return usable * (spec.flat[archName] or 0)
+    end
+    return 0
+end
+
+--- M.scoreForClass(item, classShortName, opts) -> total, breakdown | nil
+--- One absolute HP-equivalent score for ranking candidates. nil for a nil item or a
+--- class no table knows (the old stub's contract for garbage input).
+---   opts.augStats   summed socket stats - same aug-inclusive quantity compare() uses.
+---   opts.effects    array of effect names (or {name=...} tables) - worn/focus/clicky
+---                   names as the tooltip layer surfaces them (EFFECT_KEYS order).
+---   opts.procName / opts.procRate  the weapon proc: a recognized name scores via its
+---                   family; otherwise a damage-class proc prices at
+---                   procRate x W.dps x procDpsFactor; a rateless unknown is unscored.
+---   opts.context    set-awareness for upgrade detection: wornLines[line]=best worn
+---                   units, lineUsed[line]=cap units consumed, statUsed[stat]=current
+---                   total for capped stats (shielding). Omit for raw ranking.
+--- breakdown = { archetype, stats, heroics, dps, effects, resists, unscored={names} }
+--- - the calibration pass reads it, and any surface must print the unscored list
+--- rather than pretend those effects are worth 0 by judgment.
+function M.scoreForClass(item, classShortName, opts)
+    if not item then return nil end
+    local W, archName = resolveWeights(classShortName)
+    if not W then return nil end
+    opts = opts or {}
+    local aug = opts.augStats
+    local context = opts.context
+    local b = { archetype = archName, stats = 0, heroics = 0, dps = 0, effects = 0,
+                resists = 0, unscored = {} }
+
+    for key, w in pairs(W.stats or {}) do
+        if w ~= 0 then
+            local v = effVal(item, aug, key)
+            if v ~= 0 then
+                local cap = weights.statCaps and weights.statCaps[key]
+                local used = cap and context and context.statUsed and context.statUsed[key]
+                if cap and used then
+                    local headroom = cap - used
+                    if headroom < 0 then headroom = 0 end
+                    if v > headroom then v = headroom end
+                end
+                b.stats = b.stats + v * w
+            end
+        end
+    end
+    for key, w in pairs(W.heroics or {}) do
+        if w ~= 0 then
+            b.heroics = b.heroics + effVal(item, aug, key) * w
+        end
+    end
+    local rw = W.resist or 0
+    if rw ~= 0 then
+        for _, key in ipairs(RESIST_KEYS) do
+            b.resists = b.resists + effVal(item, aug, key) * rw
+        end
+    end
+    if isWeapon(item, aug) then
+        local dmg, del = effVal(item, aug, "damage"), effVal(item, aug, "itemDelay")
+        b.dps = math.floor((dmg / del) * 10 + 0.5) * (W.dps or 0)
+    end
+    if opts.procName and opts.procName ~= "" then
+        local hpEq = scoreEffectName(tostring(opts.procName), archName, W, context)
+        if hpEq ~= nil then
+            b.effects = b.effects + hpEq
+        else
+            local rate = tonumber(opts.procRate)
+            if rate and rate > 0 then
+                b.effects = b.effects + rate * (W.dps or 0) * (weights.procDpsFactor or 0.5)
+            else
+                b.unscored[#b.unscored + 1] = tostring(opts.procName)
+            end
+        end
+    end
+    for _, e in ipairs(opts.effects or {}) do
+        local name = (type(e) == "table") and e.name or e
+        if name and name ~= "" then
+            local hpEq = scoreEffectName(tostring(name), archName, W, context)
+            if hpEq ~= nil then
+                b.effects = b.effects + hpEq
+            else
+                b.unscored[#b.unscored + 1] = tostring(name)
+            end
+        end
+    end
+
+    local total = b.stats + b.heroics + b.dps + b.effects + b.resists
+    return total, b
 end
 
 return M

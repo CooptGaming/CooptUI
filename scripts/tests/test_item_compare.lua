@@ -164,12 +164,16 @@ do
 end
 
 -- ---------------------------------------------------------------------------
--- 9. scoreForClass stub: always nil, never errors, regardless of input shape.
+-- 9. scoreForClass: no longer a stub (UPGRADE_SCORE model, 2026-08-04). The full
+-- model is pinned in test_score_weights.lua; here only the compare-suite contract:
+-- a real number for a valid class, nil for garbage, never an error.
 -- ---------------------------------------------------------------------------
 do
-    check('scoreForClass stub returns nil', ItemCompare.scoreForClass({ hp = 100 }, 'WAR') == nil)
+    local t = ItemCompare.scoreForClass({ hp = 100 }, 'WAR')
+    check('scoreForClass returns a number for a valid class', type(t) == 'number' and t == 100)
+    check('scoreForClass unknown class -> nil', ItemCompare.scoreForClass({ hp = 100 }, 'XXX') == nil)
     local ok = pcall(ItemCompare.scoreForClass, nil, nil)
-    check('scoreForClass stub tolerates nil args', ok)
+    check('scoreForClass tolerates nil args', ok)
 end
 
 -- ---------------------------------------------------------------------------
