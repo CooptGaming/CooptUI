@@ -1280,6 +1280,25 @@ popovers.session = function(ctx, s)
     if theme.TextFurniture then theme.TextFurniture("NEEDS A CALL") else theme.TextMuted("NEEDS A CALL") end
     ImGui.SameLine(0, 6)
     theme.TextMuted("best first")
+    -- Two real columns (mockup session_value_column): the name truncates with the
+    -- tray's ".." vocabulary inside its own column instead of running under the value
+    -- ("...Vambrace84p" in the field capture), and the value right-aligns at a fixed
+    -- edge so a column of plat figures reads as a column. Full names stay on the row
+    -- hover the rows already have.
+    local SESS_NAME_COL_W = 272
+    local SESS_VALUE_RIGHT = 336
+    local function sessFit(text)
+        text = tostring(text or "")
+        local w = ImGui.CalcTextSize and ImGui.CalcTextSize(text)
+        if type(w) ~= "number" or w <= SESS_NAME_COL_W then return text end
+        local t = text:sub(1, math.max(2, math.floor(#text * SESS_NAME_COL_W / w)))
+        while #t > 2 do
+            local tw = ImGui.CalcTextSize(t .. "..")
+            if type(tw) ~= "number" or tw <= SESS_NAME_COL_W then break end
+            t = t:sub(1, #t - 1)
+        end
+        return t .. ".."
+    end
     local calls = {}
     pcall(function() calls = sessionRecord.getCallList() end)
     if #calls == 0 then
@@ -1288,7 +1307,7 @@ popovers.session = function(ctx, s)
         for i = 1, math.min(#calls, CALL_ROWS_MAX) do
             local e = calls[i]
             ImGui.PushID("dockSessCall" .. i)
-            safeText(tostring(e.name or "?"))
+            safeText(sessFit(e.name or "?"))
             -- Capture hover ONCE, before anything else is submitted. Drawing the tooltip
             -- below submits items of its own, so a second IsItemHovered() after it would
             -- be asking about the wrong item — and the right-click handler that follows
@@ -1312,8 +1331,16 @@ popovers.session = function(ctx, s)
                     if ctx.uiState then ctx.uiState.dockPinnedPopover = "session" end
                 end
             end
-            ImGui.SameLine(280)
-            ImGui.Text(plat(e.value) .. "p")
+            do
+                local valText = plat(e.value) .. "p"
+                local vw = ImGui.CalcTextSize and ImGui.CalcTextSize(valText)
+                if type(vw) == "number" and vw < (SESS_VALUE_RIGHT - SESS_NAME_COL_W) + 56 then
+                    ImGui.SameLine(SESS_VALUE_RIGHT - vw)
+                else
+                    ImGui.SameLine(280)
+                end
+                ImGui.Text(valText)
+            end
             ImGui.SameLine(0, 10)
             -- Three chips cover the common calls; an impossible one greys with its
             -- reason inline (§12) — never a tooltip.
@@ -1347,7 +1374,13 @@ popovers.session = function(ctx, s)
         for i = 1, math.min(#sorted, SORTED_ROWS_MAX) do
             local e = sorted[i]
             ImGui.PushID("dockSessSorted" .. i)
-            safeText(tostring(e.name or "?"))
+            safeText(sessFit(e.name or "?"))
+            -- Sorted rows had no hover; truncation must not orphan the full name.
+            if ImGui.IsItemHovered and ImGui.IsItemHovered() then
+                ImGui.BeginTooltip()
+                ImGui.Text(tostring(e.name or "?"))
+                ImGui.EndTooltip()
+            end
             ImGui.SameLine(280)
             theme.TextMuted(tostring(e.reason or e.choice or ""))
             ImGui.PopID()
