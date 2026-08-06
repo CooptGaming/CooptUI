@@ -897,19 +897,15 @@ local function renderAugmentsSection(ctx, entry, cachedTip)
         if ornament.augName and ornament.augName ~= "empty" and ornament.augName ~= "" then filled = filled + 1 end
     end
     if not beginSection("Augments", string.format("AUGMENTS (%d/%d)", filled, total)) then return end
-    -- One ROW of icon cells (field ask) - the tray's presentation: every socket
-    -- visible at a glance, installed augs by their icons, names on hover.
-    local first = true
+    -- A vertical COLUMN of socket rows (field ruling 08-05 round 3: "stacked
+    -- vertically so that each socket is clearly separated"): icon cell + name per
+    -- row, one under the other - the component stacks them; no SameLine here.
     if augLines then
         for _, row in ipairs(augLines) do
-            if not first then ImGui.SameLine(0, 4) end
-            first = false
             renderAugmentRow(ctx, entry, row, false)
         end
     end
     if ornament then
-        if not first then ImGui.SameLine(0, 4) end
-        first = false
         renderAugmentRow(ctx, entry, ornament, true)
     end
     ctx.theme.TextFurniture("click a socket \xe2\x86\x92 Aug Utility on it \xc2\xb7 hover \xe2\x86\x92 details \xc2\xb7 right-click \xe2\x86\x92 inspect / remove")

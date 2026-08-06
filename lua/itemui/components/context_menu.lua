@@ -541,12 +541,22 @@ ROWS = {
             local slotName = ctx.getEquipmentSlotNameForItemNotify
                 and ctx.getEquipmentSlotNameForItemNotify(item.slot)
             if not (up and slotName) then return end
+            -- The FSM auto-accepts the attunement confirmation ONLY for equips
+            -- flagged attuneable (a never-worn bind prompt stopped the field's
+            -- auto-equip cold); any other dialog stays the user's to answer - the
+            -- gate that keeps this from touching unrelated confirmation windows.
+            local attuneable = false
+            pcall(function()
+                local it = ctx.getItemTLO and ctx.getItemTLO(up.bag, up.slot, "inv")
+                local a = it and it.Attuneable and it.Attuneable()
+                attuneable = (a == true) or (tostring(a) == "TRUE")
+            end)
             -- The equip FSM everything else already trusts: cursor-free is enforced
             -- by the queue, the displaced worn item goes back to bags via the FSM's
             -- proven handling, bags-full aborts honestly. No second path.
             local q = ctx.uiState.cursorActionQueue or {}
             q[#q + 1] = { type = "equip", bag = up.bag, slot = up.slot, name = up.name,
-                          targetSlot = slotName, preClearSlots = {} }
+                          targetSlot = slotName, attuneable = attuneable, preClearSlots = {} }
             ctx.uiState.cursorActionQueue = q
             -- The walk's world just changed; rescan on the next Equipment frame.
             upgradeScan.invalidate()

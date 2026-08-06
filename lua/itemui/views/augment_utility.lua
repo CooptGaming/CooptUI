@@ -553,11 +553,10 @@ renderForSlotContent = function(ctx)
         ctx.theme.TextHeader("Compatible augments")
         ImGui.SameLine()
         ctx.theme.TextInfo(string.format("(%d)", candCount))
-        if candidateCache.installedName then
-            ctx.theme.TextMuted(string.format("installed here: %s . ~%s . the +/- column is the net from replacing it",
-                candidateCache.installedName,
-                itemHelpers.formatThousands(candidateCache.installedScore or 0)))
-        end
+        -- No separate "installed" line (field ruling 08-05 round 3): the socket list
+        -- above IS the installed display - selected socket highlighted, installed
+        -- icon in the cell, full details on hover. The +/- column still compares
+        -- every candidate against candidateCache.installedScore for the selected slot.
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Only augments that fit this slot and pass all qualifications (restrictions, equipment slot, class/race/deity/level) are listed.")

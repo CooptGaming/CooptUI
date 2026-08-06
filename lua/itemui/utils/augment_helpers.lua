@@ -164,7 +164,13 @@ function M.buildAugmentIndex(inventoryItems, bankItemsOrCache)
             -- (stale scan data may show same augment at old and new location)
             local idName = tostring(row.id or 0) .. "_" .. tostring(row.name or ""):gsub("%s+", " ")
             if seenByIdName[idName] then goto next end
-            if (row.type or ""):lower() == "augmentation" then
+            -- Ornaments must pass this gate too (field: "no available ornaments are
+            -- displayed"): their item TYPE is not always "Augmentation" - ornament
+            -- rows can carry an "...Ornamentation"-style type - and the type filter
+            -- silently excluded them from the index. Anything ornament-typed with a
+            -- real AugType joins; the socket-type fit below decides where it goes.
+            local rowType = (row.type or ""):lower()
+            if rowType == "augmentation" or rowType:find("ornament", 1, true) then
                 local src = row.source or "inv"
                 local augIt = item_tlo.getItemTLO(row.bag, row.slot, src)
                 if augIt and augIt.AugType then
@@ -246,7 +252,10 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
         return candidates
     end
     local function addCandidate(itemRow)
-        if not itemRow or (itemRow.type or ""):lower() ~= "augmentation" then return end
+        if not itemRow then return end
+        -- Same broadened gate as the index build: ornament-typed rows are candidates.
+        local rowType = (itemRow.type or ""):lower()
+        if rowType ~= "augmentation" and not rowType:find("ornament", 1, true) then return end
         local augIt = item_tlo.getItemTLO(itemRow.bag, itemRow.slot, itemRow.source or "inv")
         if not augIt or not augIt.AugType then return end
         local augId = (type(augIt.ID) == "function" and augIt.ID()) or augIt.ID

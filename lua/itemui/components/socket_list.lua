@@ -98,13 +98,13 @@ local function renderRowBody(ctx, row, opts)
     end
     if opts.afterCell then opts.afterCell(row, isEmpty) end
 
-    -- The name, vertically centered against the cell.
+    -- The name beside the cell - TOP-ALIGNED, deliberately. A SetCursorPosY nudge
+    -- here (to center against the 30px cell) RESETS ImGui's line-height bookkeeping
+    -- mid-line: the next row then starts at nudged-text-Y + text height, INSIDE the
+    -- previous row's cell - rows collapsed onto each other and their hitboxes died,
+    -- which the field read as "sockets side by side" and "cannot switch by clicking".
+    -- Layout correctness beats a 8px centering nicety.
     ImGui.SameLine(0, 8)
-    do
-        local lineH = (ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14
-        local dy = math.max(0, (CELL_W - lineH) * 0.5)
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy)
-    end
     local label, color
     if isEmpty then
         if row.prefix and row.prefix ~= "" then
