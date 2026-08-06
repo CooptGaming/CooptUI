@@ -781,58 +781,108 @@ end
 --- Left-click: empty → Aug Utility opened to this socket; filled → opens as a tab.
 --- Right-click on a filled socket: the augInserted context menu — where the shift-gated,
 --- cost-stated Remove lives (rule 6; the old icon right-click removed with NO gate).
+local AUG_CELL_ICON = 24
+local AUG_CELL_W = AUG_CELL_ICON + 6
+
 local function augmentRowBody(ctx, entry, row, isOrnament)
     local isEmpty = (row.augName == nil or row.augName == "empty" or row.augName == "")
-    if (row.iconId or 0) > 0 and ctx.drawItemIcon then
-        pcall(function() ctx.drawItemIcon(row.iconId, 20) end)
-    elseif ctx.drawEmptySlotIcon then
-        pcall(function() ctx.drawEmptySlotIcon() end)
-    else
-        ImGui.Dummy(ImVec2(20, 20))
-    end
-    ImGui.SameLine()
-    -- The row is a full-width Selectable, not bare text: a spanning hitbox (the icon-only
-    -- and name-only hit targets read as dead in game) and the kit's #161b22 hover fill.
-    -- Never selected=true — no selection state exists anywhere in this UI (§2).
-    local label
-    local color
-    if isEmpty then
-        if row.prefix and row.prefix ~= "" then
-            label = "+ " .. row.prefix .. "empty"
-        elseif isOrnament then
-            label = "+ Ornament (type 20): empty"
-        else
-            label = "+ Slot " .. tostring(row.slotIndex) .. ": empty"
+    -- The socket as an ICON CELL (field ask: "similar to how item icons are presented
+    -- in the reroll companion") - the tray's vocabulary: Inset wash, 1px hairline
+    -- carrying the identity tint (spell-blue aug / mythic ornament / muted empty),
+    -- the NAME on hover, and the whole cell one click target.
+    ImGui.PushStyleColor(ImGuiCol.ChildBg, ctx.theme.ToVec4(ctx.theme.Kit.Inset))
+    local okCell = pcall(function()
+        if ImGui.BeginChild("augcell_" .. tostring(row.slotIndex) .. (isOrnament and "_orn" or ""),
+                ImVec2(AUG_CELL_W, AUG_CELL_W), false,
+                bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
+            ImGui.SetCursorPosX(3)
+            ImGui.SetCursorPosY(3)
+            if not isEmpty and (row.iconId or 0) > 0 and ctx.drawItemIcon then
+                local okIcon, drew = pcall(ctx.drawItemIcon, row.iconId, AUG_CELL_ICON)
+                if not (okIcon and drew ~= false) then
+                    ImGui.Dummy(ImVec2(AUG_CELL_ICON, AUG_CELL_ICON))
+                end
+            else
+                ImGui.Dummy(ImVec2(AUG_CELL_ICON, AUG_CELL_ICON))
+            end
         end
-        color = ctx.theme.Colors.TextFurniture
-    else
-        label = row.augName .. (isOrnament and "  \xc2\xb7 ornament" or "")
-        color = isOrnament and ctx.theme.Kit.Mythic or ctx.theme.Kit.SpellBlue
-    end
-    ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(color))
-    ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-    ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-    -- pcall between push and pop: a throwing Selectable must not leak the three colors
-    -- (pcall returns ok, selected, pressed — the click is the THIRD value here).
-    local okSel, _sel, pressed = pcall(ImGui.Selectable, label .. "##augrow", false)
-    ImGui.PopStyleColor(3)
+        ImGui.EndChild()
+    end)
+    ImGui.PopStyleColor(1)
+    if not okCell then return end
+    -- Hairline over the cell rect - identity tint, the tray's pattern.
+    pcall(function()
+        local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+        if not dl or not dl.AddRectFilled then return end
+        local x1, y1 = ImGui.GetItemRectMin()
+        local x2, y2 = ImGui.GetItemRectMax()
+        if type(x1) ~= "number" or type(x2) ~= "number" then return end
+        local c
+        if isEmpty then
+            c = ctx.theme.Kit.Divider
+        elseif isOrnament then
+            c = ctx.theme.Kit.Mythic
+        else
+            c = ctx.theme.Kit.SpellBlue
+        end
+        local col = ImGui.GetColorU32 and ImGui.GetColorU32(ctx.theme.ToVec4(c)) or 0xFF302B2B
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 1), col)
+        dl:AddRectFilled(ImVec2(x1, y2 - 1), ImVec2(x2, y2), col)
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 1, y2), col)
+        dl:AddRectFilled(ImVec2(x2 - 1, y1), ImVec2(x2, y2), col)
+    end)
     -- The cursor ring (item 10): an empty socket that accepts what you are carrying is a
     -- destination, so it rings. A FILLED socket never does - it would take the aug only
-    -- by displacing one, which is not what the ring promises. Drawn straight after the
-    -- Selectable so it rings that rect.
-    if isEmpty and okSel and cursorSubject.socketAccepts(row.socketType or 0) then
+    -- by displacing one, which is not what the ring promises.
+    if isEmpty and cursorSubject.socketAccepts(row.socketType or 0) then
         windowHeader.cursorRing()
     end
-    local rowPressed = okSel and pressed or false
-    if rowPressed then
-        if isEmpty then
-            uiState.augmentUtilitySlotIndex = row.slotIndex
-            uiState.augmentUtilityWindowOpen = true
-            uiState.augmentUtilityWindowShouldDraw = true
-        else
+    -- Capture hover ONCE, before the tooltip submits items of its own - a second
+    -- IsItemHovered() after it asks about the wrong item (the dock_top session-row
+    -- trap, recorded there).
+    local cellHovered = ImGui.IsItemHovered()
+    -- Hover: the FULL socketed item card for a filled cell (field ask); the slot's
+    -- identity line for an empty one. Rendered off the child item.
+    if cellHovered then
+        if not isEmpty then
             local full = resolveSocketItem(entry, row.slotIndex)
-            if full and ctx.addItemDisplayTab then ctx.addItemDisplayTab(full, entry.source) end
+            if full then
+                local topts = { source = entry.source, bag = entry.bag, slot = entry.slot,
+                    socketIndex = row.slotIndex }
+                local effects, tw, th = ItemTooltip.prepareTooltipContent(full, ctx, topts)
+                topts.effects = effects
+                ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH,
+                    th or constants.UI.TOOLTIP_MIN_HEIGHT)
+                ImGui.Text("Stats")
+                ImGui.Separator()
+                ItemTooltip.renderStatsTooltip(full, ctx, topts)
+                ImGui.EndTooltip()
+            else
+                ImGui.BeginTooltip()
+                ImGui.Text(tostring(row.augName))
+                ImGui.EndTooltip()
+            end
+        else
+            ImGui.BeginTooltip()
+            if isOrnament then
+                ImGui.Text("Ornament (type 20): empty")
+            else
+                local typ = row.socketType or 0
+                ImGui.Text(string.format("Slot %d: empty%s", row.slotIndex,
+                    (typ > 0) and (" . type " .. typ) or ""))
+            end
+            ImGui.Text("click: open Aug Utility on this socket")
+            ImGui.EndTooltip()
         end
+    end
+    local rowPressed = cellHovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left)
+    if rowPressed then
+        -- Field ruling: EVERY socket click opens the Aug Utility ON THIS SLOT - the
+        -- replace flow for filled cells, the fill flow for empty ones. Open-as-tab
+        -- lives on the right-click menu (onOpenSubject), one step away, not lost.
+        uiState.augmentUtilitySlotIndex = row.slotIndex
+        uiState.augmentUtilityWindowOpen = true
+        uiState.augmentUtilityWindowShouldDraw = true
     end
     if isEmpty then
         -- augEmpty was a declared context no host ever opened, so an empty socket's menu
@@ -905,11 +955,22 @@ local function renderAugmentsSection(ctx, entry, cachedTip)
         if ornament.augName and ornament.augName ~= "empty" and ornament.augName ~= "" then filled = filled + 1 end
     end
     if not beginSection("Augments", string.format("AUGMENTS (%d/%d)", filled, total)) then return end
+    -- One ROW of icon cells (field ask) - the tray's presentation: every socket
+    -- visible at a glance, installed augs by their icons, names on hover.
+    local first = true
     if augLines then
-        for _, row in ipairs(augLines) do renderAugmentRow(ctx, entry, row, false) end
+        for _, row in ipairs(augLines) do
+            if not first then ImGui.SameLine(0, 4) end
+            first = false
+            renderAugmentRow(ctx, entry, row, false)
+        end
     end
-    if ornament then renderAugmentRow(ctx, entry, ornament, true) end
-    ctx.theme.TextFurniture("click an empty slot \xe2\x86\x92 Aug Utility \xc2\xb7 click a filled one \xe2\x86\x92 opens it as a tab")
+    if ornament then
+        if not first then ImGui.SameLine(0, 4) end
+        first = false
+        renderAugmentRow(ctx, entry, ornament, true)
+    end
+    ctx.theme.TextFurniture("click a socket \xe2\x86\x92 Aug Utility on it \xc2\xb7 hover \xe2\x86\x92 details \xc2\xb7 right-click \xe2\x86\x92 inspect / remove")
 end
 
 --- Draw the full verdict card + full detail for one tab entry. entry = { bag, slot, source, item, label }
@@ -972,6 +1033,19 @@ local function renderOneItemContent(ctx, entry)
 
     renderCompareTileGrid(ctx, cmp.rows)
     if cmp.rows and #cmp.rows > 0 then ImGui.Spacing() end
+
+    -- The score line, same contract as every tooltip (field ask: "consistently in
+    -- the standard item display"): the ranking number with whatever it cannot price
+    -- NAMED beside it. Same cache entry the tooltips size from; the verdict box
+    -- above keeps the delta story - two different questions, two lines.
+    do
+        local si = cachedTip and cachedTip.scoreInfo
+        if si and si.total then
+            ctx.theme.TextSuccess(string.format("score ~%s", itemHelpers.formatThousands(si.total)))
+            if si.unscoredLine then ctx.theme.TextMuted(si.unscoredLine) end
+            ImGui.Spacing()
+        end
+    end
 
     ImGui.Separator()
     local ok, err = pcall(function()

@@ -148,8 +148,17 @@ do
     check('aug: effect row drawn', stub.drew(r, 'Might of Stone IV'))
     check('aug: all stats section counts the listed stats', stub.drew(r, 'ALL STATS'))
     check('aug: augments section with filled/total', stub.drew(r, 'AUGMENTS (2/3)'))
-    check('aug: filled socket row drawn', stub.drew(r, 'Ruby Aug of Power'))
-    check('aug: ornament row drawn', stub.drew(r, 'Shiny Ornament'))
+    -- The sockets are icon CELLS now (field ruling 08-04): names live on the cell
+    -- hover, not in always-visible rows. Hover the cell child (the EndChild;
+    -- IsItemHovered pattern the stub models for dock slots) and expect the name.
+    stub.hover = { augcell_1 = true }
+    local rH = frame()
+    stub.hover = {}
+    check('aug: filled socket name on cell hover', stub.drew(rH, 'Ruby Aug of Power'))
+    stub.hover = { augcell_5_orn = true }
+    local rO = frame()
+    stub.hover = {}
+    check('aug: ornament name on cell hover', stub.drew(rO, 'Shiny Ornament'))
     check('aug: spell data closed by default (rows not drawn)',
         not stub.drew(r, 'id 21903'))
 end
@@ -157,12 +166,16 @@ end
 -- ---------------------------------------------------------------- socket clicks
 do
     uiState.augmentUtilitySlotIndex = nil
-    stub.click = { ['type 7 (General: Group): empty##augrow'] = true }
+    -- Cells click via hover + left mouse (no Selectable label anymore): hover the
+    -- empty slot-2 cell and press.
+    stub.hover = { augcell_2 = true }
+    stub.mouse = { [ImGuiMouseButton.Left] = true }
     local r = frame()
-    stub.click = {}
-    check('aug: empty socket click frame ok', r.ok and stub.balanced(r),
+    stub.hover = {}
+    stub.mouse = {}
+    check('aug: socket cell click frame ok', r.ok and stub.balanced(r),
         (r.err or '') .. ' ' .. stub.imbalance(r))
-    check('aug: empty socket click routes to Aug Utility at slot 2',
+    check('aug: socket cell click routes to Aug Utility at slot 2',
         uiState.augmentUtilitySlotIndex == 2, uiState.augmentUtilitySlotIndex)
 end
 

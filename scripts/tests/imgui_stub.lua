@@ -381,6 +381,10 @@ function ImGuiStub.GetCursorPosX() return 400 end
 function ImGuiStub.GetCursorPos() return 0, 0 end
 function ImGuiStub.SetCursorPos() end
 function ImGuiStub.SetCursorPosX() end
+-- SetCursorPosY exists in the real binding (equipment.lua centers slot icons with it
+-- in-game). Its absence here threw INSIDE pcall'd child bodies, silently skipping
+-- EndChild - the aug-cell suite failed with child=+3 while every frame reported ok.
+function ImGuiStub.SetCursorPosY() end
 -- TWO NUMBERS, not an ImVec2 -- MQ registers these as tuple returns (lua_ImGuiCore.cpp:879,
 -- std::make_tuple(v.x, v.y)); the ImVec2-returning variants are the *Vec names. The stub's
 -- first version returned a .x-indexable table here, which let `rmin.x` pass every test while

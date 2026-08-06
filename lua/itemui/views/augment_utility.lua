@@ -301,21 +301,39 @@ renderForSlotContent = function(ctx)
         ImGui.Spacing()
     end
 
-    -- Slot selector: show only standard augment slots (1-4). Ornament (slot 5, type 20) is excluded so we
-    -- don't show a phantom "Slot 3" when the item has e.g. slots 1, 2 and an ornament. Ornament add/remove
-    -- can be added later as a separate dropdown option or section (slot 5; behavior differs from augments).
+    -- Slot selector: standard augment slots (1-4) plus the ORNAMENT (slot 5, type 20)
+    -- when the item has one - a real selectable socket now (field report: "the ornament
+    -- slot still does not appear functional"). The compat pipe was always generic
+    -- (a type-20 socket matches type-20 ornaments); only this picker excluded it.
     local maxSlots = 4
     if ctx.getItemTLO and ctx.getStandardAugSlotsCountFromTLO then
         local it = ctx.getItemTLO(bag, slot, source)
         local count = it and ctx.getStandardAugSlotsCountFromTLO(it) or 0
         if count > 0 then maxSlots = math.min(count, 4) end
     end
+    local itForSlot = ctx.getItemTLO and ctx.getItemTLO(bag, slot, source)
+    local ORN = TooltipData.ORNAMENT_SLOT_INDEX or 5
+    local hasOrnament = false
+    pcall(function()
+        hasOrnament = (itForSlot and itemHelpers.itemHasOrnamentSlot(itForSlot)) and true or false
+    end)
+    -- Consume a slot-preselect request (Item Display socket click, tooltip socket row,
+    -- the Rules-strip button). Those writers predate this reader: the uiState key was
+    -- WRITE-ONLY and the preselect silently never happened.
+    do
+        local req = ctx.uiState and ctx.uiState.augmentUtilitySlotIndex
+        if type(req) == "number" then
+            state.augmentUtilitySlotIndex = req
+            ctx.uiState.augmentUtilitySlotIndex = nil
+        end
+    end
     local slotIdx = state.augmentUtilitySlotIndex
-    if type(slotIdx) ~= "number" or slotIdx < 1 or slotIdx > maxSlots then
+    local slotValid = type(slotIdx) == "number"
+        and ((slotIdx >= 1 and slotIdx <= maxSlots) or (hasOrnament and slotIdx == ORN))
+    if not slotValid then
         slotIdx = 1
         state.augmentUtilitySlotIndex = 1
     end
-    local itForSlot = ctx.getItemTLO and ctx.getItemTLO(bag, slot, source)
     if tostring(ctx.layoutConfig.UIMode or "classic") == "bars" then
         -- 20c: the slot map IS the picker — one Selectable cell per socket, filled cells
         -- named from the same scan-invalidated cache Item Display's AUGMENTS section
@@ -348,20 +366,24 @@ renderForSlotContent = function(ctx)
             ImGui.PopStyleColor(3)
             if okSel and pressed then slotIdx = i end
         end
-        if tip and tip.ornamentLine then
-            local o = tip.ornamentLine
-            local oname = (o.augName and o.augName ~= "empty" and o.augName ~= "") and o.augName
+        if hasOrnament then
+            local o = tip and tip.ornamentLine
+            local oname = (o and o.augName and o.augName ~= "empty" and o.augName ~= "") and o.augName
                 or "empty . type 20"
-            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ctx.theme.Kit.Mythic))
-            pcall(ImGui.Selectable, "ORNAMENT   " .. oname .. "##augmapOrn", false)
-            ImGui.PopStyleColor(1)
+            local ornActive = (slotIdx == ORN)
+            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ornActive and ctx.theme.Kit.OpenBlue or ctx.theme.Kit.Mythic))
+            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+            ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
+            local okSel, _sel, pressed = pcall(ImGui.Selectable, "ORNAMENT   " .. oname .. "##augmapOrn", ornActive)
+            ImGui.PopStyleColor(3)
+            if okSel and pressed then slotIdx = ORN end
         end
         ctx.theme.TextFurniture("click a slot to work on it")
         state.augmentUtilitySlotIndex = slotIdx
     else
         ImGui.Text("Augment slot:")
         ImGui.SameLine()
-        ImGui.SetNextItemWidth(140)
+        ImGui.SetNextItemWidth(150)
         local slotNames = {}
         for i = 1, maxSlots do
             if ctx.getSlotType and itForSlot then
@@ -371,9 +393,15 @@ renderForSlotContent = function(ctx)
                 slotNames[i] = string.format("Slot %d (augment)", i)
             end
         end
-        local newIdx = ImGui.Combo("##AugmentUtilitySlot", slotIdx, slotNames, maxSlots)
-        if type(newIdx) == "number" and newIdx >= 1 and newIdx <= maxSlots then
-            slotIdx = newIdx
+        local comboCount = maxSlots
+        if hasOrnament then
+            comboCount = maxSlots + 1
+            slotNames[comboCount] = "Ornament (type 20)"
+        end
+        local displayIdx = (hasOrnament and slotIdx == ORN) and comboCount or slotIdx
+        local newIdx = ImGui.Combo("##AugmentUtilitySlot", displayIdx, slotNames, comboCount)
+        if type(newIdx) == "number" and newIdx >= 1 and newIdx <= comboCount then
+            slotIdx = (hasOrnament and newIdx == comboCount) and ORN or newIdx
         end
         state.augmentUtilitySlotIndex = slotIdx
     end
@@ -507,6 +535,25 @@ renderForSlotContent = function(ctx)
             for i, cand in ipairs(rebuilt) do
                 cand._rankPosition = i
             end
+            -- The installed occupant of the selected slot is the comparison BASE
+            -- (field ask): candidates state their net against what they would
+            -- replace, not just a standalone number. Empty slot = base 0 (the
+            -- score IS the gain). Cosmetic ornaments score 0 naturally - a statted
+            -- ornament prices like any stat block.
+            local installedRow = nil
+            pcall(function()
+                local pIt = ctx.getItemTLO and ctx.getItemTLO(bag, slot, source)
+                if pIt then
+                    installedRow = TooltipData.getSocketItemStats(pIt, bag, slot, source, slotIdx)
+                end
+            end)
+            if installedRow and installedRow.name then
+                candidateCache.installedName = installedRow.name
+                candidateCache.installedScore = scoreCandidate(ctx, installedRow, cls, wornLines)
+            else
+                candidateCache.installedName = nil
+                candidateCache.installedScore = 0
+            end
             candidateCache.key = candKey
             candidateCache.candCount = #candidates
             candidateCache.list = rebuilt
@@ -519,6 +566,11 @@ renderForSlotContent = function(ctx)
         ctx.theme.TextHeader("Compatible augments")
         ImGui.SameLine()
         ctx.theme.TextInfo(string.format("(%d)", candCount))
+        if candidateCache.installedName then
+            ctx.theme.TextMuted(string.format("installed here: %s . ~%s . the +/- column is the net from replacing it",
+                candidateCache.installedName,
+                itemHelpers.formatThousands(candidateCache.installedScore or 0)))
+        end
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()
             ImGui.Text("Only augments that fit this slot and pass all qualifications (restrictions, equipment slot, class/race/deity/level) are listed.")
@@ -560,12 +612,15 @@ renderForSlotContent = function(ctx)
                 end
             else
                 local tableFlags = bit32.bor(ctx.uiState.tableFlags or 0, ImGuiTableFlags.Sortable)
-                if ImGui.BeginTable("ItemUI_AugmentUtility", 5, tableFlags) then
+                if ImGui.BeginTable("ItemUI_AugmentUtility", 6, tableFlags) then
                     ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 32, 0)
                     ImGui.TableSetupColumn("~score", bit32.bor(ImGuiTableColumnFlags.WidthFixed, ImGuiTableColumnFlags.Sortable, ImGuiTableColumnFlags.DefaultSort), 60, 1)
                     ImGui.TableSetupColumn("Name", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 2)
                     ImGui.TableSetupColumn("Clicky", bit32.bor(ImGuiTableColumnFlags.WidthStretch, ImGuiTableColumnFlags.Sortable), 0, 3)
-                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 4)
+                    -- Net vs the installed occupant - AFTER Clicky so the sortable
+                    -- column indices (1/2/3) stay what the sort branch expects.
+                    ImGui.TableSetupColumn("+/-", ImGuiTableColumnFlags.WidthFixed, 56, 4)
+                    ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 56, 5)
                     ImGui.TableHeadersRow()
 
                     -- Read sort spec and sort filtered list (1 = Rank, 2 = Name, 3 = Clicky)
@@ -702,6 +757,24 @@ renderForSlotContent = function(ctx)
                             local clickyStr = getClickyName(cand)
                             if clickyStr and clickyStr ~= "" then
                                 ImGui.Text(clickyStr)
+                            else
+                                ctx.theme.TextMuted("-")
+                            end
+
+                            -- Net vs the installed occupant (field ask): green gain,
+                            -- amber loss, dash when the slot is empty (the score IS
+                            -- the gain there).
+                            ImGui.TableNextColumn()
+                            local base = candidateCache.installedScore or 0
+                            if base > 0 then
+                                local d = (cand._rankScore or 0) - base
+                                if d > 0 then
+                                    ctx.theme.TextSuccess("+" .. itemHelpers.formatThousands(d))
+                                elseif d < 0 then
+                                    ctx.theme.TextWarning("-" .. itemHelpers.formatThousands(-d))
+                                else
+                                    ctx.theme.TextMuted("0")
+                                end
                             else
                                 ctx.theme.TextMuted("-")
                             end
