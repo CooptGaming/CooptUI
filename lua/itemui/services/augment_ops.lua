@@ -83,6 +83,23 @@ end
 -- Insert: state machine (phase_pickup -> settle -> inspect | /insertaug -> wait_display_open -> click_socket -> wait_confirm)
 -- ============================================================================
 
+-- The ornament (aug slot 5 in this UI's TLO reads) renders in a DEDICATED
+-- Appearance socket control on RoF2 - IDW_Appearance_Socket_Item, not
+-- IDW_Socket_Slot_5_Item (eqlib emu UI.h). Clicking the numbered name hit
+-- nothing, which was the field's "cannot place an ornament into it". Removal
+-- needs NO distiller server-side (EQEmu Handle_OP_AugmentItem: safe removal iff
+-- the aug's AugDistiller == 0, and ornaments ship 0); the Yes/No confirm still
+-- appears and the shared confirm machinery answers it. /removeaug is NOT usable
+-- for ornaments: it refuses to act without SOME distiller in inventory even
+-- though none would be consumed - the /notify path below is the one that works.
+local ORNAMENT_SLOT_INDEX = 5  -- keep in sync with tooltip_data.ORNAMENT_SLOT_INDEX
+local function socketControlName(slotIndex)
+    if (tonumber(slotIndex) or 0) == ORNAMENT_SLOT_INDEX then
+        return "IDW_Appearance_Socket_Item"
+    end
+    return string.format("IDW_Socket_Slot_%d_Item", slotIndex or 1)
+end
+
 -- Note: inserts are started by app.lua's ctx.insertAugment, which writes the
 -- pendingInsertAugment queue entry directly (proxied to this module's state).
 function M.advanceInsert(now)
@@ -170,7 +187,7 @@ function M.advanceInsert(now)
         -- Match the original, working flow: wait full display-open settle before socket click.
         if (now - (pa.phaseEnteredAt or 0)) < REMOVE_OPEN_DELAY_MS then return end
         local windowName = resolveItemDisplayWindowName()
-        local controlName = string.format("IDW_Socket_Slot_%d_Item", pa.slotIndex or 1)
+        local controlName = socketControlName(pa.slotIndex or 1)
         mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
         pa.phase = "settle_after_click"
         pa.phaseEnteredAt = now
@@ -217,7 +234,7 @@ function M.advanceRemove(now)
         if not M.isItemDisplayWindowOpen() then return end
         if (now - (ra.phaseEnteredAt or 0)) < REMOVE_OPEN_DELAY_MS then return end
         local windowName = resolveItemDisplayWindowName()
-        local controlName = string.format("IDW_Socket_Slot_%d_Item", ra.slotIndex)
+        local controlName = socketControlName(ra.slotIndex)
         mq.cmdf('/notify %s %s leftmouseup', windowName, controlName)
         ra.phase = "settle_after_click"
         ra.phaseEnteredAt = now
