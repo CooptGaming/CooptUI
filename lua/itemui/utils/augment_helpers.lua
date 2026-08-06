@@ -227,6 +227,54 @@ function M.getCompatibleAugments(parentItem, bag, slot, source, slotIndex, inven
     if not it or not it.ID or it.ID() == 0 then return {} end
     local socketType = item_tlo.getSlotType(it, slotIndex)
     if not socketType or socketType <= 0 then return {} end
+    -- ORNAMENT sockets (type 20/21) bypass the string-typed index entirely. Two
+    -- rounds of guessing ornament TYPE STRINGS have missed in the field ("no
+    -- available ornaments are displayed"), so this path asks the only authority:
+    -- every bag/bank row's own TLO AugType, probed directly, once per rebuild
+    -- (the rebuild is cache-keyed - this never runs per frame). Worn-slot
+    -- restriction checks are deliberately skipped for appearance sockets; the
+    -- game gates the insert, and a slightly-generous list beats an empty one.
+    -- When the result is STILL empty, one console line states the probe counts
+    -- so the field can name the mismatch instead of reporting another blank.
+    if socketType == 20 or socketType == 21 then
+        local out, seenIdName = {}, {}
+        local probed, withType, fit = 0, 0, 0
+        local function probe(list)
+            if not list then return end
+            for _, row in ipairs(list) do
+                if row and row.id and row.id ~= 0 and row.bag and row.slot then
+                    probed = probed + 1
+                    local augIt = item_tlo.getItemTLO(row.bag, row.slot, row.source or "inv")
+                    if augIt then
+                        local at = item_tlo.getAugTypeFromTLO(augIt)
+                        if at and at > 0 then
+                            withType = withType + 1
+                            if M.augmentFitsSocket(at, socketType)
+                                and M.augmentRestrictionAllowsParent(it, item_tlo.getAugRestrictionsFromTLO(augIt)) then
+                                fit = fit + 1
+                                local dedup = tostring(row.id) .. "_" .. (row.name or "")
+                                if not seenIdName[dedup]
+                                    and not (type(canUseFilter) == "function" and not canUseFilter(row)) then
+                                    seenIdName[dedup] = true
+                                    out[#out + 1] = row
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        probe(inventoryItems)
+        probe(bankItemsOrCache)
+        if #out == 0 then
+            pcall(function()
+                print(string.format(
+                    "[CoOpt] ornament scan: %d rows probed . %d carry an AugType . %d fit socket type %d. If an ornament IS in your bags, its AugType is not matching - tell the build its name.",
+                    probed, withType, fit, socketType))
+            end)
+        end
+        return out
+    end
     local candidates = {}
     if #augmentIndex == 0 and (inventoryItems or bankItemsOrCache) then
         M.buildAugmentIndex(inventoryItems, bankItemsOrCache)

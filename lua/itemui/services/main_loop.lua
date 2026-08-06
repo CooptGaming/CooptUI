@@ -30,10 +30,36 @@ local function getItemDisplayState()
     return ItemDisplayView.getState()
 end
 
+--- Abort a running Fill-with-Best queue OUT LOUD. The field's "it would hang up":
+--- when an insert step failed with the gem still on the cursor, the flags cleared
+--- but the queue kept its steps and NOTHING ever drained them - a silent strand.
+--- A queue is either advancing or aborted with a count; there is no third state.
+local function abortOptimizeQueue(reason)
+    local uiState, setStatusMessage, hasItemOnCursor = d.uiState, d.setStatusMessage, d.hasItemOnCursor
+    local oq = uiState and uiState.optimizeQueue
+    if not oq then return false end
+    local remaining = (oq.steps and #oq.steps) or 0
+    uiState.optimizeQueue = nil
+    if hasItemOnCursor and hasItemOnCursor() then mq.cmd('/autoinv') end
+    if setStatusMessage then
+        setStatusMessage(string.format(
+            "Fill with Best aborted (%s) - %d step(s) not done. Fix and press it again.",
+            reason or "insert failed", remaining))
+    end
+    return true
+end
+
 local function resolveAugmentQueueStep(queueType)
     local uiState, scanInventory, isBankWindowOpen, scanBank, refreshActiveItemDisplayTab, setStatusMessage, buildAugmentIndex, deferredScanNeeded =
         d.uiState, d.scanInventory, d.isBankWindowOpen, d.scanBank, d.refreshActiveItemDisplayTab, d.setStatusMessage, d.buildAugmentIndex, d.deferredScanNeeded
     if queueType == "optimize" then
+        -- Never queue the next step onto an occupied cursor: the insert FSM's own
+        -- pickup guard would kill the step and strand the rest.
+        if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0
+            and d.hasItemOnCursor and d.hasItemOnCursor() then
+            abortOptimizeQueue("cursor was not clear")
+            return
+        end
         if uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0 then
             local oq = uiState.optimizeQueue
             local step = table.remove(oq.steps, 1)
@@ -809,7 +835,13 @@ local function handleAugmentConfirmationTimeouts(now)
     if uiState.waitingForInsertConfirmation and not confirmDialogOpen and uiState.insertConfirmationSetAt and (now - uiState.insertConfirmationSetAt) > AUGMENT_INSERT_NO_CONFIRM_FALLBACK_MS then
         if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
         if hasItemOnCursor() then
-            setStatusMessage("Insert may have failed; check cursor.")
+            -- The step failed with the aug still on cursor (a foreign dialog, a dead
+            -- socket click, anything). A running Fill-with-Best must ABORT here -
+            -- clearing only the flags left its steps stranded forever, the field's
+            -- hang. Solo inserts keep the old honest message.
+            if not abortOptimizeQueue("an insert left the augment on the cursor") then
+                setStatusMessage("Insert may have failed; check cursor.")
+            end
         else
             resolveAugmentQueueStep("optimize")
             if not (uiState.optimizeQueue and uiState.optimizeQueue.steps and #uiState.optimizeQueue.steps > 0) then
@@ -831,11 +863,20 @@ local function handleAugmentConfirmationTimeouts(now)
     if uiState.waitingForInsertCursorClear then
         if (uiState.insertCursorClearTimeoutAt and (now - uiState.insertCursorClearTimeoutAt) > AUGMENT_CURSOR_CLEAR_TIMEOUT_MS) then
             if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
-            setStatusMessage("Insert timed out; check cursor.")
             uiState.waitingForInsertCursorClear = false
             uiState.insertCursorClearTimeoutAt = nil
             uiState.insertConfirmationSetAt = nil
-            resolveAugmentQueueStep("optimize")
+            -- Timed out with the aug still on cursor = the step FAILED; advancing the
+            -- queue from here just fed the next step into the pickup guard's "Clear
+            -- cursor first" and stranded the rest - the hang's second door.
+            if hasItemOnCursor() then
+                if not abortOptimizeQueue("insert timed out with the augment on the cursor") then
+                    setStatusMessage("Insert timed out; check cursor.")
+                end
+            else
+                setStatusMessage("Insert timed out; check cursor.")
+                resolveAugmentQueueStep("optimize")
+            end
         elseif not hasItemOnCursor() then
             if augmentOps.closeItemDisplayWindow then augmentOps.closeItemDisplayWindow() end
             uiState.waitingForInsertCursorClear = false

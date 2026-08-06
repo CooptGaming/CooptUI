@@ -41,7 +41,12 @@ local function renderRowBody(ctx, row, opts)
     local isOrn = row.isOrnament == true
     local selected = opts.selectedSlot ~= nil and opts.selectedSlot == row.slotIndex
 
-    ImGui.PushStyleColor(ImGuiCol.ChildBg, ctx.theme.ToVec4(ctx.theme.Kit.Inset))
+    -- Selection is LOUD (field: "it's not clear which one is selected"): the
+    -- selected row's cell sits on the OpenWash fill, its hairline doubles to 2px
+    -- open-blue, and its name goes open-blue too - the product's one open-state
+    -- treatment, all three signals agreeing.
+    ImGui.PushStyleColor(ImGuiCol.ChildBg,
+        ctx.theme.ToVec4(selected and ctx.theme.Kit.OpenWash or ctx.theme.Kit.Inset))
     local okCell = pcall(function()
         -- border = FALSE: the bool-border overload pays WindowPadding and clips a
         -- 30px cell's icon. Containment is the wash + the hairline below. The child
@@ -84,10 +89,11 @@ local function renderRowBody(ctx, row, opts)
             c = ctx.theme.Kit.SpellBlue
         end
         local col = ImGui.GetColorU32 and ImGui.GetColorU32(ctx.theme.ToVec4(c)) or 0xFF302B2B
-        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 1), col)
-        dl:AddRectFilled(ImVec2(x1, y2 - 1), ImVec2(x2, y2), col)
-        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 1, y2), col)
-        dl:AddRectFilled(ImVec2(x2 - 1, y1), ImVec2(x2, y2), col)
+        local t = selected and 2 or 1
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + t), col)
+        dl:AddRectFilled(ImVec2(x1, y2 - t), ImVec2(x2, y2), col)
+        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + t, y2), col)
+        dl:AddRectFilled(ImVec2(x2 - t, y1), ImVec2(x2, y2), col)
     end)
     -- Hover captured ONCE, before rings/menus/tooltips submit their own items.
     local cellHovered = ImGui.IsItemHovered()
@@ -121,6 +127,7 @@ local function renderRowBody(ctx, row, opts)
         label = tostring(row.augName) .. (isOrn and " . ornament" or "")
         color = isOrn and ctx.theme.Kit.Mythic or ctx.theme.Kit.SpellBlue
     end
+    if selected then color = ctx.theme.Kit.OpenBlue end
     ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(color))
     pcall(ImGui.Text, label)
     ImGui.PopStyleColor(1)
