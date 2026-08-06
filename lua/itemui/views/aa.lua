@@ -40,6 +40,21 @@ local filterCache = { key = "", list = {} }
 --- the prereq's owned rank) so the right rail never does per-frame TLO or list walks.
 local railCache = { sel = nil, gen = nil, nextDesc = nil, reqOwned = 0 }
 
+--- hasRankTruth is a PLUGIN WALK behind a 100ms TTL (sized for aa_transfer's buy
+--- verification, not for a render loop) - calling it every frame walked the whole
+--- owned-ranks store ~10x/second and was the field's "window freezes on open".
+--- The answer changes only when the plugin loads/unloads: probe once per data
+--- generation, not per frame.
+local rankTruthCache = { gen = nil, val = true }
+local function hasRankTruthCached(ctx)
+    local gen = (ctx.uiState and ctx.uiState.aaDataRefreshedAt) or 0
+    if rankTruthCache.gen ~= gen then
+        rankTruthCache.gen = gen
+        rankTruthCache.val = aa_transfer.hasRankTruth()
+    end
+    return rankTruthCache.val
+end
+
 --- The one train path (Enter, double-click, and the Train button all land
 --- here). Fires the buy at the record's nextIndex - which the truth overlay
 --- has made the actual next-rank table id - then bumps the record in place
@@ -300,7 +315,8 @@ function AAView.render(ctx)
         local unspent = tonumber(summary.aaPoints) or 0
         local statText = string.format("%d unspent", unspent)
         if ctx.isAABuilding and ctx.isAABuilding() then
-            statText = statText .. " . scanning AA tables"
+            statText = statText .. string.format(" . scanning AA tables %d%%",
+                math.floor((aa_data.getBuildProgress() or 0) * 100 + 0.5))
         end
         windowHeader.render({
             id = "aa", title = "AA", stat = statText,
@@ -365,7 +381,8 @@ function AAView.render(ctx)
         ctx.renderRefreshButton(ctx, "Refresh##AA", "Rescan AA list", function() ctx.refreshAA() end, { messageAfter = "AA list refreshed" })
     end
     if ctx.isAABuilding and ctx.isAABuilding() then
-        ctx.theme.TextWarning("Scanning AA tables...")
+        ctx.theme.TextWarning(string.format("Scanning AA tables... %d%%",
+            math.floor((aa_data.getBuildProgress() or 0) * 100 + 0.5)))
     else
         ctx.theme.TextMuted(ctx.getAALastRefreshTime and ("Last: " .. os.date("%H:%M:%S", (ctx.getAALastRefreshTime() or 0) / 1000)) or "")
     end
@@ -380,7 +397,8 @@ function AAView.render(ctx)
     -- three different facts and each names its own way out.
     if #sorted == 0 then
         if ctx.isAABuilding and ctx.isAABuilding() then
-            ctx.theme.TextWarning("Scanning AA tables...")
+            ctx.theme.TextWarning(string.format("Scanning AA tables... %d%%",
+                math.floor((aa_data.getBuildProgress() or 0) * 100 + 0.5)))
         elseif #(ctx.getAAList() or {}) == 0 then
             ctx.theme.TextMuted("No AA data yet. Refresh to scan.")
         elseif aaLens == "buy" then
@@ -398,6 +416,12 @@ function AAView.render(ctx)
             ctx.theme.TextMuted("Nothing matches your search.")
         end
     else
+    -- The table lives in its own child with the legend's height RESERVED below it.
+    -- A ScrollY table fills all remaining height, so the legend used to land past
+    -- the frame and buy the whole center section a scrollbar just to show one line
+    -- (field report). Reserving the line first means everything fits the frame.
+    local legendH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 8
+    ImGui.BeginChild("AATableWrap", ImVec2(0, -legendH), false)
     local colNames = { "Title", "Cur/Max", "Cost", "Category" }
     local tableFlags = bit32.bor(ImGuiTableFlags.ScrollY, ImGuiTableFlags.RowBg, ImGuiTableFlags.BordersOuter, ImGuiTableFlags.BordersV, ImGuiTableFlags.Resizable, ImGuiTableFlags.Sortable)
     if ImGui.BeginTable("AATable", 4, tableFlags) then
@@ -483,6 +507,7 @@ function AAView.render(ctx)
         end
         ImGui.EndTable()
     end
+    ImGui.EndChild()
     ctx.theme.TextMuted("cost: green = buyable now . plain = need more points . * = activated (hotkey-able)")
     end
     ImGui.EndChild()
@@ -638,7 +663,7 @@ function AAView.render(ctx)
     -- Without it both fall back to the TLO rank read, which inflates on partially
     -- trained lines - the profile can be wrong and every status message still reads
     -- like success. Say so up front rather than letting the user find out later.
-    if not aa_transfer.hasRankTruth() then
+    if not hasRankTruthCached(ctx) then
         ctx.theme.TextWarning("AA rank data unavailable - Export/Import may be incomplete")
         if ImGui.IsItemHovered() then
             ImGui.BeginTooltip()

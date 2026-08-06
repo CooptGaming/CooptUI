@@ -37,32 +37,24 @@ local IDS_PER_PUMP = 2500
 -- TLO evaluations in a single tick: the several-second freeze on window open.
 -- Time is the honest budget; the id cap stays as a backstop.
 local PUMP_BUDGET_MS = 8
-local build = nil  -- { cursor, list, seen, ids?, truth? } while an incremental rebuild is running
+-- Rebuild state machine. The four PLUGIN calls (owned ranks, rank indexes, rank
+-- costs, visible ids) are each a synchronous walk of a large table - firing all
+-- four in one tick was the field's "5-10 second pause when opening the window".
+-- Each now gets its OWN tick (phases below), so the worst single-frame hitch is
+-- the slowest single call, and the completion line names each cost so the field
+-- can tell us which one is the pig.
+-- phases: truth_owned -> truth_idx -> truth_costs -> ids -> scan
+local build = nil  -- { phase, cursor, list, seen, ids?, truth?, timings, t0 }
+-- Visible ids are level-gated and otherwise stable: cached per level so REOPENING
+-- the window never repays that walk.
+local idsCache = { level = nil, ids = nil }
+local lastScanTimings = nil
 -- Last truth maps fetched from the plugin (owned ranks + per-rank table ids and
 -- costs). Kept for noteTrained's optimistic post-buy bump between rescans.
 local lastTruth = nil
 
---- Fetch the plugin's truth maps in one place: owned ranks (PcProfile AAList),
---- per-rank table ids (what /alt buy actually takes - the global TLO's first
---- group match is NOT rank 1 on this server's custom table), and per-rank
---- costs. Returns nil when the plugin or its owned-ranks store is unavailable;
---- rank indexes and costs are optional extras on top of owned.
-local function fetchTruth()
-    local pa = plugAA()
-    if not pa or type(pa.getOwnedRanks) ~= 'function' then return nil end
-    local ok, owned = pcall(pa.getOwnedRanks)
-    if not ok or type(owned) ~= 'table' then return nil end
-    local truth = { owned = owned }
-    if type(pa.getGroupRankIndexes) == 'function' then
-        local okR, m = pcall(pa.getGroupRankIndexes)
-        if okR and type(m) == 'table' then truth.rankIdx = m end
-    end
-    if type(pa.getGroupRankCosts) == 'function' then
-        local okC, m = pcall(pa.getGroupRankCosts)
-        if okC and type(m) == 'table' then truth.rankCosts = m end
-    end
-    return truth
-end
+-- (fetchTruth was here: it fired all three truth calls in one tick. They now run
+-- as separate pump phases - see M.pump - for exactly the freeze reason above.)
 
 --- Recompute the SPEND fields (nextIndex, cost, canTrain) from a record's rank
 --- and the truth maps. This is the fix for "Train doesn't work" and "Can
@@ -171,20 +163,11 @@ end
 --- With the plugin, the rebuild walks only the ids the client itself would
 --- show (CanSeeAbility); otherwise it falls back to the full id-space scan.
 function M.refresh()
-    -- Truth maps are fetched at scan START and ride the build: buildRecord
-    -- skips the expensive character-side TLO resolve whenever they exist, and
-    -- the completion overlay applies them. A buy always schedules a fresh
-    -- rescan, so start-of-scan ranks are current for the scan they serve.
-    local truth = fetchTruth()
-    local pa = plugAA()
-    if pa then
-        local ok, ids = pcall(pa.getVisibleAAIds)
-        if ok and type(ids) == 'table' and #ids > 0 then
-            build = { ids = ids, cursor = 1, list = {}, seen = {}, truth = truth }
-            return
-        end
-    end
-    build = { cursor = 1, list = {}, seen = {}, truth = truth }
+    -- NO plugin calls here - refresh only arms the state machine. Every heavy
+    -- call happens inside its own pump tick so opening the window never blocks
+    -- the frame that requested the scan.
+    build = { phase = "truth_owned", cursor = 1, list = {}, seen = {},
+              truth = nil, timings = {}, t0 = mq.gettime() }
 end
 
 --- True while an incremental rebuild is in progress.
@@ -197,6 +180,54 @@ end
 --- the lowest id (rank 1), matching the old scan's behavior on the low block.
 function M.pump()
     if not build then return end
+    -- Truth/ids phases: one plugin call per tick, timed. A phase that cannot run
+    -- (plugin absent) falls through instantly.
+    if build.phase and build.phase ~= "scan" then
+        local pa = plugAA()
+        local p0 = mq.gettime()
+        if build.phase == "truth_owned" then
+            if pa and type(pa.getOwnedRanks) == 'function' then
+                local ok, owned = pcall(pa.getOwnedRanks)
+                if ok and type(owned) == 'table' then build.truth = { owned = owned } end
+            end
+            build.timings.owned = mq.gettime() - p0
+            build.phase = "truth_idx"
+        elseif build.phase == "truth_idx" then
+            if build.truth and pa and type(pa.getGroupRankIndexes) == 'function' then
+                local ok, m = pcall(pa.getGroupRankIndexes)
+                if ok and type(m) == 'table' then build.truth.rankIdx = m end
+            end
+            build.timings.rankIdx = mq.gettime() - p0
+            build.phase = "truth_costs"
+        elseif build.phase == "truth_costs" then
+            if build.truth and pa and type(pa.getGroupRankCosts) == 'function' then
+                local ok, m = pcall(pa.getGroupRankCosts)
+                if ok and type(m) == 'table' then build.truth.rankCosts = m end
+            end
+            build.timings.costs = mq.gettime() - p0
+            build.phase = "ids"
+        elseif build.phase == "ids" then
+            local lvl = 0
+            pcall(function()
+                lvl = tonumber(mq.TLO and mq.TLO.Me and mq.TLO.Me.Level and mq.TLO.Me.Level()) or 0
+            end)
+            if idsCache.ids and idsCache.level == lvl and lvl > 0 then
+                build.ids = idsCache.ids
+                build.timings.ids = 0
+            elseif pa and type(pa.getVisibleAAIds) == 'function' then
+                local ok, ids = pcall(pa.getVisibleAAIds)
+                if ok and type(ids) == 'table' and #ids > 0 then
+                    build.ids = ids
+                    if lvl > 0 then idsCache.ids = ids; idsCache.level = lvl end
+                end
+                build.timings.ids = mq.gettime() - p0
+            else
+                build.timings.ids = 0
+            end
+            build.phase = "scan"
+        end
+        return
+    end
     local AltAbility = mq.TLO and mq.TLO.AltAbility
     if not AltAbility then
         -- No TLO: record a completed-empty scan so shouldRefresh doesn't
@@ -264,8 +295,36 @@ function M.pump()
         aaList = build.list
         lastFingerprint = buildFingerprint()
         lastRefreshTime = mq.gettime()
+        -- One console line per scan naming every cost - the field's instrument for
+        -- "which call is the pig". print routes to the MQ console under MQ2Lua.
+        local tm = build.timings or {}
+        tm.scan = lastRefreshTime - (build.t0 or lastRefreshTime)
+            - (tm.owned or 0) - (tm.rankIdx or 0) - (tm.costs or 0) - (tm.ids or 0)
+        lastScanTimings = tm
+        pcall(function()
+            print(string.format(
+                "[CoOpt] AA scan: %d records . owned %dms . rankIdx %dms . costs %dms . ids %dms%s . scan %dms",
+                #aaList, tm.owned or 0, tm.rankIdx or 0, tm.costs or 0, tm.ids or 0,
+                (tm.ids == 0 and idsCache.ids) and " (cached)" or "", tm.scan or 0))
+        end)
         build = nil
     end
+end
+
+--- Rebuild progress 0..1 for the scanning label ("scanning AA tables... 41%").
+--- The truth/ids phases are the flat first slice; the scan walks the rest.
+function M.getBuildProgress()
+    if not build then return 1 end
+    local PHASE_SLICE = { truth_owned = 0.01, truth_idx = 0.03, truth_costs = 0.05, ids = 0.07 }
+    if build.phase ~= "scan" then return PHASE_SLICE[build.phase] or 0 end
+    local last = build.ids and #build.ids or MAX_AA_ID
+    if last <= 0 then return 0.1 end
+    return 0.1 + 0.9 * math.min(1, (build.cursor or 1) / last)
+end
+
+--- Last completed scan's per-phase costs (ms): { owned, rankIdx, costs, ids, scan }.
+function M.getLastScanTimings()
+    return lastScanTimings
 end
 
 --- Return current cached list (do not modify).
