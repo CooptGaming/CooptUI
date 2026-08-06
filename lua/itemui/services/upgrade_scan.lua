@@ -100,7 +100,8 @@ function M.tick(deps)
         if not cls then return end
         walk = {
             key = key, cls = cls, phase = "equipped", cursor = 0,
-            equippedScore = {}, bySlot = {}, wornLines = buildWornLines(deps),
+            equippedScore = {}, slotOccupied = {}, bySlot = {},
+            wornLines = buildWornLines(deps),
         }
     end
     local t0 = now
@@ -110,9 +111,14 @@ function M.tick(deps)
             local slotIndex = walk.cursor
             local e = cache[slotIndex + 1]
             if e then
+                -- OCCUPIED is a fact about the slot, not about the score: worn arrows
+                -- score ~0 and the field read that as "fills this empty slot" while
+                -- hovering the arrows themselves. Presence and value are two fields.
+                walk.slotOccupied[slotIndex] = true
                 local ok, total = pcall(itemCompare.scoreForClass, e, walk.cls)
                 walk.equippedScore[slotIndex] = (ok and type(total) == "number") and total or 0
             else
+                walk.slotOccupied[slotIndex] = false
                 walk.equippedScore[slotIndex] = 0
             end
             walk.cursor = walk.cursor + 1
@@ -129,8 +135,14 @@ function M.tick(deps)
         local row = inv[walk.cursor]
         walk.cursor = walk.cursor + 1
         if row and row.id and row.id ~= 0 then
-            local usable = true
-            if deps.canUse then
+            -- An AUGMENT is never an equipment candidate: its WornSlot data describes
+            -- the slots its PARENT may occupy, which is exactly how a socketable gem
+            -- got suggested for the ammo slot in the field. Ornaments same.
+            local rowType = tostring(row.type or ""):lower()
+            local isSocketable = rowType == "augmentation" or rowType == "ornamentation"
+                or rowType == "ornament"
+            local usable = not isSocketable
+            if usable and deps.canUse then
                 local okU, u = pcall(deps.canUse, row)
                 usable = okU and u or false
             end
@@ -147,7 +159,18 @@ function M.tick(deps)
                     if score > 0 then
                         local function consider(slotIndex)
                             local eq = walk.equippedScore[slotIndex] or 0
-                            local beats = (eq <= 0) or (score > eq * margin)
+                            local occupied = walk.slotOccupied[slotIndex] == true
+                            -- Occupied slots need the margin beat (a zero-scoring
+                            -- occupant is beaten by any positive score); only a truly
+                            -- EMPTY slot is the anything-beats-nothing case.
+                            local beats
+                            if not occupied then
+                                beats = true
+                            elseif eq > 0 then
+                                beats = score > eq * margin
+                            else
+                                beats = true
+                            end
                             if not beats then return end
                             local pct = (eq > 0) and math.floor((score / eq - 1) * 100 + 0.5) or nil
                             local cur = walk.bySlot[slotIndex]
@@ -155,7 +178,7 @@ function M.tick(deps)
                             if better then
                                 walk.bySlot[slotIndex] = {
                                     name = row.name, bag = row.bag, slot = row.slot,
-                                    score = score, pct = pct,
+                                    score = score, pct = pct, occupied = occupied,
                                 }
                             end
                         end

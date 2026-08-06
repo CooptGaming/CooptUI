@@ -140,6 +140,13 @@ function EquipmentView.render(ctx)
                 tostring(up.name or "?"), itemHelpers.formatThousands(eq),
                 itemHelpers.formatThousands(up.score or 0), up.pct, tonumber(up.bag) or 0)
         end
+        if up.occupied then
+            -- The worn item scores ~0 (the field's arrows): both numbers, no percent -
+            -- a percent against zero is not a number, and "empty" would be a lie.
+            return string.format("in your bags: %s . ~0 -> ~%s . bag %d",
+                tostring(up.name or "?"), itemHelpers.formatThousands(up.score or 0),
+                tonumber(up.bag) or 0)
+        end
         return string.format("in your bags: %s . fills this empty slot . bag %d",
             tostring(up.name or "?"), tonumber(up.bag) or 0)
     end
