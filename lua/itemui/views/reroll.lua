@@ -69,7 +69,8 @@ local function buildTray(rerollService, list, inventoryItems, bankList)
                 local before = #out
                 for _ = 1, n do
                     if #out >= ITEMS_REQUIRED then break end
-                    out[#out + 1] = { name = it.name, id = id, where = where, icon = it.icon }
+                    out[#out + 1] = { name = it.name, id = id, where = where, icon = it.icon,
+                        bag = it.bag, slot = it.slot }
                 end
                 if where == "bank" and #out > before then
                     bankRows[#bankRows + 1] = { bag = it.bag, slot = it.slot, id = id, name = it.name or "" }
@@ -250,11 +251,33 @@ local function renderTabContent(ctx, track, rerollService)
                 dl:AddRectFilled(ImVec2(x2 - 1, y1), ImVec2(x2, y2), col)
             end)
             if slot and ImGui.IsItemHovered() then
-                ImGui.BeginTooltip()
-                ImGui.Text(tostring(slot.name or "?"))
-                ImGui.Text(string.format("id %s . %s", tostring(slot.id),
-                    (slot.where == "bank") and "in your bank (moved to bags for the roll)" or "in your bags"))
-                ImGui.EndTooltip()
+                -- The standard rich stats tooltip (field ask): a tray cell is an item
+                -- like any other row. The location line rides trailerLines INSIDE the
+                -- content (a post-render draw clips past the window edge) and pays its
+                -- height here. The old minimal tooltip stays as the fallback for rows
+                -- whose stats cannot resolve (stale bank-cache entries, bank closed).
+                local locLine = string.format("id %s . %s", tostring(slot.id),
+                    (slot.where == "bank") and "in your bank (moved to bags for the roll)" or "in your bags")
+                local src = (slot.where == "bank") and "bank" or "inv"
+                local showItem = (slot.bag ~= nil and slot.slot ~= nil and ctx.getItemStatsForTooltip)
+                    and ctx.getItemStatsForTooltip({ bag = slot.bag, slot = slot.slot, source = src }, src) or nil
+                if showItem then
+                    local topts = { source = src, bag = slot.bag, slot = slot.slot,
+                        trailerLines = { { text = locLine } } }
+                    local effects, w, h = ItemTooltip.prepareTooltipContent(showItem, ctx, topts)
+                    topts.effects = effects
+                    local trailH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 4
+                    ItemTooltip.beginItemTooltip(w, (h or 0) + trailH)
+                    ImGui.Text("Stats")
+                    ImGui.Separator()
+                    ItemTooltip.renderStatsTooltip(showItem, ctx, topts)
+                    ImGui.EndTooltip()
+                else
+                    ImGui.BeginTooltip()
+                    ImGui.Text(tostring(slot.name or "?"))
+                    ImGui.Text(locLine)
+                    ImGui.EndTooltip()
+                end
             end
         end
         ImGui.PopStyleColor(1)

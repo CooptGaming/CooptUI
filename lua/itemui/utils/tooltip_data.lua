@@ -387,9 +387,12 @@ function M.prepareTooltipContent(item, ctx, opts)
     if augCount < 0 then augCount = 0 end
     local leftRows, rightRows = countTooltipRows(item, effects, parentIt, bag, slot, source, opts, itemInfoRows, statRows, augCount)
     -- The score line(s) pay for their own height - added to the row count BEFORE the
-    -- size is computed, the same contract every other tooltip row lives under.
+    -- size is computed, the same contract every other tooltip row lives under. RIGHT
+    -- rows: the line renders at the bottom of column 2 (inside the column child -
+    -- drawn after the children it sat past the window edge, the field's clipped
+    -- green number).
     if scoreInfo then
-        leftRows = leftRows + 1 + (scoreInfo.unscoredLine and 1 or 0)
+        rightRows = rightRows + 1 + (scoreInfo.unscoredLine and 1 or 0)
     end
     local width, height = tooltip_layout.computeTooltipSize(leftRows, rightRows)
     opts.tooltipColWidth = tooltip_layout.TOOLTIP_COL_WIDTH

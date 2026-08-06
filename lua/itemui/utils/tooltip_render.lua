@@ -664,6 +664,34 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.Text(tostring(item.tribute))
     end
 
+    -- ---- Score line + caller trailer lines (MOCKUP_score_surfaces A) ----
+    -- INSIDE the column child, deliberately: the column children are height-0
+    -- (fill), so anything drawn after them sits past the window edge - the
+    -- field's clipped green number. The score rows were counted into the size by
+    -- prepareTooltipContent; trailer lines are the caller's (equipment's upgrade
+    -- line, the tray's location line) and the caller pays their height at
+    -- beginItemTooltip.
+    do
+        local si = cachedTip and cachedTip.scoreInfo
+        if si and si.total and ctx and ctx.theme then
+            ctx.theme.TextSuccess(string.format("score ~%s",
+                api.itemHelpers.formatThousands(si.total)))
+            if si.unscoredLine and ctx.theme.TextMuted then
+                ctx.theme.TextMuted(si.unscoredLine)
+            end
+        end
+        for _, tl in ipairs(opts.trailerLines or {}) do
+            local kind = tl.kind or "muted"
+            if kind == "success" and ctx and ctx.theme and ctx.theme.TextSuccess then
+                ctx.theme.TextSuccess(tostring(tl.text or ""))
+            elseif ctx and ctx.theme and ctx.theme.TextMuted then
+                ctx.theme.TextMuted(tostring(tl.text or ""))
+            else
+                ImGui.Text(tostring(tl.text or ""))
+            end
+        end
+    end
+
     if ImGui.EndChild then
         ImGui.EndChild()
         openCounts.child = openCounts.child - 1

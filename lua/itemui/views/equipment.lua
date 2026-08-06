@@ -13,6 +13,7 @@ local context = require('itemui.context')
 local registry = require('itemui.core.registry')
 local dockLayout = require('itemui.utils.dock_layout')
 local upgradeScan = require('itemui.services.upgrade_scan')
+local itemHelpers = require('itemui.utils.item_helpers')
 
 local EquipmentView = {}
 
@@ -126,17 +127,20 @@ function EquipmentView.render(ctx)
         end,
     })
     local upgrades = upgradeScan.getResult()
-    -- The hover line for a marked slot (mockup: "Vambraces of the Risen . ~+11% .
-    -- in bag 4"). pct is nil for the empty-slot case - anything beats nothing, and
-    -- a percent against zero is not a number worth printing.
+    -- The hover line for a marked slot: the candidate NAMED with both scores and
+    -- the margin (field ask - "identify, compare" without searching bags), plus
+    -- where it sits. pct is nil for the empty-slot case - anything beats nothing,
+    -- and a percent against zero is not a number worth printing.
     local function upgradeLineFor(slotIndex)
         local up = upgrades.bySlot and upgrades.bySlot[slotIndex]
         if not up then return nil end
-        if up.pct then
-            return string.format("in your bags: %s . ~+%d%% . bag %d",
-                tostring(up.name or "?"), up.pct, tonumber(up.bag) or 0)
+        local eq = (upgrades.equippedScore and upgrades.equippedScore[slotIndex]) or 0
+        if up.pct and eq > 0 then
+            return string.format("in your bags: %s . ~%s -> ~%s (+%d%%) . bag %d",
+                tostring(up.name or "?"), itemHelpers.formatThousands(eq),
+                itemHelpers.formatThousands(up.score or 0), up.pct, tonumber(up.bag) or 0)
         end
-        return string.format("in your bags: %s . bag %d",
+        return string.format("in your bags: %s . fills this empty slot . bag %d",
             tostring(up.name or "?"), tonumber(up.bag) or 0)
     end
 
@@ -262,11 +266,13 @@ function EquipmentView.render(ctx)
                             local opts = { source = "equipped", bag = 0, slot = slotIndex }
                             local effects, tw, th = ItemTooltip.prepareTooltipContent(showItem, ctx, opts)
                             opts.effects = effects
-                            -- The upgrade line pays for its own height: the tooltip is
-                            -- sized EXACTLY by prepareTooltipContent (the reroll id-line
-                            -- lesson).
+                            -- The upgrade line rides opts.trailerLines - rendered INSIDE
+                            -- the tooltip's column child (a post-render draw sat past the
+                            -- window edge, the field's clipped line) - and pays for its
+                            -- height here, since the cached size cannot know about it.
                             local extraH = 0
                             if upLine then
+                                opts.trailerLines = { { text = upLine, kind = "success" } }
                                 extraH = ((ImGui.GetTextLineHeight and ImGui.GetTextLineHeight()) or 14) + 4
                             end
                             ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH,
@@ -274,7 +280,6 @@ function EquipmentView.render(ctx)
                             ImGui.Text("Stats")
                             ImGui.Separator()
                             ItemTooltip.renderStatsTooltip(showItem, ctx, opts)
-                            if upLine then ctx.theme.TextSuccess(upLine) end
                             ImGui.EndTooltip()
                         else
                             ImGui.BeginTooltip()
