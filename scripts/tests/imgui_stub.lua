@@ -378,6 +378,7 @@ local stubStyle = { FramePadding = { x = 4, y = 3 }, ItemSpacing = { x = 8, y = 
 function ImGuiStub.GetStyle() return stubStyle end
 function ImGuiStub.GetStyleColorVec4() return vec4(0.5, 0.5, 0.5, 1) end
 function ImGuiStub.GetCursorPosX() return 400 end
+function ImGuiStub.GetCursorPosY() return 100 end
 function ImGuiStub.GetCursorPos() return 0, 0 end
 function ImGuiStub.SetCursorPos() end
 function ImGuiStub.SetCursorPosX() end

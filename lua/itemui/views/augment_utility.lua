@@ -15,6 +15,7 @@ local registry = require('itemui.core.registry')
 local ItemDisplayView = require('itemui.views.item_display')
 local AugmentsView = require('itemui.views.augments')
 local windowHeader = require('itemui.components.window_header')
+local socketList = require('itemui.components.socket_list')
 local TooltipData = require('itemui.utils.tooltip_data')
 
 local AugmentUtilityView = {}
@@ -334,11 +335,12 @@ renderForSlotContent = function(ctx)
         slotIdx = 1
         state.augmentUtilitySlotIndex = 1
     end
-    if tostring(ctx.layoutConfig.UIMode or "classic") == "bars" then
-        -- 20c: the slot map IS the picker — one Selectable cell per socket, filled cells
-        -- named from the same scan-invalidated cache Item Display's AUGMENTS section
-        -- reads, the active cell in open-blue on the active-tab fill. This replaces the
-        -- "Augment slot:" combo; classic keeps the combo below.
+    -- ONE picker, both UI modes (field ruling 08-05: "the Aug Utility should have a
+    -- similar setup where it looks similar to what is on the item display") - the
+    -- shared socket component, with the selection edge marking the active socket.
+    -- Replaces the bars slot-map Selectables AND the classic combo: one look, one
+    -- code path, which is the point after the regression round.
+    do
         local tipOpts = { source = source, bag = bag, slot = slot }
         pcall(function() ItemTooltip.prepareTooltipContent(targetItem, ctx, tipOpts) end)
         local tip = TooltipData.getCachedTooltipEntry(targetItem, tipOpts)
@@ -346,64 +348,49 @@ renderForSlotContent = function(ctx)
         if tip and type(tip.augLines) == "table" then
             for _, r in ipairs(tip.augLines) do byIndex[r.slotIndex] = r end
         end
+        local pickRows = {}
         for i = 1, maxSlots do
             local r = byIndex[i]
-            local cell
-            if r and r.augName and r.augName ~= "empty" and r.augName ~= "" then
-                cell = r.augName
-            elseif r and r.prefix and r.prefix ~= "" then
-                cell = r.prefix .. "empty"
+            if r then
+                pickRows[#pickRows + 1] = r
             else
                 local typ = (ctx.getSlotType and itForSlot) and ctx.getSlotType(itForSlot, i) or 0
-                cell = (typ and typ > 0) and string.format("empty . type %d", typ) or "empty"
+                pickRows[#pickRows + 1] = { slotIndex = i, socketType = typ }
             end
-            local active = (i == slotIdx)
-            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(active and ctx.theme.Kit.OpenBlue or ctx.theme.Colors.TextContent))
-            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-            ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-            local okSel, _sel, pressed = pcall(ImGui.Selectable,
-                string.format("SLOT %d   %s##augmap%d", i, cell, i), active)
-            ImGui.PopStyleColor(3)
-            if okSel and pressed then slotIdx = i end
         end
         if hasOrnament then
             local o = tip and tip.ornamentLine
-            local oname = (o and o.augName and o.augName ~= "empty" and o.augName ~= "") and o.augName
-                or "empty . type 20"
-            local ornActive = (slotIdx == ORN)
-            ImGui.PushStyleColor(ImGuiCol.Text, ctx.theme.ToVec4(ornActive and ctx.theme.Kit.OpenBlue or ctx.theme.Kit.Mythic))
-            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-            ImGui.PushStyleColor(ImGuiCol.HeaderActive, ctx.theme.ToVec4(ctx.theme.Kit.Header))
-            local okSel, _sel, pressed = pcall(ImGui.Selectable, "ORNAMENT   " .. oname .. "##augmapOrn", ornActive)
-            ImGui.PopStyleColor(3)
-            if okSel and pressed then slotIdx = ORN end
+            pickRows[#pickRows + 1] = {
+                slotIndex = ORN, iconId = o and o.iconId or 0,
+                augName = o and o.augName or nil,
+                socketType = (o and o.typ) or 20, isOrnament = true,
+            }
         end
-        ctx.theme.TextFurniture("click a slot to work on it")
-        state.augmentUtilitySlotIndex = slotIdx
-    else
-        ImGui.Text("Augment slot:")
-        ImGui.SameLine()
-        ImGui.SetNextItemWidth(150)
-        local slotNames = {}
-        for i = 1, maxSlots do
-            if ctx.getSlotType and itForSlot then
-                local typ = ctx.getSlotType(itForSlot, i)
-                slotNames[i] = (typ and typ > 0) and string.format("Slot %d (type %d)", i, typ) or string.format("Slot %d", i)
-            else
-                slotNames[i] = string.format("Slot %d (augment)", i)
-            end
+        socketList.render(ctx, pickRows, {
+            idPrefix = "AUsock",
+            selectedSlot = slotIdx,
+            hoverHint = "click to select this socket",
+            resolveFull = function(r)
+                local pIt = ctx.getItemTLO and ctx.getItemTLO(bag, slot, source)
+                if not pIt then return nil end
+                local okF, full = pcall(TooltipData.getSocketItemStats, pIt, bag, slot, source, r.slotIndex)
+                if okF then return full end
+                return nil
+            end,
+            tooltipOpts = function(r)
+                return { source = source, bag = bag, slot = slot, socketIndex = r.slotIndex }
+            end,
+            onRowClick = function(r)
+                state.augmentUtilitySlotIndex = r.slotIndex
+            end,
+        })
+        ctx.theme.TextFurniture("click a socket to work on it")
+        slotIdx = state.augmentUtilitySlotIndex
+        if not (type(slotIdx) == "number"
+            and ((slotIdx >= 1 and slotIdx <= maxSlots) or (hasOrnament and slotIdx == ORN))) then
+            slotIdx = 1
+            state.augmentUtilitySlotIndex = 1
         end
-        local comboCount = maxSlots
-        if hasOrnament then
-            comboCount = maxSlots + 1
-            slotNames[comboCount] = "Ornament (type 20)"
-        end
-        local displayIdx = (hasOrnament and slotIdx == ORN) and comboCount or slotIdx
-        local newIdx = ImGui.Combo("##AugmentUtilitySlot", displayIdx, slotNames, comboCount)
-        if type(newIdx) == "number" and newIdx >= 1 and newIdx <= comboCount then
-            slotIdx = (hasOrnament and newIdx == comboCount) and ORN or newIdx
-        end
-        state.augmentUtilitySlotIndex = slotIdx
     end
     ImGui.Spacing()
 

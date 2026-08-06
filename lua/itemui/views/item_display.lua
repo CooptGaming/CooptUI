@@ -19,6 +19,7 @@ local TooltipRender = require('itemui.utils.tooltip_render')
 local constants = require('itemui.constants')
 local context = require('itemui.context')
 local registry = require('itemui.core.registry')
+local socketList = require('itemui.components.socket_list')
 local uiState = require('itemui.state').uiState
 local fonts = require('itemui.utils.fonts')
 local dockLayout = require('itemui.utils.dock_layout')
@@ -781,109 +782,50 @@ end
 --- Left-click: empty → Aug Utility opened to this socket; filled → opens as a tab.
 --- Right-click on a filled socket: the augInserted context menu — where the shift-gated,
 --- cost-stated Remove lives (rule 6; the old icon right-click removed with NO gate).
-local AUG_CELL_ICON = 24
-local AUG_CELL_W = AUG_CELL_ICON + 6
+local renderSocketMenus  -- fwd: defined below, bound via the component's afterCell hook
 
 local function augmentRowBody(ctx, entry, row, isOrnament)
-    local isEmpty = (row.augName == nil or row.augName == "empty" or row.augName == "")
-    -- The socket as an ICON CELL (field ask: "similar to how item icons are presented
-    -- in the reroll companion") - the tray's vocabulary: Inset wash, 1px hairline
-    -- carrying the identity tint (spell-blue aug / mythic ornament / muted empty),
-    -- the NAME on hover, and the whole cell one click target.
-    ImGui.PushStyleColor(ImGuiCol.ChildBg, ctx.theme.ToVec4(ctx.theme.Kit.Inset))
-    local okCell = pcall(function()
-        if ImGui.BeginChild("augcell_" .. tostring(row.slotIndex) .. (isOrnament and "_orn" or ""),
-                ImVec2(AUG_CELL_W, AUG_CELL_W), false,
-                bit32.bor(ImGuiWindowFlags.NoScrollbar, ImGuiWindowFlags.NoScrollWithMouse)) then
-            ImGui.SetCursorPosX(3)
-            ImGui.SetCursorPosY(3)
-            if not isEmpty and (row.iconId or 0) > 0 and ctx.drawItemIcon then
-                local okIcon, drew = pcall(ctx.drawItemIcon, row.iconId, AUG_CELL_ICON)
-                if not (okIcon and drew ~= false) then
-                    ImGui.Dummy(ImVec2(AUG_CELL_ICON, AUG_CELL_ICON))
-                end
-            else
-                ImGui.Dummy(ImVec2(AUG_CELL_ICON, AUG_CELL_ICON))
-            end
-        end
-        ImGui.EndChild()
-    end)
-    ImGui.PopStyleColor(1)
-    if not okCell then return end
-    -- Hairline over the cell rect - identity tint, the tray's pattern.
-    pcall(function()
-        local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
-        if not dl or not dl.AddRectFilled then return end
-        local x1, y1 = ImGui.GetItemRectMin()
-        local x2, y2 = ImGui.GetItemRectMax()
-        if type(x1) ~= "number" or type(x2) ~= "number" then return end
-        local c
-        if isEmpty then
-            c = ctx.theme.Kit.Divider
-        elseif isOrnament then
-            c = ctx.theme.Kit.Mythic
-        else
-            c = ctx.theme.Kit.SpellBlue
-        end
-        local col = ImGui.GetColorU32 and ImGui.GetColorU32(ctx.theme.ToVec4(c)) or 0xFF302B2B
-        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y1 + 1), col)
-        dl:AddRectFilled(ImVec2(x1, y2 - 1), ImVec2(x2, y2), col)
-        dl:AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + 1, y2), col)
-        dl:AddRectFilled(ImVec2(x2 - 1, y1), ImVec2(x2, y2), col)
-    end)
-    -- The cursor ring (item 10): an empty socket that accepts what you are carrying is a
-    -- destination, so it rings. A FILLED socket never does - it would take the aug only
-    -- by displacing one, which is not what the ring promises.
-    if isEmpty and cursorSubject.socketAccepts(row.socketType or 0) then
-        windowHeader.cursorRing()
+    -- The shared socket component (field ruling 08-05: icon cell + NAME beside, in a
+    -- column - one definition for this section AND the Aug Utility's picker). This
+    -- host keeps: the utility-preselect click, the cursor ring on accepting empties,
+    -- and the context menus, all attached through the component's hooks.
+    local compRow = row
+    if isOrnament then
+        compRow = { slotIndex = row.slotIndex, iconId = row.iconId, augName = row.augName,
+            socketType = row.typ or row.socketType or 20, prefix = row.prefix,
+            isOrnament = true }
     end
-    -- Capture hover ONCE, before the tooltip submits items of its own - a second
-    -- IsItemHovered() after it asks about the wrong item (the dock_top session-row
-    -- trap, recorded there).
-    local cellHovered = ImGui.IsItemHovered()
-    -- Hover: the FULL socketed item card for a filled cell (field ask); the slot's
-    -- identity line for an empty one. Rendered off the child item.
-    if cellHovered then
-        if not isEmpty then
-            local full = resolveSocketItem(entry, row.slotIndex)
-            if full then
-                local topts = { source = entry.source, bag = entry.bag, slot = entry.slot,
-                    socketIndex = row.slotIndex }
-                local effects, tw, th = ItemTooltip.prepareTooltipContent(full, ctx, topts)
-                topts.effects = effects
-                ItemTooltip.beginItemTooltip(tw or constants.UI.TOOLTIP_MIN_WIDTH,
-                    th or constants.UI.TOOLTIP_MIN_HEIGHT)
-                ImGui.Text("Stats")
-                ImGui.Separator()
-                ItemTooltip.renderStatsTooltip(full, ctx, topts)
-                ImGui.EndTooltip()
-            else
-                ImGui.BeginTooltip()
-                ImGui.Text(tostring(row.augName))
-                ImGui.EndTooltip()
-            end
-        else
-            ImGui.BeginTooltip()
-            if isOrnament then
-                ImGui.Text("Ornament (type 20): empty")
-            else
-                local typ = row.socketType or 0
-                ImGui.Text(string.format("Slot %d: empty%s", row.slotIndex,
-                    (typ > 0) and (" . type " .. typ) or ""))
-            end
-            ImGui.Text("click: open Aug Utility on this socket")
-            ImGui.EndTooltip()
-        end
-    end
-    local rowPressed = cellHovered and ImGui.IsMouseClicked and ImGui.IsMouseClicked(ImGuiMouseButton.Left)
-    if rowPressed then
-        -- Field ruling: EVERY socket click opens the Aug Utility ON THIS SLOT - the
-        -- replace flow for filled cells, the fill flow for empty ones. Open-as-tab
-        -- lives on the right-click menu (onOpenSubject), one step away, not lost.
-        uiState.augmentUtilitySlotIndex = row.slotIndex
-        uiState.augmentUtilityWindowOpen = true
-        uiState.augmentUtilityWindowShouldDraw = true
-    end
+    socketList.renderRow(ctx, compRow, {
+        idPrefix = "IDaug",
+        hoverHint = "click: open Aug Utility on this socket",
+        ringWhen = function(r, isEmpty)
+            -- An empty socket that accepts what you are carrying is a destination, so
+            -- it rings; a FILLED socket never does (it would take the aug only by
+            -- displacing one, which is not what the ring promises).
+            return isEmpty and cursorSubject.socketAccepts(r.socketType or 0)
+        end,
+        resolveFull = function(r) return resolveSocketItem(entry, r.slotIndex) end,
+        tooltipOpts = function(r)
+            return { source = entry.source, bag = entry.bag, slot = entry.slot,
+                socketIndex = r.slotIndex }
+        end,
+        onRowClick = function(r)
+            -- Field ruling: EVERY socket click opens the Aug Utility ON THIS SLOT -
+            -- replace flow for filled cells, fill flow for empty ones. Open-as-tab
+            -- lives on the right-click menu (onOpenSubject), one step away, not lost.
+            uiState.augmentUtilitySlotIndex = r.slotIndex
+            uiState.augmentUtilityWindowOpen = true
+            uiState.augmentUtilityWindowShouldDraw = true
+        end,
+        afterCell = function(r, isEmpty)
+            renderSocketMenus(ctx, entry, r, isOrnament, isEmpty)
+        end,
+    })
+end
+
+--- The context menus, bound to the cell item (called from the component's afterCell
+--- hook, straight after the cell so popup context targets it).
+renderSocketMenus = function(ctx, entry, row, isOrnament, isEmpty)
     if isEmpty then
         -- augEmpty was a declared context no host ever opened, so an empty socket's menu
         -- did not exist at all (item 7). Its one verb is what the left-click above does.

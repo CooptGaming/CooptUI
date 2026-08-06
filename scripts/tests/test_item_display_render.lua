@@ -151,11 +151,11 @@ do
     -- The sockets are icon CELLS now (field ruling 08-04): names live on the cell
     -- hover, not in always-visible rows. Hover the cell child (the EndChild;
     -- IsItemHovered pattern the stub models for dock slots) and expect the name.
-    stub.hover = { augcell_1 = true }
+    stub.hover = { IDaugcell_1 = true }
     local rH = frame()
     stub.hover = {}
     check('aug: filled socket name on cell hover', stub.drew(rH, 'Ruby Aug of Power'))
-    stub.hover = { augcell_5_orn = true }
+    stub.hover = { IDaugcell_5_orn = true }
     local rO = frame()
     stub.hover = {}
     check('aug: ornament name on cell hover', stub.drew(rO, 'Shiny Ornament'))
@@ -168,7 +168,7 @@ do
     uiState.augmentUtilitySlotIndex = nil
     -- Cells click via hover + left mouse (no Selectable label anymore): hover the
     -- empty slot-2 cell and press.
-    stub.hover = { augcell_2 = true }
+    stub.hover = { IDaugcell_2 = true }
     stub.mouse = { [ImGuiMouseButton.Left] = true }
     local r = frame()
     stub.hover = {}
