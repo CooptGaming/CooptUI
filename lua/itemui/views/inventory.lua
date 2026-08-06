@@ -86,6 +86,13 @@ end
 --- main_window's header row already draws, and which Sell shares. A second lock here
 --- would be two homes for one control, which is exactly what mockup 13d forbids.
 local function renderBand(ctx)
+    -- A locate request (equipment's "Find upgrade in Bags" menu row) arrives with
+    -- searchFilterInv already set; consume-once and open the search section so the
+    -- filtered list is the first thing the user sees.
+    if ctx.uiState.invSearchOpenRequest then
+        ctx.uiState.invSearchOpenRequest = nil
+        searchOpen = true
+    end
     windowHeader.render({
         id = "bags", title = "Bags", stat = bandStat(ctx),
         actions = {
@@ -131,6 +138,10 @@ end
 -- unchanged rather than adapted: with the bars off, nothing else on screen shows totals
 -- or scan age, so the band's deliberate omissions would strand a windows-only user.
 function InventoryView.renderToolbar(ctx, bankOpen)
+    -- Classic shows the search unconditionally, so a locate request only needs its
+    -- filter (already set) - consume the flag so it cannot leak into a later bars
+    -- frame.
+    if ctx.uiState.invSearchOpenRequest then ctx.uiState.invSearchOpenRequest = nil end
     -- Gameplay view: bag, slot, weight, flags; Shift+click to move when bank open
     ImGui.Text("Search:")
     ImGui.SameLine()

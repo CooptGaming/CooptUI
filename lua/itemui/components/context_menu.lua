@@ -45,6 +45,7 @@
 require('ImGui')
 local mq = require('mq')
 local constants = require('itemui.constants')
+local upgradeScan = require('itemui.services.upgrade_scan')
 
 local M = {}
 
@@ -475,6 +476,80 @@ ROWS = {
             local q = ctx.uiState.cursorActionQueue or {}
             q[#q + 1] = { type = "unequip", targetSlot = env._slotName, name = item.name }
             ctx.uiState.cursorActionQueue = q
+        end,
+    },
+    {
+        -- The two upgrade verbs (field ask: "move directly from 'an upgrade exists' to
+        -- identifying, comparing, and equipping"). Both appear ONLY on a worn slot the
+        -- upgrade walk has marked - the same walk that draws the green edge - and both
+        -- name their candidate in the row, so the menu is the identification.
+        id = "findUpgrade", group = "move", families = { item = true },
+        contexts = { equipped = true },
+        applies = function(_, item)
+            if item.slot == nil then return false end
+            local up = upgradeScan.getResult().bySlot
+            return up ~= nil and up[item.slot] ~= nil
+        end,
+        label = function(_, item)
+            local up = upgradeScan.getResult().bySlot[item.slot]
+            return string.format("Find upgrade in Bags: %s", tostring(up and up.name or "?"))
+        end,
+        action = function(ctx, item)
+            local up = upgradeScan.getResult().bySlot[item.slot]
+            if not up then return end
+            -- Locate = Bags opened with the search already filtered to the candidate.
+            ctx.uiState.searchFilterInv = tostring(up.name or "")
+            ctx.uiState.invSearchOpenRequest = true
+            if ctx.setOpen then ctx.setOpen(true) end
+            if ctx.setShouldDraw then ctx.setShouldDraw(true) end
+        end,
+    },
+    {
+        id = "equipUpgrade", group = "move", families = { item = true },
+        contexts = { equipped = true },
+        applies = function(_, item)
+            if item.slot == nil then return false end
+            local up = upgradeScan.getResult().bySlot
+            return up ~= nil and up[item.slot] ~= nil
+        end,
+        label = function(_, item)
+            local up = upgradeScan.getResult().bySlot[item.slot]
+            return string.format("Equip upgrade: %s", tostring(up and up.name or "?"))
+        end,
+        blocked = function(ctx, item, env)
+            -- SAFE means verified: the walk's record can be stale (the item sold,
+            -- moved, or rerolled since), so the candidate must still be at its bag
+            -- slot with the same name before the queue will touch it. One TLO
+            -- resolution per open menu, cached on env.
+            if env._upVerified == nil then
+                local up = upgradeScan.getResult().bySlot[item.slot]
+                local ok = false
+                if up and ctx.getItemTLO then
+                    pcall(function()
+                        local it = ctx.getItemTLO(up.bag, up.slot, "inv")
+                        local nm = it and it.Name and it.Name()
+                        ok = nm ~= nil and tostring(nm) == tostring(up.name)
+                    end)
+                end
+                env._upVerified = ok
+            end
+            if not env._upVerified then return "candidate moved - reopen Equipment to rescan" end
+            return nil
+        end,
+        action = function(ctx, item)
+            local up = upgradeScan.getResult().bySlot[item.slot]
+            local slotName = ctx.getEquipmentSlotNameForItemNotify
+                and ctx.getEquipmentSlotNameForItemNotify(item.slot)
+            if not (up and slotName) then return end
+            -- The equip FSM everything else already trusts: cursor-free is enforced
+            -- by the queue, the displaced worn item goes back to bags via the FSM's
+            -- proven handling, bags-full aborts honestly. No second path.
+            local q = ctx.uiState.cursorActionQueue or {}
+            q[#q + 1] = { type = "equip", bag = up.bag, slot = up.slot, name = up.name,
+                          targetSlot = slotName, preClearSlots = {} }
+            ctx.uiState.cursorActionQueue = q
+            -- The walk's world just changed; rescan on the next Equipment frame.
+            upgradeScan.invalidate()
         end,
     },
     {
