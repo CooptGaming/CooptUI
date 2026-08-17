@@ -5,6 +5,7 @@
 --]]
 
 require('ImGui')
+local mq = require('mq')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local itemCompare = require('itemui.utils.item_compare')
 local itemHelpers = require('itemui.utils.item_helpers')
@@ -27,6 +28,23 @@ local AugmentUtilityView = {}
 -- context, so a duplicate "highest" family prints its ~0 with the reason.
 -- Protection never consumes this number and Insert never gates on it.
 -- ---------------------------------------------------------------------------
+
+--- The equipped set's identity, folded into both score-cache keys below: a plan or
+--- candidate list scored against an empty (or since-changed) equipped set must not
+--- survive the cache once the real set is known - the keys' other terms never move
+--- when only equipment does.
+local function equipmentFingerprint(ctx)
+    local cache = ctx.equipmentCache or {}
+    local parts = {}
+    for ei = 1, 23 do
+        local e = cache[ei]
+        parts[ei] = e and tostring(e.id or 0) or "0"
+    end
+    return table.concat(parts, ",")
+end
+
+-- Throttle for the on-open equipment-cache warm below (0 = never warmed).
+local equipWarmAt = 0
 
 --- Equipped worn/focus lines (best units per line): the set-awareness context.
 local function buildWornLines(ctx)
@@ -288,6 +306,21 @@ renderForSlotContent = function(ctx)
 
     local targetItem = tab.item
     local bag, slot, source = tab.bag, tab.slot, tab.source or "inv"
+
+    -- Scores rank against the equipped set (buildWornLines), but the equipment cache
+    -- only refreshes while the Equipment window draws - opened cold, this window scored
+    -- every "highest"-stacking family at full value against a phantom naked character,
+    -- and the "already worn (higher)" notes never printed. Warm it here when empty;
+    -- throttled so a genuinely naked character costs one 23-slot probe per 2s, and a
+    -- populated cache costs nothing.
+    if ctx.refreshEquipmentCache and not next(ctx.equipmentCache or {}) then
+        local nowMs = mq.gettime()
+        if (nowMs - equipWarmAt) > 2000 then
+            equipWarmAt = nowMs
+            pcall(ctx.refreshEquipmentCache)
+        end
+    end
+    local equipFp = equipmentFingerprint(ctx)
     local itemName = (targetItem.name or targetItem.Name or "?"):sub(1, 50)
     if (targetItem.name or ""):len() > 50 then itemName = itemName .. "..." end
 
@@ -413,7 +446,8 @@ renderForSlotContent = function(ctx)
         -- Invalidate cache when inputs change
         if optimizeCache.itemId ~= itemId or optimizeCache.bag ~= bag or optimizeCache.slot ~= slot
             or optimizeCache.source ~= source or optimizeCache.slotCount ~= maxSlots
-            or optimizeCache.bankOpen ~= bankOpen or optimizeCache.usable ~= onlyShowUsable then
+            or optimizeCache.bankOpen ~= bankOpen or optimizeCache.usable ~= onlyShowUsable
+            or optimizeCache.equipFp ~= equipFp then
             local entry = { bag = bag, slot = slot, source = source, item = targetItem }
             local canUseFilter = onlyShowUsable and function(i)
                 local info = ItemTooltip.getCanUseInfo(i, i.source or "inv")
@@ -461,6 +495,7 @@ renderForSlotContent = function(ctx)
             optimizeCache.slotCount = maxSlots
             optimizeCache.bankOpen = bankOpen
             optimizeCache.usable = onlyShowUsable
+            optimizeCache.equipFp = equipFp
             optimizeCache.steps = steps
             optimizeCache.canOptimize = #steps > 0
         end
@@ -485,13 +520,13 @@ renderForSlotContent = function(ctx)
         local invItemsAU = ctx.inventoryItems or {}
         local bankItemsAU = ctx.bankItems or {}
         local pcAU = ctx.perfCache
-        local candKey = string.format("%s|%s|%s|%s|%d|%s|%s|%d|%s|%s|%d|%s|%s",
+        local candKey = string.format("%s|%s|%s|%s|%d|%s|%s|%d|%s|%s|%d|%s|%s|%s",
             tostring(candItemId), tostring(bag), tostring(slot), tostring(source), slotIdx,
             tostring(bankOpenAU), tostring(onlyShowUsable),
             #invItemsAU, tostring(pcAU and pcAU.lastScanTimeInv or 0),
             tostring(pcAU and pcAU.invMutationGen or 0),
             #bankItemsAU, tostring(bankItemsAU[1]),
-            searchLower)
+            searchLower, equipFp)
         if candidateCache.key ~= candKey then
             local entry = { bag = bag, slot = slot, source = source, item = targetItem }
             -- Apply socket type + augment restrictions + (when on) class/race/deity/level in one place so list is strict before ranking
