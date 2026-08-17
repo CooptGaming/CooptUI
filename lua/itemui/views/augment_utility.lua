@@ -318,16 +318,13 @@ renderForSlotContent = function(ctx)
     pcall(function()
         hasOrnament = (itForSlot and itemHelpers.itemHasOrnamentSlot(itForSlot)) and true or false
     end)
-    -- Consume a slot-preselect request (Item Display socket click, tooltip socket row,
-    -- the Rules-strip button). Those writers predate this reader: the uiState key was
-    -- WRITE-ONLY and the preselect silently never happened.
-    do
-        local req = ctx.uiState and ctx.uiState.augmentUtilitySlotIndex
-        if type(req) == "number" then
-            state.augmentUtilitySlotIndex = req
-            ctx.uiState.augmentUtilitySlotIndex = nil
-        end
-    end
+    -- Slot preselects (Item Display socket click, tooltip socket row) write
+    -- ctx.uiState.augmentUtilitySlotIndex, which app.lua's uiState proxy aliases straight
+    -- to THIS view's state.augmentUtilitySlotIndex - the write IS the selection, there is
+    -- no mailbox to drain. The "consume" block that used to sit here read that same alias
+    -- back and nil'd it, wiping the view's own selection every frame: every socket click
+    -- snapped back to slot 1 on the next frame (the field's "cannot select each aug" /
+    -- "ornament slot not functional"). The validity check below is all this path needs.
     local slotIdx = state.augmentUtilitySlotIndex
     local slotValid = type(slotIdx) == "number"
         and ((slotIdx >= 1 and slotIdx <= maxSlots) or (hasOrnament and slotIdx == ORN))
