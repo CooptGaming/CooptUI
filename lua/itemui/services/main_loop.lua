@@ -1057,6 +1057,11 @@ local function handleMoveAction(now)
                 slotIndex = step.slotIndex,
             }
         end
+        -- Mirror resolveAugmentQueueStep: an emptied queue must not linger as a
+        -- {steps={}, total=N} husk. The husk reads as "running" to the Fill button
+        -- and the progress line, and no drain path ever clears it - the window had
+        -- to be closed and reopened to press Fill again.
+        if #oq.steps == 0 then uiState.optimizeQueue = nil end
     end
     if uiState.pendingInsertAugment then
         getItemDisplayState().itemDisplayAugmentSlotActive = nil
@@ -2400,6 +2405,16 @@ local function phase5b_lootSellStatusDrain()
 end
 
 local M = {}
+
+--- The loud abort's public door: augment_ops' insert FSM calls this (via its
+--- deps.onInsertStepFailed, wired in app.lua) when a step dies on a path that never
+--- arms the confirmation flags - exits handleAugmentConfirmationTimeouts' abort
+--- doors cannot see. Same rule as everywhere else: a Fill-with-Best queue is either
+--- advancing or aborted out loud, never a third state.
+function M.abortOptimizeQueue(reason)
+    if not d then return false end
+    return abortOptimizeQueue(reason)
+end
 
 --- Test seam. handleScriptConsume is the FSM that turns a consume PLAN into /itemnotify calls
 --- and decides what to report, and it had no coverage at all -- which is how it shipped

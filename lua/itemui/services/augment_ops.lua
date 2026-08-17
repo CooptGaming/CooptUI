@@ -100,6 +100,18 @@ local function socketControlName(slotIndex)
     return string.format("IDW_Socket_Slot_%d_Item", slotIndex or 1)
 end
 
+--- One exit for every abnormal insert-step death. The call sites keep their specific
+--- setStatusMessage (the solo-insert story); a RUNNING Fill-with-Best must additionally
+--- abort its queue OUT LOUD (deps.onInsertStepFailed -> main_loop.abortOptimizeQueue).
+--- These exits never arm the confirmation flags, so handleAugmentConfirmationTimeouts'
+--- abort doors cannot see them - without this hook the remaining steps strand exactly
+--- like the field's hang: nothing waits, nothing drains, and a queued run that died
+--- here silently RESUMED whenever the player happened to clear their cursor.
+local function failInsertStep(reason)
+    state.pendingInsertAugment = nil
+    if deps and deps.onInsertStepFailed then deps.onInsertStepFailed(reason) end
+end
+
 -- Note: inserts are started by app.lua's ctx.insertAugment, which writes the
 -- pendingInsertAugment queue entry directly (proxied to this module's state).
 function M.advanceInsert(now)
@@ -117,12 +129,12 @@ function M.advanceInsert(now)
         M.closeItemDisplayWindow()
         if deps.hasItemOnCursor and deps.hasItemOnCursor() then
             deps.setStatusMessage("Clear cursor first.")
-            state.pendingInsertAugment = nil
+            failInsertStep("the cursor was not clear")
             return
         end
         if src == "bank" and deps.isBankWindowOpen and not deps.isBankWindowOpen() then
             deps.setStatusMessage("Open bank first to use augment from bank.")
-            state.pendingInsertAugment = nil
+            failInsertStep("the bank window is closed")
             return
         end
         -- Mark this as an intentional pickup so phase1b click-through protection doesn't autoinv it.
@@ -142,7 +154,7 @@ function M.advanceInsert(now)
         if deps.hasItemOnCursor and not deps.hasItemOnCursor() then
             if (now - (pa.phaseEnteredAt or 0)) > DISPLAY_OPEN_TIMEOUT_MS then
                 deps.setStatusMessage("Failed to pick up augment on cursor.")
-                state.pendingInsertAugment = nil
+                failInsertStep("could not pick up the augment")
             end
             return
         end
@@ -151,7 +163,7 @@ function M.advanceInsert(now)
             local it = deps.getItemTLO and deps.getItemTLO(targetBag, targetSlot, targetSource)
             if not it or not it.Inspect then
                 deps.setStatusMessage("Could not get target item to inspect.")
-                state.pendingInsertAugment = nil
+                failInsertStep("could not resolve the target item")
                 return
             end
             it.Inspect()
@@ -166,7 +178,7 @@ function M.advanceInsert(now)
                 mq.cmdf('/insertaug "%s"', targetName:gsub('"', '\\"'):sub(1, 64))
             else
                 deps.setStatusMessage("Target item has no ID or name.")
-                state.pendingInsertAugment = nil
+                failInsertStep("the target item has no id or name")
                 return
             end
             if deps.setWaitingForInsertConfirmation then deps.setWaitingForInsertConfirmation(true) end
@@ -178,9 +190,11 @@ function M.advanceInsert(now)
 
     if phase == "wait_display_open" then
         if (now - (pa.phaseEnteredAt or 0)) > DISPLAY_OPEN_TIMEOUT_MS then
+            -- The picked-up augment is still ON the cursor here; the abort path
+            -- (main_loop.abortOptimizeQueue) /autoinv's it for queued runs.
             deps.setStatusMessage("Item Display did not open; insert timed out.")
             M.closeItemDisplayWindow()
-            state.pendingInsertAugment = nil
+            failInsertStep("the game's Item Display did not open")
             return
         end
         if not M.isItemDisplayWindowOpen() then return end

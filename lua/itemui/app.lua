@@ -646,6 +646,10 @@ augmentOps.init({
     end,
     setWaitingForRemoveConfirmation = function(v) uiState.waitingForRemoveConfirmation = v end,
     setWaitingForInsertConfirmation = function(v) uiState.waitingForInsertConfirmation = v end,
+    -- Abnormal insert-step exits (cursor busy, bank closed, pickup/display timeouts,
+    -- unresolvable target) must abort a running Fill-with-Best out loud; the FSM's
+    -- confirmation-flag doors never arm on these paths, so main_loop cannot see them.
+    onInsertStepFailed = function(reason) return mainLoop.abortOptimizeQueue(reason) end,
 })
 local function processSellQueue() itemOps.processSellQueue() end
 local function hasItemOnCursor()
