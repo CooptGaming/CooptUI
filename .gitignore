@@ -8,6 +8,9 @@
 !.gitignore
 !.luacheckrc
 .cursor/*
+.claude/*
+!.claude/
+!.claude/commands/
 .github/*
 !.github/
 !.github/workflows/
@@ -119,7 +122,6 @@ config/*
 
 # --- Root-level: binaries, IDE, nested repo, runtime (Windows-friendly) ---
 /.cursor/
-/.claude/
 /Backup/
 /Logs/
 /plugins/
