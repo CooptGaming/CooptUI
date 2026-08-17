@@ -31,6 +31,7 @@ local _sortCache = {
 -- Track inventory/bank item count so we can detect moves and invalidate location cache.
 local _lastInvCount = -1
 local _lastBankCount = -1
+local _lastInvGen = -1
 
 -- Tab index: 1 = Augments, 2 = Mythicals
 
@@ -125,9 +126,13 @@ local function renderTabContent(ctx, track, rerollService)
     -- Detect inventory/bank content changes and invalidate location cache so Status/Location columns update live.
     local invCount = inventoryItems and #inventoryItems or 0
     local bankCount = bankList and #bankList or 0
-    if invCount ~= _lastInvCount or bankCount ~= _lastBankCount then
+    -- Counts alone miss in-place mutations (a move between bags, a stack change, a
+    -- targeted rescan): the mutation generation is the term that sees them.
+    local invGen = (ctx.perfCache and ctx.perfCache.invMutationGen) or 0
+    if invCount ~= _lastInvCount or bankCount ~= _lastBankCount or invGen ~= _lastInvGen then
         _lastInvCount = invCount
         _lastBankCount = bankCount
+        _lastInvGen = invGen
         rerollService.invalidateLocationCache()
     end
     local countInInv = rerollService.countInInventory(list, inventoryItems)

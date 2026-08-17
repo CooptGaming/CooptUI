@@ -477,15 +477,20 @@ renderForSlotContent = function(ctx)
         local bankOpenAU = (ctx.isBankWindowOpen and ctx.isBankWindowOpen()) or false
         local candItemId = targetItem.id or targetItem.ID or 0
         local searchLower = (state.searchFilterAugmentUtility or ""):lower()
-        -- Candidate cache (same key signals as optimizeCache + search text). Inventory/bank
-        -- signature = count + first-item identity: scans refill the tables in place with fresh
-        -- item objects, so identity changes even when counts do not.
+        -- Candidate cache (same key signals as optimizeCache + search text). Inventory
+        -- signature = count + scan time + mutation generation (script_tracker's key):
+        -- first-row identity missed targeted bag rescans that rebuild other bags' rows,
+        -- and this list carries the Insert button's source coordinates. Bank keeps the
+        -- identity term - bank scans always rebuild the whole list.
         local invItemsAU = ctx.inventoryItems or {}
         local bankItemsAU = ctx.bankItems or {}
-        local candKey = string.format("%s|%s|%s|%s|%d|%s|%s|%d|%s|%d|%s|%s",
+        local pcAU = ctx.perfCache
+        local candKey = string.format("%s|%s|%s|%s|%d|%s|%s|%d|%s|%s|%d|%s|%s",
             tostring(candItemId), tostring(bag), tostring(slot), tostring(source), slotIdx,
             tostring(bankOpenAU), tostring(onlyShowUsable),
-            #invItemsAU, tostring(invItemsAU[1]), #bankItemsAU, tostring(bankItemsAU[1]),
+            #invItemsAU, tostring(pcAU and pcAU.lastScanTimeInv or 0),
+            tostring(pcAU and pcAU.invMutationGen or 0),
+            #bankItemsAU, tostring(bankItemsAU[1]),
             searchLower)
         if candidateCache.key ~= candKey then
             local entry = { bag = bag, slot = slot, source = source, item = targetItem }

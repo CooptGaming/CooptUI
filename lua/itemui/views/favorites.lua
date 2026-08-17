@@ -24,8 +24,13 @@ local newListName = ""
 local invCache = { key = nil, byId = {} }
 
 local function getInvById(ctx)
+    -- Mutation-generation key (see views/augments.lua): count or first-row identity
+    -- alone miss targeted bag rescans - and this map feeds the Use button's
+    -- /itemnotify address, so a stale row here clicks the wrong bag slot.
     local invItems = ctx.inventoryItems or {}
-    local key = string.format("%d|%s", #invItems, tostring(invItems[1]))
+    local pc = ctx.perfCache
+    local key = string.format("%d|%s|%s", #invItems,
+        tostring(pc and pc.lastScanTimeInv or 0), tostring(pc and pc.invMutationGen or 0))
     if invCache.key ~= key then
         local byId = {}
         for _, it in ipairs(invItems) do
