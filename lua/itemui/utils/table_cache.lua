@@ -115,8 +115,21 @@ function M.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, 
             if not oldSet[bagSlotKey(item)] then addedItem = item; break end
         end
 
+        -- Ref-diff census across every surviving bag:slot. The incremental paths below
+        -- are only sound when the lists differ by EXACTLY the one delta they repair. A
+        -- rescan rebuilds every row as a fresh table with the same bag:slot keys, so the
+        -- old "first differing ref" probe matched it: one row got swapped, the cache was
+        -- blessed valid, and the other N-1 entries kept rendering pre-scan rows (field:
+        -- Sell/Bank showing stale items - these views pass no scanTime to distinguish
+        -- pre- and post-scan lists). More than the expected diffs = full re-sort below.
+        local refDiffs = 0
+        for _, item in ipairs(cache.sorted) do
+            local newItem = newMap[bagSlotKey(item)]
+            if newItem and newItem ~= item then refDiffs = refDiffs + 1 end
+        end
+
         -- One remove
-        if deltaFiltered == -1 and deltaFull == -1 and removedIdx and not addedItem then
+        if deltaFiltered == -1 and deltaFull == -1 and removedIdx and not addedItem and refDiffs == 0 then
             table.remove(cache.sorted, removedIdx)
             cache.n = validity.fullListLen
             cache.nFiltered = nFiltered
@@ -125,7 +138,7 @@ function M.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, 
         end
 
         -- One add
-        if deltaFiltered == 1 and deltaFull == 1 and addedItem and not removedIdx then
+        if deltaFiltered == 1 and deltaFull == 1 and addedItem and not removedIdx and refDiffs == 0 then
             local idx = binarySearchInsertIndex(Sort, viewName, sortKey, sortDir, cache.sorted, addedItem)
             table.insert(cache.sorted, idx, addedItem)
             cache.n = validity.fullListLen
@@ -134,8 +147,9 @@ function M.getSortedList(cache, filtered, sortKey, sortDir, validity, viewName, 
             return cache.sorted
         end
 
-        -- One modify: same count, one bag:slot has different ref (e.g. stack size changed)
-        if deltaFiltered == 0 and deltaFull == 0 and not removedIdx and not addedItem then
+        -- One modify: same count, EXACTLY one bag:slot has a different ref (e.g. stack
+        -- size changed). refDiffs == 1 is what makes "one modify" true rather than assumed.
+        if deltaFiltered == 0 and deltaFull == 0 and not removedIdx and not addedItem and refDiffs == 1 then
             local modIdx = nil
             for i, item in ipairs(cache.sorted) do
                 local k = bagSlotKey(item)
