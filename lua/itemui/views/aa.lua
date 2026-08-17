@@ -18,6 +18,31 @@ local AAView = {}
 
 local TAB_NAMES = { "General", "Archetype", "Class", "Special" }
 
+-- Format-safe text for GAME-supplied strings (AA names and descriptions are the
+-- classic '%' carriers: "increases ... by 3%"): ImGui.Text/TextWrapped treat their
+-- argument as a printf format string and RAISE on stray specifiers - and a raise
+-- inside theme's Push->Text->Pop helpers strands the pushed style colour for the
+-- rest of the frame. Same guard as dock_top.safeText and effects.textWrapped.
+-- Static strings we author ourselves do not need this.
+local function safeText(s)
+    s = tostring(s)
+    if ImGui.TextUnformatted then
+        ImGui.TextUnformatted(s)
+    else
+        ImGui.Text((s:gsub("%%", "%%%%")))
+    end
+end
+local function safeTextWrapped(s)
+    s = tostring(s)
+    if ImGui.PushTextWrapPos and ImGui.TextUnformatted then
+        ImGui.PushTextWrapPos(0.0)
+        ImGui.TextUnformatted(s)
+        ImGui.PopTextWrapPos()
+    else
+        ImGui.TextWrapped((s:gsub("%%", "%%%%")))
+    end
+end
+
 -- Module-local state (search, debounce, selection)
 local searchText = ""
 local searchTextApplied = ""
@@ -473,14 +498,16 @@ function AAView.render(ctx)
                 local rowHovered = ImGui.IsItemHovered()
                 if rowHovered then
                     ImGui.BeginTooltip()
-                    ImGui.Text(aa.name or "")
-                    if aa.description and aa.description ~= "" then ImGui.TextWrapped(aa.description) end
+                    safeText(aa.name or "")
+                    if aa.description and aa.description ~= "" then safeTextWrapped(aa.description) end
                     -- requiresAbilityName is resolved by the scan (gid -> name);
                     -- the raw requiresAbility field is a group-id STRING, so
                     -- .Name on it indexed the string library and always hid this line.
                     local reqName = aa.requiresAbilityName
                     if reqName and reqName ~= "" then
-                        ImGui.Text(string.format("Requires: %s (rank %d)", reqName, tonumber(aa.requiresAbilityPoints) or 1))
+                        -- safeText, not Text: the formatted RESULT still goes through
+                        -- ImGui's own format pass, and reqName is a game-supplied name.
+                        safeText(string.format("Requires: %s (rank %d)", reqName, tonumber(aa.requiresAbilityPoints) or 1))
                     end
                     ImGui.EndTooltip()
                 end
@@ -572,7 +599,7 @@ function AAView.render(ctx)
         -- appears - and it makes a grey Train self-explaining before any tooltip.
         ctx.theme.TextMuted(string.format("Select an ability. You have %d points to spend.", aaPoints))
     else
-        ImGui.Text(sel)
+        safeText(sel)
         local maxR = tonumber(selRec.maxRank) or 0
         if maxR > 0 then
             ctx.theme.TextMuted(string.format("rank %d of %d . cost %d", selRec.rank or 0, maxR, selCost))
@@ -584,12 +611,13 @@ function AAView.render(ctx)
         local cur = tostring(selRec.description or "")
         if nd and nd ~= cur then
             ctx.theme.TextMuted("next rank:")
-            ImGui.TextWrapped(nd)
+            safeTextWrapped(nd)
             if cur ~= "" then
-                ctx.theme.TextMuted("now: " .. cur)
+                -- theme.TextMuted is Push -> ImGui.Text -> Pop: escape the game text.
+                ctx.theme.TextMuted(("now: " .. cur):gsub("%%", "%%%%"))
             end
         elseif cur ~= "" then
-            ImGui.TextWrapped(cur)
+            safeTextWrapped(cur)
         end
         ImGui.Spacing()
         if ctx.theme.PushKeepButton then ctx.theme.PushKeepButton(not canTrainSel) end
@@ -682,7 +710,7 @@ function AAView.render(ctx)
     ImGui.SameLine()
     if ImGui.Button("Import", ImVec2(80, 0)) and not transferBusy then
         local files = listBackupFiles(ctx)
-        if #files == 0 then ctx.setStatusMessage("No aa_*.ini backups in Macros\aa_backups (or your AABackupPath folder)") end
+        if #files == 0 then ctx.setStatusMessage("No aa_*.ini backups in Macros\\aa_backups (or your AABackupPath folder)") end
         if #files > 0 then
             ctx._aaImportFileCombo = ctx._aaImportFileCombo or 1
             ctx._aaImportFiles = files
