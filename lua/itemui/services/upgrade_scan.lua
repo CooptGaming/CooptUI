@@ -25,6 +25,7 @@ local mq = require('mq')
 local itemHelpers = require('itemui.utils.item_helpers')
 local itemCompare = require('itemui.utils.item_compare')
 local weights = require('itemui.utils.score_weights')
+local wornEffects = require('itemui.utils.worn_effects')
 
 local M = {}
 
@@ -54,31 +55,11 @@ local function buildKey(deps)
     return table.concat(parts, "|")
 end
 
---- Worn-lines context from the equipped set: for every equipped item's Worn/Focus
---- effect name that resolves to a scored line, keep the best units per line. This is
---- what zeroes a duplicate "highest" family everywhere the context is passed.
+--- Worn-lines context from the equipped set: best units per scored line. Delegates to
+--- utils/worn_effects — the ONE walk the Effects tracker also renders from, so what
+--- zeroes a duplicate "highest" family here is exactly what the tracker shows as wasted.
 local function buildWornLines(deps)
-    local lines = {}
-    if not (deps.getItemSpellId and deps.getSpellName) then return lines end
-    local cache = deps.equipmentCache or {}
-    for i = 1, 23 do
-        local e = cache[i]
-        if e then
-            for _, kind in ipairs({ "Worn", "Focus" }) do
-                local okId, id = pcall(deps.getItemSpellId, e, kind)
-                if okId and id and id > 0 then
-                    local okN, nm = pcall(deps.getSpellName, id)
-                    if okN and nm and nm ~= "" then
-                        local line, units = itemCompare.resolveEffectLine(tostring(nm))
-                        if line and line ~= "clicky" and type(units) == "number" then
-                            if not lines[line] or units > lines[line] then lines[line] = units end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return lines
+    return wornEffects.build(deps).lines
 end
 
 function M.invalidate()

@@ -9,6 +9,7 @@ local mq = require('mq')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 local itemCompare = require('itemui.utils.item_compare')
 local itemHelpers = require('itemui.utils.item_helpers')
+local wornEffects = require('itemui.utils.worn_effects')
 
 local constants = require('itemui.constants')
 local context = require('itemui.context')
@@ -47,25 +48,10 @@ end
 local equipWarmAt = 0
 
 --- Equipped worn/focus lines (best units per line): the set-awareness context.
+--- Delegates to utils/worn_effects — the ONE walk the Effects tracker renders from,
+--- so the "already worn (higher)" grey here and the tracker's wasted flag agree.
 local function buildWornLines(ctx)
-    local lines = {}
-    local cache = ctx.equipmentCache or {}
-    for ei = 1, 23 do
-        local e = cache[ei]
-        if e then
-            for _, kind in ipairs({ "Worn", "Focus" }) do
-                local id = ctx.getItemSpellId and ctx.getItemSpellId(e, kind)
-                local nm = (id and id > 0 and ctx.getSpellName) and ctx.getSpellName(id) or nil
-                if nm and nm ~= "" then
-                    local line, units = itemCompare.resolveEffectLine(tostring(nm))
-                    if line and line ~= "clicky" and type(units) == "number" then
-                        if not lines[line] or units > lines[line] then lines[line] = units end
-                    end
-                end
-            end
-        end
-    end
-    return lines
+    return wornEffects.build(ctx).lines
 end
 
 --- One candidate -> score, why. `why` is the inline muted note: the stacking-zero

@@ -13,6 +13,10 @@
     them in the game's Aura window). Close the native buff windows if you want
     this to be the only buff UI - the game remembers per-character.
 
+    Also hosts the WORN tracker: every worn/focus effect line on the equipped
+    set with its stacking rule, wasted duplicates flagged (utils/worn_effects -
+    the same walk that feeds the upgrade/aug score context).
+
     Scan is throttled (500ms) - TLO reads happen at most twice a second, and
     only while the window is open.
 ]]
@@ -24,6 +28,7 @@ local registry = require('itemui.core.registry')
 local dockState = require('itemui.services.dock_state')
 local windowHeader = require('itemui.components.window_header')
 local contextMenu = require('itemui.components.context_menu')
+local wornEffects = require('itemui.utils.worn_effects')
 
 local EffectsView = {}
 
@@ -37,6 +42,13 @@ local ICON_SIZE = 24
 
 -- Scan cache: { buffs = {...}, songs = {...}, auras = {...}, maxBuffs = n }
 local cache = { at = 0, buffs = {}, songs = {}, auras = {}, maxBuffs = 30 }
+
+-- Worn/Focus tracker cache: rebuilt when the equipped set's fingerprint moves, plus a
+-- short TTL retry (spell ids resolve lazily through the TLO; a read that landed during
+-- zoning returns 0 uncached, and only a re-walk picks the late answer up).
+local WORN_REBUILD_TTL_MS = 5000
+local wornCache = { fp = nil, at = 0, built = nil }
+local wornWarmAt = 0
 
 local spellIconAnim = nil
 local function drawSpellIcon(iconId, size)
@@ -288,6 +300,108 @@ local function renderSection(ctx, title, list, iconMode)
     ImGui.Spacing()
 end
 
+-- Game-supplied names can carry '%' and ImGui.Text formats; escape before any theme helper.
+local function esc(s)
+    return (tostring(s):gsub("%%", "%%%%"))
+end
+
+-- One sentence per stacking rule, for the line-row hover.
+local function stackingSentence(g)
+    if g.stacking == "highest" then
+        return "highest-only: the largest copy applies; extra copies do nothing."
+    elseif g.stacking == "additive_capped" then
+        return g.cap and string.format("additive to a cap of %d.", g.cap) or "additive to a cap."
+    end
+    return "additive: every copy applies."
+end
+
+--- The Worn tracker: every worn/focus effect LINE on the equipped set, its stacking
+--- rule, and which copies are wasted — the "make sure we aren't stacking up" surface.
+--- Always rows (a line with contributions is not an icon-shaped thing); renders from
+--- the same worn_effects walk that feeds the score context, so this section and the
+--- Aug Utility's "already worn (higher)" grey can never disagree.
+local function renderWornSection(ctx, built, equipmentKnown)
+    local groups = (built and built.groups) or {}
+    local untracked = (built and built.untracked) or {}
+    local overlapped, overCap = wornEffects.wasteSummary(built)
+    ctx.theme.TextMuted(string.format("Worn effects (%d)", #groups))
+    if overlapped + overCap > 0 then
+        ImGui.SameLine()
+        local bits = {}
+        if overlapped > 0 then bits[#bits + 1] = string.format("%d wasted", overlapped) end
+        if overCap > 0 then bits[#bits + 1] = string.format("%d over cap", overCap) end
+        ctx.theme.TextWarning(table.concat(bits, ", "))
+    end
+    ImGui.Separator()
+    if #groups == 0 and #untracked == 0 then
+        ImGui.Indent(8)
+        ctx.theme.TextMuted(equipmentKnown and "none on the equipped set" or "equipment not scanned yet")
+        ImGui.Unindent(8)
+        ImGui.Spacing()
+        return
+    end
+    for _, g in ipairs(groups) do
+        ImGui.PushID("worn_" .. g.line)
+        ImGui.BeginGroup()
+        ImGui.Text(esc(g.line))
+        ImGui.SameLine()
+        local summary
+        if g.stacking == "highest" then
+            summary = string.format("best %d", g.best)
+        elseif g.stacking == "additive_capped" and g.cap then
+            summary = string.format("total %d / cap %d", g.total, g.cap)
+        else
+            summary = string.format("total %d", g.total)
+        end
+        if g.overCap then
+            ctx.theme.TextWarning(summary)
+        else
+            ctx.theme.TextMuted(summary)
+        end
+        -- Right-aligned stacking tag, the time-column pattern.
+        local tag = (g.stacking == "additive_capped" and "capped")
+            or (g.stacking == "additive" and "additive") or "highest"
+        local tw = ImGui.CalcTextSize(tag)
+        ImGui.SameLine(math.max(ImGui.GetWindowWidth() - tw - 14, 0))
+        ctx.theme.TextFurniture(tag)
+        ImGui.EndGroup()
+        if ImGui.IsItemHovered() then
+            ImGui.BeginTooltip()
+            ImGui.Text(esc(g.line))
+            ImGui.Separator()
+            textWrapped(stackingSentence(g))
+            ImGui.Spacing()
+            for _, en in ipairs(g.entries) do
+                ctx.theme.TextMuted(esc(string.format("%s (%s, %s)", en.effName, en.itemName, en.kind)))
+            end
+            ImGui.EndTooltip()
+        end
+        ImGui.Indent(12)
+        for _, en in ipairs(g.entries) do
+            local rowText = string.format("%d  %s (%s)", en.units, en.itemName, en.slotName)
+            if en.wasted then
+                ctx.theme.TextWarning(esc(rowText .. " - wasted: " .. en.wastedWhy))
+            else
+                ctx.theme.TextMuted(esc(rowText))
+            end
+        end
+        ImGui.Unindent(12)
+        ImGui.PopID()
+    end
+    if #untracked > 0 then
+        ImGui.Spacing()
+        -- The calibration feed: names the score data cannot place yet. Same philosophy
+        -- as the breakdown's unscored list - an honest gap, not a silent zero.
+        ctx.theme.TextMuted("untracked (not in the score data yet):")
+        ImGui.Indent(12)
+        for _, u in ipairs(untracked) do
+            ctx.theme.TextMuted(esc(string.format("%s - %s (%s)", u.effName, u.itemName, u.slotName)))
+        end
+        ImGui.Unindent(12)
+    end
+    ImGui.Spacing()
+end
+
 function EffectsView.render(ctx)
     if not registry.shouldDraw("effects") then return end
 
@@ -360,15 +474,36 @@ function EffectsView.render(ctx)
         end
     end
 
+    -- Worn tracker data. The walk memoizes spell ids on the equipment rows, so the
+    -- fingerprint key does the real throttling; the TTL only exists to pick up
+    -- lazily-resolved reads that landed as 0 during zoning. Warm the equipment cache
+    -- when empty (the Aug Utility's own on-open pattern) - without a scan this
+    -- window cannot answer the worn question.
+    do
+        if ctx.refreshEquipmentCache and not next(ctx.equipmentCache or {}) then
+            if (now - wornWarmAt) > 2000 then
+                wornWarmAt = now
+                pcall(ctx.refreshEquipmentCache)
+            end
+        end
+        local fp = wornEffects.fingerprint(ctx.equipmentCache)
+        if not wornCache.built or wornCache.fp ~= fp or (now - wornCache.at) >= WORN_REBUILD_TTL_MS then
+            wornCache.fp = fp
+            wornCache.at = now
+            wornCache.built = wornEffects.build(ctx)
+        end
+    end
+    local wornGroups = (wornCache.built and wornCache.built.groups) or {}
+
     if barsOn then
         local nb = #(cache.buffs or {})
         local stat
         if (cache.maxBuffs or 0) > 0 then
-            stat = string.format("Buffs %d/%d . Songs %d . Auras %d",
-                nb, cache.maxBuffs, #(cache.songs or {}), #(cache.auras or {}))
+            stat = string.format("Buffs %d/%d . Songs %d . Auras %d . Worn %d",
+                nb, cache.maxBuffs, #(cache.songs or {}), #(cache.auras or {}), #wornGroups)
         else
-            stat = string.format("Buffs %d . Songs %d . Auras %d",
-                nb, #(cache.songs or {}), #(cache.auras or {}))
+            stat = string.format("Buffs %d . Songs %d . Auras %d . Worn %d",
+                nb, #(cache.songs or {}), #(cache.auras or {}), #wornGroups)
         end
         windowHeader.render({
             id = "effects", title = "Effects", stat = stat,
@@ -398,8 +533,8 @@ function EffectsView.render(ctx)
         -- §9: in bars the band above already states exactly this, two lines higher. One
         -- window, one home for a number.
         ImGui.SameLine()
-        ctx.theme.TextMuted(string.format("Buffs %d/%d | Songs %d | Auras %d",
-            #cache.buffs, cache.maxBuffs, #cache.songs, #cache.auras))
+        ctx.theme.TextMuted(string.format("Buffs %d/%d | Songs %d | Auras %d | Worn %d",
+            #cache.buffs, cache.maxBuffs, #cache.songs, #cache.auras, #wornGroups))
     end
     ImGui.Spacing()
 
@@ -407,6 +542,7 @@ function EffectsView.render(ctx)
         renderSection(ctx, string.format("Buffs (%d/%d)", #cache.buffs, cache.maxBuffs), cache.buffs, newIconMode)
         renderSection(ctx, string.format("Songs (%d)", #cache.songs), cache.songs, newIconMode)
         renderSection(ctx, string.format("Auras (%d)", #cache.auras), cache.auras, newIconMode)
+        renderWornSection(ctx, wornCache.built, next(ctx.equipmentCache or {}) ~= nil)
     end
     ImGui.EndChild()
 
@@ -418,7 +554,7 @@ registry.register({
     zone        = "B1",  -- window_zones placement column/slot (mockup 10a)
     label       = "Effects",
     buttonWidth = 60,
-    tooltip     = "All buffs, songs, and auras in one compact window - timers, hit counts, right-click remove",
+    tooltip     = "Buffs, songs, auras, and worn-effect stacking in one compact window - timers, hit counts, wasted-copy flags, right-click remove",
     layoutKeys  = { x = "EffectsWindowX", y = "EffectsWindowY" },
     enableKey   = "ShowEffectsWindow",
     render      = function(refs)
