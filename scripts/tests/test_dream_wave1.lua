@@ -150,7 +150,14 @@ do
     local sc = require('itemui.services.stagecraft')
     sc._resetForTests()
     sc.demoStart(1000)
-    check('demo queues the two dings', sc.hasDing())
+    check('demo queues dings', sc.hasDing())
+    -- Field round 2: the dings had played before the eye left the chat line. The
+    -- first pass now waits a beat, and the pair repeats.
+    check('demo dings wait a beat', sc.dingStrip(1000) == nil and sc.dingStrip(1800) == nil)
+    local t1, _, c1 = sc.dingStrip(2000)
+    check('first pass playing blue after the beat', t1 ~= nil and c1 == sc.DING_BLUE)
+    local t2, _, c2 = sc.dingStrip(5400)
+    check('second pass replays blue later', t2 ~= nil and c2 == sc.DING_BLUE, t2)
     check('demo breathes while fresh', sc.demoBreathing(2000))
     check('demo breath expires', not sc.demoBreathing(9001))
     check('expired demo stays off', not sc.demoBreathing(5000))

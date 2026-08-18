@@ -123,9 +123,17 @@ local DEMO_BREATH_MS = 8000
 local demoBreathUntil = nil
 
 function M.demoStart(nowMs)
-    M.noteDing(nowMs, M.DING_BLUE)
-    M.noteDing(nowMs, M.DING_GREEN)
-    demoBreathUntil = (nowMs or 0) + DEMO_BREATH_MS
+    -- Eyes are on the chat line the instant the command runs (field round 2: the
+    -- breath was seen, the dings were not - they had already played). The first
+    -- pass waits a beat so the eye can travel to the bar, and the pair repeats
+    -- once. noteDing already supports future starts: dingStrip stays nil until
+    -- a ding's startMs arrives.
+    local t = nowMs or 0
+    M.noteDing(t + 900, M.DING_BLUE)
+    M.noteDing(t + 900, M.DING_GREEN)   -- chains after the blue pass
+    M.noteDing(t + 4200, M.DING_BLUE)
+    M.noteDing(t + 4200, M.DING_GREEN)
+    demoBreathUntil = t + DEMO_BREATH_MS
 end
 
 --- True while the demo wants the lane breathing (dock_top checks this only when
