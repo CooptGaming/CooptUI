@@ -116,9 +116,12 @@ function MythicalsView.render(ctx)
         end
     end
 
-    -- Filter to Mythical-prefixed items (any type), cached until inventory rescans
+    -- Filter to Mythical-prefixed items (any type). Mutation-generation key (see
+    -- views/augments.lua): count or first-row identity alone miss targeted bag rescans.
     local invItems = ctx.inventoryItems or {}
-    local mythKey = string.format("%d|%s", #invItems, tostring(invItems[1]))
+    local pc = ctx.perfCache
+    local mythKey = string.format("%d|%s|%s", #invItems,
+        tostring(pc and pc.lastScanTimeInv or 0), tostring(pc and pc.invMutationGen or 0))
     if mythCache.key ~= mythKey then
         local rebuilt = {}
         for _, it in ipairs(invItems) do

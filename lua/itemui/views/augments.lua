@@ -120,9 +120,15 @@ end
 --- standalone window (classic mode) and Aug Utility's "All augments" tab (bars mode;
 --- spec §8's one consolidation). No Begin/End in here: callers own the window or tab.
 function AugmentsView.renderListContent(ctx)
-    -- Filter to augmentations only (cached until inventory rescans or count changes)
+    -- Filter to augmentations only. Keyed like script_tracker's count cache: length or
+    -- first-row identity alone miss targeted bag rescans, which can leave the count AND
+    -- bag 1's rows untouched while other bags' rows were rebuilt - the old key then kept
+    -- serving detached rows carrying stale bag/slot addresses. invMutationGen bumps at
+    -- the one choke point every inventory mutation passes through (invalidateSortCache).
     local invItems = ctx.inventoryItems or {}
-    local augKey = string.format("%d|%s", #invItems, tostring(invItems[1]))
+    local pc = ctx.perfCache
+    local augKey = string.format("%d|%s|%s", #invItems,
+        tostring(pc and pc.lastScanTimeInv or 0), tostring(pc and pc.invMutationGen or 0))
     if augCache.key ~= augKey then
         local rebuilt = {}
         for _, it in ipairs(invItems) do

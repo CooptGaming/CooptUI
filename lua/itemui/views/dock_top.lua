@@ -1378,7 +1378,9 @@ popovers.session = function(ctx, s)
             -- Sorted rows had no hover; truncation must not orphan the full name.
             if ImGui.IsItemHovered and ImGui.IsItemHovered() then
                 ImGui.BeginTooltip()
-                ImGui.Text(tostring(e.name or "?"))
+                -- safeText, same as the row itself: a '%' in an item name raises in
+                -- ImGui.Text, and a raise here also skips EndTooltip.
+                safeText(tostring(e.name or "?"))
                 ImGui.EndTooltip()
             end
             ImGui.SameLine(280)
