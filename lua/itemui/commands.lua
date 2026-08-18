@@ -230,6 +230,26 @@ function M.handleCommand(...)
             if not q then q = {}; deps.uiState.dockActionQueue = q end
             q[#q + 1] = { kind = "retidy" }
         end
+    elseif cmd == "experiments" then
+        -- The dream-pass kill switch: /itemui experiments off zeroes every experiment
+        -- flag at once and closes their windows. There is deliberately no "on" - each
+        -- experiment is opted into individually in Settings > General > Experiments.
+        local args = { ... }
+        local sub = tostring(args[2] or ""):lower()
+        if sub == "off" then
+            local lc = deps.layoutConfig
+            if lc then
+                lc.ShowDreamRiver = 0
+                lc.ExperimentStagecraft = 0
+            end
+            local registry = require('itemui.core.registry')
+            registry.setWindowState("dreamRiver", false, false)
+            registry.refreshEnabled()
+            if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
+            print("\ag[ItemUI]\ax Experiments OFF - all dream surfaces disabled.")
+        else
+            print("\ag[ItemUI]\ax /itemui experiments off - disable every dream-pass experiment at once. Enable individually in Settings > General > Experiments.")
+        end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end

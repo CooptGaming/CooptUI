@@ -283,6 +283,40 @@ function ConfigGeneral.render(ctx)
                 end
             end
         end
+        ImGui.Spacing()
+        if ImGui.CollapsingHeader("Experiments (dream pass)", ImGuiTreeNodeFlags.None) then
+            renderBreadcrumb("General", "Experiments")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+                "Dream-pass surfaces. All OFF by default; each is an observer over existing data")
+            ImGui.TextColored(theme.ToVec4(theme.Colors.Muted),
+                "and can be switched off without a trace. Kill switch: /itemui experiments off")
+            local experiments = {
+                { key = "ShowDreamRiver", id = "dreamRiver", label = "River - the session as a timeline",
+                  tip = "A newest-first river of the session: loot runs, sells, and tonight's calls, with the day card on demand." },
+                { key = "ExperimentStagecraft", label = "Stagecraft - the ding light and the breath",
+                  tip = "One 80px light runs the top bar's edge when an AA lands (blue) or a loot run finishes (green); cells that wait on you breathe. Nothing else ever moves." },
+            }
+            for _, e in ipairs(experiments) do
+                local val = (tonumber(layoutConfig[e.key]) or 0) ~= 0
+                local prev = val
+                val = ImGui.Checkbox(e.label .. "##exp_" .. e.key, val)
+                if prev ~= val then
+                    layoutConfig[e.key] = val and 1 or 0
+                    if not val and e.id then registry.setWindowState(e.id, false, false) end
+                    -- The enable answer changed while no window state did — tell the
+                    -- registry, or the launcher row waits for an unrelated window event.
+                    registry.refreshEnabled()
+                    scheduleLayoutSave()
+                end
+                if e.tip and ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.PushTextWrapPos(360)
+                    ImGui.Text(e.tip)
+                    ImGui.PopTextWrapPos()
+                    ImGui.EndTooltip()
+                end
+            end
+        end
         if epicEnabled and EPIC_CLASSES and #EPIC_CLASSES > 0 then
             ImGui.Indent()
             local nSelected = 0
