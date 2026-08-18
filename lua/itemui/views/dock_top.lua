@@ -24,6 +24,7 @@ local theme = require('itemui.utils.theme')
 local constants = require('itemui.constants')
 local dockLayout = require('itemui.utils.dock_layout')
 local dockState = require('itemui.services.dock_state')
+local stagecraft = require('itemui.services.stagecraft')
 local hintsService = require('itemui.services.hints')
 local ItemTooltip = require('itemui.utils.item_tooltip')
 -- Leaf module (requires mq only, registers nothing) — safe at the top unlike view
@@ -56,12 +57,26 @@ local CELL_OPTIONAL = { status = true, session = true, bags = true, sell = true,
 -- a sell run honestly only has "running" — it has no finished/aborted edge in dock_state).
 -- Status washes bad when the plugin is missing or errors are queued — same conditions its
 -- label already colors.
-local function segmentWash(id, s)
+local function segmentWash(id, s, stagecraftOn, nowMs)
     if id == "lane" then
         local st = s.lootState
-        if st == "looting" or st == "decision" then return theme.Kit.WashRunning end
+        if st == "looting" or st == "decision" then
+            -- Stagecraft B (experiment, default OFF): a cell that WAITS ON A HUMAN
+            -- breathes -- the decision oscillates on the open-blue pair. Fills over
+            -- time only; nothing moves. Flag off = the exact static wash as ever.
+            if st == "decision" and stagecraftOn and nowMs then
+                return stagecraft.breathColor(nowMs, theme.Kit.WashRunning, "decision")
+            end
+            return theme.Kit.WashRunning
+        end
         if st == "done" then return theme.Kit.WashDone end
-        if st == "problem" then return theme.Kit.WashBad end
+        if st == "problem" then
+            -- Problems breathe slower and toward red (the sheet's second register).
+            if stagecraftOn and nowMs then
+                return stagecraft.breathColor(nowMs, theme.Kit.WashBad, "problem")
+            end
+            return theme.Kit.WashBad
+        end
         if s.sellRunning or s.scriptRunning then return theme.Kit.WashRunning end
     elseif id == "status" then
         if (not s.pluginPresent) or (s.errorCount or 0) > 0 then return theme.Kit.WashBad end
@@ -1948,6 +1963,15 @@ function M.render(ctx)
     dockLayout.refreshCacheKey()
     local s = dockState.get()
 
+    -- Stagecraft (experiment, default OFF): feed the observed values the bar already
+    -- holds. First observations are baselines, so a fresh UI start never dings.
+    local stagecraftOn = (tonumber(layoutConfig.ExperimentStagecraft) or 0) ~= 0
+    local stagecraftNow = stagecraftOn and mq.gettime() or nil
+    if stagecraftOn then
+        stagecraft.observeAA(stagecraftNow, s.aaTotal)
+        stagecraft.observeLootRunning(stagecraftNow, s.lootRunning)
+    end
+
     -- DockSegments is the ENABLE SET (order is canonical — 26a). Empty = everything on;
     -- "none" enables nothing (no cell has that id); the retired `loot` id is skipped.
     local enabledCsv = csv(layoutConfig.DockSegments)
@@ -2125,7 +2149,7 @@ function M.render(ctx)
                 -- only EndChild sits between, and the throwable content is contained inside.
                 -- The open-window fill (26a: lit = this cell's window is open) rides the
                 -- same push; a job wash outranks it in the same slot.
-                local wash = segmentWash(id, s)
+                local wash = segmentWash(id, s, stagecraftOn, stagecraftNow)
                 local litOpen = (not wash) and cellOpen(ctx, id, s) or false
                 if wash then
                     ImGui.PushStyleColor(ImGuiCol.ChildBg, theme.ToVec4(wash))
@@ -2210,6 +2234,22 @@ function M.render(ctx)
                 if rx then lastRect = M.slots[id] end
             end
         end
+        end)
+    end
+    -- Stagecraft A (experiment): the ding light -- one 80px strip running the bar's
+    -- top edge, one pass, then gone. Draw-list only, inside the bar's window so the
+    -- proven AddRectFilled path applies; a quiet frame costs one hasDing() check.
+    if stagecraftOn and stagecraft.hasDing() then
+        pcall(function()
+            local t, alpha, color = stagecraft.dingStrip(stagecraftNow)
+            if not t then return end
+            local dl = ImGui.GetWindowDrawList and ImGui.GetWindowDrawList()
+            if not dl or not dl.AddRectFilled then return end
+            local stripW = stagecraft.DING_W
+            local sx = x - stripW + t * (w + stripW)
+            local vec = ImVec4(color[1], color[2], color[3], alpha)
+            local col = ImGui.GetColorU32 and ImGui.GetColorU32(vec) or 0xFFFA9642
+            dl:AddRectFilled(ImVec2(sx, y), ImVec2(sx + stripW, y + 2), col)
         end)
     end
     ImGui.End()
