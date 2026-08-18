@@ -121,6 +121,40 @@ do
     check('sell row carries the payload', rows[1].kind == 'sell_end' and rows[1].failed == 3)
     log._resetForTests()
     check('reset empties the ring', #log.getRows() == 0)
+
+    -- Manual loot: the log registers its OWN "You have looted" event (field round 1 -
+    -- the bridge events are macro edges and a hand-looted corpse produced nothing).
+    local lootHandlers = {}
+    log.init({ macroBridge = fakeBridge, uiState = fakeUi, gettime = function() return clock end,
+        mqEvent = function(name, pattern, cb) lootHandlers[#lootHandlers + 1] = { name = name, pattern = pattern, cb = cb } end })
+    check('loot-line event registered', #lootHandlers == 1
+        and lootHandlers[1].pattern:find('You have looted', 1, true) ~= nil)
+    lootHandlers[1].cb('--You have looted a Rusty Dagger.--')
+    rows = log.getRows()
+    check('hand-looted row parsed (article kept)', rows[1].kind == 'looted'
+        and rows[1].name == 'a Rusty Dagger', rows[1].name)
+    lootHandlers[1].cb('no such line')
+    check('non-matching line ignored', #log.getRows() == 1)
+
+    -- Demo rows are honestly labeled.
+    log.demo()
+    rows = log.getRows()
+    local sawDemo = false
+    for _, r in ipairs(rows) do if r.demo then sawDemo = true end end
+    check('demo rows carry the demo flag', sawDemo and #rows == 4, #rows)
+    log._resetForTests()
+end
+
+-- ---------------------------------------------------------------- stagecraft demo
+do
+    local sc = require('itemui.services.stagecraft')
+    sc._resetForTests()
+    sc.demoStart(1000)
+    check('demo queues the two dings', sc.hasDing())
+    check('demo breathes while fresh', sc.demoBreathing(2000))
+    check('demo breath expires', not sc.demoBreathing(9001))
+    check('expired demo stays off', not sc.demoBreathing(5000))
+    sc._resetForTests()
 end
 
 -- ---------------------------------------------------------------- registry contract

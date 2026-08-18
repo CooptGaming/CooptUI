@@ -1559,6 +1559,7 @@ local function main()
         macroBridge = macroBridge,
         uiState = uiState,
         gettime = mq.gettime,
+        mqEvent = mq.event,  -- its own "You have looted" listener: hand-loot rows
     })
     local waitIter = 0
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do

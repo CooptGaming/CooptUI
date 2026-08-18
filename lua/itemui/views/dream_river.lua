@@ -96,9 +96,19 @@ local function renderLogRow(ctx, r)
     elseif r.kind == "sell_end" then
         text = string.format("%s - Auto Sell finished", fmtClock(r.at))
         if (r.failed or 0) > 0 then text = text .. string.format(" (%d failed)", r.failed) end
+    elseif r.kind == "looted" then
+        -- A hand-looted item: an ordinary row, not a header (macro runs get headers
+        -- because they group; a single pickup is its own event).
+        glyphCell(ctx, "+", "ok")
+        ImGui.SameLine()
+        ImGui.Text(esc(tostring(r.name or "?")) .. (r.demo and " (demo)" or ""))
+        ImGui.SameLine()
+        ctx.theme.TextMuted("- looted " .. fmtClock(r.at))
+        return
     else
         text = fmtClock(r.at)
     end
+    if r.demo then text = text .. " (demo)" end
     ctx.theme.TextMuted(esc(text))
     -- The best-take line rides under its run header, the mockup's "+ <item> - best of run".
     if r.kind == "loot_end" and not r.pending and r.best and r.best ~= "" then

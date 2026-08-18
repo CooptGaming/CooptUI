@@ -78,6 +78,11 @@ local function segmentWash(id, s, stagecraftOn, nowMs)
             return theme.Kit.WashBad
         end
         if s.sellRunning or s.scriptRunning then return theme.Kit.WashRunning end
+        -- /itemui experiments demo: breathe the idle lane for a few seconds so the
+        -- effect is verifiable on demand. A real state above always wins.
+        if stagecraftOn and nowMs and stagecraft.demoBreathing(nowMs) then
+            return stagecraft.breathColor(nowMs, theme.Kit.WashRunning, "decision")
+        end
     elseif id == "status" then
         if (not s.pluginPresent) or (s.errorCount or 0) > 0 then return theme.Kit.WashBad end
     end

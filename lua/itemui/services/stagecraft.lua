@@ -116,10 +116,31 @@ function M.hasDing()
     return dings[1] ~= nil
 end
 
+-- Demo (/itemui experiments demo): the field cannot schedule an AA ding or a
+-- mythical decision on request, so the demo queues both dings and breathes the
+-- lane for a few seconds — same math, same draw paths, honestly temporary.
+local DEMO_BREATH_MS = 8000
+local demoBreathUntil = nil
+
+function M.demoStart(nowMs)
+    M.noteDing(nowMs, M.DING_BLUE)
+    M.noteDing(nowMs, M.DING_GREEN)
+    demoBreathUntil = (nowMs or 0) + DEMO_BREATH_MS
+end
+
+--- True while the demo wants the lane breathing (dock_top checks this only when
+--- the lane has no real state of its own — a real decision always wins).
+function M.demoBreathing(nowMs)
+    if not demoBreathUntil then return false end
+    if not nowMs or nowMs >= demoBreathUntil then demoBreathUntil = nil return false end
+    return true
+end
+
 function M._resetForTests()
     dings = {}
     lastAATotal = nil
     lastLootRunning = nil
+    demoBreathUntil = nil
 end
 
 return M

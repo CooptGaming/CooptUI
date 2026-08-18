@@ -54,24 +54,57 @@ function M.init(d)
     rows = {}
     subscribed = false
     local mb = deps and deps.macroBridge
-    if not (mb and mb.subscribe) then return end
-    -- macro_bridge.init cleared subscribers before this ran (app.lua orders it so);
-    -- callbacks are pcall'd by the bridge and self-remove on error, so a bug here
-    -- can never break the emitters.
-    mb.subscribe('loot:started', function()
-        push({ at = os.time(), atMs = nowMs(), kind = "loot_start" })
-    end)
-    mb.subscribe('loot:complete', function()
-        push({ at = os.time(), atMs = nowMs(), kind = "loot_end", pending = true })
-    end)
-    mb.subscribe('sell:started', function()
-        push({ at = os.time(), atMs = nowMs(), kind = "sell_start" })
-    end)
-    mb.subscribe('sell:complete', function(data)
-        push({ at = os.time(), atMs = nowMs(), kind = "sell_end",
-               failed = (data and tonumber(data.failedCount)) or 0 })
-    end)
-    subscribed = true
+    if mb and mb.subscribe then
+        -- macro_bridge.init cleared subscribers before this ran (app.lua orders it so);
+        -- callbacks are pcall'd by the bridge and self-remove on error, so a bug here
+        -- can never break the emitters.
+        mb.subscribe('loot:started', function()
+            push({ at = os.time(), atMs = nowMs(), kind = "loot_start" })
+        end)
+        mb.subscribe('loot:complete', function()
+            push({ at = os.time(), atMs = nowMs(), kind = "loot_end", pending = true })
+        end)
+        mb.subscribe('sell:started', function()
+            push({ at = os.time(), atMs = nowMs(), kind = "sell_start" })
+        end)
+        mb.subscribe('sell:complete', function(data)
+            push({ at = os.time(), atMs = nowMs(), kind = "sell_end",
+                   failed = (data and tonumber(data.failedCount)) or 0 })
+        end)
+        subscribed = true
+    end
+    -- MANUAL loot (field round 1: the whole test was a hand-looted corpse and the
+    -- river sat empty — the bridge events above are MACRO edges and fire for nothing
+    -- else). The game's own "You have looted" line is the one signal hand-looting
+    -- always produces (loot_watch's insight); this registers its OWN event on the
+    -- same line — no shared-code edits, both handlers fire independently. The parse
+    -- mirrors loot_watch's forgiving shape: peel the chat dashes and the sentence
+    -- period, keep the article.
+    if deps and deps.mqEvent then
+        pcall(deps.mqEvent, "CooptUIDreamLoot", "#*#You have looted#*#", function(line)
+            local rest = type(line) == "string" and line:match("[Yy]ou have looted%s+(.+)$") or nil
+            if not rest or rest == "" then return end
+            rest = rest:gsub("%-%-%s*$", ""):gsub("%s+$", ""):gsub("%.$", "")
+            if rest == "" then return end
+            M.noteLooted(rest)
+        end)
+    end
+end
+
+--- One hand-looted item. Public so the suite (and any future feed) can push the
+--- same row the chat event does.
+function M.noteLooted(name, demo)
+    push({ at = os.time(), atMs = nowMs(), kind = "looted",
+           name = tostring(name or ""), demo = demo or nil })
+end
+
+--- Demo rows for /itemui experiments demo: the river's whole vocabulary, honestly
+--- labeled, so the window is verifiable without waiting for a run.
+function M.demo()
+    push({ at = os.time(), atMs = nowMs(), kind = "sell_end", failed = 1, demo = true })
+    push({ at = os.time(), atMs = nowMs(), kind = "loot_end", corpses = 6, items = 12,
+           value = 2108, best = "Demo Take of the Day", bestValue = 2100, skipped = 2, demo = true })
+    M.noteLooted("A Demo Trinket", true)
 end
 
 --- Newest-first copy. Loot rows past the settle age finalize from uiState here —
