@@ -669,9 +669,14 @@ function MacroBridge.resetStats()
 end
 
 -- Loot heartbeat staleness: loot.mac writes Progress/heartbeat (${Time.MillisecondsSinceEpoch}) alongside
--- each Progress/line update. If running=1 but the heartbeat value has not changed for LOOT_HEARTBEAT_STALE_MS
--- of wall time, treat the macro as not running (recovers from aborted runs -- crash or /endmacro -- that left
--- running=1 forever and wedged the Loot UI). Missing heartbeat key (older macro version) keeps legacy behavior.
+-- each Progress/line update. If running=1 but the heartbeat is older than LOOT_HEARTBEAT_STALE_MS, treat the
+-- macro as not running (recovers from aborted runs -- crash or /endmacro -- that left running=1 forever and
+-- wedged the Loot UI). The heartbeat is an ABSOLUTE clock, so staleness is one comparison against os.time();
+-- the old change-tracking treated the FIRST observation as fresh, which meant a UI started over a
+-- crash-abandoned running=1 file announced a phantom run at startup (opened the Loot UI, then "finished" it
+-- 30s later over the previous session's INIs). Missing heartbeat key (older macro version) keeps legacy
+-- behavior; a non-numeric heartbeat falls back to change-tracking where the first observation is a BASELINE,
+-- not proof of life.
 local LOOT_HEARTBEAT_STALE_MS = 30000
 local lootHeartbeatLast = nil
 local lootHeartbeatChangedAt = 0
@@ -694,7 +699,16 @@ local function readLootProgressRunning()
     if running ~= "1" then return false end
     local heartbeat = config.safeIniValueByPath(progPath, "Progress", "heartbeat", "")
     if not heartbeat or heartbeat == "" then return true end  -- older macro: no heartbeat, no staleness recovery
+    local hb = tonumber(heartbeat)
+    if hb then
+        return (os.time() * 1000 - hb) <= LOOT_HEARTBEAT_STALE_MS
+    end
     local now = os.clock() * 1000
+    if lootHeartbeatLast == nil then
+        lootHeartbeatLast = heartbeat
+        lootHeartbeatChangedAt = now - LOOT_HEARTBEAT_STALE_MS - 1
+        return false
+    end
     if heartbeat ~= lootHeartbeatLast then
         lootHeartbeatLast = heartbeat
         lootHeartbeatChangedAt = now
