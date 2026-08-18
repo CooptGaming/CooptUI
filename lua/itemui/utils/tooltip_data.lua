@@ -231,18 +231,23 @@ local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts
     end
     if augCount > 0 then left = left + 3 + augCount end
 
+    -- Column 2. Must mirror tooltip_render exactly: per effect = 1 anchor line + the one
+    -- merged clicky facts line (same boolean as the renderer) + wrapped desc + 1 spacing.
+    -- The per-kind Spell Info blocks are GONE (they doubled every effect with ID/Recovery/
+    -- Range noise), Tribute joined Item information, and the standalone Value/Tribute
+    -- rows exist only on socket hovers (which render no Item information block).
     local right = 0
     if #effects > 0 then
         right = right + 2
         for _, e in ipairs(effects) do
             right = right + 1
             if e.key == "Clicky" and (e.castTime ~= nil or (e.recastTime ~= nil and e.recastTime > 0)) then
-                if e.castTime ~= nil then right = right + 1 end
-                if e.recastTime ~= nil and e.recastTime > 0 then right = right + 1 end
+                right = right + 1
             end
             if e.desc and e.desc ~= "" then
-                right = right + math.max(1, math.ceil(#e.desc / tooltip_layout.CHARS_PER_LINE_DESC)) + 1
+                right = right + math.max(1, math.ceil(#e.desc / tooltip_layout.CHARS_PER_LINE_DESC))
             end
+            right = right + 1
         end
         right = right + 1
     end
@@ -251,21 +256,15 @@ local function countTooltipRows(item, effects, parentIt, bag, slot, source, opts
         if item.id and item.id ~= 0 then right = right + 1 end
         if item.icon and item.icon ~= 0 then right = right + 1 end
         if (item.totalValue or item.value) and (item.totalValue or item.value) ~= 0 then right = right + 1 end
+        if item.tribute and item.tribute ~= 0 then right = right + 1 end
         if item.damage and item.damage ~= 0 and item.itemDelay and item.itemDelay ~= 0 then right = right + 1 end
         right = right + 1
         if bag and slot and source then right = right + 1 end
         right = right + 2
+    else
+        if (item.totalValue or item.value) and (item.totalValue or item.value) ~= 0 then right = right + 2 end
+        if item.tribute and item.tribute ~= 0 then right = right + 2 end
     end
-    local spellInfoOrder = { "Clicky", "Proc", "Worn", "Focus" }
-    local seenKey = {}
-    for _, e in ipairs(effects) do seenKey[e.key] = true end
-    for _, key in ipairs(spellInfoOrder) do
-        if seenKey[key] then
-            right = right + 1 + 1 + 5
-        end
-    end
-    if (item.totalValue or item.value) and (item.totalValue or item.value) ~= 0 then right = right + 2 end
-    if item.tribute and item.tribute ~= 0 then right = right + 2 end
 
     return left, right
 end

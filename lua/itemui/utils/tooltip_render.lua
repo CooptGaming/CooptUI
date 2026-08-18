@@ -113,37 +113,6 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
     local linkColor = ImVec4(0.4, 0.7, 1.0, 1.0)
     local effects = {}
 
-    local function renderSpellInfoBlock(spellId, headerColor, headerText)
-        if not spellId or spellId <= 0 or not ctx then return end
-        ImGui.Spacing()
-        ImGui.TextColored(headerColor, headerText)
-        ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
-        ImGui.Text("ID: " .. tostring(spellId))
-        -- Windows pass §9 formatting: zero is "—", never 0.00; a raw tick count never
-        -- appears where minutes exist (600 → 10m).
-        if ctx.getSpellDuration then
-            local dur = ctx.getSpellDuration(spellId)
-            if dur ~= nil then ImGui.Text("Duration: " .. M.formatSeconds(dur)) end
-        end
-        if ctx.getSpellRecoveryTime then
-            local rec = ctx.getSpellRecoveryTime(spellId)
-            if rec ~= nil then
-                ImGui.Text("Recovery: " .. ((tonumber(rec) or 0) == 0 and "\xe2\x80\x94" or string.format("%.2f", rec)))
-            end
-        end
-        if ctx.getSpellRecastTime then
-            local rt = ctx.getSpellRecastTime(spellId)
-            if rt ~= nil then
-                ImGui.Text("Recast: " .. ((tonumber(rt) or 0) == 0 and "\xe2\x80\x94" or string.format("%.2f", rt)))
-            end
-        end
-        if ctx.getSpellRange then
-            local rng = ctx.getSpellRange(spellId)
-            if rng ~= nil and rng ~= 0 then ImGui.Text("Range: " .. tostring(rng)) end
-        end
-        ImGui.PopStyleColor()
-    end
-
     -- Effect building shared with tooltip_data (single definition); prefer caller-supplied
     -- effects, then the cached entry, then live compute.
     if opts.effects then
@@ -546,51 +515,54 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         openCounts.child = openCounts.child + 1
     end
 
-    -- ---- Column 2: Item effects, Item information, Spell Info blocks, Value & Tribute ----
-    local effectLabels = { Clicky = "Clicky", Worn = "Worn", Proc = "Proc", Focus = "Focus", Spell = "Spell" }
-    local focusLabel = "Focus"
-    local function formatRecastDelay(sec)
-        if sec == nil or sec < 0 then return nil end
-        local s = math.floor(sec + 0.5)
-        if s < 60 then return s == 1 and "1 second" or (s .. " seconds") end
-        local m = math.floor(s / 60)
-        local r = s % 60
-        if r == 0 then return m == 1 and "1 minute" or (m .. " minutes") end
-        local ms = m == 1 and "1 minute" or (m .. " minutes")
-        local rs = r == 1 and "1 second" or (r .. " seconds")
-        return ms .. " and " .. rs
-    end
+    -- ---- Column 2: Item effects, Item information, Value & Tribute ----
+    -- One block per effect: colored KIND tag + name on the anchor line, then ONE muted
+    -- facts line (clicky cast/recast/duration), then the muted description. The old
+    -- per-kind "Spell Info" blocks below Item information are GONE - they re-listed
+    -- every effect name with ID/Recovery/Range noise (field: "hard to read, redundant"),
+    -- and everything a player acts on now rides the effect entry itself.
+    local effectKindColors = {
+        Clicky = ImVec4(0.4, 0.9, 0.4, 1.0),
+        Proc   = ImVec4(0.9, 0.65, 0.2, 1.0),
+        Worn   = ImVec4(0.9, 0.9, 0.4, 1.0),
+        Focus  = ImVec4(0.5, 0.75, 1.0, 1.0),
+        Spell  = ImVec4(0.8, 0.6, 1.0, 1.0),
+    }
     if #effects > 0 then
         ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Item effects")
         ImGui.Spacing()
         for _, e in ipairs(effects) do
-                local label
-                if e.key == focusLabel then
-                    label = "Focus Effect: " .. e.spellName
-                else
-                    label = "Effect: " .. e.spellName .. " (" .. effectLabels[e.key] .. ")"
-                end
-                ImGui.Text(label)
+                ImGui.TextColored(effectKindColors[e.key] or ImVec4(0.7, 0.7, 0.75, 1.0), e.key)
+                ImGui.SameLine()
+                ImGui.Text(e.spellName)
+                -- Sizing contract: this boolean MUST match countTooltipRows' facts-line
+                -- condition - the card's height was computed from it.
                 if e.key == "Clicky" and (e.castTime ~= nil or (e.recastTime ~= nil and e.recastTime > 0)) then
-                    ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
+                    local facts = {}
                     if e.castTime ~= nil then
                         local ct = e.castTime
                         local ctStr = (ct == math.floor(ct)) and tostring(math.floor(ct)) or string.format("%.1f", ct)
-                        ImGui.Text("Casting Time: " .. ctStr)
+                        facts[#facts + 1] = "cast " .. ctStr .. "s"
                     end
-                    -- Recast delay = max cooldown observed for this slot (countdown start); fallback to spell recast until we've seen it
+                    -- Recast = max cooldown observed for this slot (countdown start); spell recast until seen.
                     local recastSec = (bag and slot and source and ctx and ctx.getMaxRecastForSlot) and ctx.getMaxRecastForSlot(bag, slot, source) or e.recastTime
                     if recastSec ~= nil and recastSec > 0 then
-                        ImGui.Text("Recast Delay: " .. formatRecastDelay(recastSec))
+                        facts[#facts + 1] = "recast " .. M.formatSeconds(recastSec)
                     end
-                    ImGui.PopStyleColor()
+                    local dur = ctx and ctx.getSpellDuration and e.spellId and ctx.getSpellDuration(e.spellId)
+                    if dur and dur > 0 then
+                        facts[#facts + 1] = "lasts " .. M.formatSeconds(dur)
+                    end
+                    if #facts > 0 then
+                        ImGui.TextColored(ImVec4(0.65, 0.65, 0.7, 1.0), table.concat(facts, " . "))
+                    end
                 end
                 if e.desc and e.desc ~= "" then
                     ImGui.PushStyleColor(ImGuiCol.Text, ImVec4(0.65, 0.65, 0.7, 1.0))
                     ImGui.TextWrapped(e.desc)
                     ImGui.PopStyleColor()
-                    ImGui.Spacing()
                 end
+                ImGui.Spacing()
         end
         ImGui.Spacing()
     end
@@ -608,6 +580,9 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         if val and val ~= 0 then
             local valStr = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
             ImGui.Text("Value: " .. valStr)
+        end
+        if item.tribute and item.tribute ~= 0 then
+            ImGui.Text("Tribute: " .. tostring(item.tribute))
         end
         if item.damage and item.damage ~= 0 and item.itemDelay and item.itemDelay ~= 0 then
             local ratio = item.damage / item.itemDelay
@@ -631,37 +606,20 @@ function M.renderItemDisplayContent(item, ctx, opts, api)
         ImGui.Spacing()
     end
 
-    -- ---- Spell Info blocks (sections 3-6): Clicky, Proc, Worn, Focus — only if effect present ----
-    if #effects > 0 then
-        local spellInfoOrder = { "Clicky", "Proc", "Worn", "Focus" }
-        local spellInfoColors = {
-            Clicky = ImVec4(0.4, 0.9, 0.4, 1.0),
-            Proc   = ImVec4(0.9, 0.65, 0.2, 1.0),
-            Worn   = ImVec4(0.9, 0.9, 0.4, 1.0),
-            Focus  = ImVec4(0.5, 0.75, 1.0, 1.0),
-        }
-        for _, key in ipairs(spellInfoOrder) do
-            for _, e in ipairs(effects) do
-                if e.key == key and e.spellId and e.spellName then
-                    -- Windows pass §9: "Spell Info for Clicky effect: X" was six words of
-                    -- prefix per line — the kind and the name say everything.
-                    renderSpellInfoBlock(e.spellId, spellInfoColors[key], key .. " - " .. e.spellName)
-                    break
-                end
-            end
+    -- ---- Value, Tribute: socket hovers only (no Item information block there). For the
+    -- parent card these numbers live in Item information - one home per number (§9); the
+    -- old standalone Value block printed the same coin line twice on every hover.
+    if opts.socketIndex then
+        local val = item.totalValue or item.value
+        if val and val ~= 0 then
+            ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Value")
+            local valStr = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
+            ImGui.Text(valStr)
         end
-    end
-
-    -- ---- Value, Tribute ----
-    local val = item.totalValue or item.value
-    if val and val ~= 0 then
-        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Value")
-        local valStr = (ItemUtils and ItemUtils.formatValue) and ItemUtils.formatValue(val) or tostring(val)
-        ImGui.Text(valStr)
-    end
-    if item.tribute and item.tribute ~= 0 then
-        ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Tribute")
-        ImGui.Text(tostring(item.tribute))
+        if item.tribute and item.tribute ~= 0 then
+            ImGui.TextColored(ImVec4(0.6, 0.8, 1.0, 1.0), "Tribute")
+            ImGui.Text(tostring(item.tribute))
+        end
     end
 
     -- ---- Score line + caller trailer lines (MOCKUP_score_surfaces A) ----
