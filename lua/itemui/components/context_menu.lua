@@ -111,9 +111,11 @@ local function doInspect(ctx, item, source)
         local Me = mq.TLO and mq.TLO.Me
         local slotName = ctx.getEquipmentSlotNameForItemNotify(item.slot)
         if slotName and Me and Me.Inventory then
+            -- Me.Inventory(<worn slot>) IS the equipped item. The old .Item(1) hop descended
+            -- into the item's first AUGMENT slot (Item(N) on a non-container is the Nth socket),
+            -- so augmented gear inspected its socket-1 gem and empty-socketed gear opened nothing.
             local inv = Me.Inventory(slotName)
-            local slotIt = inv and inv.Item and inv.Item(1)
-            if slotIt and slotIt.ID and slotIt.ID() and slotIt.ID() > 0 and slotIt.Inspect then slotIt.Inspect() end
+            if inv and inv.ID and inv.ID() and inv.ID() > 0 and inv.Inspect then inv.Inspect() end
         end
     end
 end
