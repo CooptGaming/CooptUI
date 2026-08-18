@@ -56,7 +56,13 @@ function M.augmentRestrictionAllowsParent(parentIt, augRestrictionId)
     if not augRestrictionId or augRestrictionId == 0 then return true end
     if not parentIt then return false end
     local isWeapon, isShield, typeLower = item_tlo.parentItemClassify(parentIt)
-    if augRestrictionId == 1 then return not isWeapon end
+    -- "Armor Only" is the parent's ItemType being literally Armor, not "anything that isn't a
+    -- weapon": the EQEmu server check (Handle_OP_AugmentItem) passes ItemTypeArmor and refuses
+    -- everything else, so charms/jewelry/misc parents that our looser test admitted made the
+    -- game decline the insert and strand the gem on the cursor (field: Mythical Suffersphere,
+    -- a non-armor parent, listed an Armor Only gem it could never take). A parent whose Type
+    -- read failed ("") stays excluded: one rebuild of a too-short list beats a stranded cursor.
+    if augRestrictionId == 1 then return typeLower == "armor" end
     if augRestrictionId == 2 then return isWeapon end
     if augRestrictionId == 13 then return isShield end
     if augRestrictionId >= 3 and augRestrictionId <= 15 then
