@@ -108,6 +108,12 @@ function LayoutUtils.applyDefaultsFromParsed(parsed)
     if d.EffectsWindowX then layoutDefaults.EffectsWindowX = tonumber(d.EffectsWindowX) or layoutDefaults.EffectsWindowX end
     if d.EffectsWindowY then layoutDefaults.EffectsWindowY = tonumber(d.EffectsWindowY) or layoutDefaults.EffectsWindowY end
     if d.EffectsCompact then layoutDefaults.EffectsCompact = tonumber(d.EffectsCompact) or layoutDefaults.EffectsCompact end
+    if d.ShowDreamRiver then layoutDefaults.ShowDreamRiver = tonumber(d.ShowDreamRiver) or layoutDefaults.ShowDreamRiver end
+    if d.ExperimentStagecraft then layoutDefaults.ExperimentStagecraft = tonumber(d.ExperimentStagecraft) or layoutDefaults.ExperimentStagecraft end
+    if d.DreamRiverWindowX then layoutDefaults.DreamRiverWindowX = tonumber(d.DreamRiverWindowX) or layoutDefaults.DreamRiverWindowX end
+    if d.DreamRiverWindowY then layoutDefaults.DreamRiverWindowY = tonumber(d.DreamRiverWindowY) or layoutDefaults.DreamRiverWindowY end
+    if d.WidthDreamRiver then layoutDefaults.WidthDreamRiver = tonumber(d.WidthDreamRiver) or layoutDefaults.WidthDreamRiver end
+    if d.HeightDreamRiver then layoutDefaults.HeightDreamRiver = tonumber(d.HeightDreamRiver) or layoutDefaults.HeightDreamRiver end
     if d.ChatWindowX then layoutDefaults.ChatWindowX = tonumber(d.ChatWindowX) or layoutDefaults.ChatWindowX end
     if d.ChatWindowY then layoutDefaults.ChatWindowY = tonumber(d.ChatWindowY) or layoutDefaults.ChatWindowY end
     if d.WidthChatPanel then layoutDefaults.WidthChatPanel = tonumber(d.WidthChatPanel) or layoutDefaults.WidthChatPanel end
@@ -333,6 +339,12 @@ function LayoutUtils.saveLayoutToFileImmediate()
         f:write("EffectsWindowX=" .. tostring(layoutConfig.EffectsWindowX or layoutDefaults.EffectsWindowX) .. "\n")
         f:write("EffectsWindowY=" .. tostring(layoutConfig.EffectsWindowY or layoutDefaults.EffectsWindowY) .. "\n")
         f:write("EffectsCompact=" .. tostring(layoutConfig.EffectsCompact or 0) .. "\n")
+        f:write("ShowDreamRiver=" .. tostring(layoutConfig.ShowDreamRiver or layoutDefaults.ShowDreamRiver or 0) .. "\n")
+        f:write("ExperimentStagecraft=" .. tostring(layoutConfig.ExperimentStagecraft or layoutDefaults.ExperimentStagecraft or 0) .. "\n")
+        f:write("DreamRiverWindowX=" .. tostring(layoutConfig.DreamRiverWindowX or layoutDefaults.DreamRiverWindowX) .. "\n")
+        f:write("DreamRiverWindowY=" .. tostring(layoutConfig.DreamRiverWindowY or layoutDefaults.DreamRiverWindowY) .. "\n")
+        f:write("WidthDreamRiver=" .. tostring(layoutConfig.WidthDreamRiver or layoutDefaults.WidthDreamRiver) .. "\n")
+        f:write("HeightDreamRiver=" .. tostring(layoutConfig.HeightDreamRiver or layoutDefaults.HeightDreamRiver) .. "\n")
         f:write("NativeHoverTooltip=" .. (uiState.nativeHoverTooltip ~= false and "1" or "0") .. "\n")
         f:write("NativeItemDisplayReplace=" .. (uiState.nativeItemDisplayReplace ~= false and "1" or "0") .. "\n")
         f:write("PinnedWindows=" .. registry.getPinnedCSV() .. "\n")
@@ -551,6 +563,12 @@ local function applyLayoutSection(parsed)
     layoutConfig.EffectsWindowX = LayoutUtils.loadLayoutValue(layout, "EffectsWindowX", layoutDefaults.EffectsWindowX)
     layoutConfig.EffectsWindowY = LayoutUtils.loadLayoutValue(layout, "EffectsWindowY", layoutDefaults.EffectsWindowY)
     layoutConfig.EffectsCompact = LayoutUtils.loadLayoutValue(layout, "EffectsCompact", 0)
+    layoutConfig.ShowDreamRiver = LayoutUtils.loadLayoutValue(layout, "ShowDreamRiver", layoutDefaults.ShowDreamRiver)
+    layoutConfig.ExperimentStagecraft = LayoutUtils.loadLayoutValue(layout, "ExperimentStagecraft", layoutDefaults.ExperimentStagecraft)
+    layoutConfig.DreamRiverWindowX = LayoutUtils.loadLayoutValue(layout, "DreamRiverWindowX", layoutDefaults.DreamRiverWindowX)
+    layoutConfig.DreamRiverWindowY = LayoutUtils.loadLayoutValue(layout, "DreamRiverWindowY", layoutDefaults.DreamRiverWindowY)
+    layoutConfig.WidthDreamRiver = LayoutUtils.loadLayoutValue(layout, "WidthDreamRiver", layoutDefaults.WidthDreamRiver)
+    layoutConfig.HeightDreamRiver = LayoutUtils.loadLayoutValue(layout, "HeightDreamRiver", layoutDefaults.HeightDreamRiver)
     uiState.nativeHoverTooltip = LayoutUtils.loadLayoutValue(layout, "NativeHoverTooltip", (layoutDefaults.NativeHoverTooltip or 1) == 1)
     uiState.nativeItemDisplayReplace = LayoutUtils.loadLayoutValue(layout, "NativeItemDisplayReplace", (layoutDefaults.NativeItemDisplayReplace or 1) == 1)
     registry.setPinnedFromCSV(LayoutUtils.loadLayoutValue(layout, "PinnedWindows", ""))

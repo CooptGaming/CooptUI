@@ -230,6 +230,44 @@ function M.handleCommand(...)
             if not q then q = {}; deps.uiState.dockActionQueue = q end
             q[#q + 1] = { kind = "retidy" }
         end
+    elseif cmd == "experiments" then
+        -- The dream-pass kill switch: /itemui experiments off zeroes every experiment
+        -- flag at once and closes their windows. There is deliberately no "on" - each
+        -- experiment is opted into individually in Settings > General > Experiments.
+        -- "demo" makes the surfaces verifiable on demand (field round 1: the ding
+        -- needs an AA and the breath needs a live decision - neither is schedulable).
+        local args = { ... }
+        local sub = tostring(args[2] or ""):lower()
+        if sub == "demo" then
+            local lc = deps.layoutConfig
+            local anyOn = lc and (((tonumber(lc.ShowDreamRiver) or 0) ~= 0)
+                or ((tonumber(lc.ExperimentStagecraft) or 0) ~= 0))
+            if not anyOn then
+                print("\ag[ItemUI]\ax No experiments are on - enable them in Settings > General > Experiments first.")
+            else
+                if lc and (tonumber(lc.ExperimentStagecraft) or 0) ~= 0 then
+                    require('itemui.services.stagecraft').demoStart(mq.gettime())
+                    print("\ag[ItemUI]\ax Stagecraft demo: two dings run the bar's top edge; the lane breathes for 8s.")
+                end
+                if lc and (tonumber(lc.ShowDreamRiver) or 0) ~= 0 then
+                    require('itemui.services.dream_log').demo()
+                    print("\ag[ItemUI]\ax River demo: three rows pushed, labeled (demo).")
+                end
+            end
+        elseif sub == "off" then
+            local lc = deps.layoutConfig
+            if lc then
+                lc.ShowDreamRiver = 0
+                lc.ExperimentStagecraft = 0
+            end
+            local registry = require('itemui.core.registry')
+            registry.setWindowState("dreamRiver", false, false)
+            registry.refreshEnabled()
+            if deps.scheduleLayoutSave then deps.scheduleLayoutSave() end
+            print("\ag[ItemUI]\ax Experiments OFF - all dream surfaces disabled.")
+        else
+            print("\ag[ItemUI]\ax /itemui experiments off - disable every dream-pass experiment. /itemui experiments demo - show the enabled surfaces on demand. Enable individually in Settings > General > Experiments.")
+        end
     elseif cmd == "refresh" then
         if deps.scanInventory then deps.scanInventory() end
         if deps.isBankWindowOpen and deps.isBankWindowOpen() and deps.scanBank then deps.scanBank() end

@@ -89,6 +89,14 @@ do
     layoutDefaults.FavoritesWindowY = 0
     layoutDefaults.EffectsWindowX = 0
     layoutDefaults.EffectsWindowY = 0
+    -- DREAM experiments (wave 1). Enable keys default OFF - an experimental surface
+    -- does not exist until the Experiments block in Settings turns it on.
+    layoutDefaults.ShowDreamRiver = 0
+    layoutDefaults.ExperimentStagecraft = 0
+    layoutDefaults.DreamRiverWindowX = 0
+    layoutDefaults.DreamRiverWindowY = 0
+    layoutDefaults.WidthDreamRiver = 560
+    layoutDefaults.HeightDreamRiver = 460
     layoutDefaults.ChatWindowX = 0
     layoutDefaults.ChatWindowY = 0
     -- WidthChatPanel/HeightChat now live in constants.VIEWS (handoff item 4), so the

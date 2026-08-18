@@ -30,6 +30,17 @@ local cachedEnabled, cachedDrawable, cachedTickable
 function M.init(opts)
     layoutConfig = opts and opts.layoutConfig
     companionWindowOpenedAt = opts and opts.companionWindowOpenedAt
+    -- A new layoutConfig can change every isEnabled() answer.
+    cacheDirty = true
+end
+
+--- Call after mutating an enable key in layoutConfig (Settings toggles, the
+--- experiments kill switch): isEnabled() answers changed but no window state did,
+--- and setWindowState deliberately only dirties on actual state change (the found
+--- gap: enabling a currently-closed experimental window never surfaced its
+--- launcher until some unrelated window event rebuilt the caches).
+function M.refreshEnabled()
+    cacheDirty = true
 end
 
 local function isEnabled(spec)
@@ -40,6 +51,12 @@ local function isEnabled(spec)
     -- whose every launcher and status now lives on the bars.
     if spec.classicOnly and tostring(layoutConfig.UIMode or "classic") == "bars" then return false end
     if not spec.enableKey then return true end
+    -- experimental (dream pass): the enable DEFAULT flips to OFF — an absent or unset key
+    -- means the surface does not exist for this install. Everything else about the module
+    -- is ordinary; the Experiments block in Settings is what writes the key.
+    if spec.experimental then
+        return (tonumber(layoutConfig[spec.enableKey]) or 0) ~= 0
+    end
     return (tonumber(layoutConfig[spec.enableKey]) or 1) ~= 0
 end
 

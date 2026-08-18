@@ -44,6 +44,7 @@ require('itemui.views.mythicals')  -- registers the Mythicals companion
 require('itemui.views.command_center')  -- registers the Command Center
 require('itemui.views.favorites')  -- registers the Clickies (favorites) companion
 require('itemui.views.effects')  -- registers the Effects (buffs/songs/auras) companion
+require('itemui.views.dream_river')  -- registers the River (DREAM experiment, off by default)
 require('itemui.views.chat_window')  -- registers the Chat console companion
 require('itemui.views.script_tracker')  -- registers the Scripts companion (25c, phase 15)
 local AugmentUtilityView = require('itemui.views.augment_utility')
@@ -1550,6 +1551,15 @@ local function main()
         sellLogPath = perfCache.sellLogPath,
         getLootConfigFile = config.getLootConfigFile,
         pollInterval = 500,
+    })
+    -- Dream wave 1: the river's run-edge log. AFTER macroBridge.init (init clears
+    -- subscribers); always on (a few inserts per run edge) so history exists the
+    -- moment the experiment is switched on. See services/dream_log.lua.
+    require('itemui.services.dream_log').init({
+        macroBridge = macroBridge,
+        uiState = uiState,
+        gettime = mq.gettime,
+        mqEvent = mq.event,  -- its own "You have looted" listener: hand-loot rows
     })
     local waitIter = 0
     while not (mq.TLO and mq.TLO.Me and mq.TLO.Me.Name and mq.TLO.Me.Name()) do
