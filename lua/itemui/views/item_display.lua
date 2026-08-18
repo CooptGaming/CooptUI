@@ -1,11 +1,14 @@
 --[[
     Item Display View - CoOpt UI Item Display window (windows pass v2, mockups 17b/18a/19a).
 
-    Tabbed window: each "Open it" adds a tab. Tab strip carries the icon actions (recents,
-    locate, refresh) and the lock. Below: identity card (the name appears HERE, once),
-    verdict box, the type-aware stat strip (aug-inclusive totals — §0.1: one number
-    everywhere), then the remembered sections: EFFECTS · ALL STATS · SPELL DATA & IDS ·
-    AUGMENTS · RULES (open/closed persists per character via services/section_state).
+    Single-subject window (the tab strip died 08-17 - the recents glyph is the
+    switcher): each "Item info" replaces the shown item; the icon toolbar carries
+    recents, locate, refresh, and the lock. Below: identity card (the name appears
+    HERE, once), verdict box, the type-aware stat strip (aug-inclusive totals — §0.1:
+    one number everywhere), then the remembered sections: EFFECTS · ALL STATS ·
+    SPELL DATA & IDS · AUGMENTS · RULES (open/closed persists per character via
+    services/section_state). state.itemDisplayTabs stays an array (of one) so the
+    subject-link consumers (Aug Utility's live target, the render suite) keep shape.
 --]]
 
 local mq = require('mq')
@@ -1026,91 +1029,9 @@ local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
         end
     end
 
-    -- Custom tab row: button (click to select tab) + X button (click to close); wrap to next line when width exceeded
-    if #tabs > 0 then
-        local closeSet = {}
-        local closeIndices = {}
-        local style = ImGui.GetStyle()
-        local framePadX = (style and style.FramePadding and style.FramePadding.x) or 4
-        local availX = constants.UI.ITEM_DISPLAY_AVAIL_X
-        do
-            local ax, ay = ImGui.GetContentRegionAvail()
-            if type(ax) == "number" and ax > 0 then availX = ax end
-            if type(ax) == "table" and ax.x then availX = ax.x end
-        end
-        local X_BUTTON_W = 20
-        local lineWidth = 0
-        for i, tab in ipairs(tabs) do
-            local tabLabel = tab.label or ("Item " .. tostring(i))
-            local isSelected = (activeIdx == i)
-            local tw = constants.UI.ITEM_DISPLAY_TAB_LABEL_WIDTH
-            do
-                local cw, ch = ImGui.CalcTextSize(tabLabel)
-                if type(cw) == "number" then tw = cw
-                elseif type(cw) == "table" and cw.x then tw = cw.x
-                end
-            end
-            local btnW = tw + framePadX * 2
-            if btnW < 80 then btnW = 80 end
-            local tabTotalW = btnW + 2 + X_BUTTON_W + (i < #tabs and 6 or 0)
-            if i > 1 and (lineWidth + tabTotalW > availX) then
-                ImGui.NewLine()
-                lineWidth = 0
-            elseif i > 1 then
-                ImGui.SameLine(0, 6)
-            end
-            if isSelected then
-                ImGui.PushStyleColor(ImGuiCol.Button, ImGui.GetStyleColorVec4(ImGuiCol.HeaderActive))
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImGui.GetStyleColorVec4(ImGuiCol.Header))
-                ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImGui.GetStyleColorVec4(ImGuiCol.Header))
-            end
-            if ImGui.Button(tabLabel .. "##ItemDisplayTab" .. tostring(i), ImVec2(btnW, 0)) then
-                state.itemDisplayActiveTabIndex = i
-            end
-            if isSelected then
-                ImGui.PopStyleColor(3)
-            end
-            if ImGui.IsItemHovered() and ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
-                if not closeSet[i] then closeSet[i] = true; closeIndices[#closeIndices + 1] = i end
-            end
-            ImGui.SameLine(0, 2)
-            ImGui.PushStyleColor(ImGuiCol.Button, ImVec4(0.5, 0.2, 0.2, 0.6))
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImVec4(0.7, 0.25, 0.25, 0.9))
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImVec4(0.8, 0.3, 0.3, 1.0))
-            if ImGui.SmallButton("X##CloseTab" .. tostring(i)) then
-                if not closeSet[i] then closeSet[i] = true; closeIndices[#closeIndices + 1] = i end
-            end
-            ImGui.PopStyleColor(3)
-            lineWidth = lineWidth + btnW + 2 + X_BUTTON_W + (i < #tabs and 6 or 0)
-        end
-        ImGui.NewLine()
-        -- Remove closed tabs (from high index down so indices stay valid)
-        local t = state.itemDisplayTabs
-        local curActive = state.itemDisplayActiveTabIndex
-        table.sort(closeIndices, function(a, b) return a > b end)
-        for _, idx in ipairs(closeIndices) do
-            if idx >= 1 and idx <= #t then
-                table.remove(t, idx)
-                if curActive > idx then
-                    curActive = curActive - 1
-                elseif curActive == idx then
-                    curActive = math.max(1, math.min(idx, #t))
-                end
-            end
-        end
-        state.itemDisplayActiveTabIndex = curActive
-        if #state.itemDisplayTabs > 0 and (state.itemDisplayActiveTabIndex < 1 or state.itemDisplayActiveTabIndex > #state.itemDisplayTabs) then
-            state.itemDisplayActiveTabIndex = 1
-        end
-        if #state.itemDisplayTabs == 0 then
-            registry.setWindowState("itemDisplay", false, false)
-        end
-        -- Use current selection for content (updated by tab click or close)
-        activeIdx = state.itemDisplayActiveTabIndex
-        if activeIdx < 1 or activeIdx > #state.itemDisplayTabs then
-            activeIdx = math.max(1, #state.itemDisplayTabs)
-        end
-    end
+    -- The tab strip is GONE (user ruling 08-17): the window shows ONE item and the
+    -- recents glyph in the toolbar is the switcher. tabs stays an array (of one) so
+    -- the subject-link consumers keep their shape; the title-bar X closes the window.
 
     -- Toolbar and content
     if #tabs == 0 then
@@ -1176,21 +1097,16 @@ local function renderWindowBody(ctx, layoutConfig, tabs, activeIdx)
                     local _sel, pressed = ImGui.Selectable(
                         (r.label or "?") .. "##Recent" .. tostring(r.bag) .. "_" .. tostring(r.slot), isCurrent)
                     if pressed then
-                        local found
-                        for i, t in ipairs(tabs) do
-                            if t.bag == r.bag and t.slot == r.slot and t.source == r.source then
-                                state.itemDisplayActiveTabIndex = i
-                                found = true
-                                break
-                            end
-                        end
-                        if not found and ctx.getItemStatsForTooltip then
+                        -- Single subject: a recent pick REPLACES what the window shows
+                        -- (it used to append a tab). A pick that no longer resolves - the
+                        -- item sold or moved - changes nothing, same degrade as before.
+                        if not isCurrent and ctx.getItemStatsForTooltip then
                             local showItem = ctx.getItemStatsForTooltip({ bag = r.bag, slot = r.slot }, r.source)
                             if showItem and showItem.id and showItem.id ~= 0 then
                                 local label = (showItem.name and showItem.name ~= "" and showItem.name:sub(1, 35)) or "Item"
                                 if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "..." end
-                                tabs[#tabs + 1] = { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label }
-                                state.itemDisplayActiveTabIndex = #tabs
+                                state.itemDisplayTabs = { { bag = r.bag, slot = r.slot, source = r.source, item = showItem, label = label } }
+                                state.itemDisplayActiveTabIndex = 1
                             end
                         end
                         ImGui.CloseCurrentPopup()

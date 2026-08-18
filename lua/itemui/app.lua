@@ -848,36 +848,18 @@ local function addItemDisplayTab(item, source)
     local label = (showItem.name and showItem.name ~= "") and showItem.name:sub(1, 35) or "Item"
     if #label == 35 and (showItem.name or ""):len() > 35 then label = label .. "..." end
     local idState = ItemDisplayView.getState()
-    -- If this item already has a tab, switch to it instead of adding a duplicate
-    for idx, tab in ipairs(idState.itemDisplayTabs) do
-        if tab.bag == item.bag and tab.slot == item.slot and tab.source == source then
-            tab.item = showItem
-            tab.label = label
-            idState.itemDisplayActiveTabIndex = idx
-            uiState.removeAllQueue = nil   -- Phase 1: tab switched
-            uiState.optimizeQueue = nil    -- Phase 2: tab switched
-            local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
-            local recent = idState.itemDisplayRecent
-            for i = #recent, 1, -1 do
-                if recent[i].bag == item.bag and recent[i].slot == item.slot and recent[i].source == source then
-                    table.remove(recent, i)
-                    break
-                end
-            end
-            table.insert(recent, 1, recentEntry)
-            while #recent > constants.LIMITS.ITEM_DISPLAY_RECENT_MAX do table.remove(recent) end
-            uiState.itemDisplayWindowOpen = true
-            uiState.itemDisplayWindowShouldDraw = true
-            recordCompanionWindowOpened("itemDisplay")
-            return
-        end
-    end
-    idState.itemDisplayTabs[#idState.itemDisplayTabs + 1] = {
+    -- SINGLE SUBJECT since the tab strip died (user ruling 08-17: the history glyph
+    -- covers switching): every open REPLACES the shown item. The outgoing item needs no
+    -- goodbye - it entered the recent list when IT was opened. The tabs table stays an
+    -- array of one so every consumer of tabs[activeIdx] (Aug Utility's live link, the
+    -- render suite's setTab) keeps its contract. Re-opening the current item is the
+    -- refresh it always was: showItem is a fresh read.
+    idState.itemDisplayTabs = { {
         bag = item.bag, slot = item.slot, source = source, item = showItem, label = label,
-    }
-    idState.itemDisplayActiveTabIndex = #idState.itemDisplayTabs
-    uiState.removeAllQueue = nil   -- Phase 1: new tab added
-    uiState.optimizeQueue = nil    -- Phase 2: new tab added
+    } }
+    idState.itemDisplayActiveTabIndex = 1
+    uiState.removeAllQueue = nil   -- Phase 1: subject changed
+    uiState.optimizeQueue = nil    -- Phase 2: subject changed
     -- Recent: prepend, dedupe by bag/slot/source, cap at N
     local recentEntry = { bag = item.bag, slot = item.slot, source = source, label = label }
     local recent = idState.itemDisplayRecent

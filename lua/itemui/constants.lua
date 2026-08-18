@@ -167,7 +167,6 @@ M.UI = {
     TOOLTIP_CHARS_PER_LINE_DESC = 52,
     -- Item Display
     ITEM_DISPLAY_AVAIL_X = 400,
-    ITEM_DISPLAY_TAB_LABEL_WIDTH = 120,
     -- Item Display: verdict card (design pass 3e) — bordered verdict box + stat comparison tiles
     ITEM_DISPLAY_VERDICT_HEIGHT = 64,
     ITEM_DISPLAY_TILE_WIDTH = 128,
