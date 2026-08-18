@@ -315,11 +315,36 @@ local function stackingSentence(g)
     return "additive: every copy applies."
 end
 
+-- Units display: whole numbers stay whole ("7"), fractional units keep one decimal.
+local function unitsStr(n)
+    n = tonumber(n) or 0
+    if n == math.floor(n) then return string.format("%d", n) end
+    return string.format("%.1f", n)
+end
+
 --- The Worn tracker: every worn/focus effect LINE on the equipped set, its stacking
 --- rule, and which copies are wasted — the "make sure we aren't stacking up" surface.
---- Always rows (a line with contributions is not an icon-shaped thing); renders from
---- the same worn_effects walk that feeds the score context, so this section and the
---- Aug Utility's "already worn (higher)" grey can never disagree.
+--- One TABLE (field round: the freeform rows clipped item names mid-word and pushed
+--- the wasted reason off-screen): Effect | Value | Item | Slot, the effect named on
+--- its group's first row only, Item stretching with ellipsis, a warning-colored "*"
+--- on wasted values with the WHY on the row hover, and one legend line when waste
+--- exists. Renders from the same worn_effects walk that feeds the score context, so
+--- this section and the Aug Utility's "already worn (higher)" grey can never disagree.
+local function wornRowTooltip(ctx, g, en)
+    ImGui.BeginTooltip()
+    ImGui.Text(esc(en.effName))
+    ImGui.Separator()
+    ctx.theme.TextMuted(esc(string.format("%s (%s), %s effect", en.itemName, en.slotName, en.kind)))
+    textWrapped(g.displayName .. ": " .. stackingSentence(g))
+    if en.wasted then
+        ctx.theme.TextWarning(esc("wasted: " .. (en.wastedWhy or "a larger copy is worn")))
+    elseif g.overCap then
+        ctx.theme.TextWarning(string.format("line total %s exceeds the cap of %d by %s",
+            unitsStr(g.total), g.cap, unitsStr(g.overCap)))
+    end
+    ImGui.EndTooltip()
+end
+
 local function renderWornSection(ctx, built, equipmentKnown)
     local groups = (built and built.groups) or {}
     local untracked = (built and built.untracked) or {}
@@ -340,64 +365,82 @@ local function renderWornSection(ctx, built, equipmentKnown)
         ImGui.Spacing()
         return
     end
-    for _, g in ipairs(groups) do
-        ImGui.PushID("worn_" .. g.line)
-        ImGui.BeginGroup()
-        ImGui.Text(esc(g.line))
-        ImGui.SameLine()
-        local summary
-        if g.stacking == "highest" then
-            summary = string.format("best %d", g.best)
-        elseif g.stacking == "additive_capped" and g.cap then
-            summary = string.format("total %d / cap %d", g.total, g.cap)
-        else
-            summary = string.format("total %d", g.total)
-        end
-        if g.overCap then
-            ctx.theme.TextWarning(summary)
-        else
-            ctx.theme.TextMuted(summary)
-        end
-        -- Right-aligned stacking tag, the time-column pattern.
-        local tag = (g.stacking == "additive_capped" and "capped")
-            or (g.stacking == "additive" and "additive") or "highest"
-        local tw = ImGui.CalcTextSize(tag)
-        ImGui.SameLine(math.max(ImGui.GetWindowWidth() - tw - 14, 0))
-        ctx.theme.TextFurniture(tag)
-        ImGui.EndGroup()
-        if ImGui.IsItemHovered() then
-            ImGui.BeginTooltip()
-            ImGui.Text(esc(g.line))
-            ImGui.Separator()
-            textWrapped(stackingSentence(g))
-            ImGui.Spacing()
-            for _, en in ipairs(g.entries) do
-                ctx.theme.TextMuted(esc(string.format("%s (%s, %s)", en.effName, en.itemName, en.kind)))
+    local flags = (ImGuiTableFlags and bit32.bor(ImGuiTableFlags.RowBg, ImGuiTableFlags.SizingStretchProp)) or 0
+    if ImGui.BeginTable and ImGui.BeginTable("##WornTable", 4, flags) then
+        -- pcall INSIDE BeginTable/EndTable: an unbalanced table is an uncatchable
+        -- ImGuiException (the extracted-tables invariant).
+        local ok, err = pcall(function()
+            ImGui.TableSetupColumn("Effect", ImGuiTableColumnFlags.WidthFixed, 110)
+            ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, 44)
+            ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch, 0)
+            ImGui.TableSetupColumn("Slot", ImGuiTableColumnFlags.WidthFixed, 78)
+            ImGui.TableHeadersRow()
+            for _, g in ipairs(groups) do
+                for i, en in ipairs(g.entries) do
+                    ImGui.TableNextRow()
+                    ImGui.TableNextColumn()
+                    if i == 1 then
+                        -- The effect names its group once; capped lines carry the
+                        -- running total right where the eye already is.
+                        local label = g.displayName
+                        if g.stacking == "additive_capped" and g.cap then
+                            label = string.format("%s %s/%d", label, unitsStr(g.total), g.cap)
+                        elseif g.stacking == "additive" and #g.entries > 1 then
+                            label = string.format("%s (%s total)", label, unitsStr(g.total))
+                        end
+                        if g.overCap then ctx.theme.TextWarning(esc(label)) else ImGui.Text(esc(label)) end
+                    end
+                    ImGui.TableNextColumn()
+                    if en.wasted then
+                        ctx.theme.TextWarning(unitsStr(en.units) .. " *")
+                    else
+                        ImGui.Text(unitsStr(en.units))
+                    end
+                    -- Row hover carries the detail the table clips (full names, the rule,
+                    -- the why) - captured per CELL, value through slot, since a table
+                    -- row is not itself an item.
+                    local hovered = ImGui.IsItemHovered()
+                    ImGui.TableNextColumn()
+                    ctx.theme.TextMuted(esc(en.itemName))
+                    hovered = hovered or ImGui.IsItemHovered()
+                    ImGui.TableNextColumn()
+                    ctx.theme.TextMuted(esc(en.slotName))
+                    hovered = hovered or ImGui.IsItemHovered()
+                    if hovered then wornRowTooltip(ctx, g, en) end
+                end
             end
-            ImGui.EndTooltip()
-        end
-        ImGui.Indent(12)
-        for _, en in ipairs(g.entries) do
-            local rowText = string.format("%d  %s (%s)", en.units, en.itemName, en.slotName)
-            if en.wasted then
-                ctx.theme.TextWarning(esc(rowText .. " - wasted: " .. en.wastedWhy))
-            else
-                ctx.theme.TextMuted(esc(rowText))
+            -- Untracked names ride the same columns, muted: the calibration feed
+            -- (an honest gap, not a silent zero), never invisible.
+            for i, u in ipairs(untracked) do
+                ImGui.TableNextRow()
+                ImGui.TableNextColumn()
+                if i == 1 then ctx.theme.TextFurniture("not tracked") end
+                ImGui.TableNextColumn()
+                ctx.theme.TextFurniture("-")
+                local uHovered = ImGui.IsItemHovered()
+                ImGui.TableNextColumn()
+                ctx.theme.TextMuted(esc(u.effName .. "  (" .. u.itemName .. ")"))
+                uHovered = uHovered or ImGui.IsItemHovered()
+                ImGui.TableNextColumn()
+                ctx.theme.TextMuted(esc(u.slotName))
+                if uHovered or ImGui.IsItemHovered() then
+                    ImGui.BeginTooltip()
+                    ImGui.Text(esc(u.effName))
+                    ImGui.Separator()
+                    ctx.theme.TextMuted(esc(string.format("%s (%s), %s effect", u.itemName, u.slotName, u.kind)))
+                    textWrapped("Not in the score data yet - name it to the build and it joins the tracker and the score model.")
+                    ImGui.EndTooltip()
+                end
             end
+        end)
+        ImGui.EndTable()
+        if not ok then
+            local diagnostics = require('itemui.core.diagnostics')
+            diagnostics.recordError("Effects", "Worn table render error", err)
         end
-        ImGui.Unindent(12)
-        ImGui.PopID()
     end
-    if #untracked > 0 then
-        ImGui.Spacing()
-        -- The calibration feed: names the score data cannot place yet. Same philosophy
-        -- as the breakdown's unscored list - an honest gap, not a silent zero.
-        ctx.theme.TextMuted("untracked (not in the score data yet):")
-        ImGui.Indent(12)
-        for _, u in ipairs(untracked) do
-            ctx.theme.TextMuted(esc(string.format("%s - %s (%s)", u.effName, u.itemName, u.slotName)))
-        end
-        ImGui.Unindent(12)
+    if overlapped + overCap > 0 then
+        ctx.theme.TextFurniture("* wasted - a larger copy of the same line is worn. Hover a row for why.")
     end
     ImGui.Spacing()
 end

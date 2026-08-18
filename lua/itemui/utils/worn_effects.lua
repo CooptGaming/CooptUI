@@ -42,6 +42,18 @@ M.SLOT_NAMES = {
     "Power Source", "Ammo",
 }
 
+-- Data key -> human label. The tracker rendered raw camelCase keys in the field
+-- ("dotFocus", "ftManaRegen") - identifiers are for the weights file, not the window.
+-- A line missing here degrades to its key, so a new family is never invisible.
+M.LINE_NAMES = {
+    dodge = "Dodge", parry = "Parry", riposte = "Riposte", block = "Block",
+    doubleAttack = "Double Attack", cleave = "Cleave", defenseSkill = "Defense Skill",
+    dotFocus = "DoT Focus", spellHaste = "Spell Haste", castHaste = "Cast Haste",
+    hateMod = "Hate Mod", defensiveProc = "Defensive Proc", lifetap = "Lifetap",
+    skillPackage = "Skill Package", ftManaRegen = "Flowing Thought",
+    improvedDamage = "Spell Dmg Focus", improvedHealing = "Heal Focus",
+}
+
 --- Cheap identity for cache keying: the equipped ids, joined. Same shape the
 --- Aug Utility fingerprint and upgrade_scan's change key already use.
 function M.fingerprint(equipmentCache)
@@ -89,7 +101,8 @@ function M.build(src)
                             local g = byLine[line]
                             if not g then
                                 local spec = weights.effects.lines[line] or {}
-                                g = { line = line, stacking = spec.stacking or "highest",
+                                g = { line = line, displayName = M.LINE_NAMES[line] or line,
+                                      stacking = spec.stacking or "highest",
                                       cap = spec.cap, entries = {} }
                                 byLine[line] = g
                             end
@@ -138,7 +151,7 @@ function M.build(src)
         out.lines[g.line] = g.best
         out.groups[#out.groups + 1] = g
     end
-    table.sort(out.groups, function(a, b) return a.line < b.line end)
+    table.sort(out.groups, function(a, b) return a.displayName < b.displayName end)
     return out
 end
 

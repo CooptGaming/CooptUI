@@ -137,6 +137,23 @@ do
     local _, b7 = compare.scoreForClass({}, 'NEC', { effects = { 'All DoT Damage 60' } })
     check('pattern magnitude scores (180)', near(b7.effects, 180), b7.effects)
 
+    -- Field families 08-17 (worn-tracker round), one pin per pattern shape:
+    -- Ferocity rides doubleAttack (TANK 10 x IX = 90); Cleave tolerates the
+    -- " - 150" rating suffix (TANK 8 x XI = 88); Improve All Damage is the
+    -- spell-damage focus (CASTER 45 x II = 90); Detrimental Haste carries
+    -- PERCENT units in its name (CASTER 14 x 23 = 322); Improved Dodge rides
+    -- the dodge line (TANK 8 x XII = 96).
+    local _, f1 = compare.scoreForClass({}, 'WAR', { effects = { 'Ferocity IX' } })
+    check('Ferocity prices via doubleAttack (90)', near(f1.effects, 90), f1.effects)
+    local _, f2 = compare.scoreForClass({}, 'WAR', { effects = { 'Cleave XI - 150' } })
+    check('Cleave suffix form prices via tier (88)', near(f2.effects, 88), f2.effects)
+    local _, f3 = compare.scoreForClass({}, 'WIZ', { effects = { 'Improve All Damage II' } })
+    check('Improve All Damage prices (90)', near(f3.effects, 90), f3.effects)
+    local _, f4 = compare.scoreForClass({}, 'WIZ', { effects = { 'Detrimental Haste 23 L100' } })
+    check('Detrimental Haste percent units (322)', near(f4.effects, 322), f4.effects)
+    local _, f5 = compare.scoreForClass({}, 'WAR', { effects = { 'Improved Dodge XII' } })
+    check('Improved Dodge rides dodge line (96)', near(f5.effects, 96), f5.effects)
+
     -- Clicky family: travel flat 80.
     local _, b8 = compare.scoreForClass({}, 'WAR', { effects = { 'Everlasting Breath' } })
     check('clicky family flat (80)', near(b8.effects, 80), b8.effects)

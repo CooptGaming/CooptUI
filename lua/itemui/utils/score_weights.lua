@@ -189,6 +189,19 @@ return {
             -- (upstream cap 15 worn; server may differ - it is data). Priced through
             -- the manaRegen stat weight, not its own perUnit (pattern rows below).
             ftManaRegen  = { stacking = "additive_capped", cap = 15, stat = "manaRegen" },
+            -- Field families 08-17 (worn-tracker round: the user's own gear named
+            -- these). Units are the TIER from the ranked name unless said otherwise;
+            -- all perUnit numbers are calibration seeds like everything above.
+            -- "Improve(d) (All) Damage N" - the classic spell-damage focus line.
+            improvedDamage = { stacking = "highest", perUnit = { TANK = 2, MELEE = 2, PRIEST = 25, CASTER = 45, HYBRID = 20 } },
+            -- "Improve(d) (All) Healing N" - its healing sibling.
+            improvedHealing = { stacking = "highest", perUnit = { TANK = 3, MELEE = 0, PRIEST = 45, CASTER = 4, HYBRID = 15 } },
+            -- "Detrimental/Beneficial Haste N" carries PERCENT cast reduction in the
+            -- name (field: "Detrimental Haste 23 L100" = 23 percent), so its units are
+            -- percent - a SEPARATE line from tier-ranked spellHaste on purpose: forcing
+            -- both into one unit would be a guess. If !effects shows the game treats
+            -- them as one stacking family, merge them here with a real conversion.
+            castHaste = { stacking = "highest", perUnit = { TANK = 0, MELEE = 0, PRIEST = 11, CASTER = 14, HYBRID = 7 } },
         },
 
         -- Exact effect-name -> family + units. Site-verified seeds where known
@@ -214,6 +227,22 @@ return {
             { pattern = "^Spell Haste ([IVXLC%d]+)$",     line = "spellHaste", multiplier = 1 },
             { pattern = "^Myrmidon's Skill ([IVXLC%d]+)$", line = "skillPackage", multiplier = 1 },
             { pattern = "^All DoT Damage ([%d]+)$",       line = "dotFocus", multiplier = 1 },
+            -- Field families 08-17. "Improved <defense skill> N" rides the matching
+            -- skill line; "Ferocity N" is the double/triple-attack worn line (its own
+            -- description says so); "Cleave N - 150" keeps a trailing rating after the
+            -- tier, so that pattern is deliberately not end-anchored.
+            { pattern = "^Improved Dodge ([IVXLC%d]+)$",   line = "dodge", multiplier = 1 },
+            { pattern = "^Improved Parry ([IVXLC%d]+)$",   line = "parry", multiplier = 1 },
+            { pattern = "^Improved Riposte ([IVXLC%d]+)$", line = "riposte", multiplier = 1 },
+            { pattern = "^Improved Block ([IVXLC%d]+)$",   line = "block", multiplier = 1 },
+            { pattern = "^Ferocity ([IVXLC%d]+)$",         line = "doubleAttack", multiplier = 1 },
+            { pattern = "^Cleave ([IVXLC%d]+)",            line = "cleave", multiplier = 1 },
+            { pattern = "^Improve All Damage ([IVXLC%d]+)$",  line = "improvedDamage", multiplier = 1 },
+            { pattern = "^Improved Damage ([IVXLC%d]+)$",     line = "improvedDamage", multiplier = 1 },
+            { pattern = "^Improve All Healing ([IVXLC%d]+)$", line = "improvedHealing", multiplier = 1 },
+            { pattern = "^Improved Healing ([IVXLC%d]+)$",    line = "improvedHealing", multiplier = 1 },
+            { pattern = "^Detrimental Haste ([%d]+)",      line = "castHaste", multiplier = 1 },
+            { pattern = "^Beneficial Haste ([%d]+)",       line = "castHaste", multiplier = 1 },
         },
     },
 }
